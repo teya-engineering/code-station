@@ -74,6 +74,25 @@ final class AppSettings {
         }
     }
 
+    // Warms every window with the sun, on top of whichever appearance is chosen.
+    var sunlightEnabled: Bool {
+        didSet { Preferences.setSunlightEnabled(sunlightEnabled, in: preferences) }
+    }
+
+    var sunlightMode: SunlightMode {
+        didSet { Preferences.setSunlightMode(sunlightMode, in: preferences) }
+    }
+
+    // The colour the window reaches once the sun is down, or keeps all day when the
+    // warmth is fixed, in kelvin.
+    var sunlightNightKelvin: Double {
+        didSet { Preferences.setSunlightNightKelvin(sunlightNightKelvin, in: preferences) }
+    }
+
+    // Held while the warmth slider is being dragged, so the window shows the night colour
+    // being chosen even in the middle of the day. Never saved.
+    var sunlightPreviewing = false
+
     var sidebarIconSet: SidebarIconSet {
         didSet {
             Preferences.setSidebarIconSet(sidebarIconSet, in: preferences)
@@ -181,6 +200,9 @@ final class AppSettings {
         projectGrouping = Preferences.projectGrouping(in: preferences)
         terminalBundleID = Preferences.terminalBundleID(in: preferences)
         appearance = Preferences.appearance(in: preferences)
+        sunlightEnabled = Preferences.sunlightEnabled(in: preferences)
+        sunlightMode = Preferences.sunlightMode(in: preferences)
+        sunlightNightKelvin = Preferences.sunlightNightKelvin(in: preferences)
         cursorEffects = Preferences.cursorEffects(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
         opensWorkingSetByDefault = Preferences.opensWorkingSetByDefault(in: preferences)
@@ -212,6 +234,9 @@ final class AppSettings {
 
     func resetAppearance() {
         appearance = .system
+        sunlightEnabled = false
+        sunlightMode = .followsSun
+        sunlightNightKelvin = Sunlight.nightKelvin
         cursorEffects = CursorEffectsSettings()
         textSize = .standard
         messageColour = .projectIcon

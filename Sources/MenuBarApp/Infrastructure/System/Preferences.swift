@@ -430,6 +430,34 @@ enum Preferences {
         store.set(appearance.rawValue, forKey: "appearance")
     }
 
+    static func sunlightEnabled(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "sunlightEnabled")
+    }
+
+    static func setSunlightEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
+        store.set(enabled, forKey: "sunlightEnabled")
+    }
+
+    static func sunlightMode(in store: UserDefaults = .standard) -> SunlightMode {
+        store.string(forKey: "sunlightMode").flatMap(SunlightMode.init(rawValue:)) ?? .followsSun
+    }
+
+    static func setSunlightMode(_ mode: SunlightMode, in store: UserDefaults = .standard) {
+        store.set(mode.rawValue, forKey: "sunlightMode")
+    }
+
+    // Kept inside the slider's range, so a value written by hand cannot ask for a colour
+    // the window has no way to show.
+    static func sunlightNightKelvin(in store: UserDefaults = .standard) -> Double {
+        guard store.object(forKey: "sunlightNightKelvin") != nil else { return Sunlight.nightKelvin }
+        let kelvin = store.double(forKey: "sunlightNightKelvin")
+        return min(Sunlight.nightRange.upperBound, max(Sunlight.nightRange.lowerBound, kelvin))
+    }
+
+    static func setSunlightNightKelvin(_ kelvin: Double, in store: UserDefaults = .standard) {
+        store.set(kelvin, forKey: "sunlightNightKelvin")
+    }
+
     static func sidebarIconSet(in store: UserDefaults = .standard) -> SidebarIconSet {
         store.string(forKey: "sidebarIconSet").flatMap(SidebarIconSet.init(rawValue:))
             ?? .diceBear

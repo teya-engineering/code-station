@@ -24,6 +24,7 @@ struct SettingsView: View {
     @State private var appearanceBeforeReset: (
         appearance: Appearance, textSize: TextSize, messageColour: MessageColour,
         iconStyle: DiceBearAvatarStyle, iconSet: SidebarIconSet, workingSet: Bool,
+        sunlight: Bool, sunlightMode: SunlightMode, warmth: Double,
         cursorEffects: CursorEffectsSettings)?
     @FocusState private var searchFocused: Bool
     // Ties the seat under the chosen pane to whichever row holds it, so picking another
@@ -249,6 +250,7 @@ struct SettingsView: View {
     private func resetAppearance() {
         appearanceBeforeReset = (settings.appearance, settings.textSize, settings.messageColour,
                                  settings.diceBearAvatarStyle, settings.sidebarIconSet, settings.opensWorkingSetByDefault,
+                                 settings.sunlightEnabled, settings.sunlightMode, settings.sunlightNightKelvin,
                                  settings.cursorEffects)
         settings.resetAppearance()
     }
@@ -261,6 +263,9 @@ struct SettingsView: View {
         settings.diceBearAvatarStyle = previous.iconStyle
         settings.sidebarIconSet = previous.iconSet
         settings.opensWorkingSetByDefault = previous.workingSet
+        settings.sunlightEnabled = previous.sunlight
+        settings.sunlightMode = previous.sunlightMode
+        settings.sunlightNightKelvin = previous.warmth
         settings.cursorEffects = previous.cursorEffects
         appearanceBeforeReset = nil
     }
@@ -613,6 +618,9 @@ struct SettingsView: View {
                     }
                 }
                 .padding(14)
+
+                SettingsRowDivider()
+                sunlight.id(SettingsSearchTarget.appearanceSunlight.id)
             }
 
             CursorEffectsSection()
@@ -668,6 +676,91 @@ struct SettingsView: View {
             }
         }
     }
+
+    // Sunlight sits on top of whichever appearance is chosen rather than being one, so a
+    // dark or light choice is never overridden by the time of day. The warmth slider only
+    // shows while it is on, and holding the slider shows the night colour on the window
+    // itself, whatever the hour.
+    private var sunlight: some View {
+        @Bindable var settings = settings
+        return VStack(spacing: 0) {
+            SettingsToggleRow(
+                "Sunlight",
+                detail: "Warms the window the way evening light does, easier on the eyes than a cold white screen.",
+                isOn: $settings.sunlightEnabled)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
+
+            if settings.sunlightEnabled {
+                HStack(alignment: .center, spacing: 20) {
+                    settingCopy(
+                        title: "When",
+                        detail: "Follow the sun where you are, or keep the warmth on all day.")
+                        .frame(width: 160, alignment: .leading)
+                    Spacer(minLength: 0)
+                    HStack(spacing: 4) {
+                        ForEach(SunlightMode.allCases) { mode in
+                            ChoicePill(title: mode.label, selected: settings.sunlightMode == mode) {
+                                settings.sunlightMode = mode
+                            }
+                            .accessibilityLabel("Sunlight: \(mode.label)")
+                            .accessibilityValue(settings.sunlightMode == mode ? "Selected" : "Not selected")
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 13)
+                .transition(reduceMotion ? .opacity : .fadeIn)
+
+                HStack(alignment: .center, spacing: 20) {
+                    settingCopy(
+                        title: "Warmth",
+                        detail: settings.sunlightMode == .fixed
+                            ? "The colour the window keeps."
+                            : "The colour the window reaches at night. Hold the slider to see it now.")
+                        .frame(width: 160, alignment: .leading)
+
+                    AppSlider(value: $settings.sunlightNightKelvin,
+                              range: Sunlight.nightRange,
+                              step: 100,
+                              track: AnyShapeStyle(Self.warmthTrack),
+                              label: "Sunlight warmth",
+                              readout: { "\(Sunlight.name(for: $0)), \(Int($0)) K" },
+                              onEditingChanged: { settings.sunlightPreviewing = $0 })
+
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(Sunlight.name(for: settings.sunlightNightKelvin))
+                            .font(.system(size: 11.5, weight: .semibold))
+                        Text("\(Int(settings.sunlightNightKelvin)) K")
+                            .font(.mono(10))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 72, alignment: .trailing)
+                    .contentTransition(.numericText())
+                    .motion(Motion.control, value: settings.sunlightNightKelvin)
+                    .accessibilityHidden(true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 13)
+                .transition(reduceMotion ? .opacity : .fadeIn)
+            }
+        }
+        .motion(Motion.reveal, value: settings.sunlightEnabled)
+        .motion(Motion.control, value: settings.sunlightMode)
+    }
+
+    // The track runs from candlelight to daylight, the colours the slider chooses between.
+    private static let warmthTrack: LinearGradient = {
+        let stops = stride(from: Sunlight.nightRange.lowerBound, through: Sunlight.nightRange.upperBound, by: 600)
+            .map { kelvin -> Gradient.Stop in
+                let tint = SunlightTint(kelvin: kelvin)
+                let fraction = (kelvin - Sunlight.nightRange.lowerBound)
+                    / (Sunlight.nightRange.upperBound - Sunlight.nightRange.lowerBound)
+                return Gradient.Stop(color: Color(red: tint.red, green: tint.green, blue: tint.blue),
+                                     location: fraction)
+            }
+        return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
+    }()
 
     // The bubble colours the sample projects would get, read the same way the sidebar
     // reads them, so the picker changes with the icon style.

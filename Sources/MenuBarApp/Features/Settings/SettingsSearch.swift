@@ -13,6 +13,7 @@ enum SettingsSearchTarget: String, Hashable {
     case generalSkills
     case generalSystem
     case appearanceTheme
+    case appearanceSunlight
     case appearanceCursorEffects
     case appearanceText
     case appearanceMessages
@@ -79,6 +80,8 @@ enum SettingsSearchIndex {
                "system open reveal stuck diagnostics"),
         result("Theme", .appearance, .appearanceTheme,
                "appearance system light dark macos"),
+        result("Sunlight", .appearance, .appearanceSunlight,
+               "appearance sun sunset sunrise warm warmth night flux kelvin colour temperature always fixed"),
         result("Cursor effects", .appearance, .appearanceCursorEffects,
                "appearance pointer sparks ember aurora orbit ripple water rings prism facets spectral none animation"),
         result("Session text", .appearance, .appearanceText,

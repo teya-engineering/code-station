@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Reached from the main menu as well as the window, so the text size items can
     // change the same setting the Settings sheet shows.
     let appSettings = AppSettings()
+    private lazy var sunlight = SunlightController(settings: appSettings)
     private let docker = DockerService()
     private let dispatch = DispatchStore()
     private let dispatchRunner = DispatchRunner()
@@ -119,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         showManager()
         scheduledTasks.start()
+        sunlight.start()
     }
 
     // macOS starts the app with room for 2560 open files. Watching a tree for changes
