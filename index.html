@@ -189,7 +189,7 @@
   </div>
   <div class="shot-frame shot--wide" data-reveal="shot">
     <img class="shot" data-parallax loading="lazy" decoding="async" src="assets/shot-home.webp" width="2560" height="1504"
-         alt="The Home screen: today's sessions drawn as a work map around a hub that counts two sessions working and two that need you, above a day of activity bars, lines changed today and recent sessions.">
+         alt="The Home screen: today's sessions drawn as a work map around a hub that counts two sessions in progress, above a day of activity bars, lines changed today and recent sessions.">
   </div>
 </section>
 
@@ -204,12 +204,12 @@
       <button type="button" role="tab" aria-selected="false" aria-controls="review-stage" data-view="history">History</button>
       <button type="button" role="tab" aria-selected="false" aria-controls="review-stage" data-view="explorer">Explorer</button>
     </div>
-    <p class="tab-caption fade-swap" id="review-caption" aria-live="polite" style="color: var(--ink-muted)">Every repository in the workspace in one tree. Step through files with the arrow keys, pick what goes into the commit, amend, then push from the toolbar.</p>
+    <p class="tab-caption fade-swap" id="review-caption" aria-live="polite" style="color: var(--ink-muted)">Every repository in the workspace in one tree. Click a line number to ask a question or request a change, pick what goes into the commit, then push from the toolbar.</p>
   </div>
   <div class="tab-stage" id="review-stage" role="tabpanel">
     <div class="shot-frame shot--wide">
       <img class="shot" id="review-shot" loading="lazy" decoding="async" src="assets/shot-changes.webp" width="2200" height="1344"
-           alt="The Changes tab for a three-project workspace, with changed files grouped under each repository, a Kotlin diff open, and Push and Commit in the toolbar.">
+           alt="The Changes tab for a three-project workspace, with changed files grouped under each repository, a Kotlin diff open with an answered review question on one line, and Push and Commit in reach.">
     </div>
   </div>
 </section>
@@ -299,10 +299,10 @@
     </div>
     <div class="duo-item" style="--reveal-delay: 120ms">
       <h3 data-reveal>Bad deploy?<br><em>Send in the agent.</em></h3>
-      <p class="reveal--delay-1" data-reveal>Troubleshoot writes a brief from what you saw, picks the projects and MCP servers, and keeps the agent read-only when the environment is live.</p>
+      <p class="reveal--delay-1" data-reveal>Say what went wrong the way you would to a colleague. Troubleshoot picks up the time, the environment and the tools, and keeps the agent read-only when the environment is live.</p>
       <div class="shot-frame" data-reveal="shot">
         <img class="shot" loading="lazy" decoding="async" src="assets/shot-troubleshoot.webp" width="2560" height="1600"
-             alt="The Troubleshoot dialog with the problem and evidence written out, Staging selected, MCP servers on and a project chosen.">
+             alt="The Troubleshoot tab with a staging checkout problem written out, the start time picked up from the text, and Staging, a time window, MCP servers and a skill chosen.">
       </div>
     </div>
   </div>
@@ -524,14 +524,14 @@
 
   const views = {
     changes: { src: 'assets/shot-changes.webp',
-      caption: 'Every repository in the workspace in one tree. Step through files with the arrow keys, pick what goes into the commit, amend, then push from the toolbar.',
-      w: 2200, h: 1344, alt: 'The Changes tab for a three-project workspace, with changed files grouped under each repository, a Kotlin diff open, and Push and Commit in the toolbar.' },
+      caption: 'Every repository in the workspace in one tree. Click a line number to ask a question or request a change, pick what goes into the commit, then push from the toolbar.',
+      w: 2200, h: 1344, alt: 'The Changes tab for a three-project workspace, with changed files grouped under each repository, a Kotlin diff open with an answered review question on one line, and Push and Commit in reach.' },
     history: { src: 'assets/shot-history.webp',
       caption: 'Commits nested under each project, with every file in a commit and its diff, so a change reads one file at a time.',
       w: 2560, h: 1504, alt: 'The History tab with commits grouped under each project, one commit open with its changed files and diff, and Push 1 commit in the toolbar.' },
     explorer: { src: 'assets/shot-explorer.webp',
-      caption: 'Find in files across the project, open a match in the editor, and create, rename, move or bin files without leaving the app.',
-      w: 2200, h: 1344, alt: 'Find in files searching a project for window, with twelve matches in three files and the first match highlighted.' },
+      caption: 'Find file names or contents across the workspace, open a match in the editor, and create, rename, move or bin files without leaving the app.',
+      w: 2200, h: 1344, alt: 'Find in files searching the contents of a project for window, with twelve matches in three files over the open editor.' },
   };
   const reviewShot = document.getElementById('review-shot');
   const reviewCaption = document.getElementById('review-caption');
