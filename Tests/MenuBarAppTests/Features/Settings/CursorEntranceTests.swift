@@ -22,7 +22,7 @@ struct CursorEntranceTests {
         configure(view, effect, .running, turn)
         #expect(view.entrance === entrance)
         view.movePointer(to: CGPoint(x: 140, y: 120))
-        #expect(entrance.position == CGPoint(x: 140, y: 120))
+        #expect(entrance.position == CGPoint(x: 100, y: 100))
         #expect(layers(view.layer).allSatisfy { $0.animation(forKey: "decay") == nil })
         view.click()
         #expect(layers(view.layer).allSatisfy { $0.animation(forKey: "decay") == nil })
@@ -35,6 +35,31 @@ struct CursorEntranceTests {
         view.movePointer(to: CGPoint(x: 100, y: 100))
         view.setFrameSize(CGSize(width: 550, height: 320))
         #expect(view.entrance == nil)
+        view.stop()
+    }
+
+    @Test(arguments: [CursorEffect.ember, .aurora, .orbit, .ripple, .prism],
+          [CursorEffectActivity.running, .waiting])
+    func entranceStaysAtItsStartWhileThePointerMoves(effect: CursorEffect, activity: CursorEffectActivity) throws {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let view = makeView(effect)
+        let origin = CGPoint(x: 180, y: 90)
+        view.movePointer(to: origin)
+        configure(view, effect, activity, Date())
+        let entrance = try #require(view.entrance)
+        let started = entrance.beginTime
+        let ornament = try #require(layers(view.layer).first { $0.animation(forKey: "entrance-handoff") != nil })
+        for location in [CGPoint(x: 250, y: 160), CGPoint(x: 400, y: 220), CGPoint(x: 60, y: 40)] {
+            view.movePointer(to: location)
+            #expect(view.entrance === entrance)
+            #expect(entrance.position == origin)
+            #expect(entrance.beginTime == started)
+            #expect(ornament.position == location)
+        }
+        view.finishEntrance()
+        #expect(view.entrance == nil && entrance.superlayer == nil)
+        #expect(ornament.position == CGPoint(x: 60, y: 40))
+        #expect(ornament.opacity == 1)
         view.stop()
     }
 

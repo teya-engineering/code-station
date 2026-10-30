@@ -253,7 +253,6 @@ final class CursorEffectLayerView: LoopLayerView {
         point = location
         LayerLoop.still {
             ornament.position = location
-            entrance?.position = location
         }
         rebuild()
         if entrance != nil {

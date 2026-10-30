@@ -2,7 +2,6 @@ import AppKit
 import QuartzCore
 
 // Geometry is sampled once for Core Animation and evaluated directly for inspection.
-// Pointer events only move the parent layer; they never drive a frame clock.
 @MainActor
 enum CursorEffectEntrance {
     static func make(effect: CursorEffect, intensity: Double, scale: CGFloat,
