@@ -74,7 +74,7 @@ struct SessionView: View {
     @State private var agentFocus: AgentTranscriptFocus?
     @State private var recapOpen = false
     // The title being typed while the header's title is open for renaming.
-    @State private var titleDraft: String?
+    @State private var titleDraft: SessionTitleDraft?
     @State private var recapNeedsAttention = false
     // Whether the person asked for the recap that is on its way. One they asked for lifts
     // into place; one written on its own appears where it hangs without moving, since
