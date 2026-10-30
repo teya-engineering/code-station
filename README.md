@@ -14,8 +14,6 @@ Teya Code Station is a macOS app for running Claude Code, Codex and GitHub Copil
 - **Review like a pull request.** Click a line number in a session's changes to ask a question or request a change. A side copy of the session answers questions right there, without touching the chat. Ask another agent for a second opinion that lands as more comments, then send the changes back to the session as one prompt.
 - **Stay close to the work.** Review and commit changes, browse files, use a terminal, manage MCP servers and skills, send HTTP requests, inspect Docker, run shortcuts, and start guided troubleshooting without leaving the app.
 
-[![Code Station showing a concise recap above a completed coding-agent session](docs/images/session-recap.webp)](https://teya-engineering.github.io/code-station/#recaps)
-
 The [project website](https://teya-engineering.github.io/code-station/#features) has the complete feature overview and more product screenshots.
 
 ## Download and install
