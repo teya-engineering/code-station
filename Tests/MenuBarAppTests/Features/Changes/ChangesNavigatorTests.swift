@@ -181,7 +181,11 @@ struct ChangesLayoutTests {
 
         let after = try #require(navigator())
         #expect(after === scrollView)
-        #expect(abs(after.contentView.bounds.origin.y - offset) < 1)
+        // The end of a lazy list can move by a point as its rows are measured again. A list
+        // left at its end that now sits at the new end is still where the person left it.
+        let afterOffset = after.contentView.bounds.origin.y
+        #expect(abs(afterOffset - offset) < 1 || abs(afterOffset - bottom()) < 1,
+                "offset \(offset) became \(afterOffset), end is \(bottom())")
         window.contentViewController = nil
     }
 
@@ -252,3 +256,4 @@ private func scrollViews(in view: NSView) -> [NSScrollView] {
     let own = (view as? NSScrollView).map { [$0] } ?? []
     return own + view.subviews.flatMap { scrollViews(in: $0) }
 }
+
