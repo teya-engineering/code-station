@@ -283,12 +283,13 @@ private final class SidebarHarness {
         let view = AppSidebar(
             skills: SkillsManager(cacheURL: scratch.path("skills.json"), preferences: preferences),
             tools: ToolsMenuActions(configureServers: {}, openSkills: {}, openDocker: {},
-                                    openDispatch: {}, openShortcuts: {},
+                                    openDispatch: {}, openShortcuts: {}, openNotes: {},
                                     openSettings: {}),
             oldSessionDeletion: nil, onReviewOldSessions: {}, paneOwnsFindShortcut: false)
             .environment(store)
             .environment(runner)
             .environment(settings)
+            .environment(NotebookStore(directory: scratch.path("notebook")))
             .environment(ShortcutStore(storageURL: scratch.path("shortcuts.json"),
                                        siteDefaults: SiteDefaults()))
             .environment(AppUpdateChecker(installedVersion: nil, preferences: preferences))

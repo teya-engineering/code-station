@@ -5,6 +5,8 @@ import SwiftUI
 // pitch - the case for the app is only made once, on the empty state, when there is no
 // status to report yet.
 struct HomeView: View {
+    let tools: ToolsMenuActions
+    let skills: SkillsManager
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
@@ -61,6 +63,9 @@ struct HomeView: View {
                          style: .field)
 
             Spacer(minLength: 12)
+
+            ActionButton(title: "Tools", tone: .outlined, icon: "square.grid.2x2", disclosure: true)
+                .toolsMenu(tools, skills: skills)
 
             if appSettings.mobileAccessEnabled {
                 MobileAccessButton()

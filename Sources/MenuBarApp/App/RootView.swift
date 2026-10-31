@@ -11,6 +11,7 @@ struct RootView: View {
     @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(AppSettings.self) private var settings
     @Environment(ShortcutStore.self) private var shortcuts
+    @Environment(NotebookStore.self) private var notebook
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
@@ -243,7 +244,7 @@ struct RootView: View {
     // The tools and settings that open over the window. Each is a setup job rather than a
     // place to sit, which is why none of them is a pane of its own.
     enum Sheet: Identifiable {
-        case servers, skills, docker, settings, dispatch, shortcuts
+        case servers, skills, docker, settings, dispatch, shortcuts, notes
         case oldSessions, onboarding
 
         var id: Self { self }
@@ -257,6 +258,7 @@ struct RootView: View {
         case .settings: SettingsView(skills: skills)
         case .dispatch: DispatchView()
         case .shortcuts: ShortcutsView()
+        case .notes: NotebookView()
         case .oldSessions:
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
                                                              store: store, runner: runner))
@@ -276,6 +278,7 @@ struct RootView: View {
                          openDocker: { sheet = .docker },
                          openDispatch: { sheet = .dispatch },
                          openShortcuts: { sheet = .shortcuts },
+                         openNotes: { sheet = .notes },
                          openSettings: { sheet = .settings })
     }
 
@@ -285,7 +288,8 @@ struct RootView: View {
          runner.reviews.loadError, runner.reviews.saveError,
          dispatch.loadError, dispatch.saveError,
          dispatchAuth.loadError, dispatchAuth.saveError,
-         shortcuts.loadError, shortcuts.saveError]
+         shortcuts.loadError, shortcuts.saveError,
+         notebook.loadError, notebook.saveError]
             .compactMap { $0 }
             .first
     }
@@ -490,7 +494,7 @@ struct RootView: View {
     }
 
     private var home: some View {
-        HomeView()
+        HomeView(tools: tools, skills: skills)
             .transition(.headerPage(reduceMotion: reduceMotion))
     }
 }

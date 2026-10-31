@@ -56,9 +56,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSLocalNetworkUsageDescription</key>
     <string>Open a selected Code Station session on a phone connected to the same Wi-Fi.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Speak a prompt into the composer. Audio stays on this Mac and is never kept.</string>
+    <string>Dictate prompts and notes. Audio stays on this Mac and is never kept.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Turn what you say into the words of a prompt, on this Mac.</string>
+    <string>Turn what you say into prompts and notes, on this Mac.</string>
 </dict>
 </plist>
 PLIST
