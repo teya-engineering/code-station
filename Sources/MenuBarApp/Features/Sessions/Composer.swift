@@ -3,7 +3,7 @@ import QuartzCore
 import SwiftUI
 
 // The prompt box under a transcript: what has been dropped or pasted onto it, the field
-// itself, and the button that sends, queues or stops. The Chat and Design panes both
+// itself, and the button that sends or stops. The Chat and Design panes both
 // draw it, and differ only in the words in the field, what sits at its end, and what
 // they put on the rows above it.
 //
@@ -144,13 +144,6 @@ struct Composer<Above: View, Accessory: View>: View {
                     }
                 }
 
-                // While a turn runs the prompt can go now or wait for the turn to end.
-                // Return does the one chosen in settings, and the other stays one click
-                // away. An agent that cannot take a prompt mid-turn only has the queue.
-                if busy, canSend {
-                    sideButtons
-                }
-
                 // Send and Stop share one place, so a turn starting reads as the button
                 // turning into the other, and the field never changes width over it.
                 primaryButton(state: state, canSend: canSend)
@@ -158,6 +151,11 @@ struct Composer<Above: View, Accessory: View>: View {
             .motion(Motion.reveal, value: canSend)
             .motion(Motion.control, value: busy)
             .motion(Motion.control, value: state == .stopping)
+
+            if busy && state != .stopping {
+                returnHint
+                    .transition(.fadeIn)
+            }
         }
         .motion(Motion.reveal, value: menuShown)
         .motion(Motion.reveal, value: noticeShown)
@@ -228,39 +226,36 @@ struct Composer<Above: View, Accessory: View>: View {
         } isTargeted: { dropTargeted = $0 }
     }
 
-    @ViewBuilder private var sideButtons: some View {
-        let steers = runner.canSteer(sessionID)
-        let returnSteers = appSettings.midTurnPromptDelivery == .now
-        sideButton(icon: "arrow.up.to.line", filled: !steers || !returnSteers,
-                   label: "Queue prompt", tooltip: "Queue this for when the turn ends") {
-            send(delivery: .afterTurn)
+    // While a turn runs, Return can steer it or queue for later, and nothing else on
+    // screen says which. One line under the field does.
+    private var returnHint: some View {
+        let steerable = runner.canSteer(sessionID)
+        let message: Text = if steerable && appSettings.midTurnPromptDelivery == .now {
+            Text("steers the running turn. The agent reads it at its next step.")
+        } else if appSettings.midTurnPromptDelivery == .now {
+            Text(agent.canSteer
+                 ? "queues it, since this turn cannot take a prompt right now."
+                 : "queues it for when the turn ends. \(agent.title) cannot take a prompt mid-turn.")
+        } else if agent.canSteer {
+            Text("queues it for when the turn ends. Use \(Text("Steer now").fontWeight(.semibold).foregroundStyle(Theme.accent)) on a queued prompt to send it into this turn.")
+        } else {
+            Text("queues it for when the turn ends.")
         }
-        if steers {
-            sideButton(icon: "arrow.up", filled: returnSteers, label: "Send now",
-                       tooltip: "Send now - the agent takes it at its next step") {
-                send(delivery: .now)
-            }
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("return")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(.primary.opacity(0.75))
+                .padding(.horizontal, 5)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.field))
+            message
+                .font(.system(size: 11.5))
+                .foregroundStyle(Theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
         }
-    }
-
-    // A circle beside the main button for what a prompt does while a turn runs. Filled
-    // for the one Return does, drawn as a card for the other.
-    private func sideButton(icon: String, filled: Bool, label: String, tooltip: String,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(filled ? Color.white : Theme.accent)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(filled ? Theme.accentFill : Theme.card))
-                .overlay(Circle().stroke(filled ? Color.clear : Theme.border))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .hoverLift(amount: Motion.smallLift)
-        .accessibilityLabel(label)
-        .appTooltip(tooltip)
-        .transition(.fadeIn)
+        .padding(.leading, 2)
+        .accessibilityElement(children: .combine)
+        .motion(Motion.control, value: steerable)
     }
 
     // One button that sends, stops, or waits for a stop to land. It stays put while its

@@ -5,6 +5,7 @@ import SwiftUI
 struct DesignView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(AppSettings.self) private var appSettings
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -77,7 +78,10 @@ struct DesignView: View {
     // MARK: - Composer
 
     private func composerPlaceholder(_ session: ChatSession) -> String {
-        if runner.state(sessionID).isBusy { return "Queue a follow-up…" }
+        if runner.state(sessionID).isBusy {
+            return runner.canSteer(sessionID) && appSettings.midTurnPromptDelivery == .now
+                ? "Steer the running turn…" : "Queue what comes next…"
+        }
         return session.messages.isEmpty ? "Describe what to design…" : "Refine this design…"
     }
 

@@ -2168,7 +2168,7 @@ struct SessionView: View {
     private func previewPage(_ preview: LocalServerPreview, session: ChatSession) -> some View {
         let projectPath = store.workingDirectory(for: session) ?? ""
         return LocalServerPreviewPage(previews: previews, preview: preview, session: session,
-                                      placeholder: placeholder(state: runner.state(sessionID)),
+                                      placeholder: placeholder(state: runner.state(sessionID), agent: session.agent),
                                       openPreview: openPreview,
                                       openChange: { path in
                                           openChange(path, root: projectPath)
@@ -2554,13 +2554,14 @@ struct SessionView: View {
 
     // MARK: - Composer
 
-    private func placeholder(state: SessionState) -> String {
+    // Says what Return will do with the prompt.
+    private func placeholder(state: SessionState, agent: AgentKind) -> String {
         switch state {
         case .waiting: "Say what to do next…"
         case _ where state.isBusy:
             runner.canSteer(sessionID) && appSettings.midTurnPromptDelivery == .now
-                ? "Say more while it works…" : "Queue what comes next…"
-        default: "Ask for a change"
+                ? "Steer the running turn…" : "Queue what comes next…"
+        default: "Ask \(agent.title) anything…"
         }
     }
 
@@ -2570,7 +2571,7 @@ struct SessionView: View {
                         agent: session.agent,
                         blocked: blocked,
                         isFocused: $composerFocused,
-                        placeholder: placeholder(state: state),
+                        placeholder: placeholder(state: state, agent: session.agent),
                         onOversizedPaste: offerTextFile,
                         onRecallUp: { runner.recallEarlier(sessionID, store: store) },
                         onRecallDown: { runner.recallLater(sessionID, store: store) },

@@ -500,6 +500,16 @@ final class SessionRunner {
         records[sessionID]?.queue.removeAll { $0.id == id }
     }
 
+    // Sends a waiting prompt into the turn that is running, instead of after it. When the
+    // turn cannot take it the prompt keeps its place in the queue.
+    @discardableResult
+    func steer(_ id: UUID, sessionID: UUID, store: ProjectStore) -> Bool {
+        guard let item = queued(sessionID).first(where: { $0.id == id }),
+              steer(item, sessionID: sessionID, store: store) else { return false }
+        records[sessionID]?.queue.removeAll { $0.id == id }
+        return true
+    }
+
     // Takes a waiting prompt back into the composer so it can be reworked before it runs.
     // A half-written draft is not thrown away: it takes the recalled prompt's place in
     // the queue, so nothing typed is ever lost.
@@ -1060,7 +1070,8 @@ final class SessionRunner {
         }
         SessionLog.note("prompt steered into the running turn", session: sessionID)
         var messageIDs: [UUID] = []
-        for message in prompt.transcriptMessages {
+        for var message in prompt.transcriptMessages {
+            if message.role == .user { message.steered = true }
             store.append(message, to: sessionID)
             messageIDs.append(message.id)
         }

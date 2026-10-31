@@ -87,6 +87,58 @@ struct SteerTests {
         #expect(await waitUntil { !runner.state(id).isBusy })
     }
 
+    @Test func steeringAQueuedPromptTakesItOutOfTheQueueAndIntoTheTurn() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: Self.claude)
+        defer { harness.tearDown() }
+        let id = harness.session.id
+        let runner = harness.runner
+        let store = harness.store
+
+        runner.send("Start the work", sessionID: id, store: store)
+        #expect(await waitUntil {
+            store.transcript(of: id).contains { $0.role == .assistant && $0.text.contains("Working") }
+        })
+        runner.send("First", delivery: .afterTurn, sessionID: id, store: store)
+        runner.send("Second", delivery: .afterTurn, sessionID: id, store: store)
+        let second = try #require(runner.queued(id).last)
+
+        #expect(runner.steer(second.id, sessionID: id, store: store))
+
+        #expect(runner.queued(id).map(\.text) == ["First"])
+        let stdin = harness.scratch.path("stdin.txt")
+        #expect(await waitUntil {
+            (try? String(contentsOf: stdin, encoding: .utf8))?.contains("Second") == true
+        })
+        let steered = try #require(store.transcript(of: id).last { $0.role == .user })
+        #expect(steered.text == "Second")
+        #expect(steered.steered == true)
+        // A prompt that starts a turn is not marked.
+        #expect(store.transcript(of: id).first?.steered == nil)
+
+        runner.stop(id)
+        #expect(await waitUntil { !runner.state(id).isBusy })
+    }
+
+    @Test func aQueuedPromptStaysWhenTheTurnCannotTakeIt() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: Self.claude)
+        defer { harness.tearDown() }
+        let id = harness.session.id
+        let runner = harness.runner
+        let store = harness.store
+
+        runner.send("Start the work", sessionID: id, store: store)
+        #expect(await waitUntil {
+            store.transcript(of: id).contains { $0.role == .assistant && $0.text.contains("Working") }
+        })
+        runner.send("Later", delivery: .afterTurn, sessionID: id, store: store)
+        let item = try #require(runner.queued(id).first)
+        runner.stop(id)
+
+        #expect(!runner.steer(item.id, sessionID: id, store: store))
+        #expect(runner.queued(id).map(\.text) == ["Later"])
+        #expect(await waitUntil { !runner.state(id).isBusy })
+    }
+
     @Test func copilotKeepsTheQueue() throws {
         #expect(AgentKind.copilot.canSteer == false)
         #expect(AgentKind.claudeCode.canSteer)

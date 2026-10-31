@@ -413,8 +413,7 @@ struct SettingsView: View {
         }
     }
 
-    // Only Return follows this. The composer keeps a button for the other choice while a
-    // turn runs, so either is one click away.
+    // Return follows this. A queued prompt can still be steered from its row.
     private var midTurnPrompts: some View {
         ChoiceBlock("PROMPTS DURING A TURN") {
             SettingsCard {
@@ -429,7 +428,7 @@ struct SettingsView: View {
 
                 OptionRow(
                     title: "Queue it for when the turn ends",
-                    detail: "The prompt waits above the composer and runs as a turn of its own.",
+                    detail: "The prompt waits above the composer and runs as a turn of its own. Steer now on a queued prompt sends it into the running turn.",
                     selected: settings.midTurnPromptDelivery == .afterTurn) {
                         settings.midTurnPromptDelivery = .afterTurn
                 }
