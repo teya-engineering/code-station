@@ -11,7 +11,6 @@ struct NotebookView: View {
     @State private var query = ""
     @State private var pinnedOnly = false
     @State private var focused = false
-    @State private var reading = false
     @State private var editor = NoteEditorController()
     @State private var take: NoteDictation?
     @State private var closeAfterDictation = false
@@ -33,7 +32,7 @@ struct NotebookView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if let error = store.loadError ?? store.saveError {
+            if let error = store.loadError ?? (selected == nil ? store.saveError : nil) {
                 HStack {
                     WarningStrip(error, icon: "externaldrive.badge.exclamationmark")
                     if store.loadError == nil { InlineLink(title: "Retry") { _ = store.flush() }.padding(.trailing, 20) }
@@ -57,7 +56,7 @@ struct NotebookView: View {
         .overlay(alignment: .topTrailing) {
             if let note {
                 HeaderNote(icon: "checkmark", text: note)
-                    .padding(.top, 96).padding(.trailing, 24)
+                    .padding(.top, Theme.headerHeight + Theme.subHeaderHeight + 8).padding(.trailing, 24)
                     .transition(.popover(reduceMotion: reduceMotion))
             }
         }
@@ -72,9 +71,6 @@ struct NotebookView: View {
         }
         .onChange(of: store.selectedID) { old, _ in
             if let old { dictation?.leave(old) }
-        }
-        .onChange(of: reading) { _, reading in
-            if reading, let take { dictation?.leave(take.noteID) }
         }
         .onChange(of: dialogs.current?.id) { _, dialog in
             if dialog != nil, let take { dictation?.leave(take.noteID) }
@@ -94,23 +90,20 @@ struct NotebookView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             Image(systemName: "note.text")
-                .font(.system(size: 23)).foregroundStyle(Theme.accent)
-                .frame(width: 44, height: 48)
-                .background(Theme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 11))
+                .font(.system(size: 17)).foregroundStyle(Theme.accent)
+                .frame(width: 32, height: 32)
+                .background(Theme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Quick notes").font(.serif(32, .medium))
-                Text("Your thoughts, a little closer.").font(.system(size: 12)).foregroundStyle(.secondary)
-            }
+            Text("Quick notes").font(.serif(22, .medium))
             Spacer()
-            ActionButton(title: "New note", tone: .green, height: 36, size: 12, icon: "plus", shortcut: "⌘N", action: create)
+            ActionButton(title: "New note", tone: .green, height: 30, size: 12, icon: "plus", shortcut: "⌘N", action: create)
                 .disabled(store.loadError != nil)
-            GlyphButton(icon: "xmark", side: 32, action: close)
+            GlyphButton(icon: "xmark", side: 28, action: close)
                 .accessibilityLabel("Close quick notes")
         }
-        .padding(.horizontal, 26).padding(.vertical, 20)
+        .padding(.horizontal, 22).frame(height: Theme.headerHeight)
         .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
     }
 
@@ -166,10 +159,6 @@ struct NotebookView: View {
                 }
                 .padding(.horizontal, 10).padding(.bottom, 16)
             }
-            Label("Private. Saved on this Mac.", systemImage: "lock")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                .overlay(alignment: .top) { Divider().overlay(Theme.hairline) }
         }
         .background(Theme.sidebar)
         .accessibilityElement(children: .contain).accessibilityLabel("Note library")
@@ -185,11 +174,7 @@ struct NotebookView: View {
     private var editorPane: some View {
         VStack(spacing: 0) {
             if let selected {
-                editorTop(selected)
-                if !reading {
-                    toolbar
-                        .transition(.asymmetric(insertion: .opacity.animation(Motion.reveal), removal: .opacity.animation(Motion.leave)))
-                }
+                toolbar(selected)
                 if let dictation, let take, take.noteID == selected.id {
                     DictationFeedback(dictation: dictation, sessionID: selected.id, draft: take.binding,
                                       notice: dictation.notice(for: selected.id))
@@ -203,7 +188,7 @@ struct NotebookView: View {
                             .accessibilityLabel("Dismiss attachment error").padding(.trailing, 12)
                     }
                 }
-                NotebookPage(note: selected, editor: editor, reading: reading, dictating: dictating, focus: $focus,
+                NotebookPage(note: selected, editor: editor, dictating: dictating, focus: $focus,
                              titleField: .title,
                              updateTitle: { title in store.update(selected.id) { $0.title = title } },
                              updateBody: { body in
@@ -220,10 +205,10 @@ struct NotebookView: View {
                              preview: preview)
                     .id(selected.id)
                     .transition(.headerPage(reduceMotion: reduceMotion))
-                HStack {
+                HStack(spacing: 12) {
                     Text("\(selected.wordCount) words").contentTransition(.numericText())
+                    saveStatus
                     Spacer()
-                    InlineLink(title: "Export as Markdown", size: 10.5, icon: "chevron.left.forwardslash.chevron.right") { export(selected) }
                 }
                 .font(.system(size: 10)).foregroundStyle(.secondary)
                 .padding(.horizontal, 24).frame(height: 38)
@@ -235,41 +220,42 @@ struct NotebookView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .motion(Motion.reveal, value: selected?.id)
-        .motion(reading ? Motion.leave : Motion.reveal, value: reading)
+        .motion(Motion.reveal, value: saveState)
         .motion(Motion.reveal, value: selected.flatMap { dictation?.notice(for: $0.id) })
     }
 
-    private func editorTop(_ selected: QuickNote) -> some View {
-        HStack(spacing: 12) {
-            Label(importing > 0 ? "Attaching…" : store.saving ? "Saving…" : store.saveError == nil ? "Saved on this Mac" : "Couldn’t save",
-                  systemImage: store.saveError == nil ? "checkmark" : "exclamationmark.triangle")
-                .font(.system(size: 11)).foregroundStyle(store.saveError == nil ? Color.secondary : Theme.deletion)
-                .contentTransition(.interpolate)
-                .accessibilityLabel(store.saveError == nil ? "Note save status" : "Note save failed")
-                .accessibilityValue(store.saving ? "Saving" : store.saveError == nil ? "Saved on this Mac" : "Retry saving or export a copy")
-            Spacer()
-            GlyphButton(icon: selected.pinned ? "pin.fill" : "pin", side: 30, active: selected.pinned) {
-                withAnimation(reduceMotion ? nil : Motion.control) { store.togglePin(selected.id) }
-                announce(selected.pinned ? "Note unpinned" : "Note pinned to the top")
-            }
-            .accessibilityLabel(selected.pinned ? "Unpin note" : "Pin note")
-            .accessibilityAddTraits(selected.pinned ? .isSelected : [])
-            GlyphButton(icon: focused ? "sidebar.left" : "arrow.up.left.and.arrow.down.right", side: 30, active: focused) { focused.toggle() }
-                .accessibilityLabel(focused ? "Show note library" : "Focus on note")
-            GlyphButton(icon: "ellipsis", side: 30)
-                .appMenu {
-                    [.item("Duplicate note", icon: "doc.on.doc") {
-                        _ = store.duplicate(selected.id); query = ""; pinnedOnly = false; reading = false
-                    }, .item("Export as Markdown", icon: "square.and.arrow.up") { export(selected) },
-                     .item(reading ? "Edit note" : "Read without tools", icon: "doc.text") { reading.toggle() }]
-                }
-                .accessibilityLabel("Note actions")
-        }
-        .padding(.horizontal, 22).frame(height: 48)
-        .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
+    private enum SaveState: Equatable { case idle, saving, attaching, failed }
+
+    private var saveState: SaveState {
+        if store.saveError != nil { return .failed }
+        if importing > 0 { return .attaching }
+        return store.saving ? .saving : .idle
     }
 
-    private var toolbar: some View {
+    // Saving is quiet when it works, so the footer only speaks while work runs or after it fails.
+    @ViewBuilder private var saveStatus: some View {
+        switch saveState {
+        case .idle:
+            EmptyView()
+        case .saving, .attaching:
+            Label(saveState == .attaching ? "Attaching…" : "Saving…", systemImage: "arrow.triangle.2.circlepath")
+                .contentTransition(.interpolate)
+                .accessibilityLabel("Note save status")
+                .accessibilityValue(saveState == .attaching ? "Attaching" : "Saving")
+                .transition(.fadeIn)
+        case .failed:
+            HStack(spacing: 6) {
+                Label("Couldn’t save", systemImage: "exclamationmark.triangle")
+                    .accessibilityLabel("Note save status")
+                    .accessibilityValue("Couldn’t save. Retry saving or export a copy")
+                InlineLink(title: "Try again", size: 10.5, tint: Theme.deletion) { _ = store.flush() }
+            }
+            .foregroundStyle(Theme.deletion)
+            .transition(.fadeIn)
+        }
+    }
+
+    private func toolbar(_ selected: QuickNote) -> some View {
         HStack(spacing: 6) {
             Group {
                 ActionButton(title: editor.block.title, tone: .outlined, height: 28, size: 10, disclosure: true)
@@ -295,7 +281,7 @@ struct NotebookView: View {
                 tool("paperclip", "Attach files") { chooseFiles(imagesOnly: false) }
             }
             .disabled(dictating)
-            if let dictation, let selected {
+            if let dictation {
                 DictationMicButton(live: dictation.isListening(selected.id),
                                    preparing: dictation.isPreparing(selected.id),
                                    blocked: dictation.notice(for: selected.id).isMicrophoneBlocked,
@@ -304,8 +290,29 @@ struct NotebookView: View {
                                    action: toggleDictation)
                     .disabled(dictation.phase != .idle && dictation.sessionID != selected.id)
             }
+            Divider().frame(height: 18).padding(.horizontal, 4)
+            GlyphButton(icon: selected.pinned ? "pin.fill" : "pin", side: 28, active: selected.pinned) {
+                withAnimation(reduceMotion ? nil : Motion.control) { store.togglePin(selected.id) }
+                showNote(selected.pinned ? "Note unpinned" : "Note pinned to the top")
+            }
+            .contentTransition(.symbolEffect(.replace))
+            .accessibilityLabel(selected.pinned ? "Unpin note" : "Pin note")
+            .accessibilityAddTraits(selected.pinned ? .isSelected : [])
+            .appTooltip(selected.pinned ? "Unpin note" : "Pin note")
+            GlyphButton(icon: focused ? "sidebar.left" : "arrow.up.left.and.arrow.down.right", side: 28, active: focused) { focused.toggle() }
+                .contentTransition(.symbolEffect(.replace))
+                .accessibilityLabel(focused ? "Show note library" : "Focus on note")
+                .accessibilityAddTraits(focused ? .isSelected : [])
+                .appTooltip(focused ? "Show note library" : "Focus on note")
+            GlyphButton(icon: "ellipsis", side: 28)
+                .appMenu {
+                    [.item("Duplicate note", icon: "doc.on.doc") {
+                        _ = store.duplicate(selected.id); query = ""; pinnedOnly = false
+                    }, .item("Export as Markdown", icon: "square.and.arrow.up") { export(selected) }]
+                }
+                .accessibilityLabel("Note actions")
         }
-        .padding(.horizontal, 20).frame(height: 44)
+        .padding(.horizontal, 20).frame(height: Theme.subHeaderHeight)
         .background(Theme.background.opacity(0.45))
         .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
     }
@@ -317,11 +324,11 @@ struct NotebookView: View {
 
     private func create() {
         guard store.create() != nil else { return }
-        query = ""; pinnedOnly = false; reading = false; focus = .title
+        query = ""; pinnedOnly = false; focus = .title
     }
 
     private func toggleDictation() {
-        guard !reading, let dictation, let selected else { return }
+        guard let dictation, let selected else { return }
         if dictating { dictation.stop(); return }
         guard dictation.phase == .idle else { return }
         focus = nil
@@ -481,7 +488,6 @@ private struct NotebookRow: View {
 private struct NotebookPage<Field: Hashable>: View {
     let note: QuickNote
     let editor: NoteEditorController
-    let reading: Bool
     let dictating: Bool
     var focus: FocusState<Field?>.Binding
     let titleField: Field
@@ -501,7 +507,7 @@ private struct NotebookPage<Field: Hashable>: View {
             VStack(alignment: .leading, spacing: 20) {
                 TextField("Untitled note", text: Binding(get: { note.title }, set: { updateTitle($0) }))
                     .font(.system(size: 30, weight: .semibold)).textFieldStyle(.plain)
-                    .focused(focus, equals: titleField).disabled(reading)
+                    .focused(focus, equals: titleField)
                     .onSubmit { editor.focus() }
                     .accessibilityLabel("Note title")
                 HStack(spacing: 15) {
@@ -514,36 +520,34 @@ private struct NotebookPage<Field: Hashable>: View {
                         Text("Start writing your first thought…").font(.system(size: 14)).foregroundStyle(.tertiary)
                             .padding(.top, 3).allowsHitTesting(false).accessibilityHidden(true)
                     }
-                    NoteTextEditor(document: note.body, controller: editor, editable: !reading && !dictating,
+                    NoteTextEditor(document: note.body, controller: editor, editable: !dictating,
                                    onChange: updateBody, onFiles: files, onImage: image, onLink: openLink,
                                    height: $editorHeight)
                         .frame(minHeight: editorHeight)
                 }
-                if !note.attachments.isEmpty || !reading {
-                    HStack(spacing: 8) {
-                        Label("Attachments\(note.attachments.isEmpty ? "" : " (\(note.attachments.count))")", systemImage: "paperclip")
-                            .contentTransition(.numericText()).motion(Motion.pop, value: note.attachments.count)
-                        Rectangle().fill(Theme.hairline).frame(height: 1)
-                        if !reading { InlineLink(title: "Add file", size: 11, action: addFile) }
-                    }
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), alignment: .top)], alignment: .leading, spacing: 10) {
-                        ForEach(note.attachments) { attachment in
-                            NoteAttachmentTile(attachment: attachment) {
-                                focusedAttachment = nil
-                                preview(attachment) { focusedAttachment = attachment.id }
-                            }
-                                .focused($focusedAttachment, equals: attachment.id)
-                                .overlay(RoundedRectangle(cornerRadius: 8)
-                                    .stroke(focusedAttachment == attachment.id ? Theme.accent : .clear, lineWidth: 2))
-                                .transition(.fadeIn)
+                HStack(spacing: 8) {
+                    Label("Attachments\(note.attachments.isEmpty ? "" : " (\(note.attachments.count))")", systemImage: "paperclip")
+                        .contentTransition(.numericText()).motion(Motion.pop, value: note.attachments.count)
+                    Rectangle().fill(Theme.hairline).frame(height: 1)
+                    InlineLink(title: "Add file", size: 11, action: addFile)
+                }
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), alignment: .top)], alignment: .leading, spacing: 10) {
+                    ForEach(note.attachments) { attachment in
+                        NoteAttachmentTile(attachment: attachment) {
+                            focusedAttachment = nil
+                            preview(attachment) { focusedAttachment = attachment.id }
                         }
+                            .focused($focusedAttachment, equals: attachment.id)
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .stroke(focusedAttachment == attachment.id ? Theme.accent : .clear, lineWidth: 2))
+                            .transition(.fadeIn)
                     }
-                    .motion(Motion.reveal, value: note.attachments.map(\.id))
-                    if note.attachments.isEmpty && !reading {
-                        Text("Drop a file here, or paste an image into your note.")
-                            .font(.system(size: 11)).foregroundStyle(.tertiary)
-                    }
+                }
+                .motion(Motion.reveal, value: note.attachments.map(\.id))
+                if note.attachments.isEmpty {
+                    Text("Drop a file here, or paste an image into your note.")
+                        .font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
             }
             .padding(.horizontal, 42).padding(.vertical, 30)
@@ -551,8 +555,8 @@ private struct NotebookPage<Field: Hashable>: View {
         }
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(targeted ? Theme.accent : .clear, lineWidth: 2))
         .dropDestination(for: URL.self) { urls, _ in
-            guard !reading else { return false }; files(urls); return true
-        } isTargeted: { targeted = !reading && $0 }
+            files(urls); return true
+        } isTargeted: { targeted = $0 }
     }
 }
 
