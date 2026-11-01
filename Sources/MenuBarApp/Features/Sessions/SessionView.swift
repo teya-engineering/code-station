@@ -2485,7 +2485,7 @@ struct SessionView: View {
     // keyed off its text goes dark the moment the model speaks and stays dark for the rest
     // of the turn - which is also when the silence counter is worth the most.
     private func showsThinking(state: SessionState) -> Bool {
-        guard !runner.isRecapping(sessionID) else { return false }
+        guard !runner.isWrappingUp(sessionID) else { return false }
         // A parked turn is waiting on the person, not working.
         return switch state {
         case .reconnecting, .stalled:

@@ -950,6 +950,14 @@ final class SessionRunner {
                                       store: store, runner: self)
     }
 
+    // A title or recap is the app asking about a turn that has already ended and been
+    // announced, so it is not the agent working. A title followed by a queued prompt is
+    // different: the session goes straight back to work, so it still reads as running.
+    func isWrappingUp(_ sessionID: UUID) -> Bool {
+        isRecapping(sessionID)
+            || (hasSummary(sessionID, title: true) && !queued(sessionID).contains { $0.summary == nil })
+    }
+
     func hasSummary(_ sessionID: UUID, title: Bool) -> Bool {
         guard let record = records[sessionID] else { return false }
         return record.turn?.summary?.mode.isTitle == title

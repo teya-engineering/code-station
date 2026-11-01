@@ -114,6 +114,45 @@ struct SessionTitleRunnerTests {
             == ["Fix the login retry", "Work complete"])
     }
 
+    // The finish sound plays before the first turn's title is written, so the rail has to
+    // say the session needs you while the title is still on its way.
+    @Test func aFirstTurnNeedsYouWhileItsTitleIsWritten() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: script(.codex, holdsTitle: true),
+                                        automaticTitlesEnabled: { true })
+        defer { harness.tearDown() }
+        harness.store.selection = .home
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        #expect(await waitUntil {
+            FileManager.default.fileExists(atPath: harness.scratch.path("title-streamed").path)
+        })
+        #expect(harness.runner.state(harness.session.id).isBusy)
+        #expect(harness.runner.isWrappingUp(harness.session.id))
+        let notice = SidebarNotices.all(store: harness.store, runner: harness.runner)
+            .first { $0.session.id == harness.session.id }?.notice
+        #expect(notice == .finished)
+
+        try Data().write(to: harness.scratch.path("release-title"))
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+    }
+
+    @Test func aTitleBeforeAQueuedFollowUpStillReadsAsWork() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: script(.codex, holdsTitle: true),
+                                        automaticTitlesEnabled: { true })
+        defer { harness.tearDown() }
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Add a regression test", sessionID: harness.session.id, store: harness.store)
+        #expect(await waitUntil {
+            FileManager.default.fileExists(atPath: harness.scratch.path("title-streamed").path)
+        })
+        #expect(!harness.runner.isWrappingUp(harness.session.id))
+
+        try Data().write(to: harness.scratch.path("release-title"))
+        #expect(await waitUntil {
+            harness.runner.state(harness.session.id) == .idle
+                && harness.runner.queued(harness.session.id).isEmpty
+        })
+    }
+
     @Test func leavesAManuallyNamedSessionAlone() async throws {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex),
                                         automaticTitlesEnabled: { true })
