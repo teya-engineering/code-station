@@ -32,7 +32,7 @@ struct ExplorerPresentationTests {
         let navigation = Navigation()
         let dialogs = DialogPresenter()
         let view = ExplorerView(root: root.path, reveal: Binding(get: { navigation.reveal }, set: { navigation.reveal = $0 }))
-            .environment(memory).environment(dialogs).appOverlays()
+            .environment(memory).environment(dialogs).environment(NotebookStore(directory: scratch.path("notebook"))).appOverlays()
         let hosting = NSHostingController(rootView: view)
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),

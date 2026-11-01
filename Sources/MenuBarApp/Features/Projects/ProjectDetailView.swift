@@ -376,7 +376,7 @@ struct ProjectDetailView: View {
             ChangesView(root: project.path)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .explorer:
-            ExplorerView(root: project.path)
+            ExplorerView(root: project.path, notesScope: "project:\(project.id)", notesScopeName: project.name)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

@@ -11,11 +11,11 @@ final class ExplorerMemory {
         var selected: FileNode?
         var showHidden = true
         var treeWidth = ExplorerSplitLayout.defaultTreeWidth
-        var renderingMarkdown = false
         // Only kept while the file has edits that are not on disk. A clean file is read
         // again on return, so it shows whatever an agent has written since.
         var unsaved: UnsavedEdit?
         var documents = ExplorerDocuments()
+        var personalNoteID: UUID?
     }
 
     struct UnsavedEdit {

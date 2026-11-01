@@ -6,20 +6,23 @@ final class NoteDictation {
     let noteID: UUID
     let caret: Int
     private let original: NoteDocument
+    private let markdown: MarkdownWritingDocument?
     private let attributes: [NSAttributedString.Key: Any]
     private let store: NotebookStore
     private weak var view: NoteTextView?
     private var draft: SessionComposerStore.Draft
     private var committed = false
 
-    init(note: QuickNote, store: NotebookStore, view: NoteTextView?) {
+    init(note: QuickNote, store: NotebookStore, view: NoteTextView?, document: NoteDocument? = nil) {
         noteID = note.id
-        original = note.body
+        original = document ?? note.body
+        markdown = note.markdownSource != nil || document != nil
+            ? MarkdownWritingDocument(source: note.bodyMarkdown, document: original) : nil
         self.store = store
         self.view = view
-        caret = min(view?.selectedRange().location ?? note.body.text.utf16.count, note.body.text.utf16.count)
+        caret = min(view?.selectedRange().location ?? original.text.utf16.count, original.text.utf16.count)
         attributes = view?.typingAttributes ?? NoteDocument.attributes()
-        draft = .init(text: note.body.text)
+        draft = .init(text: original.text)
         view?.breakUndoCoalescing()
     }
 
@@ -54,7 +57,12 @@ final class NoteDictation {
             : value.dictated && document != original ? original : nil
         draft = value
         committed = value.dictated
-        if document != current { store.update(noteID) { $0.body = document } }
+        if document != current {
+            store.update(noteID) {
+                $0.body = document
+                if let markdown { $0.markdownSource = markdown.markdown(afterEditing: document) }
+            }
+        }
         // The request keeps its original editor and note even if the library selection changes.
         view?.replaceDictation(document, undoing: undoing)
         if value.dictated { _ = store.flush() }

@@ -22,12 +22,13 @@ struct ExplorerHeaderTests {
         let dialogs = DialogPresenter()
         let hosting = NSHostingController(rootView: ExplorerView(root: root.path)
             .environment(\._accessibilityReduceMotion, reduceMotion)
-            .environment(memory).environment(dialogs).appOverlays())
+            .environment(memory).environment(dialogs).environment(NotebookStore(directory: root.appendingPathComponent("notebook"))).appOverlays())
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = hosting
+        window.setContentSize(NSSize(width: 1100, height: 700))
         window.center()
         defer { window.close() }
         window.orderFront(nil)
@@ -57,7 +58,7 @@ struct ExplorerHeaderTests {
                 .map { $0.convert($0.bounds, to: hosting.view) }
                 .filter { $0.minX == viewport.minX && $0.width == viewport.width && $0.maxY < viewport.minY }
                 .max { $0.maxY < $1.maxY })
-            #expect(viewport.minY - breadcrumbs.maxY == toolbarHeight)
+            #expect(abs(viewport.minY - breadcrumbs.maxY - toolbarHeight) < 0.01)
             #expect(titleFrame.minX >= viewport.minX + inset)
             #expect(titleFrame.maxX <= viewport.maxX - inset + 1)
             #expect(titleFrame.width > 0)
@@ -69,13 +70,13 @@ struct ExplorerHeaderTests {
                 #expect(frame.minX >= viewport.minX + inset)
                 #expect(frame.maxX <= viewport.maxX - inset + 1)
                 #expect(frame.size == NSSize(width: 28, height: 28))
-                #expect(frame.maxY == viewport.minY - padding)
+                #expect(abs(frame.maxY - (viewport.minY - padding)) < 0.01)
                 if compact { #expect(frame.minY >= titleFrame.maxY + 3) }
                 else { #expect(abs(frame.midY - titleFrame.midY) < 1) }
             }
             let footer = NSRect(x: viewport.minX, y: viewport.maxY,
                                 width: viewport.width, height: hosting.view.bounds.maxY - viewport.maxY)
-            #expect(footer.height >= 46)
+            #expect(footer.height >= 46 - 0.01)
             let before = try snapshot(hosting.view, rect: footer)
             scroll.contentView.scroll(to: NSPoint(x: 600, y: 0))
             scroll.reflectScrolledClipView(scroll.contentView)

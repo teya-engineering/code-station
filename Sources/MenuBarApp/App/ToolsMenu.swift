@@ -13,7 +13,6 @@ struct ToolsMenuActions {
     let openDocker: () -> Void
     let openDispatch: () -> Void
     let openShortcuts: () -> Void
-    let openNotes: () -> Void
     let openSettings: () -> Void
 }
 
@@ -34,7 +33,6 @@ private struct ToolsMenuModifier: ViewModifier {
     @Environment(DockerService.self) private var docker
     @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(ShortcutStore.self) private var shortcuts
-    @Environment(NotebookStore.self) private var notebook
     @Environment(AppUpdateChecker.self) private var appUpdates
 
     func body(content: Content) -> some View {
@@ -59,9 +57,7 @@ private struct ToolsMenuModifier: ViewModifier {
                              handler: actions.openDispatch),
                 MenuCardItem(label: "Shortcuts", icon: "bolt.fill",
                              detail: shortcutsDetail.text, detailColour: shortcutsDetail.colour,
-                             handler: actions.openShortcuts),
-                MenuCardItem(label: "Quick notes", icon: "note.text",
-                             detail: "\(notebook.savedCount) saved", handler: actions.openNotes)
+                             handler: actions.openShortcuts)
             ])
         ]
         if let release = appUpdates.availableRelease {

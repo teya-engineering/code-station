@@ -8,17 +8,20 @@ struct QuickNote: Identifiable, Codable, Equatable, Sendable {
     var createdAt = Date.now
     var editedAt = Date.now
     var attachments: [NoteAttachment] = []
+    var scopeID: String?
+    var markdownSource: String?
 
     var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : title }
     var wordCount: Int { body.text.split(whereSeparator: \.isWhitespace).filter { !["☐", "☑", "•"].contains($0) }.count }
 
     func matches(_ query: String) -> Bool {
         let words = query.split(whereSeparator: \.isWhitespace)
-        let searchable = ([title, body.text] + attachments.map(\.name)).joined(separator: " ")
+        let searchable = ([title, markdownSource ?? body.text] + attachments.map(\.name)).joined(separator: " ")
         return words.allSatisfy { searchable.localizedStandardContains($0) }
     }
 
-    var markdown: String { "# \(NoteDocument.escape(displayTitle))\n\n" + body.markdown + "\n" }
+    var bodyMarkdown: String { markdownSource ?? body.markdown }
+    var markdown: String { "# \(NoteDocument.escape(displayTitle))\n\n" + bodyMarkdown + "\n" }
 }
 
 struct NoteAttachment: Identifiable, Codable, Equatable, Sendable {
@@ -32,11 +35,12 @@ struct NoteAttachment: Identifiable, Codable, Equatable, Sendable {
 // resolved when read, so documents follow the current appearance and never archive objects.
 struct NoteDocument: Codable, Equatable, Sendable {
     enum Block: String, Codable, Sendable, CaseIterable {
-        case text, heading, subheading, bullet, numbered, checklist, quote, code
+        case text, title, heading, subheading, bullet, numbered, checklist, quote, code
 
         var title: String {
             switch self {
             case .text: "Text"
+            case .title: "Title"
             case .heading: "Heading"
             case .subheading: "Subheading"
             case .bullet: "Bulleted list"
@@ -64,7 +68,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
             let traits = (attributes[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
             let block = (attributes[.noteBlock] as? String).flatMap(Block.init(rawValue:)) ?? .text
             runs.append(Run(text: attributed.attributedSubstring(from: range).string,
-                            bold: traits.contains(.bold) && block != .heading && block != .subheading,
+                            bold: traits.contains(.bold) && ![.title, .heading, .subheading].contains(block),
                             italic: traits.contains(.italic), block: block,
                             link: Self.safeLink(attributes[.link].map { String(describing: $0) })))
         }
@@ -94,9 +98,9 @@ struct NoteDocument: Codable, Equatable, Sendable {
 
     @MainActor static func attributes(block: Block = .text, bold: Bool = false,
                                      italic: Bool = false) -> [NSAttributedString.Key: Any] {
-        let size: CGFloat = block == .heading ? 21 : block == .subheading ? 17 : 14
+        let size: CGFloat = block == .title ? 30 : block == .heading ? 21 : block == .subheading ? 17 : 14
         var font = block == .code ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-            : NSFont.systemFont(ofSize: size, weight: bold || block == .heading || block == .subheading ? .semibold : .regular)
+            : NSFont.systemFont(ofSize: size, weight: bold || [.title, .heading, .subheading].contains(block) ? .semibold : .regular)
         if italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 5
@@ -122,7 +126,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
 
     static func escape(_ text: String) -> String {
         text.reduce(into: "") { result, character in
-            if "\\`*_{}[]<>#!|".contains(character) { result.append("\\") }
+            if "\\`*_{}[]<>#!|-+.=~&".contains(character) { result.append("\\") }
             result.append(character)
         }
     }
@@ -166,6 +170,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
                     remaining -= count
                 }
                 switch block {
+                case .title: prefix = "# "
                 case .heading: prefix = "## "
                 case .subheading: prefix = "### "
                 case .bullet: prefix = "- "
@@ -177,11 +182,15 @@ struct NoteDocument: Codable, Equatable, Sendable {
             }
             let text = runs.map { run in
                 guard !run.text.isEmpty else { return "" }
-                var text = Self.escape(run.text)
+                let leading = String(run.text.prefix(while: \.isWhitespace))
+                let remaining = run.text.dropFirst(leading.count)
+                let trailing = String(remaining.reversed().prefix(while: \.isWhitespace).reversed())
+                var text = Self.escape(String(remaining.dropLast(trailing.count)))
+                guard !text.isEmpty else { return run.text }
                 if run.italic { text = "*\(text)*" }
-                if run.bold && block != .heading && block != .subheading { text = "**\(text)**" }
+                if run.bold && ![.title, .heading, .subheading].contains(block) { text = "**\(text)**" }
                 if let link = Self.safeLink(run.link) { text = "[\(text)](<\(link.replacingOccurrences(of: ">", with: "%3E"))>)" }
-                return text
+                return leading + text + trailing
             }.joined()
             output.append(prefix + text)
         }

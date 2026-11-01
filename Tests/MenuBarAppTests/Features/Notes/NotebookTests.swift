@@ -104,7 +104,7 @@ import Testing
         #expect(try String(contentsOf: url, encoding: .utf8) == original)
     }
 
-    @Test func autosaveCompletesWithoutClosingTheSheet() async throws {
+    @Test func autosaveCompletesWithoutClosingTheEditor() async throws {
         let store = NotebookStore(directory: scratch.url)
         let id = try #require(store.create())
         store.update(id) { $0.title = "Autosaved" }

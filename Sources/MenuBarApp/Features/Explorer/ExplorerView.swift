@@ -52,6 +52,8 @@ struct ExplorerView: View {
 
     var repositories: [ChangesRepository] = []
     var designFilesRoot: String?
+    var notesScope: String
+    var notesScopeName: String
     @Binding var collapsedProjects: Set<String>
     var selectRoot: (String) -> Void = { _ in }
     // The project row the keyboard is on. The keyboard lands on a file by selecting it,
@@ -66,7 +68,8 @@ struct ExplorerView: View {
          openFolders: Binding<Int>? = nil, refreshed: @escaping (Int) -> Void = { _ in },
          repositories: [ChangesRepository] = [], designFilesRoot: String? = nil,
          collapsedProjects: Binding<Set<String>> = .constant([]),
-         selectRoot: @escaping (String) -> Void = { _ in }) {
+         selectRoot: @escaping (String) -> Void = { _ in },
+         notesScope: String? = nil, notesScopeName: String? = nil) {
         self.root = root
         self.reveal = reveal
         self.command = command
@@ -77,6 +80,8 @@ struct ExplorerView: View {
         self.designFilesRoot = designFilesRoot
         self._collapsedProjects = collapsedProjects
         self.selectRoot = selectRoot
+        self.notesScope = notesScope ?? root
+        self.notesScopeName = notesScopeName ?? URL(fileURLWithPath: root).lastPathComponent
     }
 
     private var projectRoots: [ChangesRepository] {
@@ -85,6 +90,15 @@ struct ExplorerView: View {
 
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(ExplorerMemory.self) private var memory
+    @Environment(NotebookStore.self) private var notebook
+    @Environment(MenuPresenter.self) private var menus
+    @State private var personalNoteID: UUID?
+    @State private var capturePresented = false
+    @State private var captureReturnFocus: NSResponder?
+    @FocusState private var captureFocused: Bool
+    @State private var markdownOnly = false
+    @State private var markdownMode = MarkdownEditorMode.write
+    @State private var saveErrors: [String: String] = [:]
 
     // Children are kept per folder rather than as a nested tree, so a folder can be read
     // the moment it is opened and the rows on screen stay a flat list.
@@ -97,7 +111,6 @@ struct ExplorerView: View {
     @State private var preview: FilePreview?
     @State private var loadingPreview = false
     @State private var previewGeneration = 0
-    @State private var renderingMarkdown = false
     @State private var ownShowHidden = true
     @State private var language: CodeLanguage?
     @State private var pastingFiles = false
@@ -194,6 +207,9 @@ struct ExplorerView: View {
                     .frame(width: max(0, geometry.size.width - (showsTree && sideBySide ? width + ExplorerSplitLayout.dividerWidth : 0)))
                     .clipped()
             }
+            .allowsHitTesting(!capturePresented)
+            .disabled(capturePresented)
+            .accessibilityHidden(capturePresented)
             .frame(width: geometry.size.width, height: geometry.size.height)
             .overlay(alignment: .leading) {
                 // The ZStack stays put so each layer inside it can take its own transition.
@@ -222,6 +238,21 @@ struct ExplorerView: View {
             }
         }
         .background(Theme.background)
+        .overlay(alignment: .trailing) {
+            GeometryReader { geometry in
+                ZStack(alignment: .trailing) {
+                    if capturePresented {
+                        Color.black.opacity(0.15).onTapGesture { dismissCapture() }.transition(scrim)
+                        QuickNoteDrawer(scope: notesScope, scopeName: notesScopeName, dismiss: dismissCapture) {
+                            dismissCapture(); showNote("Note saved on this Mac", icon: "checkmark")
+                        }
+                        .frame(width: min(430, geometry.size.width))
+                        .transition(.drawer(from: .trailing, reduceMotion: reduceMotion))
+                    }
+                }.allowsHitTesting(capturePresented)
+            }
+        }
+        .motion(capturePresented ? Motion.reveal : Motion.leave, value: capturePresented)
         .overlay(alignment: .topTrailing) {
             ZStack {
                 if let note {
@@ -234,7 +265,8 @@ struct ExplorerView: View {
         }
         .background(ExplorerSearchShortcut { showFinder(.names) })
         .background(ExplorerFileShortcuts(
-            enabled: treeFocused && projectCursor == nil && dialogs.current == nil && !pastingFiles,
+            enabled: treeFocused && projectCursor == nil && dialogs.current == nil && !pastingFiles
+                && !capturePresented && personalNoteID == nil,
             onCopy: copySelected,
             onPaste: { pasteFiles(at: selected) },
             onTrash: trashSelected,
@@ -246,7 +278,9 @@ struct ExplorerView: View {
         .background(WindowAnchor(monitor: closeTabMonitor))
         .onAppear {
             closeTabMonitor.start {
-                guard dialogs.current == nil, renaming == nil,
+                guard dialogs.current == nil, renaming == nil, !capturePresented else { return false }
+                if personalNoteID != nil { personalNoteID = nil; return true }
+                guard
                       let open = documents.tabs.first(where: { $0.path == selected?.path }) ?? documents.tabs.last
                 else { return false }
                 closeTab(open)
@@ -254,6 +288,7 @@ struct ExplorerView: View {
             }
             escapeMonitor.start {
                 guard dialogs.current == nil, renaming == nil else { return false }
+                if capturePresented { dismissCapture(); return true }
                 if detailsPresented { detailsPresented = false; return true }
                 if findPresented { closeFind(); return true }
                 if focusEditor || narrowNavigator { focusEditor = false; narrowNavigator = false; return true }
@@ -274,6 +309,7 @@ struct ExplorerView: View {
         .onChange(of: dialogs.current == nil || finderIsOpen, initial: true) { _, free in
             guard free else { findInFilesMonitor.stop(); return }
             findInFilesMonitor.start {
+                guard !capturePresented else { return false }
                 showFinder(.contents)
                 return true
             }
@@ -295,6 +331,10 @@ struct ExplorerView: View {
             fileWasSaved = false
             if findPresented { refreshFind() }
             if draft != original { revealedMatches = [] }
+        }
+        .onChange(of: markdownMode) { _, mode in
+            if let selected { documents.modes[selected.path] = mode }
+            if mode != .source { resetFind() }
         }
         .onChange(of: showHidden) { Task { await reopenFolders() } }
         .onChange(of: openFolderCount, initial: true) { _, count in openFolders?.wrappedValue = count }
@@ -391,6 +431,44 @@ struct ExplorerView: View {
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 7).padding(.vertical, 9)
     }
 
+    private func dismissCapture() {
+        capturePresented = false
+        _ = notebook.flush()
+        let responder = captureReturnFocus
+        captureReturnFocus = nil
+        Task { @MainActor in
+            await Task.yield()
+            if let view = responder as? NSView, let window = view.window {
+                window.makeFirstResponder(view)
+            } else { captureFocused = true }
+        }
+    }
+
+    private func openCapture() {
+        captureReturnFocus = WindowKeyMonitor.frontmostWindow?.firstResponder
+        menus.dismiss()
+        capturePresented = true
+    }
+
+    private func openPersonalNote(_ id: UUID) {
+        rememberDraft()
+        personalNoteID = id
+        resetFind()
+        notebook.select(id)
+        narrowNavigator = false
+    }
+
+    private func revealMovedNote(_ url: URL) {
+        personalNoteID = nil
+        showNote("Moved to \(url.lastPathComponent)", icon: "doc.text")
+        Task {
+            await reopenFolders()
+            if let node = await FileTree.children(of: url.deletingLastPathComponent(), includeHidden: true).first(where: { $0.url == url }) {
+                revealAndSelect(node)
+            }
+        }
+    }
+
     // MARK: - Tree
 
     // One visible row: the entry and how deep it sits. Folders that are shut contribute
@@ -404,6 +482,7 @@ struct ExplorerView: View {
 
     private func rows(in directory: String) -> [Row] {
         Row.rows(in: directory, children: children, expanded: expanded, depth: repositories.isEmpty ? 0 : 1)
+            .filter { !markdownOnly || $0.node.isDirectory || $0.node.supportsMarkdownPreview }
     }
 
     private var rows: [Row] {
@@ -430,6 +509,11 @@ struct ExplorerView: View {
 
     @ViewBuilder private var tree: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ChoicePill(title: "All files", selected: !markdownOnly) { markdownOnly = false }
+                ChoicePill(title: "Markdown", selected: markdownOnly) { markdownOnly = true }
+                Spacer(minLength: 0)
+            }.padding(12)
             if !repositories.isEmpty {
                 HStack {
                     Text("Workspace").font(.system(size: 13, weight: .semibold))
@@ -457,6 +541,15 @@ struct ExplorerView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: repositories.isEmpty ? 1 : 3) {
+                            let pins = projectRoots.flatMap { project in
+                                project.root == root ? documents.pinned : memory.place(for: project.root)?.documents.pinned ?? []
+                            }.filter { !markdownOnly || $0.supportsMarkdownPreview }
+                            if !pins.isEmpty {
+                                sectionLabel("Pinned files")
+                                ForEach(pins) { node in
+                                    plainRow(Row(node: node, depth: 0))
+                                }
+                            }
                             sectionLabel("Project files")
                             ForEach(projectRoots) { project in
                                 if !repositories.isEmpty { projectRow(project).id(project.root) }
@@ -485,7 +578,12 @@ struct ExplorerView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { navigatorFooter }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                ExplorerNotesShelf(scope: notesScope, selected: personalNoteID, open: openPersonalNote, capture: openCapture)
+                navigatorFooter
+            }
+        }
         .background(Theme.background)
         .overlay {
             if dropHover?.folder == root {
@@ -524,7 +622,7 @@ struct ExplorerView: View {
     private func plainRow(_ row: Row) -> some View {
         let node = row.node
         let isOpen = expanded.contains(node.path)
-        let isSelected = selected?.path == node.path
+        let isSelected = selected?.path == node.path && personalNoteID == nil
         let isDropTarget = dropHover?.folder == node.path
         let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
 
@@ -673,7 +771,7 @@ struct ExplorerView: View {
 
     private func detail(navigatorVisible: Bool) -> some View {
         GeometryReader { geometry in
-            let inlineDetails = ExplorerSplitLayout.showsInlineDetails(availableWidth: geometry.size.width)
+            let inlineDetails = personalNoteID == nil && ExplorerSplitLayout.showsInlineDetails(availableWidth: geometry.size.width)
             let editorWidth = max(0, geometry.size.width
                 - (detailsPresented && selected != nil && inlineDetails ? ExplorerSplitLayout.detailsWidth : 0))
             let compact = editorWidth < 530
@@ -681,7 +779,14 @@ struct ExplorerView: View {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     editorTabs(navigatorVisible: navigatorVisible)
-                    if let node = selected {
+                    if let personalNoteID {
+                        ExplorerPersonalNote(id: personalNoteID,
+                                             projects: projectRoots.filter { $0.root != designFilesRoot },
+                                             moved: revealMovedNote, close: { self.personalNoteID = nil },
+                                             notify: { showNote($0) }, open: openPersonalNote)
+                            .id(personalNoteID)
+                            .transition(.headerPage(reduceMotion: reduceMotion))
+                    } else if let node = selected {
                         breadcrumbs(node, inset: inset)
                         let header = compact
                             ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 3))
@@ -695,13 +800,18 @@ struct ExplorerView: View {
                         if findPresented {
                             findBar.transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
                         }
+                        if let error = saveErrors[node.path] {
+                            EditorSaveError(message: error, retry: { save(node) }, export: {
+                                exportMarkdown(draft, name: node.name, dialogs: dialogs, notify: { showNote($0) })
+                            }).transition(.fadeIn)
+                        }
                         // Keyed on what kind of body is showing rather than on the file, so
                         // moving between two text files keeps the same editor.
                         fileBody(node)
-                            .id(bodyKind(node))
+                            .id(node.supportsMarkdownPreview ? node.path : bodyKind(node))
                             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                             .clipped()
-                            .transition(AnyTransition.fadeIn.animation(Motion.reveal))
+                            .transition(.headerPage(reduceMotion: reduceMotion))
                         if isEditable { editStatus(node, width: editorWidth, inset: inset) }
                     } else {
                         PaneMessage(icon: "sidebar.left", title: "Pick a file",
@@ -711,13 +821,13 @@ struct ExplorerView: View {
                 // Source lines and long names must not set the minimum width of the header and footer.
                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(width: editorWidth, alignment: .leading)
-                if detailsPresented, let node = selected, inlineDetails {
+                if personalNoteID == nil, detailsPresented, let node = selected, inlineDetails {
                     fileDetails(node).frame(width: ExplorerSplitLayout.detailsWidth)
                         .transition(.popover(reduceMotion: reduceMotion))
                 }
             }
             .overlay(alignment: .trailing) {
-                let overlaid = detailsPresented && selected != nil && !inlineDetails
+                let overlaid = personalNoteID == nil && detailsPresented && selected != nil && !inlineDetails
                 ZStack(alignment: .trailing) {
                     if overlaid {
                         Color.black.opacity(0.12).onTapGesture { detailsPresented = false }
@@ -733,6 +843,8 @@ struct ExplorerView: View {
             }
         }
         .background(Theme.card)
+        .motion(Motion.reveal, value: selected?.path)
+        .motion(Motion.reveal, value: personalNoteID)
     }
 
     private func editorTabs(navigatorVisible: Bool) -> some View {
@@ -758,18 +870,18 @@ struct ExplorerView: View {
                                                 .transition(markLands)
                                         }
                                     }
-                                    .font(.system(size: 11, weight: node.path == selected?.path ? .semibold : .regular))
+                                    .font(.system(size: 11, weight: node.path == selected?.path && personalNoteID == nil ? .semibold : .regular))
                                     .padding(.leading, 10).frame(height: 40).contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityAddTraits(node.path == selected?.path ? .isSelected : [])
+                                .accessibilityAddTraits(node.path == selected?.path && personalNoteID == nil ? .isSelected : [])
                                 ExplorerIcon(symbol: "xmark", label: "Close \(node.name)") { closeTab(node) }
                             }
                             .frame(maxWidth: 230)
-                            .background(node.path == selected?.path ? Theme.card : .clear)
+                            .background(node.path == selected?.path && personalNoteID == nil ? Theme.card : .clear)
                             .hoverFill(cornerRadius: 0)
                             .overlay(alignment: .bottom) {
-                                if node.path == selected?.path {
+                                if node.path == selected?.path && personalNoteID == nil {
                                     Rectangle().fill(Theme.accent).frame(height: 2)
                                         .matchedGeometryEffect(id: "underline", in: tabUnderline)
                                 }
@@ -788,6 +900,10 @@ struct ExplorerView: View {
                 focusEditor.toggle()
                 narrowNavigator = false
             }
+            ActionButton(title: "Quick note", tone: .outlined, height: 28, size: 10, icon: "plus", action: openCapture)
+            .focused($captureFocused)
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .disabled(capturePresented || dialogs.current != nil || notebook.loadError != nil)
         }
         .padding(.horizontal, 6).frame(height: 42)
         .background(Theme.sidebar)
@@ -847,8 +963,11 @@ struct ExplorerView: View {
                 .appMenu {
                     var items: [MenuEntry] = []
                     if node.supportsMarkdownPreview {
-                        items.append(.item(renderingMarkdown ? "Edit Markdown" : "Preview Markdown") {
-                            resetFind(); renderingMarkdown.toggle()
+                        items.append(.item(markdownMode == .preview ? "Write Markdown" : "Preview Markdown") {
+                            resetFind(); markdownMode = markdownMode == .preview ? .write : .preview
+                        })
+                        items.append(.item("Export a Markdown copy") {
+                            exportMarkdown(draft, name: node.name, dialogs: dialogs, notify: { showNote($0) })
                         })
                     }
                     return items + [.item("Copy path") { copyPath(node) },
@@ -880,12 +999,17 @@ struct ExplorerView: View {
                                                     .priority: NSAccessibilityPriorityLevel.medium.rawValue])
                 }
             HStack(spacing: 14) {
+                if node.supportsMarkdownPreview && width >= 530 {
+                    Text("\(draft.split(whereSeparator: \.isWhitespace).count) words")
+                        .contentTransition(.numericText())
+                }
                 if width >= 530, !node.kind.isEmpty {
                     Text(node.kind.uppercased()).foregroundStyle(Theme.secondaryText)
                 }
                 if width >= 650 { Text("UTF-8").foregroundStyle(Theme.secondaryText) }
                 if saving { LoopSpinner(size: 10).transition(.fadeIn) }
-                Text("⌘ S").font(.mono(10)).accessibilityLabel("Save, Command-S")
+                Text(node.supportsMarkdownPreview && markdownMode == .preview ? "Read only" : "⌘ S")
+                    .font(.mono(10)).accessibilityLabel(markdownMode == .preview ? "Read only preview" : "Save, Command-S")
             }
             .font(.system(size: 10)).fixedSize()
         }
@@ -954,7 +1078,7 @@ struct ExplorerView: View {
 
     private func bodyKind(_ node: FileNode) -> String {
         switch preview {
-        case .text, .empty: renderingMarkdown && node.supportsMarkdownPreview ? "markdown" : "text"
+        case .text, .empty: "text"
         case .image: "image"
         case .binary: "binary"
         case .tooLarge: "too large"
@@ -966,16 +1090,14 @@ struct ExplorerView: View {
     @ViewBuilder private func fileBody(_ node: FileNode) -> some View {
         switch preview {
         case .text, .empty:
-            if renderingMarkdown, node.supportsMarkdownPreview {
-                ScrollView {
-                    MarkdownDocumentView(text: draft,
-                                         basePath: node.url.deletingLastPathComponent().path,
-                                         textScale: 1)
-                        .environment(\.htmlPreviewLinkOpened, HTMLPreviewLinkOpenedAction(perform: noteLinkOpened))
-                        .padding(28)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .background(Theme.background)
+            if node.supportsMarkdownPreview {
+                MarkdownEditor(documentID: node.path, source: $draft, mode: $markdownMode,
+                               basePath: node.url.deletingLastPathComponent().path, onLink: noteLinkOpened,
+                               sourceEditor: AnyView(CodeEditorView(documentID: node.path, text: $draft, language: language,
+                                                                   matches: findPresented ? findResult.matches : revealedMatches,
+                                                                   currentMatch: findPresented ? currentFindMatch : nil,
+                                                                   findQuery: findQuery, revealLine: lineToReveal, onFind: showFind)),
+                               onOutline: { lineToReveal = $0 })
             } else {
                 CodeEditorView(documentID: node.path,
                                text: $draft,
@@ -1060,13 +1182,14 @@ struct ExplorerView: View {
     // A file worth searching is open and nothing is in front of it. While this is false
     // both strokes are left alone, so Cmd+F still opens the sidebar's filter.
     private var canFind: Bool {
-        isEditable && !renderingMarkdown && dialogs.current == nil
+        isEditable && personalNoteID == nil && !capturePresented && dialogs.current == nil
     }
 
     private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }
 
     private func showFind() {
         guard canFind else { return }
+        markdownMode = .source
         withAnimation(reduceMotion ? nil : Motion.reveal) { findPresented = true }
         refreshFind()
         $findFocused.request()
@@ -1108,6 +1231,7 @@ struct ExplorerView: View {
     // The keys pick a mode, and the header's button passes none to reopen the last one.
     // Pressed again while the dialog is open, they switch it to their mode.
     private func showFinder(_ requested: ExplorerSearchMode?) {
+        guard !capturePresented else { return }
         if finderIsOpen, let finder {
             if let requested { finder.show(requested) }
             return
@@ -1254,7 +1378,6 @@ struct ExplorerView: View {
                 self.selected = nil
                 preview = nil
                 loadingPreview = false
-                renderingMarkdown = false
                 language = nil
                 draft = ""
                 original = ""
@@ -1436,6 +1559,7 @@ struct ExplorerView: View {
         openedRoot = root
         let place = memory.place(for: root) ?? ExplorerMemory.Place()
         documents = place.documents
+        personalNoteID = place.personalNoteID.flatMap { notebook.note($0)?.id }
         if let edit = place.unsaved { documents.edits[edit.path] = edit }
         if children.isEmpty {
             for project in projectRoots {
@@ -1446,7 +1570,6 @@ struct ExplorerView: View {
         previewGeneration += 1
         preview = nil
         loadingPreview = false
-        renderingMarkdown = false
         language = nil
         draft = ""
         original = ""
@@ -1492,9 +1615,8 @@ struct ExplorerView: View {
                               selected: selected,
                               showHidden: showHidden,
                               treeWidth: treeWidth,
-                              renderingMarkdown: renderingMarkdown,
                               unsaved: unsaved,
-                              documents: documents),
+                              documents: documents, personalNoteID: personalNoteID),
                         for: openedRoot)
     }
 
@@ -1512,7 +1634,6 @@ struct ExplorerView: View {
         guard !Task.isCancelled, let node = place.selected,
               fileManager.fileExists(atPath: node.path) || documents.edits[node.path] != nil else { return }
         select(node)
-        renderingMarkdown = place.renderingMarkdown && node.supportsMarkdownPreview
     }
 
     // `unfolding` is set when the folder is being opened by hand, so rows read for the
@@ -1651,6 +1772,7 @@ struct ExplorerView: View {
 
     // Each open file keeps its own draft, so moving through the tree never discards edits.
     private func requestSelect(_ node: FileNode, line: Int? = nil, marking query: String? = nil) {
+        personalNoteID = nil
         if let owner = projectRoots.filter({ isInside(node.path, $0.root) }).max(by: { $0.root.count < $1.root.count }),
            owner.root != root {
             reveal.wrappedValue = ExplorerReveal(path: node.path, line: line)
@@ -1660,6 +1782,7 @@ struct ExplorerView: View {
         if node.path == selected?.path {
             narrowNavigator = node.isDirectory
             if let line {
+                markdownMode = .source
                 lineToReveal = line
                 if let query, !findPresented {
                     revealedMatches = FileTextSearch.hits(of: query, onLine: line, in: draft)
@@ -1674,6 +1797,7 @@ struct ExplorerView: View {
 
     private func rememberDraft() {
         guard let selected, !selected.isDirectory else { return }
+        documents.modes[selected.path] = markdownMode
         if dirty, let preview {
             documents.edits[selected.path] = .init(path: selected.path, preview: preview, draft: draft,
                                                    original: original, loadedAt: loadedAt)
@@ -1697,6 +1821,7 @@ struct ExplorerView: View {
     }
 
     private func save(_ node: FileNode) {
+        guard !saving, !capturePresented, personalNoteID == nil else { return }
         let saved = draft
         let expectedModification = loadedAt
         Task {
@@ -1720,9 +1845,11 @@ struct ExplorerView: View {
             let failure = await FileTree.write(saved, to: node.url)
             saving = false
             if let failure {
-                dialogs.show(.notice("Could not save", message: failure))
+                saveErrors[node.path] = failure
+                announceEditorStatus("Could not save \(node.name). Your edits are still here. Retry or export a copy.")
                 return
             }
+            saveErrors.removeValue(forKey: node.path)
             let modified = await FileTree.modified(of: node.url)
             let fresh = await FileTree.children(of: node.url.deletingLastPathComponent(), includeHidden: true)
                 .first(where: { $0.path == node.path })
@@ -1753,11 +1880,11 @@ struct ExplorerView: View {
         let generation = previewGeneration
         resetFind()
         selected = node
+        markdownMode = line == nil ? documents.modes[node.path] ?? .write : .source
         fileWasSaved = false
         documents.open(node)
         lineToReveal = line
         preview = nil
-        renderingMarkdown = false
         language = nil
         draft = ""
         original = ""

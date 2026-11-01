@@ -218,7 +218,7 @@ struct NoteTextEditor: NSViewRepresentable {
             let paragraph = (textView.string as NSString).paragraphRange(for: selected)
             let line = (textView.string as NSString).substring(with: paragraph)
             let block = parent.controller.block
-            if [.heading, .subheading].contains(block) {
+            if [.title, .heading, .subheading].contains(block) {
                 textView.insertText(NSAttributedString(string: "\n", attributes: NoteDocument.attributes()), replacementRange: selected)
                 textView.typingAttributes = NoteDocument.attributes()
                 return true

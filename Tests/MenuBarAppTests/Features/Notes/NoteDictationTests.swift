@@ -139,6 +139,30 @@ import Testing
         window.orderOut(nil)
     }
 
+    @Test func markdownDictationKeepsSourceInSyncAndDiscardRestoresTheOriginalSource() async throws {
+        let store = NotebookStore(directory: scratch.url)
+        let id = try #require(store.create())
+        let source = "# Keep this\n\n**Plan** tomorrow\n"
+        store.updateMarkdown(id, source: source)
+        let original = try #require(store.note(id))
+        let view = editor(original.body, caret: original.body.text.utf16.count)
+        let take = NoteDictation(note: original, store: store, view: view, document: original.body)
+        let speech = NoteSpeech()
+        let dictation = Dictation(engine: speech, preferences: preferences.store)
+        dictation.toggle(request(take))
+        #expect(await waitUntil { dictation.isListening(id) })
+        speech.say("together")
+        #expect(store.note(id)?.bodyMarkdown.contains("tomorrow together") == true)
+        dictation.throwAway()
+        #expect(store.note(id)?.bodyMarkdown == source)
+        #expect(store.note(id)?.body == original.body)
+        dictation.undo()
+        #expect(store.note(id)?.bodyMarkdown.contains("tomorrow together") == true)
+        #expect(store.note(id)?.bodyMarkdown.contains("**Plan**") == true)
+        #expect(store.flush())
+        #expect(NotebookStore(directory: scratch.url).note(id)?.bodyMarkdown == store.note(id)?.bodyMarkdown)
+    }
+
     private func request(_ take: NoteDictation) -> DictationRequest {
         .init(sessionID: take.noteID, draft: take.binding, caret: take.caret,
               roots: [], vocabulary: [], placeCaret: { take.placeCaret($0) })

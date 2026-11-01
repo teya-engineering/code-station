@@ -35,7 +35,7 @@ struct WorkspaceExplorerTests {
             ChangesRepository(root: first.url.path, name: "a-long-lead-project-name"),
             ChangesRepository(root: second.url.path, name: "a-long-attached-project-name")
         ])
-        .environment(memory).environment(DialogPresenter()).appOverlays()
+        .environment(memory).environment(DialogPresenter()).environment(NotebookStore(directory: first.path("notebook"))).appOverlays()
         let hosting = NSHostingController(rootView: view)
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
