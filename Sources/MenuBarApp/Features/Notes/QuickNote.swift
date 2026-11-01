@@ -137,14 +137,35 @@ struct NoteDocument: Codable, Equatable, Sendable {
         return value
     }
 
-    static func escape(_ text: String) -> String {
-        text.reduce(into: "") { result, character in
-            if "\\`*_{}[]<>#!|-+.=~&".contains(character) { result.append("\\") }
+    static func escape(_ text: String, lineStart: Bool = false) -> String {
+        var result = text.reduce(into: "") { result, character in
+            if "\\`*_[]<>#!|~&".contains(character) { result.append("\\") }
             result.append(character)
         }
+        // These marks only start a list, a quote or a rule at the beginning of a line.
+        if lineStart, let first = result.first, "-+=>".contains(first) {
+            result.insert("\\", at: result.startIndex)
+        } else if lineStart, let number = result.range(of: #"^\d+[.)]"#, options: .regularExpression) {
+            result.insert("\\", at: result.index(before: number.upperBound))
+        }
+        return result
     }
 
     var markdown: String {
+        let blocks = markdownBlocks
+        return zip(blocks.indices, blocks).map { index, block in
+            (index == 0 ? "" : Self.separator(blocks[index - 1].block, block.block)) + block.text
+        }.joined()
+    }
+
+    // List items sit on their own lines so the list stays tight. Every other block needs a
+    // blank line, or the next line would carry on the paragraph above it.
+    static func separator(_ previous: Block, _ next: Block) -> String {
+        Block.lists.contains(previous) && Block.lists.contains(next) ? "\n" : "\n\n"
+    }
+
+    // One entry for each paragraph of the document, with each run of code lines as one block.
+    var markdownBlocks: [(block: Block, text: String)] {
         var lines: [(Block, [Run])] = []
         var current: [Run] = []
         for run in runs {
@@ -158,7 +179,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
             }
         }
         if !current.isEmpty { lines.append((current.first?.block ?? .text, current)) }
-        var output: [String] = []
+        var output: [(block: Block, text: String)] = []
         var code: [String] = []
         // Where each open list item's text starts, so a nested item lines up under it.
         var listContent: [Int] = []
@@ -167,7 +188,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
             let text = code.joined(separator: "\n")
             let longest = text.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
             let fence = String(repeating: "`", count: max(3, longest + 1))
-            output.append("\(fence)\n\(text)\n\(fence)")
+            output.append((.code, "\(fence)\n\(text)\n\(fence)"))
             code = []
         }
         for (block, runs) in lines {
@@ -205,23 +226,24 @@ struct NoteDocument: Codable, Equatable, Sendable {
                     listContent = []
                 }
             }
-            let text = runs.map { run in
+            let first = runs.firstIndex { !$0.text.isEmpty }
+            let text = zip(runs.indices, runs).map { index, run in
                 guard !run.text.isEmpty else { return "" }
                 if run.code && block != .code { return Self.codeSpan(run) }
                 let leading = String(run.text.prefix(while: \.isWhitespace))
                 let remaining = run.text.dropFirst(leading.count)
                 let trailing = String(remaining.reversed().prefix(while: \.isWhitespace).reversed())
-                var text = Self.escape(String(remaining.dropLast(trailing.count)))
+                var text = Self.escape(String(remaining.dropLast(trailing.count)), lineStart: index == first)
                 guard !text.isEmpty else { return run.text }
                 if run.italic { text = "*\(text)*" }
                 if run.bold && ![.title, .heading, .subheading].contains(block) { text = "**\(text)**" }
                 if let link = Self.safeLink(run.link) { text = "[\(text)](<\(link.replacingOccurrences(of: ">", with: "%3E"))>)" }
                 return leading + text + trailing
             }.joined()
-            output.append(indentation + prefix + text)
+            output.append((block, indentation + prefix + text))
         }
         flushCode()
-        return output.joined(separator: "\n\n")
+        return output
     }
 
     private static func codeSpan(_ run: Run) -> String {

@@ -56,7 +56,7 @@ struct ExplorerPersonalNote: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(Dictation.self) private var dictation: Dictation?
     @Environment(\.isEnabled) private var isEnabled
-    @State private var mode = MarkdownEditorMode.write
+    @State private var mode = MarkdownEditorMode.edit
     @State private var editor = NoteEditorController()
     @State private var take: NoteDictation?
     @State private var keys = WindowKeyHandler(handlesTyping: true)
@@ -171,7 +171,7 @@ struct ExplorerPersonalNote: View {
                                    blocked: dictation.notice(for: id).isMicrophoneBlocked,
                                    level: dictation.level, startedAt: dictation.startedAt,
                                    download: dictation.notice(for: id).downloadFraction, action: toggleDictation)
-                    .disabled(mode != .write || (dictation.phase != .idle && dictation.sessionID != id))
+                    .disabled(mode != .edit || (dictation.phase != .idle && dictation.sessionID != id))
             }
             GlyphButton(icon: note.pinned ? "pin.fill" : "pin", side: 28, active: note.pinned) { notebook.togglePin(id) }
                 .accessibilityLabel(note.pinned ? "Unpin note" : "Pin note").contentTransition(.symbolEffect(.replace))
@@ -238,7 +238,7 @@ struct ExplorerPersonalNote: View {
     }
 
     private func toggleDictation() {
-        guard let dictation, let note = notebook.note(id), mode == .write else { return }
+        guard let dictation, let note = notebook.note(id), mode == .edit else { return }
         if dictating { dictation.stop(); return }
         guard dictation.phase == .idle, let view = editor.view else { return }
         editor.focus()

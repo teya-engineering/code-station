@@ -6,7 +6,7 @@ import Testing
 @MainActor struct MarkdownEditorPresentationTests {
     @Observable final class Draft {
         var source = "# A place for thoughts\n\nWrite beside your project files.\n\n## Next steps\n\n- [ ] Keep the draft\n- [x] Review the plan\n"
-        var mode = MarkdownEditorMode.write
+        var mode = MarkdownEditorMode.edit
     }
 
     @Test(arguments: [false, true]) func modesShareTheDraftAndFitNarrowWindows(reduceMotion: Bool) async throws {
@@ -46,14 +46,14 @@ import Testing
                 }
             }
         }
-        draft.mode = .write
+        draft.mode = .edit
         #expect(await waitUntil { self.textViews(host.view).contains { $0 is NoteTextView } })
         let editor = try #require(textViews(host.view).first { $0 is NoteTextView })
         editor.setSelectedRange(NSRange(location: 0, length: 0))
         editor.insertText("Edited ", replacementRange: editor.selectedRange())
         #expect(await waitUntil { draft.source.contains("Edited") })
         let edited = draft.source
-        for mode in [MarkdownEditorMode.source, .preview, .write, .source, .write] { draft.mode = mode; await Task.yield() }
+        for mode in [MarkdownEditorMode.source, .preview, .edit, .source, .edit] { draft.mode = mode; await Task.yield() }
         #expect(await waitUntil { self.textViews(host.view).contains { $0 is NoteTextView && $0.string.contains("Edited") } })
         #expect(draft.source == edited)
         draft.source = original

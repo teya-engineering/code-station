@@ -13,6 +13,9 @@ struct MarkdownEditor: View {
     var onFiles: (([URL]) -> Void)?
     var onImage: ((Data) -> Void)?
     var editable: Bool
+    // A host with its own header shows the mode pills there, and learns through this
+    // whether the file can open in Edit.
+    var canEdit: Binding<Bool>?
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(MenuPresenter.self) private var menus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -25,7 +28,7 @@ struct MarkdownEditor: View {
          basePath: String = "", personal: Bool = false, onLink: @escaping (URL) -> Void = { _ in },
          sourceEditor: AnyView? = nil, onOutline: ((Int) -> Void)? = nil,
          onFiles: (([URL]) -> Void)? = nil, onImage: ((Data) -> Void)? = nil,
-         editor: NoteEditorController? = nil, editable: Bool = true) {
+         editor: NoteEditorController? = nil, editable: Bool = true, canEdit: Binding<Bool>? = nil) {
         self.documentID = documentID
         self._source = source
         self._mode = mode
@@ -37,19 +40,22 @@ struct MarkdownEditor: View {
         self.onFiles = onFiles
         self.onImage = onImage
         self.editable = editable
+        self.canEdit = canEdit
         self._editor = State(initialValue: editor ?? NoteEditorController())
         self._writing = State(initialValue: MarkdownWritingDocument(source.wrappedValue))
     }
 
-    private var activeMode: MarkdownEditorMode { mode == .write && writing == nil ? .source : mode }
+    private var activeMode: MarkdownEditorMode { mode == .edit && writing == nil ? .source : mode }
 
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
+            if canEdit == nil || activeMode == .edit {
+                toolbar.transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
+            }
             if mode != .preview && writing == nil {
                 HStack(spacing: 8) {
                     Image(systemName: "curlybraces")
-                    Text("Write is off for this file. It uses Markdown that Write cannot keep, such as tables, images or HTML. Edit it in Source.")
+                    Text("Edit is off for this file. It uses Markdown that Edit cannot show, such as tables, images or HTML. Change it in Source.")
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
@@ -70,18 +76,20 @@ struct MarkdownEditor: View {
             }
         }
         .background(Theme.card)
-        .onAppear { if mode == .write && writing == nil { mode = .source } }
+        .motion(Motion.reveal, value: activeMode == .edit)
+        .onChange(of: writing == nil, initial: true) { _, missing in canEdit?.wrappedValue = !missing }
+        .onAppear { if mode == .edit && writing == nil { mode = .source } }
         .onChange(of: documentID) { _, _ in
             writing = MarkdownWritingDocument(source); outlineLine = nil
-            if mode == .write && writing == nil { mode = .source }
+            if mode == .edit && writing == nil { mode = .source }
         }
         .onChange(of: source) { _, _ in
             if writing?.source != source { writing = MarkdownWritingDocument(source) }
-            if mode == .write && writing == nil { mode = .source }
+            if mode == .edit && writing == nil { mode = .source }
         }
         .onChange(of: mode) { _, newMode in
             menus.dismiss()
-            if newMode == .write {
+            if newMode == .edit {
                 writing = MarkdownWritingDocument(source)
                 if writing == nil { mode = .source }
             }
@@ -90,9 +98,9 @@ struct MarkdownEditor: View {
 
     private var toolbar: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) { formatting; Spacer(minLength: 8); modes }
+            HStack(spacing: 8) { formatting; Spacer(minLength: 8); if canEdit == nil { modes } }
             VStack(alignment: .leading, spacing: 4) {
-                HStack { Spacer(); modes }
+                if canEdit == nil { HStack { Spacer(); modes } }
                 formatting
             }
         }
@@ -102,16 +110,7 @@ struct MarkdownEditor: View {
     }
 
     private var modes: some View {
-        HStack(spacing: 3) {
-            ForEach(MarkdownEditorMode.allCases, id: \.self) { item in
-                ChoicePill(title: item.rawValue, selected: activeMode == item,
-                           enabled: item != .write || writing != nil) { mode = item }
-                    .opacity(item == .write && writing == nil ? 0.45 : 1)
-                    .motion(Motion.control, value: writing == nil)
-                    .accessibilityLabel("\(item.rawValue) Markdown")
-            }
-        }.disabled(!editable).accessibilityElement(children: .contain).accessibilityLabel("Editor mode")
-            .accessibilityIdentifier("markdown.modes")
+        MarkdownModePicker(mode: $mode, canEdit: writing != nil).disabled(!editable)
     }
 
     private var formatting: some View {
@@ -129,11 +128,11 @@ struct MarkdownEditor: View {
             tool("link", "Insert link", action: addLink)
             tool("chevron.left.forwardslash.chevron.right", "Code block", selected: editor.block == .code) { editor.setBlock(.code) }
         }
-        .opacity(activeMode == .write ? 1 : 0)
-        .allowsHitTesting(activeMode == .write)
-        .disabled(activeMode != .write || !editable)
-        .accessibilityHidden(activeMode != .write)
-        .motion(activeMode == .write ? Motion.reveal : Motion.leave, value: activeMode)
+        .opacity(activeMode == .edit ? 1 : 0)
+        .allowsHitTesting(activeMode == .edit)
+        .disabled(activeMode != .edit || !editable)
+        .accessibilityHidden(activeMode != .edit)
+        .motion(activeMode == .edit ? Motion.reveal : Motion.leave, value: activeMode)
     }
 
     private func tool(_ icon: String, _ label: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
@@ -143,7 +142,7 @@ struct MarkdownEditor: View {
 
     @ViewBuilder private var page: some View {
         switch activeMode {
-        case .write:
+        case .edit:
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     Label(personal ? "Personal note · Only on this Mac" : "Project document · In this working tree",
@@ -190,7 +189,7 @@ struct MarkdownEditor: View {
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(7).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain).hoverFill(cornerRadius: 5)
-                        .accessibilityHint(activeMode == .write ? "Jump to heading" : "Show heading in Markdown source")
+                        .accessibilityHint(activeMode == .edit ? "Jump to heading" : "Show heading in Markdown source")
                     }
                 }
             }
@@ -202,7 +201,7 @@ struct MarkdownEditor: View {
     }
 
     private func showHeading(_ heading: MarkdownHeading) {
-        if activeMode == .write, let view = editor.view,
+        if activeMode == .edit, let view = editor.view,
            let title = MarkdownWritingDocument("# " + heading.title)?.document.text {
             let range = (view.string as NSString).range(of: title)
             if range.location != NSNotFound {
@@ -225,5 +224,25 @@ struct MarkdownEditor: View {
         }, close: dialogs.dismiss, restoreFocus: dialogs.restoreFocus)), actions: [])
         dialog.isModal = true; dialog.framesItself = true
         dialogs.show(dialog)
+    }
+}
+
+struct MarkdownModePicker: View {
+    @Binding var mode: MarkdownEditorMode
+    let canEdit: Bool
+
+    var body: some View {
+        let active = mode == .edit && !canEdit ? .source : mode
+        HStack(spacing: 3) {
+            ForEach(MarkdownEditorMode.allCases, id: \.self) { item in
+                ChoicePill(title: item.rawValue, selected: active == item,
+                           enabled: item != .edit || canEdit) { mode = item }
+                    .opacity(item == .edit && !canEdit ? 0.45 : 1)
+                    .motion(Motion.control, value: canEdit)
+                    .accessibilityLabel("\(item.rawValue) Markdown")
+            }
+        }.accessibilityElement(children: .contain).accessibilityLabel("Editor mode")
+            .accessibilityIdentifier("markdown.modes")
+            .fixedSize()
     }
 }

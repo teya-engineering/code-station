@@ -1,36 +1,71 @@
 import Foundation
 
 enum MarkdownEditorMode: String, CaseIterable {
-    case write = "Write", source = "Source", preview = "Preview"
+    case edit = "Edit", source = "Source", preview = "Preview"
 }
 
 // Source stays authoritative. Only syntax that the notebook can express is admitted
-// to Write; everything else remains editable in Source without a lossy conversion.
+// to Edit; everything else remains editable in Source without a lossy conversion.
 struct MarkdownWritingDocument {
     let source: String
     let document: NoteDocument
+    private let original: Original?
+
+    // The source text behind each block of the document, so an edit rewrites only the
+    // blocks it touched and the rest keep their wrapping and spelling exactly.
+    private struct Original {
+        var generated: [String] = []
+        var texts: [String] = []
+        // The line breaks before the first block, between each pair, and after the last.
+        var gaps: [String] = []
+    }
 
     init(source: String, document: NoteDocument) {
         self.source = source
         self.document = document
+        original = Self.parse(source)?.original
     }
 
     init?(_ source: String) {
+        guard let parsed = Self.parse(source) else { return nil }
         self.source = source
+        document = parsed.document
+        original = parsed.original
+    }
+
+    private static func parse(_ source: String) -> (document: NoteDocument, original: Original?)? {
         guard !source.contains("\r") else { return nil }
         var runs: [NoteDocument.Run] = []
         let lines = source.components(separatedBy: "\n")
         var index = 0
-        var previousWasText = false
+        // The source lines of each block. Code blocks that follow each other become one
+        // block in the editor, so they share one span.
+        var spans: [Range<Int>] = []
+        var lastWasCode = false
+        // A paragraph stays open while its lines wrap, and is read as one line of text.
+        var open: (block: NoteDocument.Block, marker: String, depth: Int, text: String, lines: Range<Int>)?
         // The start column and text column of each open list item, outermost first.
         var lists: [(start: Int, content: Int)] = []
+        func close() -> Bool {
+            guard let paragraph = open else { return true }
+            open = nil
+            guard let inline = Self.inline(paragraph.text, block: paragraph.block) else { return false }
+            if !runs.isEmpty { runs.append(.init(text: "\n")) }
+            if !paragraph.marker.isEmpty {
+                runs.append(.init(text: paragraph.marker, block: paragraph.block, indent: paragraph.depth))
+            }
+            runs.append(contentsOf: inline.map { var run = $0; run.indent = paragraph.depth; return run })
+            spans.append(paragraph.lines)
+            lastWasCode = false
+            return true
+        }
         while index < lines.count {
             var line = lines[index]
+            let number = index
             index += 1
-            if line.isEmpty { previousWasText = false; continue }
-            var block = NoteDocument.Block.text
-            var marker = ""
+            if line.isEmpty { guard close() else { return nil }; continue }
             if line == "```" {
+                guard close() else { return nil }
                 var code: [String] = []
                 while index < lines.count && lines[index] != "```" {
                     code.append(lines[index]); index += 1
@@ -39,7 +74,9 @@ struct MarkdownWritingDocument {
                 index += 1
                 if !runs.isEmpty { runs.append(.init(text: "\n")) }
                 runs.append(.init(text: code.joined(separator: "\n"), block: .code))
-                previousWasText = false
+                if lastWasCode, let last = spans.last { spans[spans.count - 1] = last.lowerBound..<index }
+                else { spans.append(number..<index) }
+                lastWasCode = true
                 lists = []
                 continue
             }
@@ -50,11 +87,32 @@ struct MarkdownWritingDocument {
                 ("- [ ] ", .checklist, "☐ "), ("- [x] ", .checklist, "☑ "),
                 ("- ", .bullet, "• "), ("> ", .quote, "")
             ]
+            var block = NoteDocument.Block.text
+            var marker = ""
             if let prefix = prefixes.first(where: { line.hasPrefix($0.0) }) {
                 line.removeFirst(prefix.0.count); block = prefix.1; marker = prefix.2
             } else if let range = line.range(of: #"^1\. "#, options: .regularExpression) {
                 line.removeSubrange(range); block = .numbered; marker = "1. "
             }
+            // Indentation, hard breaks and block extensions carry meaning that a
+            // paragraph-only rich editor cannot safely reconstruct.
+            guard !line.isEmpty, line == line.trimmingCharacters(in: .whitespaces),
+                  !line.contains("\t"), !line.hasPrefix("---"), !line.hasPrefix("==="),
+                  !line.hasPrefix("+++"), !line.hasPrefix("~~~"),
+                  !([.title, .heading, .subheading].contains(block)
+                    && line.range(of: #"\s+#+$"#, options: .regularExpression) != nil),
+                  !([.bullet, .numbered, .checklist, .quote].contains(block) && line.hasPrefix("#")),
+                  !(block == .text && line.range(of: #"^(\d+[.)] |[+*>-] |#{1,6}( |$))"#, options: .regularExpression) != nil)
+            else { return nil }
+            // A plain line straight after a paragraph, a list item or a quote carries on
+            // that paragraph, as does a quote line after a quote. The wrap reads as a space.
+            if let paragraph = open,
+               block == .text || block == .quote && paragraph.block == .quote && leading == 0 {
+                open?.text += " " + line
+                open?.lines = paragraph.lines.lowerBound..<index
+                continue
+            }
+            guard close() else { return nil }
             var depth = 0
             if NoteDocument.Block.lists.contains(block) {
                 let width = block == .numbered ? 3 : 2
@@ -66,35 +124,74 @@ struct MarkdownWritingDocument {
                 } else { return nil }
                 depth = lists.count - 1
             } else {
-                // An indented line that is not a list item continues an item or starts
-                // indented code, and neither has a place in the rich editor.
+                // An indented line that does not carry on a paragraph starts indented
+                // code, which has no place in the rich editor.
                 guard leading == 0 else { return nil }
                 lists = []
             }
-            // Indentation, soft wraps, hard breaks and block extensions carry meaning
-            // that a paragraph-only rich editor cannot safely reconstruct.
-            guard !line.isEmpty, line == line.trimmingCharacters(in: .whitespaces),
-                  !line.contains("\t"), !line.hasPrefix("---"), !line.hasPrefix("==="),
-                  !line.hasPrefix("+++"), !line.hasPrefix("~~~"),
-                  !([.title, .heading, .subheading].contains(block)
-                    && line.range(of: #"\s+#+$"#, options: .regularExpression) != nil),
-                  !([.bullet, .numbered, .checklist, .quote].contains(block) && line.hasPrefix("#")),
-                  !(block == .text && previousWasText),
-                  !(block == .text && line.range(of: #"^(\d+[.)] |[+*>#-] )"#, options: .regularExpression) != nil),
-                  let inline = Self.inline(line, block: block) else { return nil }
-            if !runs.isEmpty { runs.append(.init(text: "\n")) }
-            if !marker.isEmpty { runs.append(.init(text: marker, block: block, indent: depth)) }
-            runs.append(contentsOf: inline.map { var run = $0; run.indent = depth; return run })
-            previousWasText = block == .text
+            open = (block, marker, depth, line, number..<index)
+            // A heading is one line, so the next line starts a new block.
+            if [.title, .heading, .subheading].contains(block) { guard close() else { return nil } }
         }
-        document = NoteDocument(runs: Self.normalized(NoteDocument(runs: runs)))
+        guard close() else { return nil }
+        let document = NoteDocument(runs: Self.normalized(NoteDocument(runs: runs)))
+        let generated = document.markdownBlocks.map(\.text)
+        guard let first = spans.first, let last = spans.last, generated.count == spans.count else {
+            return (document, nil)
+        }
+        var original = Original(generated: generated)
+        original.texts = spans.map { lines[$0].joined(separator: "\n") }
+        original.gaps = [String(repeating: "\n", count: first.lowerBound)]
+        original.gaps += zip(spans, spans.dropFirst()).map { String(repeating: "\n", count: $1.lowerBound - $0.upperBound + 1) }
+        original.gaps.append(String(repeating: "\n", count: lines.count - last.upperBound))
+        return (document, original)
     }
 
     func markdown(afterEditing edited: NoteDocument) -> String {
         // AppKit coalesces adjacent runs, so compare their styled contents, not their
         // incidental run boundaries, before deciding whether anything was edited.
         if Self.normalized(edited) == Self.normalized(document) { return source }
-        return edited.markdown + (source.hasSuffix("\n") ? "\n" : "")
+        guard let original else { return edited.markdown + (source.hasSuffix("\n") ? "\n" : "") }
+        let blocks = NoteDocument(runs: Self.normalized(edited)).markdownBlocks
+        let matches = Self.matches(original.generated, blocks.map(\.text))
+        var result = original.gaps[0]
+        for (index, block) in blocks.enumerated() {
+            if index > 0 {
+                if let current = matches[index], let previous = matches[index - 1], current == previous + 1 {
+                    result += original.gaps[current]
+                } else {
+                    result += NoteDocument.separator(blocks[index - 1].block, block.block)
+                }
+            }
+            result += matches[index].map { original.texts[$0] } ?? block.text
+        }
+        return result + original.gaps[original.gaps.count - 1]
+    }
+
+    // For each new block, the unchanged original block it lines up with, found as the
+    // longest run of blocks the two versions share in order.
+    private static func matches(_ old: [String], _ new: [String]) -> [Int?] {
+        var result = [Int?](repeating: nil, count: new.count)
+        var head = 0
+        while head < old.count, head < new.count, old[head] == new[head] { result[head] = head; head += 1 }
+        var tail = 0
+        while tail < old.count - head, tail < new.count - head, old[old.count - 1 - tail] == new[new.count - 1 - tail] {
+            result[new.count - 1 - tail] = old.count - 1 - tail; tail += 1
+        }
+        let a = Array(old[head..<(old.count - tail)]), b = Array(new[head..<(new.count - tail)])
+        guard !a.isEmpty, !b.isEmpty else { return result }
+        var table = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
+        for i in stride(from: a.count - 1, through: 0, by: -1) {
+            for j in stride(from: b.count - 1, through: 0, by: -1) {
+                table[i][j] = a[i] == b[j] ? table[i + 1][j + 1] + 1 : max(table[i + 1][j], table[i][j + 1])
+            }
+        }
+        var i = 0, j = 0
+        while i < a.count, j < b.count {
+            if a[i] == b[j] { result[head + j] = head + i; i += 1; j += 1 }
+            else if table[i + 1][j] >= table[i][j + 1] { i += 1 } else { j += 1 }
+        }
+        return result
     }
 
     private static func normalized(_ document: NoteDocument) -> [NoteDocument.Run] {

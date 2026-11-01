@@ -92,7 +92,8 @@ struct ExplorerView: View {
     @Environment(MenuPresenter.self) private var menus
     @State private var personalNoteID: UUID?
     @State private var markdownOnly = false
-    @State private var markdownMode = MarkdownEditorMode.write
+    @State private var markdownMode = MarkdownEditorMode.edit
+    @State private var markdownCanEdit = true
     @State private var saveErrors: [String: String] = [:]
 
     // Children are kept per folder rather than as a nested tree, so a folder can be read
@@ -902,12 +903,15 @@ struct ExplorerView: View {
                     .padding(.horizontal, 7).padding(.vertical, 4)
                     .background(Theme.field, in: RoundedRectangle(cornerRadius: 6))
             }
+            // A narrow header has no room beside the actions, so the pills share the title's line.
+            if compact { markdownModes(node) }
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: compact ? 24 : nil, alignment: .leading)
     }
 
     private func fileActions(_ node: FileNode, compact: Bool) -> some View {
         HStack(spacing: compact ? 2 : 5) {
+            if !compact { markdownModes(node) }
             if isEditable { saveButtons(node) }
             ExplorerIcon(symbol: "magnifyingglass", label: "Find in file (Cmd+F or Ctrl+F)", action: showFind)
                 .disabled(!canFind)
@@ -920,8 +924,8 @@ struct ExplorerView: View {
                 .appMenu {
                     var items: [MenuEntry] = []
                     if node.supportsMarkdownPreview {
-                        items.append(.item(markdownMode == .preview ? "Write Markdown" : "Preview Markdown") {
-                            resetFind(); markdownMode = markdownMode == .preview ? .write : .preview
+                        items.append(.item(markdownMode == .preview ? "Edit Markdown" : "Preview Markdown") {
+                            resetFind(); markdownMode = markdownMode == .preview ? .edit : .preview
                         })
                         items.append(.item("Export a Markdown copy") {
                             exportMarkdown(draft, name: node.name, dialogs: dialogs, notify: { showNote($0) })
@@ -932,6 +936,17 @@ struct ExplorerView: View {
                                     .item("Reveal in Finder") { revealInFinder(node) }]
                 }
         }.fixedSize()
+    }
+
+    @ViewBuilder private func markdownModes(_ node: FileNode) -> some View {
+        switch preview {
+        case .text, .empty:
+            if node.supportsMarkdownPreview {
+                MarkdownModePicker(mode: $markdownMode, canEdit: markdownCanEdit)
+                    .padding(.trailing, 6).transition(.fadeIn)
+            }
+        default: EmptyView()
+        }
     }
 
     private var editStatusMessage: String {
@@ -1054,7 +1069,7 @@ struct ExplorerView: View {
                                                                    matches: findPresented ? findResult.matches : revealedMatches,
                                                                    currentMatch: findPresented ? currentFindMatch : nil,
                                                                    findQuery: findQuery, revealLine: lineToReveal, onFind: showFind)),
-                               onOutline: { lineToReveal = $0 })
+                               onOutline: { lineToReveal = $0 }, canEdit: $markdownCanEdit)
             } else {
                 CodeEditorView(documentID: node.path,
                                text: $draft,
@@ -1836,7 +1851,7 @@ struct ExplorerView: View {
         let generation = previewGeneration
         resetFind()
         selected = node
-        markdownMode = line == nil ? documents.modes[node.path] ?? .write : .source
+        markdownMode = line == nil ? documents.modes[node.path] ?? .edit : .source
         fileWasSaved = false
         documents.open(node)
         lineToReveal = line
