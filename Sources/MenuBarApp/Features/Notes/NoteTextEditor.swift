@@ -238,7 +238,7 @@ struct NoteTextEditor: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-            if let safe = NoteDocument.safeLink(String(describing: link)), let url = URL(string: safe) {
+            if let kept = NoteDocument.keptLink(String(describing: link)), let url = URL(string: kept) {
                 parent.onLink(url)
             }
             return true

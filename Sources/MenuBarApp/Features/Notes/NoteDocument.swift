@@ -4,7 +4,9 @@ import AppKit
 // resolved when read, so documents follow the current appearance and never archive objects.
 struct NoteDocument: Codable, Equatable, Sendable {
     enum Block: String, Codable, Sendable, CaseIterable {
-        case text, title, heading, subheading, bullet, numbered, checklist, quote, code
+        // Literal is Markdown the editor cannot show as formatting. It keeps its source as
+        // written and is never offered as a style.
+        case text, title, heading, subheading, bullet, numbered, checklist, quote, code, literal
 
         var title: String {
             switch self {
@@ -17,6 +19,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
             case .checklist: "Checklist"
             case .quote: "Quote"
             case .code: "Code block"
+            case .literal: "Markdown source"
             }
         }
 
@@ -44,7 +47,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
             runs.append(Run(text: attributed.attributedSubstring(from: range).string,
                             bold: traits.contains(.bold) && ![.title, .heading, .subheading].contains(block),
                             italic: traits.contains(.italic), block: block,
-                            link: Self.safeLink(attributes[.link].map { String(describing: $0) }),
+                            link: Self.keptLink(attributes[.link].map { String(describing: $0) }),
                             code: attributes[.noteCode] as? Bool ?? false,
                             indent: attributes[.noteIndent] as? Int ?? 0))
         }
@@ -57,7 +60,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
         for run in runs {
             var attributes = Self.attributes(block: run.block, bold: run.bold, italic: run.italic,
                                              code: run.code, indent: run.indent)
-            if let link = Self.safeLink(run.link) { attributes[.link] = link }
+            if let link = Self.keptLink(run.link) { attributes[.link] = link }
             result.append(NSAttributedString(string: run.text, attributes: attributes))
         }
         var offset = 0
@@ -76,7 +79,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
     @MainActor static func attributes(block: Block = .text, bold: Bool = false, italic: Bool = false,
                                      code: Bool = false, indent: Int = 0) -> [NSAttributedString.Key: Any] {
         let size: CGFloat = block == .title ? 30 : block == .heading ? 21 : block == .subheading ? 17 : 14
-        var font = block == .code ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        var font = block == .code || block == .literal ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
             : code ? NSFont.monospacedSystemFont(ofSize: size - 1, weight: bold ? .semibold : .regular)
             : NSFont.systemFont(ofSize: size, weight: bold || [.title, .heading, .subheading].contains(block) ? .semibold : .regular)
         if italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
@@ -93,6 +96,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
         if indent > 0 { attributes[.noteIndent] = indent }
         if code && block != .code { attributes[.noteCode] = true }
         if block == .quote { attributes[.foregroundColor] = Theme.accentNSColor }
+        if block == .literal { attributes[.foregroundColor] = NSColor.secondaryLabelColor }
         if block == .code || block == .quote || code {
             attributes[.backgroundColor] = Theme.accentNSColor.withAlphaComponent(0.07)
         }
@@ -103,6 +107,16 @@ struct NoteDocument: Codable, Equatable, Sendable {
         guard let value, let url = URL(string: value),
               ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         guard url.scheme?.lowercased() == "mailto" ? !url.path.isEmpty : url.host?.isEmpty == false else { return nil }
+        return value
+    }
+
+    // A link a document already holds: a web or mail link, or a path to a file beside it,
+    // which project documents use to point at each other. New links still go through
+    // safeLink, so a typed address without a scheme is not mistaken for a path.
+    static func keptLink(_ value: String?) -> String? {
+        if let web = safeLink(value) { return web }
+        guard let value, !value.isEmpty, !value.hasPrefix("//"), !value.contains(where: \.isWhitespace),
+              let url = URL(string: value), url.scheme == nil, url.host == nil else { return nil }
         return value
     }
 
@@ -149,19 +163,26 @@ struct NoteDocument: Codable, Equatable, Sendable {
         }
         if !current.isEmpty { lines.append((current.first?.block ?? .text, current)) }
         var output: [(block: Block, text: String)] = []
-        var code: [String] = []
+        // Code and literal lines are kept whole, blank lines included, until the block ends.
+        var verbatim: (block: Block, lines: [String])?
         // Where each open list item's text starts, so a nested item lines up under it.
         var listContent: [Int] = []
         func flushCode() {
-            guard !code.isEmpty else { return }
-            let text = code.joined(separator: "\n")
+            guard let (block, lines) = verbatim else { return }
+            verbatim = nil
+            let text = lines.joined(separator: "\n")
+            guard block == .code else { output.append((block, text)); return }
             let longest = text.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
             let fence = String(repeating: "`", count: max(3, longest + 1))
             output.append((.code, "\(fence)\n\(text)\n\(fence)"))
-            code = []
         }
         for (block, runs) in lines {
-            if block == .code { code.append(runs.map(\.text).joined()); listContent = []; continue }
+            if block == .code || block == .literal {
+                if verbatim?.block != block { flushCode() }
+                verbatim = (block, (verbatim?.lines ?? []) + [runs.map(\.text).joined()])
+                listContent = []
+                continue
+            }
             flushCode()
             var runs = runs
             var prefix = ""
@@ -206,7 +227,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
                 guard !text.isEmpty else { return run.text }
                 if run.italic { text = "*\(text)*" }
                 if run.bold && ![.title, .heading, .subheading].contains(block) { text = "**\(text)**" }
-                if let link = Self.safeLink(run.link) { text = "[\(text)](<\(link.replacingOccurrences(of: ">", with: "%3E"))>)" }
+                if let link = Self.keptLink(run.link) { text = "[\(text)](<\(link.replacingOccurrences(of: ">", with: "%3E"))>)" }
                 return leading + text + trailing
             }.joined()
             output.append((block, indentation + prefix + text))
@@ -225,7 +246,7 @@ struct NoteDocument: Codable, Equatable, Sendable {
         var text = fence + padded + fence
         if run.italic { text = "*\(text)*" }
         if run.bold && ![.title, .heading, .subheading].contains(run.block) { text = "**\(text)**" }
-        if let link = safeLink(run.link) { text = "[\(text)](<\(link.replacingOccurrences(of: ">", with: "%3E"))>)" }
+        if let link = keptLink(run.link) { text = "[\(text)](<\(link.replacingOccurrences(of: ">", with: "%3E"))>)" }
         return text
     }
 

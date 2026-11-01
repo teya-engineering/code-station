@@ -999,9 +999,31 @@ struct ExplorerView: View {
     }
 
     private func noteLinkOpened(_ url: URL) {
+        if url.isFileURL { openLinkedFile(url); return }
         showNote(url.scheme == "mailto"
                  ? "Opened your mail app"
                  : "Opened \(url.host() ?? "the link") in your browser")
+    }
+
+    // A linked file in this project opens here. A folder, or a file outside the project,
+    // has no place in the tree, so Finder shows it instead.
+    private func openLinkedFile(_ url: URL) {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else {
+            showNote("Could not find \(url.lastPathComponent)", icon: "questionmark.folder")
+            return
+        }
+        guard !isFolder.boolValue, url.path.pathRelative(to: root) != nil else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            showNote("Showed \(url.lastPathComponent) in Finder")
+            return
+        }
+        Task {
+            let siblings = await FileTree.children(of: url.deletingLastPathComponent(), includeHidden: true)
+            if let node = siblings.first(where: { $0.url.standardizedFileURL.path == url.path }) {
+                revealAndSelect(node)
+            }
+        }
     }
 
     private func bodyKind(_ node: FileNode) -> String {

@@ -47,7 +47,7 @@ struct MarkdownEditor: View {
             if mode != .preview && writing == nil {
                 HStack(spacing: 8) {
                     Image(systemName: "curlybraces")
-                    Text("Edit is off for this file. It uses Markdown that Edit cannot show, such as tables, images or HTML. Change it in Source.")
+                    Text("Edit is off for this file. It uses Windows line endings, which Edit would change. Change it in Source.")
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
@@ -109,7 +109,7 @@ struct MarkdownEditor: View {
         HStack(spacing: 3) {
             ActionButton(title: editor.block.title, tone: .outlined, height: 28, size: 10, disclosure: true)
                 .appMenu {
-                    NoteDocument.Block.allCases.map { block in
+                    NoteDocument.Block.allCases.filter { $0 != .literal }.map { block in
                         .item(block.title, checked: editor.block == block) { editor.setBlock(block) }
                     }
                 }.accessibilityLabel("Text style")
@@ -132,6 +132,19 @@ struct MarkdownEditor: View {
             .accessibilityLabel(label).accessibilityAddTraits(selected ? .isSelected : []).appTooltip(label)
     }
 
+    // A path to another file is resolved beside this document and handed to the host,
+    // which knows where to show it. Anchor-only links have nowhere to go.
+    private func openLink(_ url: URL) {
+        guard url.scheme == nil else {
+            NSWorkspace.shared.open(url)
+            onLink(url)
+            return
+        }
+        let path = url.path(percentEncoded: false)
+        guard !basePath.isEmpty, !path.isEmpty else { return }
+        onLink(URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: basePath, isDirectory: true)).standardizedFileURL)
+    }
+
     @ViewBuilder private var page: some View {
         switch activeMode {
         case .edit:
@@ -147,7 +160,7 @@ struct MarkdownEditor: View {
                                            self.writing = MarkdownWritingDocument(source: source, document: edited)
                                        }, onFiles: { _ in unsupportedPaste() },
                                        onImage: { _ in unsupportedPaste() },
-                                       onLink: { NSWorkspace.shared.open($0); onLink($0) }, height: $height)
+                                       onLink: openLink, height: $height)
                             .frame(minHeight: height)
                             .accessibilityLabel("Markdown document")
                     }

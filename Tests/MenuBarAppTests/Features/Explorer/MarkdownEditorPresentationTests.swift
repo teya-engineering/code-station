@@ -58,7 +58,7 @@ import Testing
         #expect(draft.source == edited)
         draft.source = original
         #expect(await waitUntil { self.textViews(host.view).contains { $0 is NoteTextView && !$0.string.contains("Edited") } })
-        draft.source = "| Keep unsupported Markdown |"
+        draft.source = "Windows\r\nline endings"
         #expect(await waitUntil { draft.mode == .source })
         draft.source = "# Supported again"
         try await Task.sleep(for: .milliseconds(50))

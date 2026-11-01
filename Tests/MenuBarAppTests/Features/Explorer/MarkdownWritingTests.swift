@@ -24,13 +24,60 @@ import Testing
     }
 
     @Test(arguments: [
-        "---\ntitle: Plan\n---\n", "| A | B |\n| - | - |\n", "![alt](image.png)",
+        "---\ntitle: Plan\n---", "| A | B |\n| - | - |", "![alt](image.png)",
         "```swift\nlet x = 1\n```", "An `open code span", "<div>Keep</div>",
         "- Parent\n   - Too deep", "  Indented text", "- Item\n\n  second paragraph", "line  \nbreak", "Title\n=====",
         "[link][ref]\n\n[ref]: https://example.com", "1. One\n2. Two", "A &copy; symbol",
-        "# Heading ##", "** not bold**", "- # Nested heading", "Text\n2. Not a list", "#### Deep heading"
-    ]) func unsupportedSyntaxStaysInSource(_ source: String) {
-        #expect(MarkdownWritingDocument(source) == nil)
+        "# Heading ##", "** not bold**", "- # Nested heading", "Text\n2. Not a list", "#### Deep heading",
+        "[run](javascript:alert(1))", "[file](file:///etc/passwd)", "[host](//example.com/a)", "[gap](docs/a b.md)"
+    ]) func unreadableSyntaxOpensAsLiteralSourceAndSurvivesAnEdit(_ part: String) throws {
+        let source = "Intro\n\n\(part)\n\nOutro\n"
+        let writing = try #require(MarkdownWritingDocument(source))
+        #expect(writing.document.runs.contains { $0.block == .literal })
+        #expect(writing.document.text.hasPrefix("Intro\n"))
+        var edited = writing.document
+        let index = try #require(edited.runs.lastIndex { $0.text.hasSuffix("Outro") })
+        edited.runs[index].text += ", edited"
+        #expect(writing.markdown(afterEditing: edited) == "Intro\n\n\(part)\n\nOutro, edited\n")
+    }
+
+    @Test func aFencedBlockWithBlankLinesStaysOneLiteralBlock() throws {
+        let source = "# Setup\n\n```swift\nlet a = 1\n\nlet b = 2\n```\nAfter the fence\n\n| A | B |\n| - | - |\n\nThe end.\n"
+        let writing = try #require(MarkdownWritingDocument(source))
+        let literals = writing.document.runs.filter { $0.block == .literal }.map(\.text)
+        #expect(literals == ["```swift\nlet a = 1\n\nlet b = 2\n```", "| A | B |\n| - | - |"])
+        var edited = writing.document
+        let index = try #require(edited.runs.firstIndex { $0.text == "Setup" })
+        edited.runs[index].text = "Set up"
+        #expect(writing.markdown(afterEditing: edited) == source.replacingOccurrences(of: "# Setup", with: "# Set up"))
+    }
+
+    @Test func editingALiteralBlockWritesItBackAsTyped() throws {
+        let source = "Intro\n\n| A | B |\n| - | - |\n"
+        let writing = try #require(MarkdownWritingDocument(source))
+        var edited = writing.document
+        let index = try #require(edited.runs.firstIndex { $0.block == .literal })
+        edited.runs[index].text += "\n| 1 | 2 |"
+        #expect(writing.markdown(afterEditing: edited) == "Intro\n\n| A | B |\n| - | - |\n| 1 | 2 |\n")
+    }
+
+    @Test func windowsLineEndingsKeepEditOff() {
+        #expect(MarkdownWritingDocument("One\r\nTwo") == nil)
+    }
+
+    @Test func linksToOtherFilesOpenInEditAndSurviveAnEdit() throws {
+        let source = "# Guide\n\nSee [ADR 5 🧪](docs/adrs/0005-testing.md) and [the SLOs](../slos.md#targets).\n\nThe end.\n"
+        let writing = try #require(MarkdownWritingDocument(source))
+        #expect(writing.document.runs.contains { $0.text == "ADR 5 🧪" && $0.link == "docs/adrs/0005-testing.md" })
+        #expect(writing.markdown(afterEditing: NoteDocument(writing.document.attributed)) == source)
+
+        var edited = NoteDocument(writing.document.attributed)
+        let index = try #require(edited.runs.firstIndex { $0.text.contains("See ") })
+        edited.runs[index].text = edited.runs[index].text.replacingOccurrences(of: "See ", with: "Read ")
+        let result = writing.markdown(afterEditing: edited)
+        #expect(result.contains("Read [ADR 5 🧪](<docs/adrs/0005-testing.md>) and [the SLOs](<../slos.md#targets>)."))
+        #expect(MarkdownWritingDocument(result) != nil)
+        #expect(NoteDocument.safeLink("docs/slos.md") == nil)
     }
 
     @Test func wrappedLinesOpenInEditAsOneParagraph() throws {
