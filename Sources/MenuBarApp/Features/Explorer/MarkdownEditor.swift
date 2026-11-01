@@ -197,10 +197,6 @@ struct MarkdownEditor: View {
                     }
                 }
             }
-            Label("Part of your project", systemImage: "doc.text")
-                .font(.system(size: 11, weight: .medium))
-            Text("Edits stay here until you save the file.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
         }.padding(18).overlay(alignment: .leading) { Rectangle().fill(Theme.hairline).frame(width: 1) }
     }
 
