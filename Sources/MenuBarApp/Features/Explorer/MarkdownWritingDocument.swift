@@ -4,7 +4,7 @@ enum MarkdownEditorMode: String, CaseIterable {
     case edit = "Edit", source = "Source", preview = "Preview"
 }
 
-// Source stays authoritative. Only syntax that the notebook can express is admitted
+// Source stays authoritative. Only syntax that the editor can express is admitted
 // to Edit; everything else remains editable in Source without a lossy conversion.
 struct MarkdownWritingDocument {
     let source: String

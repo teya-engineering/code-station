@@ -52,7 +52,6 @@ struct ExplorerView: View {
 
     var repositories: [ChangesRepository] = []
     var designFilesRoot: String?
-    var notesScope: String
     @Binding var collapsedProjects: Set<String>
     var selectRoot: (String) -> Void = { _ in }
     // The project row the keyboard is on. The keyboard lands on a file by selecting it,
@@ -67,8 +66,7 @@ struct ExplorerView: View {
          openFolders: Binding<Int>? = nil, refreshed: @escaping (Int) -> Void = { _ in },
          repositories: [ChangesRepository] = [], designFilesRoot: String? = nil,
          collapsedProjects: Binding<Set<String>> = .constant([]),
-         selectRoot: @escaping (String) -> Void = { _ in },
-         notesScope: String? = nil) {
+         selectRoot: @escaping (String) -> Void = { _ in }) {
         self.root = root
         self.reveal = reveal
         self.command = command
@@ -79,7 +77,6 @@ struct ExplorerView: View {
         self.designFilesRoot = designFilesRoot
         self._collapsedProjects = collapsedProjects
         self.selectRoot = selectRoot
-        self.notesScope = notesScope ?? root
     }
 
     private var projectRoots: [ChangesRepository] {
@@ -88,9 +85,7 @@ struct ExplorerView: View {
 
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(ExplorerMemory.self) private var memory
-    @Environment(NotebookStore.self) private var notebook
     @Environment(MenuPresenter.self) private var menus
-    @State private var personalNoteID: UUID?
     @State private var markdownOnly = false
     @State private var markdownMode = MarkdownEditorMode.edit
     @State private var markdownCanEdit = true
@@ -243,8 +238,7 @@ struct ExplorerView: View {
         }
         .background(ExplorerSearchShortcut { showFinder(.names) })
         .background(ExplorerFileShortcuts(
-            enabled: treeFocused && projectCursor == nil && dialogs.current == nil && !pastingFiles
-                && personalNoteID == nil,
+            enabled: treeFocused && projectCursor == nil && dialogs.current == nil && !pastingFiles,
             onCopy: copySelected,
             onPaste: { pasteFiles(at: selected) },
             onTrash: trashSelected,
@@ -257,7 +251,6 @@ struct ExplorerView: View {
         .onAppear {
             closeTabMonitor.start {
                 guard dialogs.current == nil, renaming == nil else { return false }
-                if personalNoteID != nil { personalNoteID = nil; return true }
                 guard
                       let open = documents.tabs.first(where: { $0.path == selected?.path }) ?? documents.tabs.last
                 else { return false }
@@ -407,30 +400,6 @@ struct ExplorerView: View {
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 7).padding(.vertical, 9)
     }
 
-    private func createPersonalNote() {
-        guard let id = notebook.create(scope: notesScope) else { return }
-        openPersonalNote(id)
-    }
-
-    private func openPersonalNote(_ id: UUID) {
-        rememberDraft()
-        personalNoteID = id
-        resetFind()
-        notebook.select(id)
-        narrowNavigator = false
-    }
-
-    private func revealMovedNote(_ url: URL) {
-        personalNoteID = nil
-        showNote("Moved to \(url.lastPathComponent)", icon: "doc.text")
-        Task {
-            await reopenFolders()
-            if let node = await FileTree.children(of: url.deletingLastPathComponent(), includeHidden: true).first(where: { $0.url == url }) {
-                revealAndSelect(node)
-            }
-        }
-    }
-
     // MARK: - Tree
 
     // One visible row: the entry and how deep it sits. Folders that are shut contribute
@@ -540,12 +509,7 @@ struct ExplorerView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                ExplorerNotesShelf(scope: notesScope, selected: personalNoteID, open: openPersonalNote, create: createPersonalNote)
-                navigatorFooter
-            }
-        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { navigatorFooter }
         .background(Theme.background)
         .overlay {
             if dropHover?.folder == root {
@@ -584,7 +548,7 @@ struct ExplorerView: View {
     private func plainRow(_ row: Row) -> some View {
         let node = row.node
         let isOpen = expanded.contains(node.path)
-        let isSelected = selected?.path == node.path && personalNoteID == nil
+        let isSelected = selected?.path == node.path
         let isDropTarget = dropHover?.folder == node.path
         let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
 
@@ -733,7 +697,7 @@ struct ExplorerView: View {
 
     private func detail(navigatorVisible: Bool) -> some View {
         GeometryReader { geometry in
-            let inlineDetails = personalNoteID == nil && ExplorerSplitLayout.showsInlineDetails(availableWidth: geometry.size.width)
+            let inlineDetails = ExplorerSplitLayout.showsInlineDetails(availableWidth: geometry.size.width)
             let editorWidth = max(0, geometry.size.width
                 - (detailsPresented && selected != nil && inlineDetails ? ExplorerSplitLayout.detailsWidth : 0))
             let compact = editorWidth < 530
@@ -741,14 +705,7 @@ struct ExplorerView: View {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     editorTabs(navigatorVisible: navigatorVisible)
-                    if let personalNoteID {
-                        ExplorerPersonalNote(id: personalNoteID,
-                                             projects: projectRoots.filter { $0.root != designFilesRoot },
-                                             moved: revealMovedNote, close: { self.personalNoteID = nil },
-                                             notify: { showNote($0) }, open: openPersonalNote)
-                            .id(personalNoteID)
-                            .transition(.headerPage(reduceMotion: reduceMotion))
-                    } else if let node = selected {
+                    if let node = selected {
                         breadcrumbs(node, inset: inset)
                         let header = compact
                             ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 3))
@@ -783,13 +740,13 @@ struct ExplorerView: View {
                 // Source lines and long names must not set the minimum width of the header and footer.
                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(width: editorWidth, alignment: .leading)
-                if personalNoteID == nil, detailsPresented, let node = selected, inlineDetails {
+                if detailsPresented, let node = selected, inlineDetails {
                     fileDetails(node).frame(width: ExplorerSplitLayout.detailsWidth)
                         .transition(.popover(reduceMotion: reduceMotion))
                 }
             }
             .overlay(alignment: .trailing) {
-                let overlaid = personalNoteID == nil && detailsPresented && selected != nil && !inlineDetails
+                let overlaid = detailsPresented && selected != nil && !inlineDetails
                 ZStack(alignment: .trailing) {
                     if overlaid {
                         Color.black.opacity(0.12).onTapGesture { detailsPresented = false }
@@ -806,7 +763,6 @@ struct ExplorerView: View {
         }
         .background(Theme.card)
         .motion(Motion.reveal, value: selected?.path)
-        .motion(Motion.reveal, value: personalNoteID)
     }
 
     private func editorTabs(navigatorVisible: Bool) -> some View {
@@ -832,18 +788,18 @@ struct ExplorerView: View {
                                                 .transition(markLands)
                                         }
                                     }
-                                    .font(.system(size: 11, weight: node.path == selected?.path && personalNoteID == nil ? .semibold : .regular))
+                                    .font(.system(size: 11, weight: node.path == selected?.path ? .semibold : .regular))
                                     .padding(.leading, 10).frame(height: 40).contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityAddTraits(node.path == selected?.path && personalNoteID == nil ? .isSelected : [])
+                                .accessibilityAddTraits(node.path == selected?.path ? .isSelected : [])
                                 ExplorerIcon(symbol: "xmark", label: "Close \(node.name)") { closeTab(node) }
                             }
                             .frame(maxWidth: 230)
-                            .background(node.path == selected?.path && personalNoteID == nil ? Theme.card : .clear)
+                            .background(node.path == selected?.path ? Theme.card : .clear)
                             .hoverFill(cornerRadius: 0)
                             .overlay(alignment: .bottom) {
-                                if node.path == selected?.path && personalNoteID == nil {
+                                if node.path == selected?.path {
                                     Rectangle().fill(Theme.accent).frame(height: 2)
                                         .matchedGeometryEffect(id: "underline", in: tabUnderline)
                                 }
@@ -1154,7 +1110,7 @@ struct ExplorerView: View {
     // A file worth searching is open and nothing is in front of it. While this is false
     // both strokes are left alone, so Cmd+F still opens the sidebar's filter.
     private var canFind: Bool {
-        isEditable && personalNoteID == nil && dialogs.current == nil
+        isEditable && dialogs.current == nil
     }
 
     private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }
@@ -1530,7 +1486,6 @@ struct ExplorerView: View {
         openedRoot = root
         let place = memory.place(for: root) ?? ExplorerMemory.Place()
         documents = place.documents
-        personalNoteID = place.personalNoteID.flatMap { notebook.note($0)?.id }
         if let edit = place.unsaved { documents.edits[edit.path] = edit }
         if children.isEmpty {
             for project in projectRoots {
@@ -1587,7 +1542,7 @@ struct ExplorerView: View {
                               showHidden: showHidden,
                               treeWidth: treeWidth,
                               unsaved: unsaved,
-                              documents: documents, personalNoteID: personalNoteID),
+                              documents: documents),
                         for: openedRoot)
     }
 
@@ -1743,7 +1698,6 @@ struct ExplorerView: View {
 
     // Each open file keeps its own draft, so moving through the tree never discards edits.
     private func requestSelect(_ node: FileNode, line: Int? = nil, marking query: String? = nil) {
-        personalNoteID = nil
         if let owner = projectRoots.filter({ isInside(node.path, $0.root) }).max(by: { $0.root.count < $1.root.count }),
            owner.root != root {
             reveal.wrappedValue = ExplorerReveal(path: node.path, line: line)
@@ -1792,7 +1746,7 @@ struct ExplorerView: View {
     }
 
     private func save(_ node: FileNode) {
-        guard !saving, personalNoteID == nil else { return }
+        guard !saving else { return }
         let saved = draft
         let expectedModification = loadedAt
         Task {

@@ -11,7 +11,6 @@ struct RootView: View {
     @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(AppSettings.self) private var settings
     @Environment(ShortcutStore.self) private var shortcuts
-    @Environment(NotebookStore.self) private var notebook
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
@@ -286,8 +285,7 @@ struct RootView: View {
          runner.reviews.loadError, runner.reviews.saveError,
          dispatch.loadError, dispatch.saveError,
          dispatchAuth.loadError, dispatchAuth.saveError,
-         shortcuts.loadError, shortcuts.saveError,
-         notebook.loadError, notebook.saveError]
+         shortcuts.loadError, shortcuts.saveError]
             .compactMap { $0 }
             .first
     }

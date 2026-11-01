@@ -6,12 +6,9 @@ struct MarkdownEditor: View {
     @Binding var source: String
     @Binding var mode: MarkdownEditorMode
     var basePath = ""
-    var personal = false
     var onLink: (URL) -> Void = { _ in }
     var sourceEditor: AnyView?
     var onOutline: ((Int) -> Void)?
-    var onFiles: (([URL]) -> Void)?
-    var onImage: ((Data) -> Void)?
     var editable: Bool
     // A host with its own header shows the mode pills there, and learns through this
     // whether the file can open in Edit.
@@ -25,23 +22,18 @@ struct MarkdownEditor: View {
     @State private var outlineLine: Int?
 
     init(documentID: String, source: Binding<String>, mode: Binding<MarkdownEditorMode>,
-         basePath: String = "", personal: Bool = false, onLink: @escaping (URL) -> Void = { _ in },
+         basePath: String = "", onLink: @escaping (URL) -> Void = { _ in },
          sourceEditor: AnyView? = nil, onOutline: ((Int) -> Void)? = nil,
-         onFiles: (([URL]) -> Void)? = nil, onImage: ((Data) -> Void)? = nil,
-         editor: NoteEditorController? = nil, editable: Bool = true, canEdit: Binding<Bool>? = nil) {
+         editable: Bool = true, canEdit: Binding<Bool>? = nil) {
         self.documentID = documentID
         self._source = source
         self._mode = mode
         self.basePath = basePath
-        self.personal = personal
         self.onLink = onLink
         self.sourceEditor = sourceEditor
         self.onOutline = onOutline
-        self.onFiles = onFiles
-        self.onImage = onImage
         self.editable = editable
         self.canEdit = canEdit
-        self._editor = State(initialValue: editor ?? NoteEditorController())
         self._writing = State(initialValue: MarkdownWritingDocument(source.wrappedValue))
     }
 
@@ -145,8 +137,7 @@ struct MarkdownEditor: View {
         case .edit:
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Label(personal ? "Personal note · Only on this Mac" : "Project document · In this working tree",
-                          systemImage: personal ? "lock" : "doc.text")
+                    Label("Project document · In this working tree", systemImage: "doc.text")
                         .font(.system(size: 11)).foregroundStyle(Theme.accent)
                     if let writing {
                         NoteTextEditor(document: writing.document, controller: editor, editable: editable,
@@ -154,8 +145,8 @@ struct MarkdownEditor: View {
                                            let current = writing.source == source ? writing : MarkdownWritingDocument(source)
                                            source = (current ?? writing).markdown(afterEditing: edited)
                                            self.writing = MarkdownWritingDocument(source: source, document: edited)
-                                       }, onFiles: onFiles ?? { _ in unsupportedPaste() },
-                                       onImage: onImage ?? { _ in unsupportedPaste() },
+                                       }, onFiles: { _ in unsupportedPaste() },
+                                       onImage: { _ in unsupportedPaste() },
                                        onLink: { NSWorkspace.shared.open($0); onLink($0) }, height: $height)
                             .frame(minHeight: height)
                             .accessibilityLabel("Markdown document")
@@ -193,9 +184,9 @@ struct MarkdownEditor: View {
                     }
                 }
             }
-            Label(personal ? "Personal note" : "Part of your project", systemImage: personal ? "lock" : "doc.text")
+            Label("Part of your project", systemImage: "doc.text")
                 .font(.system(size: 11, weight: .medium))
-            Text(personal ? "Saves automatically on this Mac." : "Edits stay here until you save the file.")
+            Text("Edits stay here until you save the file.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
         }.padding(18).overlay(alignment: .leading) { Rectangle().fill(Theme.hairline).frame(width: 1) }
     }

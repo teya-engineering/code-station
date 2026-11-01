@@ -74,7 +74,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let dispatchRunner = DispatchRunner()
     private let dispatchAuth = DispatchAuthStore()
     private let shortcuts = ShortcutStore()
-    private let notebook = NotebookStore()
     private let appUpdates = AppUpdateChecker()
     private let accountUsage = AccountUsageMonitor()
     private let quitGuard = QuitGuard()
@@ -246,7 +245,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     .environment(dispatchRunner)
                     .environment(dispatchAuth)
                     .environment(shortcuts)
-                    .environment(notebook)
                     .environment(appUpdates)
                     .environment(accountUsage)
                     .environment(quitGuard)
@@ -295,7 +293,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         projects.save()
         dispatch.save()
         dispatchAuth.save()
-        notebook.flush()
         store.flushPendingSave()
         runner.reviews.flush()
     }

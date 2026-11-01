@@ -22,7 +22,7 @@ struct ExplorerHeaderTests {
         let dialogs = DialogPresenter()
         let hosting = NSHostingController(rootView: ExplorerView(root: root.path)
             .environment(\._accessibilityReduceMotion, reduceMotion)
-            .environment(memory).environment(dialogs).environment(NotebookStore(directory: root.appendingPathComponent("notebook"))).appOverlays())
+            .environment(memory).environment(dialogs).appOverlays())
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
                               styleMask: [.titled], backing: .buffered, defer: false)

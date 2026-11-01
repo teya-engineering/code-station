@@ -15,7 +15,6 @@ final class ExplorerMemory {
         // again on return, so it shows whatever an agent has written since.
         var unsaved: UnsavedEdit?
         var documents = ExplorerDocuments()
-        var personalNoteID: UUID?
     }
 
     struct UnsavedEdit {

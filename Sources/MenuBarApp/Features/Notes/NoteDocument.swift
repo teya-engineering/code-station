@@ -1,37 +1,6 @@
 import AppKit
 
-struct QuickNote: Identifiable, Codable, Equatable, Sendable {
-    var id = UUID()
-    var title = ""
-    var body = NoteDocument()
-    var pinned = false
-    var createdAt = Date.now
-    var editedAt = Date.now
-    var attachments: [NoteAttachment] = []
-    var scopeID: String?
-    var markdownSource: String?
-
-    var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : title }
-    var wordCount: Int { body.text.split(whereSeparator: \.isWhitespace).filter { !["☐", "☑", "•"].contains($0) }.count }
-
-    func matches(_ query: String) -> Bool {
-        let words = query.split(whereSeparator: \.isWhitespace)
-        let searchable = ([title, markdownSource ?? body.text] + attachments.map(\.name)).joined(separator: " ")
-        return words.allSatisfy { searchable.localizedStandardContains($0) }
-    }
-
-    var bodyMarkdown: String { markdownSource ?? body.markdown }
-    var markdown: String { "# \(NoteDocument.escape(displayTitle))\n\n" + bodyMarkdown + "\n" }
-}
-
-struct NoteAttachment: Identifiable, Codable, Equatable, Sendable {
-    var id = UUID()
-    var name: String
-    var byteCount: Int64
-    var image: Bool
-}
-
-// Only the formatting the notebook understands goes on disk. Fonts and colours are
+// Only the formatting the editor understands goes on disk. Fonts and colours are
 // resolved when read, so documents follow the current appearance and never archive objects.
 struct NoteDocument: Codable, Equatable, Sendable {
     enum Block: String, Codable, Sendable, CaseIterable {

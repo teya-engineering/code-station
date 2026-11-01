@@ -261,8 +261,7 @@ struct SessionView: View {
                                      selectRoot: { root in
                                          explorerShowsDesignFiles = root == explorerDesignFilesURL?.path
                                          if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
-                                     },
-                                     notesScope: session.workspaceID.map { "workspace:\($0)" } ?? "project:\(session.projectID)")
+                                     })
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
