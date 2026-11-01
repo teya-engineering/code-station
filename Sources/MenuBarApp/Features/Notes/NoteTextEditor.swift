@@ -7,6 +7,7 @@ final class NoteEditorController {
     var bold = false
     var italic = false
     var block = NoteDocument.Block.text
+    var indent = 0
     var checked = false
 
     func focus() { if let view { view.window?.makeFirstResponder(view) } }
@@ -21,6 +22,7 @@ final class NoteEditorController {
         bold = traits.contains(.bold)
         italic = traits.contains(.italic)
         block = (attributes[.noteBlock] as? String).flatMap(NoteDocument.Block.init(rawValue:)) ?? .text
+        indent = attributes[.noteIndent] as? Int ?? 0
         let paragraph = (view.string as NSString).paragraphRange(for: range)
         checked = (view.string as NSString).substring(with: paragraph).hasPrefix("☑")
     }
@@ -72,11 +74,12 @@ final class NoteEditorController {
             let text = NSMutableAttributedString(attributedString: replacement.attributedSubstring(from: line))
             if markerLength > 0 { text.deleteCharacters(in: NSRange(location: 0, length: markerLength)) }
             let normalized = NoteDocument(text)
+            let indent = NoteDocument.Block.lists.contains(block) ? normalized.runs.first?.indent ?? 0 : 0
             text.setAttributedString(NoteDocument(runs: normalized.runs.map {
-                var run = $0; run.block = block; return run
+                var run = $0; run.block = block; run.indent = indent; return run
             }).attributed)
             let marker = Self.marker(for: block, number: number)
-            text.insert(NSAttributedString(string: marker, attributes: NoteDocument.attributes(block: block)), at: 0)
+            text.insert(NSAttributedString(string: marker, attributes: NoteDocument.attributes(block: block, indent: indent)), at: 0)
             replacement.replaceCharacters(in: line, with: text)
             offset += text.length
             number += 1
@@ -94,6 +97,43 @@ final class NoteEditorController {
         case .checklist: "☐ "
         default: ""
         }
+    }
+
+    // A list item can sit at most one level below the item before it, so Markdown can
+    // still nest it under a parent.
+    func changeIndent(by delta: Int) {
+        guard let view, view.isEditable, let storage = view.textStorage, storage.length > 0 else { return }
+        let string = view.string as NSString
+        let range = string.paragraphRange(for: view.selectedRange())
+        guard range.location < storage.length else { return }
+        func listIndent(at location: Int) -> Int? {
+            guard location >= 0, location < storage.length,
+                  let block = (storage.attribute(.noteBlock, at: location, effectiveRange: nil) as? String)
+                    .flatMap(NoteDocument.Block.init(rawValue:)),
+                  NoteDocument.Block.lists.contains(block) else { return nil }
+            return storage.attribute(.noteIndent, at: location, effectiveRange: nil) as? Int ?? 0
+        }
+        let previous = range.location > 0 ? string.paragraphRange(for: NSRange(location: range.location - 1, length: 0)).location : -1
+        var limit = (listIndent(at: previous) ?? -1) + 1
+        let replacement = NSMutableAttributedString()
+        var offset = range.location
+        while offset < NSMaxRange(range) {
+            let line = string.paragraphRange(for: NSRange(location: offset, length: 0))
+            let current = listIndent(at: line.location) ?? 0
+            let indent = max(0, min(current + delta, limit))
+            let document = NoteDocument(storage.attributedSubstring(from: line))
+            replacement.append(NoteDocument(runs: document.runs.map {
+                var run = $0
+                if NoteDocument.Block.lists.contains(run.block) { run.indent = indent }
+                return run
+            }).attributed)
+            limit = indent + 1
+            offset = NSMaxRange(line)
+        }
+        let selected = view.selectedRange()
+        view.insertText(replacement, replacementRange: range)
+        view.setSelectedRange(selected)
+        readSelection()
     }
 
     func toggleChecklist() {
@@ -141,7 +181,7 @@ struct NoteTextEditor: NSViewRepresentable {
         view.typingAttributes = NoteDocument.attributes()
         view.insertionPointColor = .labelColor
         view.setAccessibilityLabel("Note body")
-        view.setAccessibilityHelp("Rich text. Use Command-B for bold, Command-I for italic, and Command-Shift-Return to toggle the checklist item at the cursor.")
+        view.setAccessibilityHelp("Rich text. Use Command-B for bold, Command-I for italic, Tab and Shift-Tab to nest list items, and Command-Shift-Return to toggle the checklist item at the cursor.")
         view.delegate = context.coordinator
         view.controller = controller
         controller.view = view
@@ -205,12 +245,13 @@ struct NoteTextEditor: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            let inList = NoteDocument.Block.lists.contains(parent.controller.block)
             if selector == #selector(NSResponder.insertTab(_:)) {
-                textView.window?.selectNextKeyView(nil)
+                if inList { parent.controller.changeIndent(by: 1) } else { textView.window?.selectNextKeyView(nil) }
                 return true
             }
             if selector == #selector(NSResponder.insertBacktab(_:)) {
-                textView.window?.selectPreviousKeyView(nil)
+                if inList { parent.controller.changeIndent(by: -1) } else { textView.window?.selectPreviousKeyView(nil) }
                 return true
             }
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
@@ -229,8 +270,10 @@ struct NoteTextEditor: NSViewRepresentable {
                 parent.controller.setBlock(.text)
             } else {
                 let number = Int(line.prefix(while: \.isNumber)) ?? 0
+                let attributes = NoteDocument.attributes(block: block, indent: parent.controller.indent)
                 textView.insertText(NSAttributedString(string: "\n" + NoteEditorController.marker(for: block, number: number + 1),
-                                                       attributes: NoteDocument.attributes(block: block)), replacementRange: selected)
+                                                       attributes: attributes), replacementRange: selected)
+                textView.typingAttributes = attributes
             }
             return true
         }

@@ -25,12 +25,36 @@ import Testing
 
     @Test(arguments: [
         "---\ntitle: Plan\n---\n", "| A | B |\n| - | - |\n", "![alt](image.png)",
-        "```swift\nlet x = 1\n```", "A `code` span", "<div>Keep</div>",
-        "- Parent\n  - Child", "line  \nbreak", "soft\nwrap", "Title\n=====",
+        "```swift\nlet x = 1\n```", "An `open code span", "<div>Keep</div>",
+        "- Parent\n   - Too deep", "  Indented text", "- Item\n  continued", "line  \nbreak", "soft\nwrap", "Title\n=====",
         "[link][ref]\n\n[ref]: https://example.com", "1. One\n2. Two", "A &copy; symbol",
         "# Heading ##", "** not bold**", "- # Nested heading"
     ]) func unsupportedSyntaxStaysInSource(_ source: String) {
         #expect(MarkdownWritingDocument(source) == nil)
+    }
+
+    @Test func codeSpansAndNestedListsOpenInWriteAndSurviveAnEdit() throws {
+        let source = "# Rules\n\n- Use `.motion(_:value:)` and ``a ` tick``\n  - Nested `Motion.hover`\n    - [x] Deeper\n  - Back one\n- Top again\n"
+        let writing = try #require(MarkdownWritingDocument(source))
+        #expect(writing.markdown(afterEditing: NoteDocument(writing.document.attributed)) == source)
+        #expect(writing.document.runs.contains { $0.code && $0.text == ".motion(_:value:)" })
+        #expect(writing.document.runs.contains { $0.code && $0.text == "a ` tick" })
+        #expect(writing.document.runs.contains { $0.text.hasSuffix("Deeper") && $0.indent == 2 })
+        var edited = writing.document
+        edited.runs[0].text = "Rules today"
+        let result = writing.markdown(afterEditing: edited)
+        #expect(result.contains("  - Nested `Motion.hover`"))
+        #expect(result.contains("    - [x] Deeper"))
+        #expect(result.contains("``a ` tick``"))
+        let reparsed = try #require(MarkdownWritingDocument(result))
+        #expect(reparsed.document.text == edited.text)
+        #expect(reparsed.document.runs.contains { $0.text.hasSuffix("Deeper") && $0.indent == 2 })
+    }
+
+    @Test func runsWithoutCodeOrIndentFieldsStillLoad() throws {
+        let data = Data(#"{"text":"Old","bold":true,"italic":false,"block":"bullet"}"#.utf8)
+        let run = try JSONDecoder().decode(NoteDocument.Run.self, from: data)
+        #expect(run == .init(text: "Old", bold: true, block: .bullet))
     }
 
     @Test func outlineIgnoresCodeFencesAndTracksSourceLines() {

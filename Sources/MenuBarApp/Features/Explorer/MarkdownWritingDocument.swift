@@ -22,6 +22,8 @@ struct MarkdownWritingDocument {
         let lines = source.components(separatedBy: "\n")
         var index = 0
         var previousWasText = false
+        // The start column and text column of each open list item, outermost first.
+        var lists: [(start: Int, content: Int)] = []
         while index < lines.count {
             var line = lines[index]
             index += 1
@@ -38,8 +40,11 @@ struct MarkdownWritingDocument {
                 if !runs.isEmpty { runs.append(.init(text: "\n")) }
                 runs.append(.init(text: code.joined(separator: "\n"), block: .code))
                 previousWasText = false
+                lists = []
                 continue
             }
+            let leading = line.prefix(while: { $0 == " " }).count
+            line.removeFirst(leading)
             let prefixes: [(String, NoteDocument.Block, String)] = [
                 ("### ", .subheading, ""), ("## ", .heading, ""), ("# ", .title, ""),
                 ("- [ ] ", .checklist, "☐ "), ("- [x] ", .checklist, "☑ "),
@@ -49,6 +54,22 @@ struct MarkdownWritingDocument {
                 line.removeFirst(prefix.0.count); block = prefix.1; marker = prefix.2
             } else if let range = line.range(of: #"^1\. "#, options: .regularExpression) {
                 line.removeSubrange(range); block = .numbered; marker = "1. "
+            }
+            var depth = 0
+            if NoteDocument.Block.lists.contains(block) {
+                let width = block == .numbered ? 3 : 2
+                while let last = lists.last, last.start > leading { lists.removeLast() }
+                if let last = lists.last, last.start == leading {
+                    lists[lists.count - 1] = (leading, leading + width)
+                } else if leading == (lists.last?.content ?? 0) {
+                    lists.append((leading, leading + width))
+                } else { return nil }
+                depth = lists.count - 1
+            } else {
+                // An indented line that is not a list item continues an item or starts
+                // indented code, and neither has a place in the rich editor.
+                guard leading == 0 else { return nil }
+                lists = []
             }
             // Indentation, soft wraps, hard breaks and block extensions carry meaning
             // that a paragraph-only rich editor cannot safely reconstruct.
@@ -62,8 +83,8 @@ struct MarkdownWritingDocument {
                   !(block == .text && line.range(of: #"^(\d+[.)] |[+*>#-] )"#, options: .regularExpression) != nil),
                   let inline = Self.inline(line, block: block) else { return nil }
             if !runs.isEmpty { runs.append(.init(text: "\n")) }
-            if !marker.isEmpty { runs.append(.init(text: marker, block: block)) }
-            runs.append(contentsOf: inline)
+            if !marker.isEmpty { runs.append(.init(text: marker, block: block, indent: depth)) }
+            runs.append(contentsOf: inline.map { var run = $0; run.indent = depth; return run })
             previousWasText = block == .text
         }
         document = NoteDocument(runs: Self.normalized(NoteDocument(runs: runs)))
@@ -80,7 +101,7 @@ struct MarkdownWritingDocument {
         var result: [NoteDocument.Run] = []
         for run in document.runs where !run.text.isEmpty {
             if var last = result.last, last.bold == run.bold, last.italic == run.italic,
-               last.block == run.block, last.link == run.link {
+               last.block == run.block, last.link == run.link, last.code == run.code, last.indent == run.indent {
                 last.text += run.text; result[result.count - 1] = last
             } else { result.append(run) }
         }
@@ -106,6 +127,24 @@ struct MarkdownWritingDocument {
                       let nested = inline(String(rest[..<end.lowerBound]), block: block,
                                           bold: bold || delimiter.count >= 2, italic: italic || delimiter.count != 2) else { return nil }
                 runs += nested; rest = rest[end.upperBound...]
+            } else if first == "`" {
+                let fence = String(rest.prefix { $0 == "`" })
+                rest.removeFirst(fence.count)
+                var search = rest.startIndex
+                var close: Range<Substring.Index>?
+                while let found = rest[search...].range(of: fence) {
+                    let longer = found.upperBound < rest.endIndex && rest[found.upperBound] == "`"
+                    if !longer { close = found; break }
+                    search = rest[found.lowerBound...].firstIndex { $0 != "`" } ?? rest.endIndex
+                }
+                guard let close, close.lowerBound != rest.startIndex else { return nil }
+                var content = String(rest[..<close.lowerBound])
+                if content.count > 2, content.hasPrefix(" "), content.hasSuffix(" "),
+                   content.contains(where: { $0 != " " }) {
+                    content = String(content.dropFirst().dropLast())
+                }
+                runs.append(.init(text: content, bold: bold, italic: italic, block: block, code: true))
+                rest = rest[close.upperBound...]
             } else if first == "[" {
                 guard let close = rest.range(of: "]("), let end = rest[close.upperBound...].firstIndex(of: ")") else { return nil }
                 let label = String(rest[rest.index(after: rest.startIndex)..<close.lowerBound])

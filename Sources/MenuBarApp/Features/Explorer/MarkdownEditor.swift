@@ -49,7 +49,7 @@ struct MarkdownEditor: View {
             if mode != .preview && writing == nil {
                 HStack(spacing: 8) {
                     Image(systemName: "curlybraces")
-                    Text("This document uses Markdown that needs Source mode. Its syntax is preserved.")
+                    Text("Write is off for this file. It uses Markdown that Write cannot keep, such as tables, images or HTML. Edit it in Source.")
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
@@ -104,7 +104,10 @@ struct MarkdownEditor: View {
     private var modes: some View {
         HStack(spacing: 3) {
             ForEach(MarkdownEditorMode.allCases, id: \.self) { item in
-                ChoicePill(title: item.rawValue, selected: activeMode == item) { mode = item }
+                ChoicePill(title: item.rawValue, selected: activeMode == item,
+                           enabled: item != .write || writing != nil) { mode = item }
+                    .opacity(item == .write && writing == nil ? 0.45 : 1)
+                    .motion(Motion.control, value: writing == nil)
                     .accessibilityLabel("\(item.rawValue) Markdown")
             }
         }.disabled(!editable).accessibilityElement(children: .contain).accessibilityLabel("Editor mode")
