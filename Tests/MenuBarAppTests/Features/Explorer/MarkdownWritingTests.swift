@@ -148,6 +148,17 @@ import Testing
         #expect(parsed.document.runs.allSatisfy { $0.block == .text })
     }
 
+    @Test func aBareAmpersandOpensInEditAndIsWrittenBackPlain() throws {
+        let source = "Skills:\n- **Spring Boot & Spring Framework** (4.0+)\n- **Kafka**\n"
+        let writing = try #require(MarkdownWritingDocument(source))
+        #expect(!writing.document.runs.contains { $0.block == .literal })
+        #expect(writing.document.runs.contains { $0.text == "Spring Boot & Spring Framework" && $0.bold })
+        var edited = writing.document
+        let index = try #require(edited.runs.lastIndex { $0.text == "Kafka" })
+        edited.runs[index].text = "Kafka & Redis"
+        #expect(writing.markdown(afterEditing: edited) == "Skills:\n- **Spring Boot & Spring Framework** (4.0+)\n- **Kafka & Redis**\n")
+    }
+
     @Test func boldAndItalicKeepValidDelimitersAroundSelectedWhitespace() throws {
         let document = NoteDocument(runs: [.init(text: "before"), .init(text: " both ", bold: true, italic: true), .init(text: "after")])
         #expect(document.markdown == "before ***both*** after")

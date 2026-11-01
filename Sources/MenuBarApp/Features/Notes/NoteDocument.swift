@@ -120,9 +120,19 @@ struct NoteDocument: Codable, Equatable, Sendable {
         return value
     }
 
+    // Markdown reads "&amp;" or "&#38;" as a character reference, but a lone "&" is just text.
+    static func startsEntity(_ text: Substring) -> Bool {
+        text.range(of: #"^&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{0,31});"#,
+                   options: .regularExpression) != nil
+    }
+
     static func escape(_ text: String, lineStart: Bool = false) -> String {
-        var result = text.reduce(into: "") { result, character in
-            if "\\`*_[]<>#!|~&".contains(character) { result.append("\\") }
+        var result = ""
+        for index in text.indices {
+            let character = text[index]
+            if "\\`*_[]<>#!|~".contains(character) || character == "&" && startsEntity(text[index...]) {
+                result.append("\\")
+            }
             result.append(character)
         }
         // These marks only start a list, a quote or a rule at the beginning of a line.

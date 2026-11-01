@@ -328,8 +328,12 @@ struct MarkdownWritingDocument {
                       nested.allSatisfy({ $0.link == nil }) else { return nil }
                 runs += nested.map { var run = $0; run.link = kept; return run }
                 rest = rest[rest.index(after: end)...]
+            } else if first == "&" {
+                guard !NoteDocument.startsEntity(rest) else { return nil }
+                runs.append(.init(text: "&", bold: bold, italic: italic, block: block))
+                rest.removeFirst()
             } else {
-                guard !"_`[]<>!|~&".contains(first) else { return nil }
+                guard !"_`[]<>!|~".contains(first) else { return nil }
                 let plain = rest.prefix { !"\\*_`[]<>!|~&".contains($0) }
                 runs.append(.init(text: String(plain), bold: bold, italic: italic, block: block))
                 rest.removeFirst(plain.count)
