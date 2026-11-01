@@ -6,7 +6,7 @@ import Testing
 @MainActor struct NotebookExplorerTests {
     private let scratch = ScratchDirectory(prefix: "notebook-explorer")
 
-    @Test func existingNotebooksLoadWithoutWorkspaceOrCaptureFields() throws {
+    @Test func existingNotebooksLoadWithoutWorkspaceFields() throws {
         let note = QuickNote(title: "Existing note", body: NoteDocument(runs: [.init(text: "Keep this")]))
         let data = try PersistentFile.makeEncoder(dates: .deferredToDate).encode([note])
         let notes = try JSONSerialization.jsonObject(with: data)
@@ -15,40 +15,15 @@ import Testing
         let store = NotebookStore(directory: scratch.url)
         #expect(store.loadError == nil)
         #expect(store.notes == [note])
-        #expect(store.captures.isEmpty)
         #expect(store.notes.first?.scopeID == nil)
     }
 
-    @Test func captureSurvivesDismissalAndReloadWithoutCreatingANote() throws {
+    @Test func newNotesBelongToTheirWorkspaceAndSurviveReload() throws {
         let store = NotebookStore(directory: scratch.url)
-        store.updateCapture(scope: "workspace:one", title: "A thought", body: "Keep *literal* text")
+        let id = try #require(store.create(scope: "workspace:one"))
+        #expect(store.selectedID == id)
         #expect(store.flush())
-        let reloaded = NotebookStore(directory: scratch.url)
-        #expect(reloaded.notes.isEmpty)
-        #expect(reloaded.captures["workspace:one"]?.title == "A thought")
-        let id = try #require(reloaded.saveCapture(scope: "workspace:one"))
-        #expect(reloaded.note(id)?.scopeID == "workspace:one")
-        #expect(reloaded.note(id)?.body.text == "Keep *literal* text")
-        #expect(reloaded.captures.isEmpty)
-        #expect(reloaded.saveCapture(scope: "workspace:one") == nil)
-        #expect(NotebookStore(directory: scratch.url).notes.count == 1)
-    }
-
-    @Test func failedCaptureSaveRetainsDraftAndCanBeRetriedOnce() throws {
-        let fails = Mutex(true)
-        var files = PersistentFileClient.live
-        files.write = { data, url in
-            if fails.withLock({ $0 }) { throw CocoaError(.fileWriteNoPermission) }
-            try PersistentFile.write(data, to: url)
-        }
-        let store = NotebookStore(directory: scratch.url, files: files)
-        store.updateCapture(scope: "project:one", title: "Keep me", body: "Draft")
-        #expect(store.saveCapture(scope: "project:one") == nil)
-        #expect(store.notes.isEmpty)
-        #expect(store.captures["project:one"]?.title == "Keep me")
-        fails.withLock { $0 = false }
-        #expect(store.saveCapture(scope: "project:one") != nil)
-        #expect(store.notes.count == 1)
+        #expect(NotebookStore(directory: scratch.url).note(id)?.scopeID == "workspace:one")
     }
 
     @Test func sourceOnlyNotesPersistWithoutLosingUnsupportedSyntax() throws {

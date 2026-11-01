@@ -53,7 +53,6 @@ struct ExplorerView: View {
     var repositories: [ChangesRepository] = []
     var designFilesRoot: String?
     var notesScope: String
-    var notesScopeName: String
     @Binding var collapsedProjects: Set<String>
     var selectRoot: (String) -> Void = { _ in }
     // The project row the keyboard is on. The keyboard lands on a file by selecting it,
@@ -69,7 +68,7 @@ struct ExplorerView: View {
          repositories: [ChangesRepository] = [], designFilesRoot: String? = nil,
          collapsedProjects: Binding<Set<String>> = .constant([]),
          selectRoot: @escaping (String) -> Void = { _ in },
-         notesScope: String? = nil, notesScopeName: String? = nil) {
+         notesScope: String? = nil) {
         self.root = root
         self.reveal = reveal
         self.command = command
@@ -81,7 +80,6 @@ struct ExplorerView: View {
         self._collapsedProjects = collapsedProjects
         self.selectRoot = selectRoot
         self.notesScope = notesScope ?? root
-        self.notesScopeName = notesScopeName ?? URL(fileURLWithPath: root).lastPathComponent
     }
 
     private var projectRoots: [ChangesRepository] {
@@ -93,9 +91,6 @@ struct ExplorerView: View {
     @Environment(NotebookStore.self) private var notebook
     @Environment(MenuPresenter.self) private var menus
     @State private var personalNoteID: UUID?
-    @State private var capturePresented = false
-    @State private var captureReturnFocus: NSResponder?
-    @FocusState private var captureFocused: Bool
     @State private var markdownOnly = false
     @State private var markdownMode = MarkdownEditorMode.write
     @State private var saveErrors: [String: String] = [:]
@@ -207,9 +202,6 @@ struct ExplorerView: View {
                     .frame(width: max(0, geometry.size.width - (showsTree && sideBySide ? width + ExplorerSplitLayout.dividerWidth : 0)))
                     .clipped()
             }
-            .allowsHitTesting(!capturePresented)
-            .disabled(capturePresented)
-            .accessibilityHidden(capturePresented)
             .frame(width: geometry.size.width, height: geometry.size.height)
             .overlay(alignment: .leading) {
                 // The ZStack stays put so each layer inside it can take its own transition.
@@ -238,21 +230,6 @@ struct ExplorerView: View {
             }
         }
         .background(Theme.background)
-        .overlay(alignment: .trailing) {
-            GeometryReader { geometry in
-                ZStack(alignment: .trailing) {
-                    if capturePresented {
-                        Color.black.opacity(0.15).onTapGesture { dismissCapture() }.transition(scrim)
-                        QuickNoteDrawer(scope: notesScope, scopeName: notesScopeName, dismiss: dismissCapture) {
-                            dismissCapture(); showNote("Note saved on this Mac", icon: "checkmark")
-                        }
-                        .frame(width: min(430, geometry.size.width))
-                        .transition(.drawer(from: .trailing, reduceMotion: reduceMotion))
-                    }
-                }.allowsHitTesting(capturePresented)
-            }
-        }
-        .motion(capturePresented ? Motion.reveal : Motion.leave, value: capturePresented)
         .overlay(alignment: .topTrailing) {
             ZStack {
                 if let note {
@@ -266,7 +243,7 @@ struct ExplorerView: View {
         .background(ExplorerSearchShortcut { showFinder(.names) })
         .background(ExplorerFileShortcuts(
             enabled: treeFocused && projectCursor == nil && dialogs.current == nil && !pastingFiles
-                && !capturePresented && personalNoteID == nil,
+                && personalNoteID == nil,
             onCopy: copySelected,
             onPaste: { pasteFiles(at: selected) },
             onTrash: trashSelected,
@@ -278,7 +255,7 @@ struct ExplorerView: View {
         .background(WindowAnchor(monitor: closeTabMonitor))
         .onAppear {
             closeTabMonitor.start {
-                guard dialogs.current == nil, renaming == nil, !capturePresented else { return false }
+                guard dialogs.current == nil, renaming == nil else { return false }
                 if personalNoteID != nil { personalNoteID = nil; return true }
                 guard
                       let open = documents.tabs.first(where: { $0.path == selected?.path }) ?? documents.tabs.last
@@ -288,7 +265,6 @@ struct ExplorerView: View {
             }
             escapeMonitor.start {
                 guard dialogs.current == nil, renaming == nil else { return false }
-                if capturePresented { dismissCapture(); return true }
                 if detailsPresented { detailsPresented = false; return true }
                 if findPresented { closeFind(); return true }
                 if focusEditor || narrowNavigator { focusEditor = false; narrowNavigator = false; return true }
@@ -309,7 +285,6 @@ struct ExplorerView: View {
         .onChange(of: dialogs.current == nil || finderIsOpen, initial: true) { _, free in
             guard free else { findInFilesMonitor.stop(); return }
             findInFilesMonitor.start {
-                guard !capturePresented else { return false }
                 showFinder(.contents)
                 return true
             }
@@ -431,23 +406,9 @@ struct ExplorerView: View {
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 7).padding(.vertical, 9)
     }
 
-    private func dismissCapture() {
-        capturePresented = false
-        _ = notebook.flush()
-        let responder = captureReturnFocus
-        captureReturnFocus = nil
-        Task { @MainActor in
-            await Task.yield()
-            if let view = responder as? NSView, let window = view.window {
-                window.makeFirstResponder(view)
-            } else { captureFocused = true }
-        }
-    }
-
-    private func openCapture() {
-        captureReturnFocus = WindowKeyMonitor.frontmostWindow?.firstResponder
-        menus.dismiss()
-        capturePresented = true
+    private func createPersonalNote() {
+        guard let id = notebook.create(scope: notesScope) else { return }
+        openPersonalNote(id)
     }
 
     private func openPersonalNote(_ id: UUID) {
@@ -580,7 +541,7 @@ struct ExplorerView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
-                ExplorerNotesShelf(scope: notesScope, selected: personalNoteID, open: openPersonalNote, capture: openCapture)
+                ExplorerNotesShelf(scope: notesScope, selected: personalNoteID, open: openPersonalNote, create: createPersonalNote)
                 navigatorFooter
             }
         }
@@ -900,10 +861,6 @@ struct ExplorerView: View {
                 focusEditor.toggle()
                 narrowNavigator = false
             }
-            ActionButton(title: "Quick note", tone: .outlined, height: 28, size: 10, icon: "plus", action: openCapture)
-            .focused($captureFocused)
-            .keyboardShortcut("n", modifiers: [.command, .shift])
-            .disabled(capturePresented || dialogs.current != nil || notebook.loadError != nil)
         }
         .padding(.horizontal, 6).frame(height: 42)
         .background(Theme.sidebar)
@@ -1182,7 +1139,7 @@ struct ExplorerView: View {
     // A file worth searching is open and nothing is in front of it. While this is false
     // both strokes are left alone, so Cmd+F still opens the sidebar's filter.
     private var canFind: Bool {
-        isEditable && personalNoteID == nil && !capturePresented && dialogs.current == nil
+        isEditable && personalNoteID == nil && dialogs.current == nil
     }
 
     private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }
@@ -1231,7 +1188,6 @@ struct ExplorerView: View {
     // The keys pick a mode, and the header's button passes none to reopen the last one.
     // Pressed again while the dialog is open, they switch it to their mode.
     private func showFinder(_ requested: ExplorerSearchMode?) {
-        guard !capturePresented else { return }
         if finderIsOpen, let finder {
             if let requested { finder.show(requested) }
             return
@@ -1821,7 +1777,7 @@ struct ExplorerView: View {
     }
 
     private func save(_ node: FileNode) {
-        guard !saving, !capturePresented, personalNoteID == nil else { return }
+        guard !saving, personalNoteID == nil else { return }
         let saved = draft
         let expectedModification = loadedAt
         Task {

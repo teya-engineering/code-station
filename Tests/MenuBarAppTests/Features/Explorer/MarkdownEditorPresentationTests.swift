@@ -65,20 +65,18 @@ import Testing
         #expect(draft.mode == .source)
     }
 
-    @Test(arguments: [false, true]) func personalNotesAndCaptureUseTheSharedNotebook(reduceMotion: Bool) async throws {
+    @Test(arguments: [false, true]) func personalNotesUseTheSharedNotebook(reduceMotion: Bool) async throws {
         let scratch = ScratchDirectory(prefix: "explorer-notes-ui")
         let notebook = NotebookStore(directory: scratch.url)
         let preferences = TestPreferences()
         let dictation = Dictation(preferences: preferences.store)
-        notebook.updateCapture(scope: "workspace:test", title: "A home for thoughts", body: "Remember the next step.")
-        #expect(notebook.flush())
-        let id = try #require(notebook.saveCapture(scope: "workspace:test"))
+        let id = try #require(notebook.create(scope: "workspace:test"))
+        notebook.update(id) { $0.title = "A home for thoughts" }
         let originalSource = "Remember the next step.\n\n\n"
         notebook.updateMarkdown(id, source: originalSource)
         let note = ExplorerPersonalNote(id: id, projects: [.init(root: scratch.url.path, name: "Project")],
                                         moved: { _ in }, close: {}, notify: { _ in })
-        let drawer = QuickNoteDrawer(scope: "workspace:test", scopeName: "Workspace", dismiss: {}, saved: {})
-        for (name, content) in [("personal", AnyView(note)), ("capture", AnyView(drawer))] {
+        for (name, content) in [("personal", AnyView(note))] {
             let host = NSHostingController(rootView: content.environment(notebook).environment(dictation)
                 .environment(\._accessibilityReduceMotion, reduceMotion).appOverlays())
             host.sizingOptions = []

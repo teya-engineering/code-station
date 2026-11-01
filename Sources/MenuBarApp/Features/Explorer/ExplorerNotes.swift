@@ -6,7 +6,7 @@ struct ExplorerNotesShelf: View {
     let scope: String
     let selected: UUID?
     let open: (UUID) -> Void
-    let capture: () -> Void
+    let create: () -> Void
     @Environment(NotebookStore.self) private var notebook
 
     var body: some View {
@@ -14,7 +14,8 @@ struct ExplorerNotesShelf: View {
             HStack {
                 Label("Personal notes", systemImage: "lock").font(.system(size: 11, weight: .semibold))
                 Spacer()
-                GlyphButton(icon: "plus", side: 26, action: capture).accessibilityLabel("Quick note")
+                GlyphButton(icon: "plus", side: 26, action: create).accessibilityLabel("New personal note")
+                    .appTooltip("New personal note").disabled(notebook.loadError != nil)
             }
             ForEach(Array(notebook.matching().filter { $0.scopeID == scope }.prefix(3))) { note in
                 Button { open(note.id) } label: {
@@ -264,96 +265,6 @@ struct ExplorerPersonalNote: View {
 
     private func export(_ note: QuickNote) {
         exportMarkdown(note.markdown, name: note.displayTitle + ".md", dialogs: dialogs, notify: notify)
-    }
-}
-
-struct QuickNoteDrawer: View {
-    let scope: String
-    let scopeName: String
-    let dismiss: () -> Void
-    let saved: () -> Void
-    @Environment(NotebookStore.self) private var notebook
-    @State private var keys = WindowKeyHandler(handlesTyping: true)
-    @FocusState private var focus: Field?
-    private enum Field: Hashable { case close, title, body, retry, save }
-    private var capture: QuickNote { notebook.captures[scope] ?? QuickNote() }
-    private var canSave: Bool {
-        notebook.loadError == nil && !(capture.title + capture.body.text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Catch a thought.").font(.serif(24, .medium))
-                Spacer()
-                GlyphButton(icon: "xmark", side: 28, action: dismiss)
-                    .focused($focus, equals: .close).accessibilityLabel("Close quick note")
-            }
-            Label("Personal note · \(scopeName)", systemImage: "lock").font(.system(size: 11)).foregroundStyle(.secondary)
-            TextField("Untitled note", text: Binding(get: { capture.title }, set: {
-                notebook.updateCapture(scope: scope, title: $0, body: capture.body.text)
-            }))
-            .font(.system(size: 20, weight: .semibold)).textFieldStyle(.plain).padding(12).fieldSurface(cornerRadius: 8)
-            .focused($focus, equals: .title).accessibilityLabel("Quick note title")
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(focus == .title ? Theme.accent : .clear, lineWidth: 2))
-            TextEditor(text: Binding(get: { capture.body.text }, set: {
-                notebook.updateCapture(scope: scope, title: capture.title, body: $0)
-            }))
-            .font(.system(size: 14)).scrollContentBackground(.hidden).padding(10).fieldSurface(cornerRadius: 8)
-            .focused($focus, equals: .body).accessibilityLabel("Quick note body")
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(focus == .body ? Theme.accent : .clear, lineWidth: 2))
-            .overlay(alignment: .topLeading) {
-                if capture.body.text.isEmpty {
-                    Text("What do you want to remember?\n\nA question, a useful snippet, a next step…")
-                        .font(.system(size: 14)).foregroundStyle(.tertiary).padding(17)
-                        .allowsHitTesting(false).accessibilityHidden(true).transition(.fadeIn)
-                }
-            }
-            .motion(Motion.reveal, value: capture.body.text.isEmpty)
-            Text("Only on this Mac. Linked to \(scopeName). Unfinished capture is kept when you close this drawer.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-            if let error = notebook.saveError ?? notebook.loadError {
-                Text(error).font(.system(size: 11)).foregroundStyle(Theme.deletion)
-                InlineLink(title: "Retry saving") { _ = notebook.flush() }
-                    .focused($focus, equals: .retry)
-            }
-            HStack {
-                Text("⌘Enter to save").font(.system(size: 10)).foregroundStyle(.secondary)
-                Spacer()
-                ActionButton(title: "Save note", tone: .green, icon: "checkmark", action: save)
-                    .focused($focus, equals: .save)
-                    .disabled(!canSave)
-            }
-        }.padding(24).background(Theme.card)
-            .accessibilityElement(children: .contain).accessibilityLabel("Quick note")
-            .accessibilityAddTraits(.isModal)
-            .background(WindowKeyAnchor(handler: keys))
-            .onAppear {
-                focus = .title
-                keys.start { event in
-                    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                    if flags.isEmpty && event.keyCode == 53 { dismiss(); return true }
-                    if flags == .command && event.charactersIgnoringModifiers == "w" { dismiss(); return true }
-                    if flags == .command && event.charactersIgnoringModifiers == "s" { _ = notebook.flush(); return true }
-                    if flags == .command && [36, 76].contains(event.keyCode) { save(); return true }
-                    if event.keyCode == 48 && (flags.isEmpty || flags == .shift) {
-                        let fields: [Field] = [.close, .title, .body]
-                            + (notebook.saveError != nil || notebook.loadError != nil ? [.retry] : [])
-                            + (canSave ? [.save] : [])
-                        let index = fields.firstIndex(of: focus ?? .title) ?? 0
-                        focus = fields[(index + (flags == .shift ? fields.count - 1 : 1)) % fields.count]
-                        return true
-                    }
-                    return false
-                }
-            }
-            .onDisappear { keys.stop(); _ = notebook.flush() }
-    }
-
-    private func save() {
-        if notebook.saveCapture(scope: scope) != nil { saved() }
-        else if notebook.saveError != nil { announceEditorStatus("Could not save. Your capture is still here.") }
-        else { focus = .body }
     }
 }
 

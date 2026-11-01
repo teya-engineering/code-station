@@ -8,12 +8,10 @@ final class NotebookStore {
         var version = 1
         var notes: [QuickNote]
         var selectedID: UUID?
-        var captures: [String: QuickNote]?
     }
 
     private(set) var notes: [QuickNote] = []
     private(set) var selectedID: UUID?
-    private(set) var captures: [String: QuickNote] = [:]
     private(set) var loadError: String?
     private(set) var saveError: String?
     private(set) var saving = false
@@ -36,7 +34,6 @@ final class NotebookStore {
                 }
                 notes = archive.notes
                 selectedID = archive.selectedID
-                captures = archive.captures ?? [:]
                 savedCount = notes.count
             }
         } catch { loadError = PersistentFile.loadMessage(for: storageURL, error: error) }
@@ -49,33 +46,6 @@ final class NotebookStore {
             $0.markdownSource = source
             $0.body = MarkdownWritingDocument(source)?.document ?? NoteDocument(runs: [.init(text: source)])
         }
-    }
-
-    func updateCapture(scope: String, title: String, body: String) {
-        guard loadError == nil else { return }
-        var capture = captures[scope] ?? QuickNote(scopeID: scope)
-        capture.title = title
-        capture.body = NoteDocument(runs: [.init(text: body)])
-        capture.editedAt = .now
-        captures[scope] = capture
-        scheduleSave()
-    }
-
-    @discardableResult func saveCapture(scope: String) -> UUID? {
-        guard loadError == nil, let capture = captures[scope],
-              !(capture.title + capture.body.text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        let previousNotes = notes
-        let previousSelection = selectedID
-        notes.insert(capture, at: 0)
-        selectedID = capture.id
-        captures.removeValue(forKey: scope)
-        dirty = true
-        guard flush() else {
-            notes = previousNotes; selectedID = previousSelection; captures[scope] = capture
-            dirty = true
-            return nil
-        }
-        return capture.id
     }
 
     func moveToProject(_ id: UUID, root: URL, relativePath: String) throws -> URL {
@@ -109,9 +79,9 @@ final class NotebookStore {
         }
     }
 
-    @discardableResult func create() -> UUID? {
+    @discardableResult func create(scope: String? = nil) -> UUID? {
         guard loadError == nil else { return nil }
-        let note = QuickNote()
+        let note = QuickNote(scopeID: scope)
         notes.insert(note, at: 0)
         selectedID = note.id
         scheduleSave()
@@ -201,7 +171,7 @@ final class NotebookStore {
         guard loadError == nil else { return false }
         guard dirty else { return saveError == nil }
         do {
-            let data = try PersistentFile.makeEncoder(dates: .deferredToDate).encode(Archive(notes: notes, selectedID: selectedID, captures: captures))
+            let data = try PersistentFile.makeEncoder(dates: .deferredToDate).encode(Archive(notes: notes, selectedID: selectedID))
             try files.write(data, storageURL)
             savedCount = notes.count
             saveError = nil
