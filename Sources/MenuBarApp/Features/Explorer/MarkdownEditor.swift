@@ -10,7 +10,7 @@ struct MarkdownEditor: View {
     var sourceEditor: AnyView?
     var onOutline: ((Int) -> Void)?
     var editable: Bool
-    // A host with its own header shows the mode pills there, and learns through this
+    // A host with its own header shows the mode menu there, and learns through this
     // whether the file can open in Edit.
     var canEdit: Binding<Bool>?
     @Environment(DialogPresenter.self) private var dialogs
@@ -102,7 +102,7 @@ struct MarkdownEditor: View {
     }
 
     private var modes: some View {
-        MarkdownModePicker(mode: $mode, canEdit: writing != nil).disabled(!editable)
+        MarkdownModeMenu(mode: $mode, canEdit: writing != nil).disabled(!editable)
     }
 
     private var formatting: some View {
@@ -175,9 +175,16 @@ struct MarkdownEditor: View {
             }
         case .preview:
             ScrollView {
-                MarkdownDocumentView(text: source, basePath: basePath, textScale: 1)
-                    .environment(\.htmlPreviewLinkOpened, HTMLPreviewLinkOpenedAction(perform: onLink))
-                    .padding(32).frame(maxWidth: 820).frame(maxWidth: .infinity, alignment: .leading)
+                Group {
+                    if source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("This document is empty. Switch to \(writing == nil ? "Source" : "Edit") to start writing.")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                    } else {
+                        MarkdownDocumentView(text: source, basePath: basePath, textScale: 1)
+                            .environment(\.htmlPreviewLinkOpened, HTMLPreviewLinkOpenedAction(perform: onLink))
+                    }
+                }
+                .padding(32).frame(maxWidth: 820).frame(maxWidth: .infinity, alignment: .leading)
             }.accessibilityLabel("Markdown preview, read only")
         }
     }
@@ -227,22 +234,42 @@ struct MarkdownEditor: View {
     }
 }
 
-struct MarkdownModePicker: View {
+struct MarkdownModeMenu: View {
     @Binding var mode: MarkdownEditorMode
     let canEdit: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let active = mode == .edit && !canEdit ? .source : mode
-        HStack(spacing: 3) {
-            ForEach(MarkdownEditorMode.allCases, id: \.self) { item in
-                ChoicePill(title: item.rawValue, selected: active == item,
-                           enabled: item != .edit || canEdit) { mode = item }
-                    .opacity(item == .edit && !canEdit ? 0.45 : 1)
-                    .motion(Motion.control, value: canEdit)
-                    .accessibilityLabel("\(item.rawValue) Markdown")
+        ActionButton(title: active.rawValue, tone: .outlined, height: 30, size: 12,
+                     icon: icon(active), disclosure: true)
+            .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+            .appMenu(showsFocusRing: true) {
+                MarkdownEditorMode.allCases.map { item in
+                    .item(item.rawValue, icon: icon(item), checked: active == item,
+                          subtitle: description(item), disabled: item == .edit && !canEdit) { mode = item }
+                }
             }
-        }.accessibilityElement(children: .contain).accessibilityLabel("Editor mode")
+            .accessibilityLabel("Markdown mode: \(active.rawValue)")
             .accessibilityIdentifier("markdown.modes")
+            .appTooltip("Markdown mode")
+            .motion(Motion.control, value: active)
             .fixedSize()
+    }
+
+    private func icon(_ mode: MarkdownEditorMode) -> String {
+        switch mode {
+        case .edit: "pencil"
+        case .source: "chevron.left.forwardslash.chevron.right"
+        case .preview: "eye"
+        }
+    }
+
+    private func description(_ mode: MarkdownEditorMode) -> String {
+        switch mode {
+        case .edit: canEdit ? "Formatted writing" : "Windows line endings: use Source"
+        case .source: "Markdown syntax"
+        case .preview: "Read-only document"
+        }
     }
 }

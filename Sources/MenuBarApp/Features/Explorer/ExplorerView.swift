@@ -714,8 +714,11 @@ struct ExplorerView: View {
                             fileTitle(node, compact: compact)
                             fileActions(node, compact: compact)
                         }
-                        .padding(.horizontal, inset).padding(.vertical, compact ? 5 : 4)
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: compact ? 65 : 36, alignment: .leading)
+                        .padding(.horizontal, inset)
+                        .padding(.vertical, node.supportsMarkdownPreview ? 10 : compact ? 5 : 4)
+                        .frame(minWidth: 0, maxWidth: .infinity,
+                               minHeight: node.supportsMarkdownPreview ? (compact ? 80 : 52) : (compact ? 65 : 36),
+                               alignment: .leading)
                         if findPresented {
                             findBar.transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
                         }
@@ -845,21 +848,37 @@ struct ExplorerView: View {
     private func fileTitle(_ node: FileNode, compact: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon(node)).foregroundStyle(Theme.accent).accessibilityHidden(true)
-            Text(node.name)
-                .font(.system(size: compact ? 14 : 15, weight: .semibold))
-                .lineLimit(1).truncationMode(.middle)
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel(node.name)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("explorer.fileTitle")
-                .appTooltip(node.name)
+            HStack(spacing: 8) {
+                Text(node.name)
+                    .font(.system(size: compact ? 14 : 15, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+                    .accessibilityLabel(node.name)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("explorer.fileTitle")
+                    .appTooltip(node.name)
+                if node.supportsMarkdownPreview {
+                    if dirty {
+                        Circle().fill(Theme.attention).frame(width: 6, height: 6)
+                            .accessibilityLabel("Unsaved changes")
+                            .appTooltip("Unsaved changes")
+                            .transition(.opacity)
+                    }
+                    if isPinned(node) {
+                        Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                            .accessibilityLabel("Pinned").transition(.opacity)
+                    }
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .motion(Motion.control, value: dirty)
+            .motion(Motion.control, value: isPinned(node))
             if let status = git.statuses[node.path] {
                 ExplorerStatusMark(status: status, spelledOut: !compact)
                     .fixedSize()
                     .padding(.horizontal, 7).padding(.vertical, 4)
                     .background(Theme.field, in: RoundedRectangle(cornerRadius: 6))
             }
-            // A narrow header has no room beside the actions, so the pills share the title's line.
+            // A narrow header keeps the mode beside the title and the file actions below it.
             if compact { markdownModes(node) }
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: compact ? 24 : nil, alignment: .leading)
@@ -868,27 +887,42 @@ struct ExplorerView: View {
     private func fileActions(_ node: FileNode, compact: Bool) -> some View {
         HStack(spacing: compact ? 2 : 5) {
             if !compact { markdownModes(node) }
-            if isEditable { saveButtons(node) }
+            if isEditable {
+                if node.supportsMarkdownPreview { markdownSave(node) }
+                else { saveButtons(node) }
+            }
+            if node.supportsMarkdownPreview {
+                Rectangle().fill(Theme.border).frame(width: 1, height: 20)
+                    .padding(.horizontal, compact ? 5 : 8).accessibilityHidden(true)
+            }
             ExplorerIcon(symbol: "magnifyingglass", label: "Find in file (Cmd+F or Ctrl+F)", action: showFind)
                 .disabled(!canFind)
-            if !node.isDirectory {
-                ExplorerIcon(symbol: isPinned(node) ? "pin.fill" : "pin", label: isPinned(node) ? "Unpin file" : "Pin file",
-                             selected: isPinned(node)) { togglePin(node) }
+            if !node.supportsMarkdownPreview {
+                if !node.isDirectory {
+                    ExplorerIcon(symbol: isPinned(node) ? "pin.fill" : "pin", label: isPinned(node) ? "Unpin file" : "Pin file",
+                                 selected: isPinned(node)) { togglePin(node) }
+                }
+                ExplorerIcon(symbol: "info.circle", label: "File details", selected: detailsPresented) { detailsPresented.toggle() }
             }
-            ExplorerIcon(symbol: "info.circle", label: "File details", selected: detailsPresented) { detailsPresented.toggle() }
             ExplorerIcon(symbol: "ellipsis", label: "File actions")
-                .appMenu {
+                .appMenu(showsFocusRing: true) {
                     var items: [MenuEntry] = []
                     if node.supportsMarkdownPreview {
-                        items.append(.item(markdownMode == .preview ? "Edit Markdown" : "Preview Markdown") {
-                            resetFind(); markdownMode = markdownMode == .preview ? .edit : .preview
-                        })
-                        items.append(.item("Export a Markdown copy") {
-                            exportMarkdown(draft, name: node.name, dialogs: dialogs, notify: { showNote($0) })
-                        })
+                        items += [
+                            .item(isPinned(node) ? "Unpin file" : "Pin file", icon: "pin", checked: isPinned(node)) { togglePin(node) },
+                            .item("File details", icon: "info.circle", checked: detailsPresented) { detailsPresented.toggle() },
+                            .separator,
+                            .item("Revert changes", icon: "arrow.uturn.backward", disabled: !dirty || saving) { revert() },
+                            .separator,
+                            .item("Copy path", icon: "doc.on.doc") { copyPath(node) },
+                            .item("Export Markdown copy", icon: "square.and.arrow.up", disabled: !isEditable) {
+                                exportMarkdown(draft, name: node.name, dialogs: dialogs, notify: { showNote($0) })
+                            }
+                        ]
+                    } else {
+                        items.append(.item("Copy path") { copyPath(node) })
                     }
-                    return items + [.item("Copy path") { copyPath(node) },
-                                    .item("Open externally") { openExternally(node) },
+                    return items + [.item("Open externally") { openExternally(node) },
                                     .item("Reveal in Finder") { revealInFinder(node) }]
                 }
         }.fixedSize()
@@ -898,7 +932,7 @@ struct ExplorerView: View {
         switch preview {
         case .text, .empty:
             if node.supportsMarkdownPreview {
-                MarkdownModePicker(mode: $markdownMode, canEdit: markdownCanEdit)
+                MarkdownModeMenu(mode: $markdownMode, canEdit: markdownCanEdit)
                     .padding(.trailing, 6).transition(.fadeIn)
             }
         default: EmptyView()
@@ -1241,6 +1275,29 @@ struct ExplorerView: View {
         }
         .fixedSize(horizontal: true, vertical: false)
         .layoutPriority(1)
+    }
+
+    private func markdownSave(_ node: FileNode) -> some View {
+        ZStack {
+            if dirty || saving {
+                ActionButton(title: saving ? "Saving…" : "Save", tone: .green, height: 30, size: 12,
+                             shortcut: saving ? nil : "⌘S",
+                             keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) { save(node) }
+                    .disabled(!dirty || saving)
+                    .accessibilityLabel(saving ? "Saving changes" : "Save changes")
+                    .appTooltip("Save changes (Cmd+S)")
+                    .transition(.opacity)
+            } else {
+                Label("Saved", systemImage: "checkmark")
+                    .font(.system(size: 12)).foregroundStyle(Theme.accent)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("explorer.saved")
+                    .transition(.opacity)
+            }
+        }
+        .frame(minWidth: 82, minHeight: 30)
+        .motion(Motion.control, value: dirty || saving)
+        .motion(Motion.control, value: saving)
     }
 
     private func relativePath(_ node: FileNode) -> String {
@@ -1754,10 +1811,22 @@ struct ExplorerView: View {
     }
 
     private func revert() {
-        confirmDiscard {
+        let discard = {
             draft = original
-            if let selected { documents.edits.removeValue(forKey: selected.path) }
+            if let selected {
+                documents.edits.removeValue(forKey: selected.path)
+                saveErrors.removeValue(forKey: selected.path)
+            }
             rememberPlace()
+        }
+        if let selected, selected.supportsMarkdownPreview {
+            var dialog = Dialog.confirm("Revert your changes?",
+                                        message: "Unsaved edits to \(selected.name) will be replaced with the last saved version.",
+                                        action: "Revert changes", cancel: "Keep editing", handler: discard)
+            dialog.isModal = true
+            dialogs.show(dialog)
+        } else {
+            confirmDiscard(then: discard)
         }
     }
 
@@ -1768,13 +1837,15 @@ struct ExplorerView: View {
     }
 
     private func save(_ node: FileNode) {
-        guard !saving else { return }
+        guard dirty, !saving else { return }
         let saved = draft
         let expectedModification = loadedAt
+        saving = true
         Task {
             let modified = await FileTree.modified(of: node.url)
-            guard selected?.path == node.path else { return }
+            guard selected?.path == node.path else { saving = false; return }
             guard modified == expectedModification else {
+                saving = false
                 dialogs.show(.confirm(
                     "The file has changed",
                     message: "\(node.name) was written by something else since it was opened here. Saving replaces what is on disk now.",
@@ -1787,10 +1858,10 @@ struct ExplorerView: View {
 
     private func write(_ node: FileNode, text saved: String) {
         let writtenRoot = openedRoot ?? root
+        saving = true
         Task {
-            saving = true
+            defer { saving = false }
             let failure = await FileTree.write(saved, to: node.url)
-            saving = false
             if let failure {
                 saveErrors[node.path] = failure
                 announceEditorStatus("Could not save \(node.name). Your edits are still here. Retry or export a copy.")
