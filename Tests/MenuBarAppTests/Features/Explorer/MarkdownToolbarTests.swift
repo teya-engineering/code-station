@@ -217,8 +217,10 @@ struct MarkdownToolbarTests {
         }
 
         func click(_ label: String) throws {
-            let anchor = try #require(anchor(label))
-            let rect = anchor.convert(anchor.bounds, to: nil)
+            // Not named `anchor`: the swift-testing on CI expands #require into a closure
+            // that calls `anchor(...)`, where the new constant would shadow the method.
+            let target = try #require(anchor(label))
+            let rect = target.convert(target.bounds, to: nil)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 window.sendEvent(try #require(NSEvent.mouseEvent(
                     with: type, location: NSPoint(x: rect.midX, y: rect.midY), modifierFlags: [], timestamp: 0,
