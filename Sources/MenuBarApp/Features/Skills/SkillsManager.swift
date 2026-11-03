@@ -399,6 +399,7 @@ final class SkillsManager {
         isRefreshing = true
         defer { isRefreshing = false }
         let load = await Self.loadGitCatalogue(source: source, at: cacheURL(source: source), forceClone: true)
+        if load.needsSignIn { throw GitSignInRequired(address: source) }
         guard let catalogue = load.marketplace, !catalogue.name.isBlank else {
             throw ImportError(load.notice ?? "The marketplace must contain a name and packages.")
         }
@@ -430,6 +431,7 @@ final class SkillsManager {
         // marketplace, and that name is what the installation lookups are keyed by.
         let load = await Self.loadGitCatalogue(source: source, at: cacheURL(source: source),
                                                forceClone: true)
+        if load.needsSignIn { throw GitSignInRequired(address: source) }
         guard let catalogue = load.marketplace else {
             throw ImportError(load.notice ?? "The marketplace could not be loaded.")
         }
@@ -585,6 +587,8 @@ final class SkillsManager {
         let marketplace: SkillMarketplace?
         let notice: String?
         let didRefresh: Bool
+        // The clone stopped at a sign-in, so the screen can offer the SSH address.
+        var needsSignIn = false
     }
 
     nonisolated static func decodeMarketplace(_ data: Data) throws -> SkillMarketplace {
@@ -716,9 +720,12 @@ final class SkillsManager {
                                        candidate.path])
         guard cloned.ok else {
             try? files.removeItem(at: candidate)
+            let needsSignIn = GitSignIn.isRequired(by: cloned.failureMessage)
             return CatalogueLoad(marketplace: nil,
-                                 notice: cloned.failureMessage,
-                                 didRefresh: false)
+                                 notice: needsSignIn ? GitSignIn.explanation(for: source)
+                                     : cloned.failureMessage,
+                                 didRefresh: false,
+                                 needsSignIn: needsSignIn)
         }
 
         let candidateManifest = candidate
@@ -916,6 +923,9 @@ final class SkillsManager {
         }
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = ProcessManager.searchPath
+        // There is no terminal behind these commands. Without this, git (run directly or
+        // by an agent CLI) tries to open one for a username and fails with a device error.
+        environment["GIT_TERMINAL_PROMPT"] = "0"
 
         do {
             let output = try await CommandRunner.run(
