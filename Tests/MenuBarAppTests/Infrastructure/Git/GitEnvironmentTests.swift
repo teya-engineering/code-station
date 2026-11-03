@@ -3,8 +3,8 @@ import Testing
 @testable import MenuBarApp
 
 // Every git the app starts reads back what git printed, and none of them has a terminal.
-// A caller that builds its own environment once missed the locale, and git's sign-in
-// messages came back translated where nothing could recognise them.
+// Without the pinned locale, git's messages come back translated and nothing can
+// recognise them.
 struct GitEnvironmentTests {
 
     @Test func pinsEverythingANonInteractiveGitNeeds() {

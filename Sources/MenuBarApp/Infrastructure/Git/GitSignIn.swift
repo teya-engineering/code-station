@@ -19,26 +19,35 @@ struct GitSignInRequired: LocalizedError, Sendable, Equatable {
 
 enum GitSignIn {
     // What git prints when it needed an HTTPS login it could not get, whether prompts
-    // were off or it tried a terminal the app does not have. The last is a stored login
-    // the server turned down.
-    private static let httpsSignals = [
+    // were off or it tried a terminal the app does not have.
+    private static let missingLoginSignals = [
         "could not read username",
         "could not read password",
         "terminal prompts disabled",
-        "authentication failed for",
     ]
 
-    // Nil when the failure has nothing to do with signing in.
-    static func problem(in gitOutput: String, address: String) -> GitSignInRequired? {
+    // Nil when the failure has nothing to do with signing in. `isSaved` says the address
+    // belongs to a marketplace already added, which can only move to SSH by adding it again.
+    static func problem(in gitOutput: String, address: String,
+                        isSaved: Bool = false) -> GitSignInRequired? {
         let text = gitOutput.lowercased()
+        // ssh prints "Host key verification failed" for a changed key too, so this has to
+        // be asked first. A changed key can be an attack and must not read as a new server.
+        if text.contains("remote host identification has changed") {
+            return GitSignInRequired(message: changedHostMessage(for: address), sshAddress: nil)
+        }
         if text.contains("host key verification failed") {
             return GitSignInRequired(message: unknownHostMessage(for: address), sshAddress: nil)
         }
         if text.contains("permission denied (publickey") {
             return GitSignInRequired(message: rejectedKeyMessage(for: address), sshAddress: nil)
         }
-        guard httpsSignals.contains(where: text.contains) else { return nil }
-        return GitSignInRequired(message: httpsMessage(for: address),
+        if text.contains("authentication failed for") {
+            return GitSignInRequired(message: rejectedLoginMessage(for: address, isSaved: isSaved),
+                                     sshAddress: sshAddress(for: address))
+        }
+        guard missingLoginSignals.contains(where: text.contains) else { return nil }
+        return GitSignInRequired(message: missingLoginMessage(for: address, isSaved: isSaved),
                                  sshAddress: sshAddress(for: address))
     }
 
@@ -82,7 +91,7 @@ enum GitSignIn {
 
     // MARK: - Messages
 
-    private static func httpsMessage(for address: String) -> String {
+    private static func missingLoginMessage(for address: String, isSaved: Bool) -> String {
         let host = self.host(of: address)
         let server = serverName(host)
         var message = "\(server) asked for a sign-in to read this repository, "
@@ -92,13 +101,41 @@ enum GitSignIn {
         message += host.flatMap { knownHosts[$0] } == nil
             ? " Check the address first: many servers answer the same way when a repository does not exist."
             : " Check the address first: \(server) answers the same way when a repository does not exist."
-        if let ssh = sshAddress(for: address) {
-            message += " If it is private, use the SSH address \(ssh) to sign in with your SSH key."
-        }
+        message += sshAdvice(for: address, isSaved: isSaved)
         message += host == "github.com"
             ? " To keep the HTTPS address, run gh auth setup-git in Terminal first."
             : " To keep the HTTPS address, set up a git credential helper for it first."
         return message
+    }
+
+    private static func rejectedLoginMessage(for address: String, isSaved: Bool) -> String {
+        let host = self.host(of: address)
+        var message = "\(serverName(host)) turned down the login saved on this Mac. "
+            + "It may have expired, or it may not have access to this repository."
+        message += sshAdvice(for: address, isSaved: isSaved)
+        message += host == "github.com"
+            ? " To keep the HTTPS address, run gh auth login and then gh auth setup-git in Terminal."
+            : " To keep the HTTPS address, update the login in your git credential helper."
+        return message
+    }
+
+    private static func sshAdvice(for address: String, isSaved: Bool) -> String {
+        guard let ssh = sshAddress(for: address) else { return "" }
+        return isSaved
+            ? " To sign in with your SSH key, remove this marketplace and add it again with the SSH address \(ssh)."
+            : " If it is private, use the SSH address \(ssh) to sign in with your SSH key."
+    }
+
+    private static func changedHostMessage(for address: String) -> String {
+        let host = self.host(of: address)
+        let first = "The SSH key sent by \(serverName(host)) does not match the one saved on this Mac. "
+            + "The server may have changed its key, or someone may be intercepting the connection. "
+            + "Compare the new key with the ones the server publishes before you trust it."
+        // A port changes how the key is stored, so a plain host name would remove nothing.
+        guard let host, sshTarget(of: address) != nil else {
+            return first + " If it matches, remove the old key from known_hosts, then try again."
+        }
+        return first + " If it matches, run ssh-keygen -R \(host) in Terminal, then try again."
     }
 
     private static func unknownHostMessage(for address: String) -> String {

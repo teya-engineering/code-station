@@ -24,9 +24,46 @@ struct GitSignInTests {
         #expect(GitSignIn.problem(in:
             "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
             address: github) != nil)
-        #expect(GitSignIn.problem(in:
-            "remote: Invalid username or token.\nfatal: Authentication failed for 'https://github.com/org/repo.git/'",
-            address: github) != nil)
+    }
+
+    // A login exists and the server refused it, so asking the user to add one would be wrong.
+    @Test func explainsARejectedLogin() {
+        let output = "remote: Invalid username or token.\nfatal: Authentication failed for 'https://github.com/org/repo.git/'"
+        let problem = GitSignIn.problem(in: output, address: github)
+        #expect(problem?.sshAddress == "git@github.com:example/marketplace.git")
+        #expect(problem?.message.hasPrefix("GitHub turned down the login saved on this Mac") == true)
+        #expect(problem?.message.contains("gh auth login") == true)
+        #expect(problem?.message.contains("git cannot ask you") == false)
+    }
+
+    // The saved marketplace has no link and no way to edit its address.
+    @Test func tellsASavedMarketplaceToAddItAgain() {
+        let missing = GitSignIn.problem(in: "terminal prompts disabled", address: github, isSaved: true)
+        #expect(missing?.message.contains("remove this marketplace and add it again with the SSH address git@github.com:example/marketplace.git") == true)
+        let rejected = GitSignIn.problem(in: "Authentication failed for 'x'", address: github, isSaved: true)
+        #expect(rejected?.message.contains("remove this marketplace and add it again") == true)
+    }
+
+    // Captured from a real clone against a server whose key differs from known_hosts. The
+    // same output also holds the line for a new server, and must not be read as one.
+    @Test func warnsAboutAChangedHostKey() {
+        let output = """
+            @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+            IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+            Host key for github.com has changed and you have requested strict checking.
+            Host key verification failed.
+            fatal: Could not read from remote repository.
+            """
+        let scp = GitSignIn.problem(in: output, address: "git@github.com:org/repo.git")
+        #expect(scp?.sshAddress == nil)
+        #expect(scp?.message.contains("does not match the one saved") == true)
+        #expect(scp?.message.contains("intercepting") == true)
+        #expect(scp?.message.contains("ssh-keygen -R github.com") == true)
+        #expect(scp?.message.contains("accept") == false)
+
+        let port = GitSignIn.problem(in: output, address: "ssh://git@git.example.com:2222/org/repo.git")
+        #expect(port?.message.contains("ssh-keygen") == false)
+        #expect(port?.message.contains("known_hosts") == true)
     }
 
     @Test func leavesOtherFailuresAlone() {

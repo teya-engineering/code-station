@@ -867,11 +867,11 @@ final class SkillsManager {
     // MARK: - Commands
 
     // A sign-in problem in plain words when that is what stopped git, git's own text
-    // otherwise. A refresh uses this; a first clone asks GitSignIn directly because it
-    // also keeps the SSH address to offer. Both read the same words for the same failure.
+    // otherwise. A refresh uses this, for a marketplace already added; a first clone asks
+    // GitSignIn directly because it also keeps the SSH address to offer.
     private nonisolated static func gitFailureMessage(_ result: CommandResult,
                                                       source: String) -> String {
-        GitSignIn.problem(in: result.failureMessage, address: source)?.message
+        GitSignIn.problem(in: result.failureMessage, address: source, isSaved: true)?.message
             ?? result.failureMessage
     }
 
