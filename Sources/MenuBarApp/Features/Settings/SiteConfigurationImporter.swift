@@ -70,10 +70,7 @@ enum SiteConfigurationImporter {
                                     isDirectory: true)
         defer { try? FileManager.default.removeItem(at: checkout) }
 
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = ProcessManager.searchPath
-        environment["GIT_TERMINAL_PROMPT"] = "0"
-        environment["GIT_OPTIONAL_LOCKS"] = "0"
+        let environment = GitEnvironment.nonInteractive(searchPath: ProcessManager.searchPath)
         let output: CommandRunner.Output
         do {
             output = try await CommandRunner.run(

@@ -49,7 +49,9 @@ struct AddMarketplaceView: View {
             Text("Adding a marketplace does not install any packages.")
                 .scaledText(12).foregroundStyle(.secondary)
         }
-        .motion(Motion.reveal, value: sshAddress)
+        // The link arrives on the reveal curve. Clearing it, on a retry or an edit, also
+        // takes the error away, and anything put away leaves on the quicker curve.
+        .motion(sshAddress == nil ? Motion.leave : Motion.reveal, value: sshAddress)
         .onChange(of: repository) { _, _ in clearResult() }
     }
 

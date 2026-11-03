@@ -399,7 +399,7 @@ final class SkillsManager {
         isRefreshing = true
         defer { isRefreshing = false }
         let load = await Self.loadGitCatalogue(source: source, at: cacheURL(source: source), forceClone: true)
-        if load.needsSignIn { throw GitSignInRequired(address: source) }
+        if let signIn = load.signIn { throw signIn }
         guard let catalogue = load.marketplace, !catalogue.name.isBlank else {
             throw ImportError(load.notice ?? "The marketplace must contain a name and packages.")
         }
@@ -415,33 +415,6 @@ final class SkillsManager {
         try saveMarketplace(source)
         isRefreshing = true
         await finishLoad(preloaded: [source.marketplace: .init(marketplace: catalogue, notice: nil, didRefresh: true)])
-    }
-
-    func configure(gitRepository source: String) async throws {
-        guard !isBusy else { return }
-        let source = source.trimmed
-        guard !source.isEmpty else { throw ImportError("Enter a Git repository.") }
-
-        isRefreshing = true
-        catalogueNotice = nil
-        hostFailures = [:]
-        defer { isRefreshing = false }
-
-        // The repository is read before anything is saved: its manifest names the
-        // marketplace, and that name is what the installation lookups are keyed by.
-        let load = await Self.loadGitCatalogue(source: source, at: cacheURL(source: source),
-                                               forceClone: true)
-        if load.needsSignIn { throw GitSignInRequired(address: source) }
-        guard let catalogue = load.marketplace else {
-            throw ImportError(load.notice ?? "The marketplace could not be loaded.")
-        }
-        let configuration = SkillMarketplaceConfiguration(
-            source: source,
-            sourceKind: .gitRepository,
-            marketplace: catalogue.name,
-            label: catalogue.name)
-        try saveMarketplace(configuration)
-        await finishLoad(preloaded: [configuration.marketplace: load])
     }
 
     func refresh() async {
@@ -587,8 +560,9 @@ final class SkillsManager {
         let marketplace: SkillMarketplace?
         let notice: String?
         let didRefresh: Bool
-        // The clone stopped at a sign-in, so the screen can offer the SSH address.
-        var needsSignIn = false
+        // The clone stopped at a sign-in. Its message is already the notice; the screen
+        // that started the clone also uses it to offer the SSH address.
+        var signIn: GitSignInRequired? = nil
     }
 
     nonisolated static func decodeMarketplace(_ data: Data) throws -> SkillMarketplace {
@@ -695,13 +669,13 @@ final class SkillsManager {
                   let marketplace = try? decodeMarketplace(data) else {
                 let detail = pulled.ok
                     ? "The repository did not contain a readable .claude-plugin/marketplace.json file."
-                    : pulled.failureMessage
+                    : gitFailureMessage(pulled, source: source)
                 return CatalogueLoad(marketplace: nil, notice: detail, didRefresh: false)
             }
             return CatalogueLoad(
                 marketplace: marketplace,
                 notice: pulled.ok ? nil
-                    : "Could not refresh the marketplace. Showing the cached list. \(pulled.failureMessage)",
+                    : "Could not refresh the marketplace. Showing the cached list. \(gitFailureMessage(pulled, source: source))",
                 didRefresh: pulled.ok)
         }
 
@@ -720,12 +694,11 @@ final class SkillsManager {
                                        candidate.path])
         guard cloned.ok else {
             try? files.removeItem(at: candidate)
-            let needsSignIn = GitSignIn.isRequired(by: cloned.failureMessage)
+            let signIn = GitSignIn.problem(in: cloned.failureMessage, address: source)
             return CatalogueLoad(marketplace: nil,
-                                 notice: needsSignIn ? GitSignIn.explanation(for: source)
-                                     : cloned.failureMessage,
+                                 notice: signIn?.message ?? cloned.failureMessage,
                                  didRefresh: false,
-                                 needsSignIn: needsSignIn)
+                                 signIn: signIn)
         }
 
         let candidateManifest = candidate
@@ -893,6 +866,15 @@ final class SkillsManager {
 
     // MARK: - Commands
 
+    // A sign-in problem in plain words when that is what stopped git, git's own text
+    // otherwise. A refresh uses this; a first clone asks GitSignIn directly because it
+    // also keeps the SSH address to offer. Both read the same words for the same failure.
+    private nonisolated static func gitFailureMessage(_ result: CommandResult,
+                                                      source: String) -> String {
+        GitSignIn.problem(in: result.failureMessage, address: source)?.message
+            ?? result.failureMessage
+    }
+
     struct CommandResult: Sendable {
         var output = ""
         var errorText = ""
@@ -921,11 +903,17 @@ final class SkillsManager {
         guard let path = ProcessManager.resolve(command) else {
             return CommandResult(errorText: "\(command) was not found on PATH.")
         }
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = ProcessManager.searchPath
-        // There is no terminal behind these commands. Without this, git (run directly or
-        // by an agent CLI) tries to open one for a username and fails with a device error.
-        environment["GIT_TERMINAL_PROMPT"] = "0"
+        var environment: [String: String]
+        if command == "git" {
+            environment = GitEnvironment.nonInteractive(searchPath: ProcessManager.searchPath)
+        } else {
+            // Agent CLIs keep the user's locale: pinning it would change what they print.
+            // There is still no terminal behind them, so any git they start must not try
+            // to open one for a username.
+            environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = ProcessManager.searchPath
+            environment["GIT_TERMINAL_PROMPT"] = "0"
+        }
 
         do {
             let output = try await CommandRunner.run(
