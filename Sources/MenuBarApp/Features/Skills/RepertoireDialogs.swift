@@ -7,6 +7,8 @@ struct AddMarketplaceView: View {
     @State private var repository = ""
     @State private var preview: (SkillMarketplaceConfiguration, SkillMarketplace)?
     @State private var failure: String?
+    // Set when the check stopped at a sign-in and the host has an SSH address to try.
+    @State private var sshAddress: String?
     @State private var loading = false
 
     var body: some View {
@@ -21,7 +23,7 @@ struct AddMarketplaceView: View {
                          repositoryHelp: "Use an HTTPS or SSH Git URL. The repository must contain .claude-plugin/marketplace.json.",
                          localFileHelp: "Choose a marketplace JSON file on this Mac.",
                          repositoryChoice: "Git repository", fileChoice: "Local file",
-                         onSourceChange: { preview = nil; failure = nil })
+                         onSourceChange: clearResult)
             if let preview {
                 SourceLoaded(title: preview.0.label, detail: "\(preview.1.plugins.count) packages available\n\(preview.0.source)")
                 ActionButton(title: loading ? "Adding…" : "Add marketplace", tone: .dark) {
@@ -37,29 +39,53 @@ struct AddMarketplaceView: View {
                 }.disabled(loading || manager.isBusy)
             }
             if let failure { SourceFailure(failure, lineLimit: nil) }
+            if let sshAddress {
+                InlineLink(title: "Use SSH address", size: 11.5, icon: "key") {
+                    useSSH(sshAddress)
+                }
+                .disabled(loading || manager.isBusy)
+                .transition(.fadeIn)
+            }
             Text("Adding a marketplace does not install any packages.")
                 .scaledText(12).foregroundStyle(.secondary)
         }
-        .onChange(of: repository) { _, _ in preview = nil; failure = nil }
+        // The link arrives on the reveal curve. Clearing it, on a retry or an edit, also
+        // takes the error away, and anything put away leaves on the quicker curve.
+        .motion(sshAddress == nil ? Motion.leave : Motion.reveal, value: sshAddress)
+        .onChange(of: repository) { _, _ in clearResult() }
+    }
+
+    private func clearResult() {
+        preview = nil
+        failure = nil
+        sshAddress = nil
     }
 
     private func checkRepository() {
-        preview = nil
-        failure = nil
+        clearResult()
         loading = true
         Task {
             do {
                 let result = try await manager.previewMarketplace(gitRepository: repository)
                 try accept(result)
-            } catch { failure = error.localizedDescription }
+            } catch {
+                failure = error.localizedDescription
+                sshAddress = (error as? GitSignInRequired)?.sshAddress
+            }
             loading = false
         }
     }
 
+    // The field takes the SSH address so the user sees what is being tried, and what
+    // gets saved if it works.
+    private func useSSH(_ address: String) {
+        repository = address
+        checkRepository()
+    }
+
     private func chooseFile() {
         guard let url = FilePicker.chooseFile(prompt: "Check marketplace", message: "Choose a marketplace JSON file.", types: [.json]) else { return }
-        preview = nil
-        failure = nil
+        clearResult()
         do { try accept(SkillsManager.localConfiguration(at: url)) }
         catch { failure = error.localizedDescription }
     }
