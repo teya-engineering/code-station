@@ -16,12 +16,44 @@ struct MarkdownBlock: Identifiable, Equatable {
         case quote(String)
         case rule
         case htmlPreview(HTMLPreviewReference)
+        // A paragraph or heading that HTML asked to be centred.
+        indirect case centered(Kind)
     }
 
-    static func parse(_ text: String) -> [MarkdownBlock] {
+    // `html` reads HTML blocks as the page they describe. A document asks for it; a
+    // transcript does not, so a tag Claude writes on a line of its own stays visible.
+    static func parse(_ text: String, html: Bool = false) -> [MarkdownBlock] {
+        var reader: MarkdownHTML.Reader? = html ? MarkdownHTML.Reader() : nil
+        return parse(text, reader: &reader)
+    }
+
+    // The prose of a whole document, read with one HTML reader, so a container opened
+    // before a code fence still holds what follows it. Keyed by segment.
+    static func parse(document segments: [MessageSegment]) -> [Int: [MarkdownBlock]] {
+        var reader: MarkdownHTML.Reader? = MarkdownHTML.Reader()
+        var result: [Int: [MarkdownBlock]] = [:]
+        for segment in segments where !segment.isCode {
+            result[segment.id] = parse(segment.text, reader: &reader)
+        }
+        return result
+    }
+
+    // Reads HTML blocks when given a reader, carrying its open containers in and out.
+    static func parse(_ text: String, reader: inout MarkdownHTML.Reader?) -> [MarkdownBlock] {
         let lines = text.components(separatedBy: "\n")
         var kinds: [Kind] = []
         var paragraph: [String] = []
+        // Where Markdown began inside an HTML container that centres it.
+        var centeredFrom: Int? = reader?.centered == true ? 0 : nil
+        func centerMarkdown(upTo end: Int) {
+            guard let start = centeredFrom, start < end else { return }
+            for index in start..<end {
+                switch kinds[index] {
+                case .paragraph, .heading: kinds[index] = .centered(kinds[index])
+                default: break
+                }
+            }
+        }
 
         func flushParagraph() {
             let joined = paragraph.joined(separator: "\n").trimmed
@@ -36,6 +68,12 @@ struct MarkdownBlock: Identifiable, Equatable {
             if trimmed.isEmpty {
                 flushParagraph()
                 index += 1
+            } else if reader != nil, let end = MarkdownHTML.blockEnd(lines, from: index, inParagraph: !paragraph.isEmpty) {
+                flushParagraph()
+                centerMarkdown(upTo: kinds.count)
+                kinds += reader!.read(lines[index..<end].joined(separator: "\n"))
+                centeredFrom = reader!.centered ? kinds.count : nil
+                index = end
             } else if let reference = HTMLPreviewReference.parse(trimmed) {
                 flushParagraph()
                 kinds.append(.htmlPreview(reference))
@@ -113,6 +151,7 @@ struct MarkdownBlock: Identifiable, Equatable {
             }
         }
         flushParagraph()
+        centerMarkdown(upTo: kinds.count)
         return kinds.enumerated().map { MarkdownBlock(id: $0.offset, kind: $0.element) }
     }
 
@@ -165,7 +204,7 @@ struct MarkdownBlock: Identifiable, Equatable {
         return row + Array(repeating: "", count: count - row.count)
     }
 
-    private static let bullets = ["•", "◦", "▪"]
+    static let bullets = ["•", "◦", "▪"]
 
     // An item's text starts two spaces in for each level ("- " or "1. "), so plain text
     // indented that far sits under the item one level up. Anything with block syntax of
@@ -210,10 +249,91 @@ struct MarkdownBlock: Identifiable, Equatable {
 
 // Local image links and Markdown images share the same preview. Keep their source
 // text so an unresolved file still renders with its original link or image syntax.
+// How an image asks to be drawn. The size is in points, and a side left out follows the
+// picture's own shape. An image from HTML shows no caption, as a browser shows none:
+// its alt text stays its tooltip and what VoiceOver reads.
+struct MarkdownImageAttributes: Equatable, Hashable {
+    var width: CGFloat?
+    var height: CGFloat?
+    var captioned = true
+    // Where the image links to, for an HTML `<img>` inside an `<a>`. When the image
+    // cannot be drawn, the link is what is left of it.
+    var link: String?
+
+    // Marks an image that came from an HTML `<img>`.
+    static let htmlClass = ".html"
+    // No sensible page asks for more; anything larger is capped rather than trusted.
+    static let largest: CGFloat = 4096
+
+    // The block this reads back from, or nothing when there is nothing to say.
+    var markdown: String {
+        let tokens = [captioned ? nil : Self.htmlClass,
+                      width.map { "width=\(Self.number($0))" },
+                      height.map { "height=\(Self.number($0))" },
+                      link.map { "link=\(Self.encoded($0))" }].compactMap { $0 }
+        return tokens.isEmpty ? "" : "{\(tokens.joined(separator: " "))}"
+    }
+
+    private static func number(_ value: CGFloat) -> String {
+        value == value.rounded() ? String(Int(value)) : String(Double(value))
+    }
+
+    // A destination that survives being a Markdown link or an attribute value: nothing
+    // in it may end the parentheses, the braces or the token early.
+    static func encoded(_ destination: String) -> String {
+        var result = ""
+        for character in destination {
+            switch character {
+            case " ": result += "%20"
+            case "(": result += "%28"
+            case ")": result += "%29"
+            case "{": result += "%7B"
+            case "}": result += "%7D"
+            case "\"": result += "%22"
+            case "'": result += "%27"
+            default: result.append(character)
+            }
+        }
+        return result
+    }
+
+    // Pandoc's attribute block after an image, `{width=96 height=96}`, which is also how
+    // an HTML `<img>` passes its size on. Other attributes such as `.class` or `#id` are
+    // allowed and ignored; anything that is not an attribute list is not one.
+    static func attributes(_ text: Substring) -> (attributes: MarkdownImageAttributes, length: Int)? {
+        guard text.first == "{", let close = text.firstIndex(of: "}") else { return nil }
+        let body = text[text.index(after: text.startIndex)..<close]
+        guard !body.contains(where: \.isNewline) else { return nil }
+        var size = MarkdownImageAttributes()
+        for token in body.split(separator: " ") {
+            if token == htmlClass { size.captioned = false; continue }
+            if token.first == "." || token.first == "#" { continue }
+            let pair = token.split(separator: "=", maxSplits: 1)
+            guard pair.count == 2, !pair[0].isEmpty else { return nil }
+            let value = points(String(pair[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\"'")))
+            switch pair[0].lowercased() {
+            case "width": size.width = value
+            case "height": size.height = value
+            case "link": size.link = String(pair[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            default: break
+            }
+        }
+        guard size.width != nil || size.height != nil || !size.captioned || size.link != nil else { return nil }
+        return (size, text.distance(from: text.startIndex, to: close) + 1)
+    }
+
+    // "96" or "96px". A percentage or any other unit has no fixed size, so it is ignored.
+    static func points(_ value: String) -> CGFloat? {
+        let number = value.lowercased().hasSuffix("px") ? String(value.dropLast(2)) : value
+        guard let parsed = Double(number), parsed.isFinite, parsed > 0 else { return nil }
+        return min(CGFloat(parsed), largest)
+    }
+}
+
 extension MarkdownBlock {
     enum ParagraphPart: Equatable {
         case text(String)
-        case image(alt: String, source: String)
+        case image(alt: String, source: String, attributes: MarkdownImageAttributes? = nil)
         case link(label: String, source: String)
     }
 
@@ -276,7 +396,7 @@ extension MarkdownBlock {
                let closeBracket = closingDelimiter("]", from: text.index(after: bracket)) {
                 let label = String(text[text.index(after: bracket)..<closeBracket])
                 let openParen = text.index(after: closeBracket)
-                if !label.contains("["),
+                if !containsUnescaped("[", in: label),
                    openParen < text.endIndex, text[openParen] == "(",
                    let closeParen = closingDelimiter(")", from: text.index(after: openParen),
                                                      opening: "(") {
@@ -286,9 +406,11 @@ extension MarkdownBlock {
                             parts.append(.text(plain))
                             plain = ""
                         }
-                        parts.append(isImage ? .image(alt: label, source: source)
-                                             : .link(label: label, source: source))
                         index = text.index(after: closeParen)
+                        let read = isImage ? MarkdownImageAttributes.attributes(text[index...]) : nil
+                        parts.append(isImage ? .image(alt: label, source: source, attributes: read?.attributes)
+                                             : .link(label: label, source: source))
+                        if let read { index = text.index(index, offsetBy: read.length) }
                         continue
                     }
                 }
@@ -300,9 +422,46 @@ extension MarkdownBlock {
         return parts
     }
 
+    // An escaped bracket is text, so it does not stop a label being a label.
+    private static func containsUnescaped(_ mark: Character, in text: String) -> Bool {
+        var escaped = false
+        for character in text {
+            if escaped { escaped = false; continue }
+            if character == "\\" { escaped = true; continue }
+            if character == mark { return true }
+        }
+        return false
+    }
+
+    // What an image that cannot be drawn leaves behind: its link when it had one, and
+    // otherwise the image as written, without the attributes that had nothing to size.
+    static func fallback(alt: String, source: String, attributes: MarkdownImageAttributes?) -> String {
+        guard let link = attributes?.link else { return "![\(alt)](\(source))" }
+        return "[\(alt.trimmed.isEmpty ? NoteDocument.escape(link) : alt)](\(link))"
+    }
+
+    // The text as it reads with no image drawn: the same text, with each image's
+    // attribute block taken off, so a paragraph shown as plain text never prints one.
+    static func displayText(_ text: String) -> String {
+        guard text.contains("){") else { return text }
+        return paragraphParts(text).map { part in
+            switch part {
+            case .text(let piece): piece
+            case .link(let label, let source): "[\(label)](\(source))"
+            case .image(let alt, let source, let attributes): fallback(alt: alt, source: source, attributes: attributes)
+            }
+        }.joined()
+    }
+
+    // Alt text is written as Markdown, so its escapes and emphasis are not part of what
+    // a caption or a tooltip says.
+    static func plainText(_ markdown: String) -> String {
+        String(AttributedString.inlineMarkdown(markdown).characters)
+    }
+
     enum ResolvedPart: Equatable {
         case text(String)
-        case image(alt: String, url: URL)
+        case image(alt: String, url: URL, attributes: MarkdownImageAttributes? = nil)
     }
 
     // Splits a paragraph around the images that resolve to a file. One that does not
@@ -333,11 +492,11 @@ extension MarkdownBlock {
                 } else {
                     appendText(markdown)
                 }
-            case .image(let alt, let source):
+            case .image(let alt, let source, let attributes):
                 if let url = resolve(source) {
-                    resolved.append(.image(alt: alt, url: url))
+                    resolved.append(.image(alt: plainText(alt), url: url, attributes: attributes))
                 } else {
-                    appendText("![\(alt)](\(source))")
+                    appendText(fallback(alt: alt, source: source, attributes: attributes))
                 }
             }
         }
@@ -380,14 +539,14 @@ extension MarkdownBlock {
             var style: TranscriptBlockStyle
             switch block.kind {
             case .paragraph(let body):
-                text = body
+                text = displayText(body)
                 style = TranscriptBlockStyle(size: 13.5,
                                              weight: NSFont.Weight.regular.rawValue,
                                              design: .standard,
                                              spacingBefore: proseGap)
             case .heading(let level, let title):
                 let heading = headingStyle(level)
-                text = title
+                text = displayText(title)
                 style = TranscriptBlockStyle(size: heading.size,
                                              weight: NSFont.Weight.semibold.rawValue,
                                              design: heading.design,
@@ -1600,21 +1759,29 @@ struct MarkdownBlockView: View, Equatable {
     let block: MarkdownBlock
     let projectPath: String
     let textScale: CGFloat
+    var centered = false
+
+    private var textAlignment: TextAlignment { centered ? .center : .leading }
+    private var frameAlignment: Alignment { centered ? .center : .leading }
 
     var body: some View {
         switch block.kind {
         case .paragraph(let text):
             paragraph(text)
+        case .centered(let inner):
+            MarkdownBlockView(block: MarkdownBlock(id: block.id, kind: inner),
+                              projectPath: projectPath, textScale: textScale, centered: true)
         case .htmlPreview(let reference):
             HTMLPreview(reference: reference, projectPath: projectPath)
         case .heading(let level, let text):
             let heading = headingSpec(level)
-            SelectableText(text,
+            SelectableText(MarkdownBlock.displayText(text),
                                size: heading.size,
                                weight: heading.weight,
-                               design: heading.design)
+                               design: heading.design,
+                               alignment: textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .padding(.top, level <= 2 ? 6 : 2)
         case .table(let table):
             MarkdownTableView(table: table, textScale: textScale)
@@ -1631,7 +1798,7 @@ struct MarkdownBlockView: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .quote(let text):
-            SelectableText(text, size: 13, secondary: true)
+            SelectableText(MarkdownBlock.displayText(text), size: 13, secondary: true)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 13)
                 .overlay(alignment: .leading) {
@@ -1659,17 +1826,18 @@ struct MarkdownBlockView: View, Equatable {
                 return text.allSatisfy { $0.isWhitespace || "·|".contains($0) }
             }) {
                 let previews = ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                    if case .image(let alt, let url) = part {
-                        imagePreview(url: url, label: alt)
+                    if case .image(let alt, let url, let attributes) = part {
+                        imagePreview(url: url, label: alt, attributes: attributes)
                     }
                 }
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 12) { previews }
                         .fixedSize()
-                    VStack(alignment: .leading, spacing: 12) { previews }
+                    VStack(alignment: centered ? .center : .leading, spacing: 12) { previews }
                 }
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
             } else {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: centered ? .center : .leading, spacing: 8) {
                     ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                         switch part {
                         case .text(let piece):
@@ -1677,24 +1845,25 @@ struct MarkdownBlockView: View, Equatable {
                             if !trimmed.isEmpty {
                                 paragraphText(trimmed, lineSpacing: lineSpacing)
                             }
-                        case .image(let alt, let url):
-                            imagePreview(url: url, label: alt)
+                        case .image(let alt, let url, let attributes):
+                            imagePreview(url: url, label: alt, attributes: attributes)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
         } else {
-            paragraphText(text, lineSpacing: lineSpacing)
+            paragraphText(MarkdownBlock.displayText(text), lineSpacing: lineSpacing)
         }
     }
 
-    private func imagePreview(url: URL, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            InlineImageView(url: url, label: label.isEmpty ? nil : label)
-            if !label.isEmpty {
+    private func imagePreview(url: URL, label: String, attributes: MarkdownImageAttributes?) -> some View {
+        VStack(alignment: centered ? .center : .leading, spacing: 5) {
+            InlineImageView(url: url, label: label.isEmpty ? nil : label, size: attributes)
+            if !label.isEmpty, attributes?.captioned ?? true {
                 Text(label)
                     .scaledText(11)
+                    .multilineTextAlignment(textAlignment)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1704,9 +1873,9 @@ struct MarkdownBlockView: View, Equatable {
     }
 
     private func paragraphText(_ text: String, lineSpacing: CGFloat) -> some View {
-        SelectableText(text, size: 13.5, lineSpacing: lineSpacing)
+        SelectableText(text, size: 13.5, lineSpacing: lineSpacing, alignment: textAlignment)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
     }
 
     // A plain bullet is a small green disc rather than a glyph, so a list of findings
@@ -1745,14 +1914,17 @@ struct MarkdownProse<Code: View>: View {
     let projectPath: String
     let textScale: CGFloat
     var lazy = false
+    // Draws HTML blocks rather than printing their tags. See MarkdownBlock.parse.
+    var html = false
     let codeBlock: (MessageSegment) -> Code
 
-    init(text: String, projectPath: String, textScale: CGFloat, lazy: Bool = false,
+    init(text: String, projectPath: String, textScale: CGFloat, lazy: Bool = false, html: Bool = false,
          @ViewBuilder codeBlock: @escaping (MessageSegment) -> Code) {
         self.text = text
         self.projectPath = projectPath
         self.textScale = textScale
         self.lazy = lazy
+        self.html = html
         self.codeBlock = codeBlock
     }
 
@@ -1802,7 +1974,11 @@ struct MarkdownProse<Code: View>: View {
     }
 
     private var blocks: some View {
-        ForEach(MessageSegment.split(text)) { segment in
+        // A document drops its HTML comments first, so a fence inside one stays hidden
+        // rather than splitting the comment in two.
+        let segments = MessageSegment.split(html ? MarkdownHTML.removingComments(text) : text)
+        let document = html ? MarkdownBlock.parse(document: segments) : [:]
+        return ForEach(segments) { segment in
             if segment.isChart {
                 TranscriptChartBlock(segment: segment)
                     .equatable()
@@ -1819,7 +1995,7 @@ struct MarkdownProse<Code: View>: View {
                 codeBlock(segment)
                     .transition(.fadeIn)
             } else {
-                ForEach(proseRuns(MarkdownBlock.parse(segment.text))) { run in
+                ForEach(proseRuns(document[segment.id] ?? MarkdownBlock.parse(segment.text))) { run in
                     ProseRunView(run: run,
                                  projectPath: projectPath,
                                  textScale: textScale)
@@ -1862,7 +2038,7 @@ struct MarkdownDocumentView: View, Equatable {
     let textScale: CGFloat
 
     var body: some View {
-        MarkdownProse(text: text, projectPath: basePath, textScale: textScale, lazy: true) {
+        MarkdownProse(text: text, projectPath: basePath, textScale: textScale, lazy: true, html: true) {
             MarkdownCodeBlock(segment: $0)
                 .equatable()
         }
