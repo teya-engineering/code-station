@@ -317,7 +317,11 @@ struct InlineImageView: View {
                     Image(decorative: thumbnail.image, scale: 1)
                         .resizable()
                         .aspectRatio(thumbnail.aspectRatio, contentMode: .fit)
-                        .frame(maxWidth: size.width, maxHeight: size.height)
+                        // The ideal size holds where the layout asks what the image wants,
+                        // such as a row of pictures, so a small image still draws at the
+                        // size it was asked for rather than its own pixels.
+                        .frame(idealWidth: size.width, maxWidth: size.width,
+                               idealHeight: size.height, maxHeight: size.height)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
                         .contentShape(RoundedRectangle(cornerRadius: 8))

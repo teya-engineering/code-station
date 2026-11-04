@@ -166,11 +166,14 @@ enum MarkdownHTML {
         return nil
     }
 
-    private static let namedEntities: [String: String] = [
-        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": "\u{00A0}",
-        "copy": "©", "reg": "®", "trade": "™", "mdash": "—", "ndash": "–", "hellip": "…",
-        "middot": "·", "bull": "•", "rarr": "→", "larr": "←", "times": "×",
-    ]
+    // Markdown's parser knows every HTML name, so it is asked rather than keeping a copy
+    // of the table. A name it does not know comes back as written.
+    private static func namedEntity(_ name: Substring) -> String? {
+        guard !name.isEmpty, name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return nil }
+        let written = "&\(name);"
+        let shown = MarkdownBlock.plainText(written)
+        return shown == written ? nil : shown
+    }
 
     static func decodeEntities(_ text: String) -> String {
         guard text.contains("&") else { return text }
@@ -189,7 +192,7 @@ enum MarkdownHTML {
             } else if body.hasPrefix("#") {
                 decoded = UInt32(body.dropFirst()).flatMap(Unicode.Scalar.init).map { String(Character($0)) }
             } else {
-                decoded = namedEntities[String(body)]
+                decoded = namedEntity(body)
             }
             if let decoded {
                 result += decoded
@@ -203,29 +206,50 @@ enum MarkdownHTML {
 
     // MARK: - Building blocks
 
-    // The text with its HTML comment blocks blanked out, leaving code fences alone. It
-    // runs before the text is split at its fences, so a fence inside a comment, such as
-    // code commented out, stays hidden with the rest of the comment. A blank line takes
-    // each comment's place, so the paragraphs either side stay apart.
+    // The text with its HTML comment blocks taken out, leaving code fences alone. It runs
+    // before the text is split at its fences, so a fence inside a comment, such as code
+    // commented out, stays hidden with the rest of the comment. Anything written after
+    // the comment's end stays. Between paragraphs a blank line takes the comment's place,
+    // so they stay apart. Inside an HTML block nothing does, since a blank line would end
+    // the block and split the element the comment sits in.
     static func removingComments(_ text: String) -> String {
         guard text.contains("<!--") else { return text }
-        let lines = text.components(separatedBy: "\n")
+        var lines = text.components(separatedBy: "\n")
         var kept: [String] = []
         var fence: Fence?
+        var inParagraph = false
+        // The line that ends the HTML block being read.
+        var blockStop = 0
         var index = 0
         while index < lines.count {
             let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let open = fence {
                 if let close = Fence(line), open.isClosed(by: close) { fence = nil }
             } else if let opened = Fence(line), opened.opens {
                 fence = opened
-            } else if line.prefix(while: { $0 == " " }).count < 4,
-                      line.trimmingCharacters(in: .whitespaces).hasPrefix("<!--"),
+            } else if line.prefix(while: { $0 == " " }).count < 4, trimmed.hasPrefix("<!--"),
                       let end = blockEnd(lines, from: index, inParagraph: false) {
-                kept.append("")
-                index = end
+                let inBlock = index < blockStop
+                if !inBlock { kept.append("") }
+                let closing = end - 1 == index ? trimmed.dropFirst(4) : lines[end - 1][...]
+                let rest = closing.range(of: "-->").map { String(closing[$0.upperBound...]).trimmed } ?? ""
+                if rest.isEmpty {
+                    index = end
+                } else {
+                    index = end - 1
+                    lines[index] = rest
+                }
+                // A blank line inside the comment did not end the block around it.
+                if inBlock, index >= blockStop {
+                    blockStop = lines[index...].firstIndex { $0.trimmed.isEmpty } ?? lines.count
+                }
+                inParagraph = false
                 continue
+            } else if index >= blockStop, let end = blockEnd(lines, from: index, inParagraph: inParagraph) {
+                blockStop = end
             }
+            inParagraph = fence == nil && index >= blockStop && !trimmed.isEmpty && Fence(line) == nil
             kept.append(line)
             index += 1
         }
@@ -236,8 +260,8 @@ enum MarkdownHTML {
     // block to the next, so a `<div align="center">` on its own, Markdown, then `</div>`
     // centres the Markdown between them.
     struct Reader {
-        // An inline element still open, and where its content starts in `text`. Its
-        // Markdown is written when it closes, once its content is known.
+        // An inline element still open, and how many UTF-8 bytes of `text` come before its
+        // content. Its Markdown is written when it closes, once its content is known.
         private enum Span: Equatable {
             case strong, emphasis, code
             case link(String?)
@@ -290,8 +314,10 @@ enum MarkdownHTML {
         }
 
         private mutating func open(_ name: String, _ attributes: [String: String]) {
+            // Code shows its content as it is, so a tag inside it adds no markup.
+            if inCode, name != "br", MarkdownHTML.inlineTags.contains(name) { return }
             if let span = Self.span(for: name) {
-                spans.append((span, text.count))
+                spans.append((span, text.utf8.count))
                 return
             }
             switch name {
@@ -308,7 +334,7 @@ enum MarkdownHTML {
                                                     captioned: false)
                 text += "![\(alt)](\(MarkdownImageAttributes.encoded(source)))\(image.markdown)"
             case "a":
-                spans.append((.link(attributes["href"]?.trimmed), text.count))
+                spans.append((.link(attributes["href"]?.trimmed), text.utf8.count))
             case "ul", "ol":
                 flushText()
                 lists.append((name == "ol", Int(attributes["start"] ?? "") ?? 1))
@@ -346,6 +372,7 @@ enum MarkdownHTML {
                     return open.span == closing
                 }) else { return }
                 let open = spans[index]
+                escapeOpenCode(from: index + 1)
                 spans.removeSubrange(index...)
                 wrap(open.span, from: open.start)
                 return
@@ -369,42 +396,46 @@ enum MarkdownHTML {
             }
         }
 
+        private func contentStart(_ offset: Int) -> String.Index {
+            text.utf8.index(text.startIndex, offsetBy: min(offset, text.utf8.count))
+        }
+
+        // A code span that never closed turns out to be plain text, so what it held as
+        // written gets the escapes the rest of the text has. Nothing else can open inside
+        // code, so its content runs to the end of the text.
+        private mutating func escapeOpenCode(from index: Int) {
+            guard let code = spans[index...].first(where: { $0.span == .code }) else { return }
+            let start = contentStart(code.start)
+            text.replaceSubrange(start..., with: MarkdownHTML.escape(String(text[start...])))
+        }
+
         // Writes the Markdown for an inline element around the content it gathered.
         private mutating func wrap(_ span: Span, from offset: Int) {
-            let start = text.index(text.startIndex, offsetBy: min(offset, text.count))
+            let start = contentStart(offset)
             let content = String(text[start...])
             switch span {
             case .code:
                 guard !content.trimmed.isEmpty else { return }
                 text.replaceSubrange(start..., with: MarkdownHTML.codeSpan(content))
             case .strong, .emphasis:
-                // Markdown only reads a delimiter that touches its text, so the space a
-                // tag held at either end goes outside it.
-                let core = content.trimmed
-                guard !core.isEmpty else { return }
-                let leading = String(content.prefix { $0.isWhitespace })
-                let trailing = String(content.reversed().prefix { $0.isWhitespace }.reversed())
                 let mark = span == .strong ? "**" : "*"
-                text.replaceSubrange(start..., with: leading + mark + core + mark + trailing)
+                text.replaceSubrange(start..., with: MarkdownHTML.marking(content) { mark + $0 + mark })
             case .link(let href):
                 guard let href, !href.isEmpty, !href.lowercased().hasPrefix("javascript:"),
                       !content.trimmed.isEmpty else { return }
                 let destination = MarkdownImageAttributes.encoded(href)
-                if content.contains("![") {
-                    // A linked picture, such as a badge, shows the picture and keeps the
-                    // link for when the picture cannot be drawn.
-                    text.replaceSubrange(start..., with: content.replacingOccurrences(
-                        of: "{\(MarkdownImageAttributes.htmlClass)",
-                        with: "{\(MarkdownImageAttributes.htmlClass) link=\(destination)"))
-                } else {
-                    text.replaceSubrange(start..., with: "[\(content.trimmed)](\(destination))")
-                }
+                // A linked picture, such as a badge, shows the picture and keeps the link
+                // for when the picture cannot be drawn.
+                text.replaceSubrange(start..., with: MarkdownHTML.marking(content, imageLink: destination) {
+                    "[\($0)](\(destination))"
+                })
             }
         }
 
         // Ends the paragraph being gathered. Whitespace around a line break is HTML
         // layout, not content, and a paragraph of nothing but whitespace is no paragraph.
         private mutating func flushText() {
+            escapeOpenCode(from: 0)
             defer { text = ""; spans = [] }
             let body = text.components(separatedBy: "\n").map(\.trimmed).joined(separator: "\n").trimmed
             guard !body.isEmpty else { return }
@@ -415,24 +446,18 @@ enum MarkdownHTML {
                 return
             }
             flushList()
-            guard let heading else { return append(.paragraph(body)) }
+            guard let heading else {
+                for row in MarkdownHTML.rows(body) { append(.paragraph(row)) }
+                return
+            }
             // A heading is drawn as text, which has no room for a picture, so a logo in a
             // heading stands as a paragraph of its own on the side it was written.
             let parts = MarkdownBlock.paragraphParts(body)
-            let images = parts.compactMap { part -> String? in
-                guard case .image(let alt, let source, let attributes) = part else { return nil }
-                return "![\(alt)](\(source))\(attributes?.markdown ?? "")"
-            }
+            let images = parts.filter(\.isImage).map(\.markdown)
             guard !images.isEmpty else {
                 return append(.heading(level: heading, text: body.replacingOccurrences(of: "\n", with: " ")))
             }
-            let title = parts.map { part -> String in
-                switch part {
-                case .text(let piece): piece
-                case .link(let label, let source): "[\(label)](\(source))"
-                case .image: ""
-                }
-            }.joined().replacing(/\s+/, with: " ").trimmed
+            let title = parts.filter { !$0.isImage }.map(\.markdown).joined().replacing(/\s+/, with: " ").trimmed
             let picture = MarkdownBlock.Kind.paragraph(images.joined(separator: " "))
             let imageFirst: Bool
             if case .image? = parts.first(where: { if case .text(let piece) = $0 { !piece.trimmed.isEmpty } else { true } }) {
@@ -454,6 +479,61 @@ enum MarkdownHTML {
             kinds.append(.list(items))
             items = []
         }
+    }
+
+    // Puts Markdown around the text of an inline element. Markdown only reads a delimiter
+    // that touches its text, so the space at either end goes outside it. A picture is
+    // split out of its paragraph to be drawn, which would strand a delimiter around it,
+    // so only the text is marked and a link goes on the picture itself.
+    fileprivate static func marking(_ content: String, imageLink: String? = nil, _ mark: (String) -> String) -> String {
+        func marked(_ piece: String) -> String {
+            let core = piece.trimmed
+            guard !core.isEmpty else { return piece }
+            let leading = piece.prefix { $0.isWhitespace }
+            let trailing = String(piece.reversed().prefix { $0.isWhitespace }.reversed())
+            return leading + mark(core) + trailing
+        }
+        let parts = MarkdownBlock.paragraphParts(content)
+        guard parts.contains(where: \.isImage) else { return marked(content) }
+        var result = ""
+        var run = ""
+        for part in parts {
+            guard case .image(let alt, let source, var attributes) = part else {
+                run += part.markdown
+                continue
+            }
+            result += marked(run)
+            run = ""
+            if let imageLink {
+                attributes = attributes ?? MarkdownImageAttributes()
+                attributes?.link = imageLink
+            }
+            result += MarkdownBlock.ParagraphPart.image(alt: alt, source: source, attributes: attributes).markdown
+        }
+        return result + marked(run)
+    }
+
+    // A paragraph split where a line break falls between pictures. Pictures in one
+    // paragraph sit side by side, while the break asks for them to stack.
+    fileprivate static func rows(_ body: String) -> [String] {
+        guard body.contains("\n"), body.contains("![") else { return [body] }
+        func holdsOnlyImages(_ line: String) -> Bool {
+            MarkdownBlock.paragraphParts(line).allSatisfy { part in
+                if case .text(let text) = part { return text.allSatisfy { $0.isWhitespace || "·|".contains($0) } }
+                return part.isImage
+            }
+        }
+        var rows: [String] = []
+        var row: [String] = []
+        for line in body.components(separatedBy: "\n") {
+            if let last = row.last, holdsOnlyImages(last), holdsOnlyImages(line) {
+                rows.append(row.joined(separator: "\n"))
+                row = []
+            }
+            row.append(line)
+        }
+        rows.append(row.joined(separator: "\n"))
+        return rows.map(\.trimmed).filter { !$0.isEmpty }
     }
 
     // A code span that holds `content` exactly: its fence is longer than any run of
@@ -481,5 +561,19 @@ enum MarkdownHTML {
             result.append(character)
         }
         return result
+    }
+}
+
+private extension MarkdownBlock.ParagraphPart {
+    var isImage: Bool {
+        if case .image = self { true } else { false }
+    }
+
+    var markdown: String {
+        switch self {
+        case .text(let piece): piece
+        case .link(let label, let source): "[\(label)](\(source))"
+        case .image(let alt, let source, let attributes): "![\(alt)](\(source))\(attributes?.markdown ?? "")"
+        }
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import MenuBarApp
 
@@ -8,6 +9,11 @@ import Testing
 struct MarkdownHTMLTests {
     private func kinds(_ text: String) -> [MarkdownBlock.Kind] {
         MarkdownBlock.parse(text, html: true).map(\.kind)
+    }
+
+    // A document takes its comments out before it is read.
+    private func pageKinds(_ text: String) -> [MarkdownBlock.Kind] {
+        kinds(MarkdownHTML.removingComments(text))
     }
 
     @Test func readsAReadmeHeader() {
@@ -255,6 +261,98 @@ struct MarkdownHTMLTests {
     @Test func anUnresolvedImageDropsItsSize() {
         #expect(MarkdownBlock.resolvedParts("![x](https://example.com/a.png){width=9}") { _ in nil }
             == [.text("![x](https://example.com/a.png)")])
+    }
+
+    @Test func keepsWhatFollowsACommentOnItsLine() {
+        #expect(pageKinds(#"<!-- badge --><img src="a.png">"#) == [.paragraph("![](a.png){.html}")])
+        #expect(pageKinds("<!-- start --> Visible") == [.paragraph("Visible")])
+        #expect(pageKinds("<!-- a --> <!-- b --> Both") == [.paragraph("Both")])
+        #expect(pageKinds("<!-- a\nb --> After\n\nNext") == [.paragraph("After"), .paragraph("Next")])
+    }
+
+    @Test func aCommentDoesNotBreakTheElementAroundIt() {
+        #expect(pageKinds("<p align=\"center\">\n  <!-- logo -->\n  <img src=\"a.png\">\n</p>")
+            == [.centered(.paragraph("![](a.png){.html}"))])
+        #expect(pageKinds("<h1 align=\"center\">\n<!-- x -->\nTitle\n</h1>")
+            == [.centered(.heading(level: 1, text: "Title"))])
+        #expect(pageKinds("<p>a\n<!-- c -->\nmore</p>") == [.paragraph("a more")])
+        // A blank line inside the comment does not end the element either.
+        #expect(pageKinds("<p align=\"center\">\n<!-- a\n\nb -->\nText\n</p>") == [.centered(.paragraph("Text"))])
+        // A comment after a block ends with the block's blank line as usual.
+        #expect(pageKinds("<p>a</p>\n\n<!-- c -->\n\nb") == [.paragraph("a"), .paragraph("b")])
+    }
+
+    @Test func aLinkLeavesItsSpacesOutside() {
+        #expect(kinds(#"<p>See <a href="x">the docs </a>now</p>"#) == [.paragraph("See [the docs](x) now")])
+        #expect(kinds(#"<p>foo<a href="x"> bar</a></p>"#) == [.paragraph("foo [bar](x)")])
+    }
+
+    @Test func markupAroundAPictureOnlyMarksTheText() {
+        #expect(kinds(#"<p><b><img src="a.png"></b></p>"#) == [.paragraph("![](a.png){.html}")])
+        #expect(kinds(#"<p><strong>Title <img src="a.png"></strong></p>"#) == [.paragraph("**Title** ![](a.png){.html}")])
+        let url = URL(fileURLWithPath: "/tmp/a.png")
+        guard case .paragraph(let body) = kinds(#"<p><em><img src="a.png"></em></p>"#).first else {
+            Issue.record("expected a paragraph"); return
+        }
+        #expect(MarkdownBlock.resolvedParts(body) { _ in url }
+            == [.image(alt: "", url: url, attributes: MarkdownImageAttributes(captioned: false))])
+    }
+
+    @Test func aLinkReachesTheTextBesideItsPicture() {
+        #expect(kinds(#"<p><a href="https://x"><img src="logo.png"> Docs</a></p>"#)
+            == [.paragraph("![](logo.png){.html link=https://x} [Docs](https://x)")])
+        #expect(kinds(#"<p><a href="u"><code>![y]</code></a></p>"#) == [.paragraph("[`![y]`](u)")])
+    }
+
+    @Test func tagsInsideCodeAddNoMarkup() {
+        #expect(kinds("<p><code><b>x</b></code></p>") == [.paragraph("`x`")])
+        #expect(kinds(#"<p><code><a href="u">foo</a></code></p>"#) == [.paragraph("`foo`")])
+        #expect(kinds(#"<p><code><img src="a.png">x</code></p>"#) == [.paragraph("`x`")])
+        #expect(kinds("<p><b><code>x</code></b></p>") == [.paragraph("**`x`**")])
+    }
+
+    @Test func codeThatNeverClosesIsPlainText() {
+        #expect(kinds("<p><code>a*b*c</p>") == [.paragraph(#"a\*b\*c"#)])
+        #expect(kinds("<p><b><code>a*b</b> c</p>") == [.paragraph(#"**a\*b** c"#)])
+    }
+
+    @Test func aLineBreakStacksPictures() {
+        #expect(kinds(#"<p align="center"><img src="a.png"><br><img src="b.png"></p>"#) == [
+            .centered(.paragraph("![](a.png){.html}")),
+            .centered(.paragraph("![](b.png){.html}")),
+        ])
+        #expect(kinds(#"<p><img src="a.png"> <img src="b.png"><br/><br/><img src="c.png"></p>"#) == [
+            .paragraph("![](a.png){.html} ![](b.png){.html}"),
+            .paragraph("![](c.png){.html}"),
+        ])
+        // Text keeps its line break, and Markdown pictures on two lines stay one row.
+        #expect(kinds(#"<p>Caption<br><img src="a.png"></p>"#) == [.paragraph("Caption\n![](a.png){.html}")])
+        #expect(kinds("![a](a.png)\n![b](b.png)") == [.paragraph("![a](a.png)\n![b](b.png)")])
+    }
+
+    @Test func decodesEveryNamedEntity() {
+        #expect(MarkdownHTML.decodeEntities("caf&eacute; &rsquo;s &hearts;") == "café ’s ♥")
+        #expect(MarkdownHTML.decodeEntities("a&nbsp;b &copy; &a*b*;") == "a\u{00A0}b © &a*b*;")
+        #expect(kinds("<p>caf&eacute;</p>") == [.paragraph("café")])
+    }
+
+    // A row of pictures lays out at the size each one wants, so that has to be the size
+    // the document asked for, even when the file has fewer pixels.
+    @MainActor @Test func aSmallPictureInARowDrawsAtTheSizeAskedFor() async throws {
+        let scratch = ScratchDirectory()
+        let file = scratch.path("icon.png")
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 64,
+                                                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        try #require(rep.representation(using: .png, properties: [:])).write(to: file)
+        let host = NSHostingView(rootView: InlineImageView(url: file, size: MarkdownImageAttributes(width: 128))
+            .environment(DialogPresenter())
+            .environment(MenuPresenter())
+            .environment(TooltipPresenter())
+            .fixedSize())
+        await waitUntil { host.layoutSubtreeIfNeeded(); return host.fittingSize.height > 100 }
+        #expect(host.fittingSize.width == 128)
+        #expect(host.fittingSize.height == 128)
     }
 
     @Test func decodesEntities() {

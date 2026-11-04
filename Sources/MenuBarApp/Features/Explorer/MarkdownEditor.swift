@@ -181,6 +181,7 @@ struct MarkdownEditor: View {
                             .font(.system(size: 13)).foregroundStyle(.secondary)
                     } else {
                         MarkdownDocumentView(text: source, basePath: basePath, textScale: 1)
+                            .equatable()
                             .environment(\.htmlPreviewLinkOpened, HTMLPreviewLinkOpenedAction(perform: onLink))
                     }
                 }
