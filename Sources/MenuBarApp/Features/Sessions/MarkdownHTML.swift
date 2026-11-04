@@ -203,20 +203,57 @@ enum MarkdownHTML {
 
     // MARK: - Building blocks
 
+    // The text with its HTML comment blocks blanked out, leaving code fences alone. It
+    // runs before the text is split at its fences, so a fence inside a comment, such as
+    // code commented out, stays hidden with the rest of the comment. A blank line takes
+    // each comment's place, so the paragraphs either side stay apart.
+    static func removingComments(_ text: String) -> String {
+        guard text.contains("<!--") else { return text }
+        let lines = text.components(separatedBy: "\n")
+        var kept: [String] = []
+        var fence: Fence?
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
+            if let open = fence {
+                if let close = Fence(line), open.isClosed(by: close) { fence = nil }
+            } else if let opened = Fence(line), opened.opens {
+                fence = opened
+            } else if line.prefix(while: { $0 == " " }).count < 4,
+                      line.trimmingCharacters(in: .whitespaces).hasPrefix("<!--"),
+                      let end = blockEnd(lines, from: index, inParagraph: false) {
+                kept.append("")
+                index = end
+                continue
+            }
+            kept.append(line)
+            index += 1
+        }
+        return kept.joined(separator: "\n")
+    }
+
     // Reads the HTML blocks of one document in order. Containers stay open from one
     // block to the next, so a `<div align="center">` on its own, Markdown, then `</div>`
     // centres the Markdown between them.
     struct Reader {
+        // An inline element still open, and where its content starts in `text`. Its
+        // Markdown is written when it closes, once its content is known.
+        private enum Span: Equatable {
+            case strong, emphasis, code
+            case link(String?)
+        }
+
         private var containers: [(name: String, centered: Bool)] = []
         private var heading: Int?
         private var text = ""
-        private var links: [(href: String?, start: Int)] = []
+        private var spans: [(span: Span, start: Int)] = []
         private var lists: [(ordered: Bool, next: Int)] = []
         private var items: [MarkdownListItem] = []
         private var itemMarker: String?
         private var kinds: [MarkdownBlock.Kind] = []
 
         var centered: Bool { containers.contains(where: \.centered) }
+        private var inCode: Bool { spans.contains { $0.span == .code } }
 
         mutating func read(_ html: String) -> [MarkdownBlock.Kind] {
             for token in MarkdownHTML.tokens(html) { take(token) }
@@ -224,7 +261,6 @@ enum MarkdownHTML {
             flushList()
             while let last = containers.last, MarkdownHTML.leafTags.contains(last.name) { containers.removeLast() }
             heading = nil
-            links = []
             defer { kinds = [] }
             return kinds
         }
@@ -232,8 +268,11 @@ enum MarkdownHTML {
         private mutating func take(_ token: Token) {
             switch token {
             case .text(let piece):
-                let collapsed = piece.replacing(/\s+/, with: " ")
-                text += MarkdownHTML.escape(collapsed)
+                var collapsed = piece.replacing(/\s+/, with: " ")
+                // HTML shows one space where two runs of text meet with space on both sides.
+                if collapsed.first == " ", text.last?.isWhitespace ?? true { collapsed.removeFirst() }
+                // A code span shows its content as it is; an escape there would print.
+                text += inCode ? collapsed : MarkdownHTML.escape(collapsed)
             case .open(let name, let attributes):
                 open(name, attributes)
             case .close(let name):
@@ -241,7 +280,20 @@ enum MarkdownHTML {
             }
         }
 
+        private static func span(for name: String) -> Span? {
+            switch name {
+            case "b", "strong": .strong
+            case "i", "em": .emphasis
+            case "code", "kbd": .code
+            default: nil
+            }
+        }
+
         private mutating func open(_ name: String, _ attributes: [String: String]) {
+            if let span = Self.span(for: name) {
+                spans.append((span, text.count))
+                return
+            }
             switch name {
             case "br":
                 text += "\n"
@@ -251,23 +303,12 @@ enum MarkdownHTML {
             case "img":
                 guard let source = attributes["src"]?.trimmed, !source.isEmpty else { return }
                 let alt = MarkdownHTML.escape(attributes["alt"] ?? attributes["title"] ?? "")
-                // A space or a bracket would end the destination early.
-                let destination = source.replacingOccurrences(of: " ", with: "%20")
-                    .replacingOccurrences(of: "(", with: "%28").replacingOccurrences(of: ")", with: "%29")
-                let width = attributes["width"].flatMap(MarkdownImageAttributes.points)
-                let height = attributes["height"].flatMap(MarkdownImageAttributes.points)
-                let attributes = [MarkdownImageAttributes.htmlClass, width.map { "width=\(Self.number($0))" },
-                                  height.map { "height=\(Self.number($0))" }]
-                    .compactMap { $0 }.joined(separator: " ")
-                text += "![\(alt)](\(destination)){\(attributes)}"
+                let image = MarkdownImageAttributes(width: attributes["width"].flatMap(MarkdownImageAttributes.points),
+                                                    height: attributes["height"].flatMap(MarkdownImageAttributes.points),
+                                                    captioned: false)
+                text += "![\(alt)](\(MarkdownImageAttributes.encoded(source)))\(image.markdown)"
             case "a":
-                links.append((attributes["href"]?.trimmed, text.count))
-            case "b", "strong":
-                text += "**"
-            case "i", "em":
-                text += "*"
-            case "code", "kbd":
-                text += "`"
+                spans.append((.link(attributes["href"]?.trimmed), text.count))
             case "ul", "ol":
                 flushText()
                 lists.append((name == "ol", Int(attributes["start"] ?? "") ?? 1))
@@ -296,24 +337,20 @@ enum MarkdownHTML {
         }
 
         private mutating func close(_ name: String) {
+            let closing: Span? = name == "a" ? .link(nil) : Self.span(for: name)
+            if let closing {
+                // The innermost element of this kind closes. Any left open inside it end
+                // with it and keep their text without markup, as a browser would show it.
+                guard let index = spans.lastIndex(where: { open in
+                    if case .link = open.span, case .link = closing { return true }
+                    return open.span == closing
+                }) else { return }
+                let open = spans[index]
+                spans.removeSubrange(index...)
+                wrap(open.span, from: open.start)
+                return
+            }
             switch name {
-            case "a":
-                guard let link = links.popLast() else { return }
-                let start = text.index(text.startIndex, offsetBy: min(link.start, text.count))
-                let label = String(text[start...])
-                // A linked picture, such as a badge, shows the picture. A link has no
-                // room for an image inside its label here.
-                guard let href = link.href, !href.isEmpty, !href.hasPrefix("javascript:"),
-                      !label.trimmed.isEmpty, !label.contains("![") else { return }
-                let destination = href.replacingOccurrences(of: " ", with: "%20")
-                    .replacingOccurrences(of: "(", with: "%28").replacingOccurrences(of: ")", with: "%29")
-                text.replaceSubrange(start..., with: "[\(label.trimmed)](\(destination))")
-            case "b", "strong":
-                text += "**"
-            case "i", "em":
-                text += "*"
-            case "code", "kbd":
-                text += "`"
             case "ul", "ol":
                 flushText()
                 if !lists.isEmpty { lists.removeLast() }
@@ -332,12 +369,45 @@ enum MarkdownHTML {
             }
         }
 
+        // Writes the Markdown for an inline element around the content it gathered.
+        private mutating func wrap(_ span: Span, from offset: Int) {
+            let start = text.index(text.startIndex, offsetBy: min(offset, text.count))
+            let content = String(text[start...])
+            switch span {
+            case .code:
+                guard !content.trimmed.isEmpty else { return }
+                text.replaceSubrange(start..., with: MarkdownHTML.codeSpan(content))
+            case .strong, .emphasis:
+                // Markdown only reads a delimiter that touches its text, so the space a
+                // tag held at either end goes outside it.
+                let core = content.trimmed
+                guard !core.isEmpty else { return }
+                let leading = String(content.prefix { $0.isWhitespace })
+                let trailing = String(content.reversed().prefix { $0.isWhitespace }.reversed())
+                let mark = span == .strong ? "**" : "*"
+                text.replaceSubrange(start..., with: leading + mark + core + mark + trailing)
+            case .link(let href):
+                guard let href, !href.isEmpty, !href.lowercased().hasPrefix("javascript:"),
+                      !content.trimmed.isEmpty else { return }
+                let destination = MarkdownImageAttributes.encoded(href)
+                if content.contains("![") {
+                    // A linked picture, such as a badge, shows the picture and keeps the
+                    // link for when the picture cannot be drawn.
+                    text.replaceSubrange(start..., with: content.replacingOccurrences(
+                        of: "{\(MarkdownImageAttributes.htmlClass)",
+                        with: "{\(MarkdownImageAttributes.htmlClass) link=\(destination)"))
+                } else {
+                    text.replaceSubrange(start..., with: "[\(content.trimmed)](\(destination))")
+                }
+            }
+        }
+
         // Ends the paragraph being gathered. Whitespace around a line break is HTML
         // layout, not content, and a paragraph of nothing but whitespace is no paragraph.
         private mutating func flushText() {
-            defer { text = ""; links = [] }
+            defer { text = ""; spans = [] }
             let body = text.components(separatedBy: "\n").map(\.trimmed).joined(separator: "\n").trimmed
-            guard !body.isEmpty, body != "****", body != "**", body != "*", body != "``" else { return }
+            guard !body.isEmpty else { return }
             if !lists.isEmpty {
                 items.append(MarkdownListItem(depth: min(lists.count - 1, MarkdownBlock.bullets.count - 1),
                                               marker: itemMarker ?? "", text: body))
@@ -345,14 +415,38 @@ enum MarkdownHTML {
                 return
             }
             flushList()
-            let kind: MarkdownBlock.Kind = heading.map {
-                .heading(level: $0, text: body.replacingOccurrences(of: "\n", with: " "))
-            } ?? .paragraph(body)
-            kinds.append(centered ? .centered(kind) : kind)
+            guard let heading else { return append(.paragraph(body)) }
+            // A heading is drawn as text, which has no room for a picture, so a logo in a
+            // heading stands as a paragraph of its own on the side it was written.
+            let parts = MarkdownBlock.paragraphParts(body)
+            let images = parts.compactMap { part -> String? in
+                guard case .image(let alt, let source, let attributes) = part else { return nil }
+                return "![\(alt)](\(source))\(attributes?.markdown ?? "")"
+            }
+            guard !images.isEmpty else {
+                return append(.heading(level: heading, text: body.replacingOccurrences(of: "\n", with: " ")))
+            }
+            let title = parts.map { part -> String in
+                switch part {
+                case .text(let piece): piece
+                case .link(let label, let source): "[\(label)](\(source))"
+                case .image: ""
+                }
+            }.joined().replacing(/\s+/, with: " ").trimmed
+            let picture = MarkdownBlock.Kind.paragraph(images.joined(separator: " "))
+            let imageFirst: Bool
+            if case .image? = parts.first(where: { if case .text(let piece) = $0 { !piece.trimmed.isEmpty } else { true } }) {
+                imageFirst = true
+            } else {
+                imageFirst = false
+            }
+            if imageFirst { append(picture) }
+            if !title.isEmpty { append(.heading(level: heading, text: title)) }
+            if !imageFirst { append(picture) }
         }
 
-        private static func number(_ value: CGFloat) -> String {
-            value == value.rounded() ? String(Int(value)) : String(Double(value))
+        private mutating func append(_ kind: MarkdownBlock.Kind) {
+            kinds.append(centered ? .centered(kind) : kind)
         }
 
         private mutating func flushList() {
@@ -362,12 +456,28 @@ enum MarkdownHTML {
         }
     }
 
+    // A code span that holds `content` exactly: its fence is longer than any run of
+    // backticks inside, and a backtick or space at an end gets the padding Markdown removes.
+    static func codeSpan(_ content: String) -> String {
+        let longest = content.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
+        let fence = String(repeating: "`", count: longest + 1)
+        let padded = content.hasPrefix("`") || content.hasSuffix("`")
+            || (content.hasPrefix(" ") && content.hasSuffix(" ") && content.contains { $0 != " " })
+            ? " \(content) " : content
+        return fence + padded + fence
+    }
+
     // Text inside an HTML block is not Markdown, so a character Markdown would read as
-    // markup is kept as itself.
+    // markup is kept as itself. Entities were decoded already, so an ampersand that now
+    // looks like one is text too.
     static func escape(_ text: String) -> String {
         var result = ""
-        for character in text {
-            if "\\`*_[]<>!~{".contains(character) { result.append("\\") }
+        for index in text.indices {
+            let character = text[index]
+            if "\\`*_[]<>!~{".contains(character)
+                || character == "&" && NoteDocument.startsEntity(text[index...]) {
+                result.append("\\")
+            }
             result.append(character)
         }
         return result

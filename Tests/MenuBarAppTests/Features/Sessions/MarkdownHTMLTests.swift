@@ -1,3 +1,5 @@
+import AppKit
+import Foundation
 import Testing
 @testable import MenuBarApp
 
@@ -80,7 +82,106 @@ struct MarkdownHTMLTests {
 
     @Test func aLinkedBadgeShowsItsPicture() {
         let text = #"<a href="https://example.com"><img src="badge.svg" alt="build"></a>"#
-        #expect(kinds(text) == [.paragraph("![build](badge.svg){.html}")])
+        #expect(kinds(text) == [.paragraph("![build](badge.svg){.html link=https://example.com}")])
+    }
+
+    // MARK: - Review fixes
+
+    @Test func anImageThatCannotBeDrawnPrintsNoAttributes() {
+        #expect(MarkdownBlock.displayText("![build](https://example.com/b.svg){.html width=96} passing")
+            == "![build](https://example.com/b.svg) passing")
+        #expect(MarkdownBlock.displayText("No images here.") == "No images here.")
+        let shown = String(AttributedString.inlineMarkdown(
+            MarkdownBlock.displayText("![build](https://example.com/b.svg){.html}")).characters)
+        #expect(!shown.contains("{"))
+    }
+
+    @Test func aLinkedImageThatCannotBeDrawnLeavesItsLink() {
+        let text = #"<a href="https://ci.example.com"><img src="https://ci.example.com/badge.svg" alt="CI"></a>"#
+        guard case .paragraph(let body) = kinds(text).first else { Issue.record("expected a paragraph"); return }
+        #expect(MarkdownBlock.resolvedParts(body) { _ in nil } == [.text("[CI](https://ci.example.com)")])
+        #expect(MarkdownBlock.displayText(body) == "[CI](https://ci.example.com)")
+    }
+
+    @Test func aLogoInAHeadingStandsBesideIt() {
+        #expect(kinds(#"<h1 align="center"><img src="logo.png" width="120"><br>My App</h1>"#) == [
+            .centered(.paragraph("![](logo.png){.html width=120}")),
+            .centered(.heading(level: 1, text: "My App")),
+        ])
+        #expect(kinds(#"<h2>Status <img src="a.png" alt="ok"></h2>"#) == [
+            .heading(level: 2, text: "Status"),
+            .paragraph("![ok](a.png){.html}"),
+        ])
+        #expect(kinds(#"<h1><a href="https://example.com"><img src="logo.png"></a></h1>"#) == [
+            .paragraph("![](logo.png){.html link=https://example.com}"),
+        ])
+    }
+
+    @Test func anOversizedImageIsCapped() {
+        #expect(MarkdownImageAttributes.points("1e19") == MarkdownImageAttributes.largest)
+        #expect(MarkdownBlock.paragraphParts("![x](a.png){width=1e300}")
+            == [.image(alt: "x", source: "a.png", attributes: MarkdownImageAttributes(width: MarkdownImageAttributes.largest))])
+    }
+
+    @Test func codeKeepsItsTextAsWritten() {
+        #expect(kinds("<p>Run <code>npm i my_pkg --save*</code></p>") == [.paragraph("Run `npm i my_pkg --save*`")])
+        #expect(kinds("<p><code>a`b</code></p>") == [.paragraph("``a`b``")])
+        #expect(kinds("<p><code>`tick</code></p>") == [.paragraph("`` `tick ``")])
+        let shown = String(AttributedString.inlineMarkdown("Run `npm i my_pkg --save*`").characters)
+        #expect(shown == "Run npm i my_pkg --save*")
+    }
+
+    @Test func emphasisLeavesItsSpacesOutside() {
+        #expect(kinds("<p><b>Note: </b>read this</p>") == [.paragraph("**Note:** read this")])
+        #expect(kinds("<p><strong>\n  Title\n</strong></p>") == [.paragraph("**Title**")])
+        #expect(kinds("<p>a <em> </em>b</p>") == [.paragraph("a b")])
+        // An element that never closes keeps its text without markup.
+        #expect(kinds("<p><b>open") == [.paragraph("open")])
+    }
+
+    @Test func anEscapedEntityIsNotDecodedTwice() {
+        guard case .paragraph(let body) = kinds("<p>Write &amp;lt;div&amp;gt; or &amp;copy;</p>").first else {
+            Issue.record("expected a paragraph"); return
+        }
+        #expect(String(AttributedString.inlineMarkdown(body).characters) == "Write &lt;div&gt; or &copy;")
+    }
+
+    @Test func containersAndCommentsReachAcrossCodeFences() {
+        let text = "<div align=\"center\">\n\nIntro\n\n```sh\nmake\n```\n\nMore text\n\n</div>\n\nAfter"
+        let segments = MessageSegment.split(text)
+        let prose = MarkdownBlock.parse(document: segments)
+        let kinds = segments.filter { !$0.isCode }.flatMap { prose[$0.id] ?? [] }.map(\.kind)
+        #expect(kinds == [.centered(.paragraph("Intro")), .centered(.paragraph("More text")), .paragraph("After")])
+
+        let commented = "Before\n<!--\n```js\nold()\n```\n-->\nAfter"
+        let cleaned = MarkdownHTML.removingComments(commented)
+        #expect(MessageSegment.split(cleaned).allSatisfy { !$0.isCode })
+        #expect(MarkdownBlock.parse(cleaned, html: true).map(\.kind) == [.paragraph("Before"), .paragraph("After")])
+        // A comment written inside a code block is code.
+        let code = "```html\n<!-- kept -->\n```"
+        #expect(MarkdownHTML.removingComments(code) == code)
+    }
+
+    @Test func altTextReadsWithoutItsEscapes() {
+        let url = URL(fileURLWithPath: "/tmp/logo.png")
+        #expect(MarkdownBlock.resolvedParts(#"![code\_station\!](logo.png){.html}"#) { _ in url }
+            == [.image(alt: "code_station!", url: url, attributes: MarkdownImageAttributes(captioned: false))])
+        guard case .paragraph(let body) = kinds(#"<img src="logo.png" alt="[logo]">"#).first else {
+            Issue.record("expected a paragraph"); return
+        }
+        #expect(MarkdownBlock.resolvedParts(body) { _ in url }
+            == [.image(alt: "[logo]", url: url, attributes: MarkdownImageAttributes(captioned: false))])
+    }
+
+    @Test func readsAPictureSizeWithoutDecodingIt() throws {
+        let scratch = ScratchDirectory()
+        let file = scratch.path("wide.png")
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 30, pixelsHigh: 20,
+                                                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        try #require(rep.representation(using: .png, properties: [:])).write(to: file)
+        #expect(ImageThumbnail.pixelSize(file) == CGSize(width: 30, height: 20))
+        #expect(ImageThumbnail.pixelSize(scratch.path("missing.png")) == nil)
     }
 
     @Test func readsAList() {
