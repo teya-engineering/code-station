@@ -63,7 +63,7 @@ enum TranscriptSearch {
                                 return (table.header + table.rows.flatMap { $0 }).map {
                                     String(AttributedString.inlineMarkdown($0).characters)
                                 }
-                            case .rule, .htmlPreview:
+                            case .rule, .htmlPreview, .centered:
                                 return []
                             }
                         }

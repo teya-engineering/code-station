@@ -281,6 +281,9 @@ struct InlineImageView: View {
 
     let url: URL
     var label: String?
+    // The size the document asked for. It replaces the reading box below, but a column
+    // narrower than it still shrinks the image to fit.
+    var size: MarkdownImageAttributes?
     var maximumWidth: CGFloat = 280
 
     @State private var thumbnail: ImageThumbnail?
@@ -324,15 +327,15 @@ struct InlineImageView: View {
                             .font(.system(size: 18, weight: .light))
                             .foregroundStyle(.secondary)
                     }
-                    .aspectRatio(220.0 / 140, contentMode: .fit)
-                    .frame(maxWidth: min(220, maximumWidth))
+                    .aspectRatio(placeholderAspectRatio, contentMode: .fit)
+                    .frame(maxWidth: size?.width ?? size?.height.map { $0 * placeholderAspectRatio }
+                        ?? min(220, maximumWidth))
             }
         }
         .task(id: url) {
+            let pixels = pixelSize
             let loaded = await Task.detached(priority: .utility) {
-                // Twice the widest it can draw, so it stays sharp on a Retina display
-                // without decoding a screenshot at full size.
-                ImageThumbnail.load(url, maxPixelSize: 640)
+                ImageThumbnail.load(url, maxPixelSize: pixels)
             }.value
             guard !Task.isCancelled else { return }
             thumbnail = loaded
@@ -340,11 +343,36 @@ struct InlineImageView: View {
         }
     }
 
-    // Fits the reading box without blowing a small image up past its own pixels.
+    // Fits the reading box without blowing a small image up past its own pixels. A size
+    // the document gave is kept as given, the way a browser draws it, with the picture
+    // fitted inside it rather than stretched.
     private func fit(_ thumbnail: ImageThumbnail) -> CGSize {
-        let width = min(maximumWidth, Self.maxHeight * thumbnail.aspectRatio,
-                        CGFloat(thumbnail.image.width))
-        return CGSize(width: width, height: width / thumbnail.aspectRatio)
+        let aspect = thumbnail.aspectRatio
+        switch (size?.width, size?.height) {
+        case let (width?, height?):
+            let fitted = min(width, height * aspect)
+            return CGSize(width: fitted, height: fitted / aspect)
+        case let (width?, nil):
+            return CGSize(width: width, height: width / aspect)
+        case let (nil, height?):
+            return CGSize(width: height * aspect, height: height)
+        case (nil, nil):
+            let width = min(maximumWidth, Self.maxHeight * aspect, CGFloat(thumbnail.image.width))
+            return CGSize(width: width, height: width / aspect)
+        }
+    }
+
+    private var placeholderAspectRatio: CGFloat {
+        if let width = size?.width, let height = size?.height { return width / height }
+        return 220.0 / 140
+    }
+
+    // Twice the widest it can draw, so it stays sharp on a Retina display without decoding
+    // a screenshot at full size. With one side given, the other may be the longer one.
+    private var pixelSize: Int {
+        guard let size, let longest = [size.width, size.height].compactMap({ $0 }).max() else { return 640 }
+        let factor: CGFloat = size.width != nil && size.height != nil ? 2 : 4
+        return min(4096, max(640, Int((longest * factor).rounded(.up))))
     }
 }
 
