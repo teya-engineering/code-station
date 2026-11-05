@@ -36,6 +36,16 @@ enum Preferences {
         set { store.set(newValue, forKey: "cloneFolder") }
     }
 
+    // The hidden folders of clones that have not ended, so the next launch can remove any
+    // that a quit or a crash left behind.
+    static func partialClones(in store: UserDefaults = .standard) -> [String] {
+        store.stringArray(forKey: "partialClones") ?? []
+    }
+
+    static func setPartialClones(_ paths: [String], in store: UserDefaults = .standard) {
+        store.set(paths, forKey: "partialClones")
+    }
+
     // A missing entry keeps the sidebar's normal first-use behavior. Once a project or
     // workspace has been opened or closed, its own choice survives every later launch.
     static func sidebarExpansion(in store: UserDefaults = .standard) -> [UUID: Bool] {

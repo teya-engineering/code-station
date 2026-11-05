@@ -176,8 +176,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 SessionLog.note("stopped \(counted(stopped.count, "command")) left behind by an earlier run")
             }
             let ended = RunRegistry.shared.reapEarlierRuns()
-            guard ended > 0 else { return }
-            SessionLog.note("stopped \(counted(ended, "process", plural: "processes")) left behind by an earlier run")
+            if ended > 0 {
+                SessionLog.note("stopped \(counted(ended, "process", plural: "processes")) left behind by an earlier run")
+            }
+            // Last, so that a git still writing to its folder has been stopped.
+            let clones = GitClone.removeLeftovers()
+            if clones > 0 {
+                SessionLog.note("removed \(counted(clones, "unfinished clone")) left behind by an earlier run")
+            }
         }
     }
 

@@ -172,16 +172,20 @@ struct CloneProjectView: View {
 
     private var isCloning: Bool { cloning != nil }
 
-    // The last folder cloned into, then the folder the first project lives in, which is
-    // likely where this person keeps their code.
+    // The last folder cloned into, then the folder a project lives in, which is likely
+    // where this person keeps their code. Each has to still exist: git would create a
+    // missing one, and a failed clone would then leave it behind.
     private var folder: URL {
         if let chosenFolder { return chosenFolder }
         if let remembered = Preferences.cloneFolder,
            FileManager.default.fileExists(atPath: remembered) {
             return URL(fileURLWithPath: remembered, isDirectory: true)
         }
-        if let project = store.regularProjects.first {
-            return URL(fileURLWithPath: project.path, isDirectory: true).deletingLastPathComponent()
+        let projectFolders = store.regularProjects.lazy.map {
+            URL(fileURLWithPath: $0.path, isDirectory: true).deletingLastPathComponent()
+        }
+        if let projectFolder = projectFolders.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return projectFolder
         }
         return FileManager.default.homeDirectoryForCurrentUser
     }
@@ -209,21 +213,25 @@ struct CloneProjectView: View {
         guard canClone, let destination else { return }
         failure = nil
         progress = nil
-        Preferences.cloneFolder = folder.path
+        let target = folder
         let address = remote.trimmed
         cloning = Task {
             let outcome = await GitClone.clone(address, to: destination) { progress = $0 }
-            cloning = nil
             switch outcome {
             case .cloned(let url):
+                // Still shown as cloning while the sheet closes. The folder exists now, so
+                // the idle state would flash the "already exists" warning.
+                Preferences.cloneFolder = target.path
                 onCloned(url)
                 dismiss()
             case .failed(let message):
+                cloning = nil
                 failure = Failure(message: message)
             case .signInRequired(let signIn):
+                cloning = nil
                 failure = Failure(message: signIn.message, sshAddress: signIn.sshAddress)
             case .cancelled:
-                break
+                cloning = nil
             }
         }
     }

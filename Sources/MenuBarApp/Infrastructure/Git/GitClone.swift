@@ -4,7 +4,8 @@ import Synchronization
 // Brings a repository down from a remote so it can become a project. The clone lands in a
 // hidden folder beside the destination and only takes its real name once it is whole, so
 // a failed or cancelled clone never leaves a half-made project folder, and clearing up
-// after one can only ever touch a folder this code made.
+// after one can only ever touch a folder this code made. The hidden folder is noted in the
+// preferences while the clone runs, so one left by a quit or a crash goes at the next launch.
 enum GitClone {
     struct Progress: Sendable, Equatable {
         var phase: String
@@ -39,6 +40,7 @@ enum GitClone {
     // and those queues are serial, so every other git read in the app would wait behind it.
     // There is no timeout for the same reason. Cancelling the task stops the clone.
     static func clone(_ remote: String, to destination: URL,
+                      preferences: UserDefaults = .standard,
                       onProgress: @escaping @MainActor @Sendable (Progress) -> Void) async -> Outcome {
         guard let tool = await GitInspector.tool() else {
             return .failed("Could not find git on PATH.")
@@ -48,7 +50,8 @@ enum GitClone {
         }
         let parent = destination.deletingLastPathComponent()
         let partial = parent.appendingPathComponent(
-            ".\(destination.lastPathComponent).cloning-\(UUID().uuidString)", isDirectory: true)
+            ".\(destination.lastPathComponent)\(partialMark)\(UUID().uuidString)", isDirectory: true)
+        notePartial(partial, in: preferences)
 
         let environment = GitEnvironment.nonInteractive(searchPath: tool.searchPath)
         let output = OutputBox()
@@ -66,14 +69,12 @@ enum GitClone {
                 timeout: nil,
                 outputByteLimit: 65_536)
             if result.succeeded {
+                // Git can finish just as the person cancels. Their choice wins.
+                if Task.isCancelled { throw CommandRunner.RunError.cancelled }
                 try FileManager.default.moveItem(at: partial, to: destination)
-                return .cloned(destination)
-            }
-            let complaint = output.complaint
-            if let signIn = GitSignIn.problem(in: complaint, address: remote) {
-                outcome = .signInRequired(signIn)
+                outcome = .cloned(destination)
             } else {
-                outcome = .failed(complaint.isEmpty ? "Git could not clone the repository." : complaint)
+                outcome = output.failure(address: remote)
             }
         } catch CommandRunner.RunError.cancelled {
             outcome = .cancelled
@@ -84,13 +85,55 @@ enum GitClone {
         // Git removes its own folder on an interrupt, but not if it is forced to stop
         // before it has finished doing so.
         await Task.detached { try? FileManager.default.removeItem(at: partial) }.value
+        forgetPartial(partial, in: preferences)
         return outcome
+    }
+
+    // Removes what clones left behind when the app stopped before they ended, and says how
+    // many went. A folder that cannot be removed yet stays noted for the next launch.
+    static func removeLeftovers(in preferences: UserDefaults = .standard) -> Int {
+        var removed = 0
+        for path in Preferences.partialClones(in: preferences) {
+            let folder = URL(fileURLWithPath: path, isDirectory: true)
+            // The path comes back from a preference and this delete is recursive, so it
+            // has to look like a folder this code named.
+            if folder.lastPathComponent.hasPrefix("."), folder.lastPathComponent.contains(partialMark),
+               FileManager.default.fileExists(atPath: path) {
+                guard (try? FileManager.default.removeItem(at: folder)) != nil else { continue }
+                removed += 1
+            }
+            forgetPartial(folder, in: preferences)
+        }
+        return removed
+    }
+
+    private static let partialMark = ".cloning-"
+
+    // Held while the list changes, so that two clones cannot lose each other's change.
+    private static let partialListLock = Mutex(())
+
+    private static func notePartial(_ folder: URL, in preferences: UserDefaults) {
+        partialListLock.withLock { _ in
+            Preferences.setPartialClones(Preferences.partialClones(in: preferences) + [folder.path],
+                                         in: preferences)
+        }
+    }
+
+    private static func forgetPartial(_ folder: URL, in preferences: UserDefaults) {
+        partialListLock.withLock { _ in
+            Preferences.setPartialClones(Preferences.partialClones(in: preferences).filter { $0 != folder.path },
+                                         in: preferences)
+        }
     }
 
     // Git's stderr carries both the progress meter and the reason for a failure. A long
     // clone prints enough meter to fill any capture limit before the reason arrives, so
     // the two are told apart as the output comes in.
+    //
+    // More lines are kept than are shown. What ssh prints about a changed host key starts
+    // well above the last few lines, and it must still be seen when working out what went wrong.
     struct Output {
+        private static let keptLines = 200
         private static let complaintLines = 6
         private static let complaintLength = 500
 
@@ -108,14 +151,22 @@ enum GitClone {
                 if let progress = Self.progress(in: line) {
                     latest = progress
                 } else if !Self.isChatter(line) {
-                    lines = Array((lines + [line.trimmed]).suffix(Self.complaintLines))
+                    lines = Array((lines + [line.trimmed]).suffix(Self.keptLines))
                 }
             }
             return latest
         }
 
+        // The newest text, since git states the reason last.
         var complaint: String {
-            String(lines.joined(separator: "\n").prefix(Self.complaintLength))
+            String(lines.suffix(Self.complaintLines).joined(separator: "\n").suffix(Self.complaintLength))
+        }
+
+        func failure(address: String) -> Outcome {
+            if let signIn = GitSignIn.problem(in: lines.joined(separator: "\n"), address: address) {
+                return .signInRequired(signIn)
+            }
+            return .failed(complaint.isEmpty ? "Git could not clone the repository." : complaint)
         }
 
         // "Receiving objects:  45% (450/1000), 1.20 MiB | 2.00 MiB/s"
@@ -140,6 +191,6 @@ enum GitClone {
         private let storage = Mutex(Output())
 
         func read(_ chunk: Data) -> Progress? { storage.withLock { $0.read(chunk) } }
-        var complaint: String { storage.withLock { $0.complaint } }
+        func failure(address: String) -> Outcome { storage.withLock { $0.failure(address: address) } }
     }
 }
