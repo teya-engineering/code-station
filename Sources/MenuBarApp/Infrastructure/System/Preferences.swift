@@ -30,6 +30,12 @@ enum Preferences {
         set { set(newValue, "selectedWorkspaceID") }
     }
 
+    // Where the last repository was cloned, since the next one usually goes beside it.
+    static var cloneFolder: String? {
+        get { store.string(forKey: "cloneFolder") }
+        set { store.set(newValue, forKey: "cloneFolder") }
+    }
+
     // A missing entry keeps the sidebar's normal first-use behavior. Once a project or
     // workspace has been opened or closed, its own choice survives every later launch.
     static func sidebarExpansion(in store: UserDefaults = .standard) -> [UUID: Bool] {
