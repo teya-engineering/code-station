@@ -14,6 +14,9 @@ enum GitClone {
     enum Outcome: Sendable, Equatable {
         case cloned(URL)
         case failed(String)
+        // Git needed a login or a host key it could not ask for. Said as what it means,
+        // with the SSH address to try instead when one can be worked out.
+        case signInRequired(GitSignInRequired)
         case cancelled
     }
 
@@ -47,13 +50,7 @@ enum GitClone {
         let partial = parent.appendingPathComponent(
             ".\(destination.lastPathComponent).cloning-\(UUID().uuidString)", isDirectory: true)
 
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = tool.searchPath
-        // No tty here, so git fails on a missing credential rather than waiting for one.
-        environment["GIT_TERMINAL_PROMPT"] = "0"
-        // Pins the words Output below reads, whatever language the Mac is set to.
-        environment["LC_ALL"] = "C"
-
+        let environment = GitEnvironment.nonInteractive(searchPath: tool.searchPath)
         let output = OutputBox()
         let outcome: Outcome
         do {
@@ -73,7 +70,11 @@ enum GitClone {
                 return .cloned(destination)
             }
             let complaint = output.complaint
-            outcome = .failed(complaint.isEmpty ? "Git could not clone the repository." : complaint)
+            if let signIn = GitSignIn.problem(in: complaint, address: remote) {
+                outcome = .signInRequired(signIn)
+            } else {
+                outcome = .failed(complaint.isEmpty ? "Git could not clone the repository." : complaint)
+            }
         } catch CommandRunner.RunError.cancelled {
             outcome = .cancelled
         } catch {

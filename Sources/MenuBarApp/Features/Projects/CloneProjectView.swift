@@ -15,15 +15,21 @@ struct CloneProjectView: View {
     @State private var chosenFolder: URL?
     @State private var cloning: Task<Void, Never>?
     @State private var progress: GitClone.Progress?
-    @State private var failure: String?
+    @State private var failure: Failure?
     @FocusState private var remoteFocused: Bool
+
+    private struct Failure: Equatable {
+        var message: String
+        // The SSH address to try, when git could not sign in over HTTPS.
+        var sshAddress: String? = nil
+    }
 
     private enum Status: Equatable {
         case empty
         case ready(String)
         case taken(String)
         case cloning
-        case failed(String)
+        case failed(Failure)
     }
 
     var body: some View {
@@ -131,11 +137,23 @@ struct CloneProjectView: View {
                     .motion(Motion.control, value: progress)
             }
             .transition(.fadeIn)
-        case .failed(let message):
-            Text(message)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .warningCard()
+        case .failed(let failure):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(failure.message)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let sshAddress = failure.sshAddress {
+                    Button { remote = sshAddress } label: {
+                        Text("Use \(sshAddress)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .hoverLift(amount: Motion.smallLift)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .warningCard()
         }
     }
 
@@ -201,7 +219,9 @@ struct CloneProjectView: View {
                 onCloned(url)
                 dismiss()
             case .failed(let message):
-                failure = message
+                failure = Failure(message: message)
+            case .signInRequired(let signIn):
+                failure = Failure(message: signIn.message, sshAddress: signIn.sshAddress)
             case .cancelled:
                 break
             }
