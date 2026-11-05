@@ -30,6 +30,7 @@ struct AppSidebar: View {
     @State private var renamingID: UUID?
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
+    @State private var showingCloneProject = false
     @State private var showingNewWorkspace = false
     @State private var showingNewTask = false
     @State private var askingTask: Project?
@@ -136,6 +137,10 @@ struct AppSidebar: View {
                 startWorkspaceSession(choice, in: workspace)
             }
             .appOverlays()
+        }
+        .sheet(isPresented: $showingCloneProject) {
+            CloneProjectView(onCloned: addProjectNow)
+                .appOverlays()
         }
         .sheet(isPresented: $showingNewWorkspace) {
             NewWorkspaceView { workspace in
@@ -1220,6 +1225,10 @@ struct AppSidebar: View {
         return [
             .item("Add project", icon: "folder.badge.plus",
                   subtitle: "Choose an existing folder.", action: addProject),
+            .item("Clone repository", icon: "arrow.down.circle",
+                  subtitle: "Copy one from a Git URL.") {
+                showingCloneProject = true
+            },
             .item("Create workspace", icon: "square.stack.3d.up.fill",
                   subtitle: "Group two or more projects.") {
                 showingNewWorkspace = true
