@@ -49,6 +49,10 @@ struct RootView: View {
             }
     }
 
+    private var cursorEffectSessionID: UUID? {
+        if case .session(let id) = store.selection { id } else { nil }
+    }
+
     private var layout: some View {
         ZStack(alignment: .top) {
             HStack(spacing: 0) {
@@ -61,11 +65,13 @@ struct RootView: View {
                 detail
             }
             .overlay {
-                if case .session(let id) = store.selection {
+                let id = cursorEffectSessionID
+                if id != nil || settings.cursorEffects.schedule == .always {
                     CursorEffectOverlay(settings: settings.cursorEffects,
-                                        activity: CursorEffectActivity(session: runner.state(id),
-                                                                       needsInput: runner.question(id) != nil),
-                                        turnStarted: runner.turnStarted(id),
+                                        activity: CursorEffectActivity(session: id.map(runner.state),
+                                                                       needsInput: id.flatMap(runner.question) != nil,
+                                                                       schedule: settings.cursorEffects.schedule),
+                                        turnStarted: id.flatMap(runner.turnStarted),
                                         enabled: sheet == nil && !commandPalette.isPresented)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
@@ -490,7 +496,7 @@ struct RootView: View {
     }
 
     private var home: some View {
-        HomeView()
+        HomeView(tools: tools, skills: skills)
             .transition(.headerPage(reduceMotion: reduceMotion))
     }
 }

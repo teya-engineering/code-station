@@ -213,7 +213,18 @@ struct DesignConversationViewTests {
         #expect(viewport.viewport.contentFrame == manualFrame)
         #expect(viewport.viewport.fitBottomInset == 0)
         let composer = try #require(descendants(hosting.view).compactMap { $0 as? NSTextView }.first { $0.isEditable })
-        let composerFrame = composer.convert(composer.bounds, to: nil)
+        // The text view sits in its own scroll view, inside the panel's composer area. While
+        // the panel resizes, SwiftUI nudges that area's scroll offset by up to half a pixel to
+        // keep it sharp, and the last nudge can be left behind. So the composer's place is read
+        // from the area itself, which is laid out on whole points.
+        let composerArea = try #require(composer.enclosingScrollView?.enclosingScrollView)
+        func composerAreaFrame() -> CGRect { composerArea.convert(composerArea.bounds, to: nil) }
+        // The area is sized to its content, so it never needs a scroll bar.
+        func composerAreaFits() -> Bool {
+            (composerArea.documentView?.frame.height ?? .infinity) <= composerArea.contentView.bounds.height
+        }
+        #expect(composerAreaFits())
+        let composerFrame = composerAreaFrame()
         let transcript = try #require(descendants(hosting.view).compactMap { $0 as? NSScrollView }.first {
             !($0.documentView is NSTextView) && $0.contentView.documentRect.height > 1000
         })
@@ -228,8 +239,9 @@ struct DesignConversationViewTests {
         #expect(viewport.viewport.contentFrame == manualFrame)
         #expect(await waitUntil {
             hosting.view.layoutSubtreeIfNeeded()
-            return abs(composer.convert(composer.bounds, to: nil).minY - composerFrame.minY) < 1
+            return abs(composerAreaFrame().minY - composerFrame.minY) < 1
         })
+        #expect(composerAreaFits())
         #expect(viewport.convert(viewport.bounds, to: nil) == canvasFrame)
         let selectedText = try #require(descendants(transcript).compactMap { $0 as? NSTextView }.first)
         selectedText.setSelectedRange(NSRange(location: 2, length: 4))

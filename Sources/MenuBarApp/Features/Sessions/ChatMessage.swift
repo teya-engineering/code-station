@@ -214,6 +214,9 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     // A prompt that was spoken into the composer. Optional so older conversations still
     // decode.
     var dictated: Bool?
+    // A prompt sent into a turn that was already running, rather than starting one.
+    // Optional so older conversations still decode.
+    var steered: Bool?
 
     mutating func recordAgentTask(_ record: AgentTaskRecord) {
         var record = record

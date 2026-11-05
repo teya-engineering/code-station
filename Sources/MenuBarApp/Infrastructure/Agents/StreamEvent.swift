@@ -41,6 +41,11 @@ enum StreamEvent: Sendable {
     // keeps the timer inside its own process, so a wakeup only fires while the turn is
     // held open.
     case wakeup(Date?)
+    // Jobs the agent put on a schedule with CronCreate, which live in the CLI's process the
+    // same way a wakeup does. CronList reports the whole set, so it replaces what is known.
+    case cronScheduled(CronJob)
+    case cronCancelled(id: String)
+    case cronJobs([CronJob])
     // Starts carry the agent's identity; later live lists may only carry its task id.
     case agentTaskStarted(BackgroundTask)
     case agentTaskFinished(id: String, state: AgentTaskRecord.State, report: String?)
@@ -83,6 +88,16 @@ struct BackgroundTask: Identifiable, Codable, Equatable, Sendable {
                        description: "a check-in at \(due.formatted(date: .omitted, time: .shortened))")
     }
 
+    static func cron(_ job: CronJob) -> BackgroundTask {
+        let when: String
+        if !job.recurring, let due = job.nextFireAt {
+            when = "at \(due.formatted(date: .omitted, time: .shortened))"
+        } else {
+            when = job.schedule.prefix(1).lowercased() + job.schedule.dropFirst()
+        }
+        return BackgroundTask(id: "cron-\(job.id)", kind: "cron", description: "a check-in \(when)")
+    }
+
     var isAgent: Bool {
         agentName?.isBlank == false || kind == "local_agent" || kind == "local_workflow"
     }
@@ -95,6 +110,27 @@ struct BackgroundTask: Identifiable, Codable, Equatable, Sendable {
         case "local_agent": "an agent"
         default: "a background task"
         }
+    }
+}
+
+// A prompt the agent scheduled to run itself again later, as CronCreate and CronList
+// describe it. The schedule is the CLI's own wording, such as "Every 5 minutes".
+struct CronJob: Equatable, Sendable {
+    let id: String
+    let schedule: String
+    let recurring: Bool
+    // Only true when the job was scheduled. A recurring job moves on after each run and
+    // the CLI does not say so until it is listed again.
+    let nextFireAt: Date?
+    // When it was first seen, which is what the CLI's own expiry counts from.
+    var scheduledAt = Date()
+
+    // The CLI drops a recurring job a week after it was made.
+    static let recurringLifetime: TimeInterval = 7 * 24 * 3600
+
+    // How long the job is known to stay quiet, so a wait on it is not called stuck early.
+    var quietUntil: Date? {
+        recurring ? scheduledAt.addingTimeInterval(Self.recurringLifetime) : nextFireAt
     }
 }
 
@@ -155,6 +191,12 @@ extension StreamEvent {
             "background tasks count=\(tasks.count)"
         case .wakeup(let due):
             due.map { "wakeup scheduled in=\(Int($0.timeIntervalSinceNow))s" } ?? "wakeup cancelled"
+        case .cronScheduled(let job):
+            "cron scheduled id=\(job.id) recurring=\(job.recurring)"
+        case .cronCancelled(let id):
+            "cron cancelled id=\(id)"
+        case .cronJobs(let jobs):
+            "cron jobs count=\(jobs.count)"
         case .agentTaskStarted(let task):
             "agent task started id=\(task.id)"
         case .agentTaskFinished(let id, let state, _):
@@ -290,6 +332,7 @@ extension StreamEvent {
         case "user":
             var events = contentBlocks(of: object).compactMap(toolResultEvent)
             if let wakeup = wakeupEvent(object) { events.append(wakeup) }
+            if let cron = cronEvent(object) { events.append(cron) }
             return events
 
         case "rate_limit_event":
@@ -437,6 +480,31 @@ extension StreamEvent {
               result["clampedDelaySeconds"] != nil else { return nil }
         if result["stopped"] as? Bool == true || scheduledFor <= 0 { return .wakeup(nil) }
         return .wakeup(Date(timeIntervalSince1970: scheduledFor / 1000))
+    }
+
+    // The cron tools are told apart by the shape of their structured result, since the
+    // result does not name the tool. CronDelete answers with the id alone, which is safe
+    // to read loosely: an id that matches no scheduled job changes nothing.
+    private static func cronEvent(_ object: [String: Any]) -> StreamEvent? {
+        guard let result = object["tool_use_result"] as? [String: Any] else { return nil }
+        if let jobs = result["jobs"] as? [[String: Any]] {
+            let parsed = jobs.compactMap(cronJob)
+            return parsed.count == jobs.count ? .cronJobs(parsed) : nil
+        }
+        if let job = cronJob(result), result["recurring"] != nil { return .cronScheduled(job) }
+        if result.count == 1, let id = result["id"] as? String, !id.isEmpty {
+            return .cronCancelled(id: id)
+        }
+        return nil
+    }
+
+    private static func cronJob(_ fields: [String: Any]) -> CronJob? {
+        guard let id = fields["id"] as? String, !id.isEmpty,
+              let schedule = fields["humanSchedule"] as? String else { return nil }
+        return CronJob(id: id, schedule: schedule,
+                       recurring: fields["recurring"] as? Bool ?? false,
+                       nextFireAt: (fields["nextFireAt"] as? Double)
+                           .map { Date(timeIntervalSince1970: $0 / 1000) })
     }
 
     private static func toolResultEvent(_ block: [String: Any]) -> StreamEvent? {

@@ -500,6 +500,16 @@ final class SessionRunner {
         records[sessionID]?.queue.removeAll { $0.id == id }
     }
 
+    // Sends a waiting prompt into the turn that is running, instead of after it. When the
+    // turn cannot take it the prompt keeps its place in the queue.
+    @discardableResult
+    func steer(_ id: UUID, sessionID: UUID, store: ProjectStore) -> Bool {
+        guard let item = queued(sessionID).first(where: { $0.id == id }),
+              steer(item, sessionID: sessionID, store: store) else { return false }
+        records[sessionID]?.queue.removeAll { $0.id == id }
+        return true
+    }
+
     // Takes a waiting prompt back into the composer so it can be reworked before it runs.
     // A half-written draft is not thrown away: it takes the recalled prompt's place in
     // the queue, so nothing typed is ever lost.
@@ -940,6 +950,14 @@ final class SessionRunner {
                                       store: store, runner: self)
     }
 
+    // A title or recap is the app asking about a turn that has already ended and been
+    // announced, so it is not the agent working. A title followed by a queued prompt is
+    // different: the session goes straight back to work, so it still reads as running.
+    func isWrappingUp(_ sessionID: UUID) -> Bool {
+        isRecapping(sessionID)
+            || (hasSummary(sessionID, title: true) && !queued(sessionID).contains { $0.summary == nil })
+    }
+
     func hasSummary(_ sessionID: UUID, title: Bool) -> Bool {
         guard let record = records[sessionID] else { return false }
         return record.turn?.summary?.mode.isTitle == title
@@ -1060,7 +1078,8 @@ final class SessionRunner {
         }
         SessionLog.note("prompt steered into the running turn", session: sessionID)
         var messageIDs: [UUID] = []
-        for message in prompt.transcriptMessages {
+        for var message in prompt.transcriptMessages {
+            if message.role == .user { message.steered = true }
             store.append(message, to: sessionID)
             messageIDs.append(message.id)
         }
@@ -1959,9 +1978,30 @@ final class SessionRunner {
                 if let wakeup = turn.wakeup, wakeup.due.timeIntervalSinceNow < 5 {
                     turn.wakeup = nil
                 }
+                turn.cronJobs.removeAll { job in
+                    !job.recurring && (job.nextFireAt?.timeIntervalSinceNow ?? 0) < 5
+                }
 
             case .wakeup(let due):
                 turn.wakeup = due.map { (task: BackgroundTask.wakeup(at: $0), due: $0) }
+
+            case .cronScheduled(let job):
+                turn.cronJobs.removeAll { $0.id == job.id }
+                turn.cronJobs.append(job)
+
+            case .cronCancelled(let id):
+                turn.cronJobs.removeAll { $0.id == id }
+
+            case .cronJobs(let jobs):
+                // A listed job keeps the time it was first seen, since its expiry counts
+                // from when it was made, not from when it was last listed.
+                let known = Dictionary(turn.cronJobs.map { ($0.id, $0.scheduledAt) },
+                                       uniquingKeysWith: { first, _ in first })
+                turn.cronJobs = jobs.map { job in
+                    var job = job
+                    if let scheduledAt = known[job.id] { job.scheduledAt = scheduledAt }
+                    return job
+                }
 
             case .turnStarted:
                 freshReply(turn, sessionID: sessionID, store: store)
@@ -2395,10 +2435,13 @@ final class SessionRunner {
     // work nobody asked to stop would be worse than a row that says it needs someone.
     private func startWaitWatchdog(_ sessionID: UUID, token: UUID, store: ProjectStore) {
         waitWatchdogs.removeValue(forKey: sessionID)?.cancel()
-        // A wakeup is known to stay quiet until it is due, so the wait is only judged
-        // from that moment on.
-        let quietUntilWakeup = records[sessionID]?.turn?.wakeup.map { max(0, $0.due.timeIntervalSinceNow) } ?? 0
-        let deadline = waitingStaleAfter + quietUntilWakeup
+        // A wakeup or a scheduled job is known to stay quiet until it is due, so the wait
+        // is only judged from that moment on. A recurring job is quiet between runs for as
+        // long as it lives, and nothing says when its next run is.
+        let turn = records[sessionID]?.turn
+        let quietUntil = ([turn?.wakeup?.due] + (turn?.cronJobs ?? []).map(\.quietUntil))
+            .compactMap { $0 }.max()
+        let deadline = waitingStaleAfter + max(0, quietUntil?.timeIntervalSinceNow ?? 0)
         waitWatchdogs[sessionID] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(deadline))
             guard !Task.isCancelled else { return }
@@ -2924,8 +2967,14 @@ final class SessionRunner {
         var pendingTasks: [BackgroundTask] = []
         // The wakeup the agent has scheduled, kept until the turn it starts begins.
         var wakeup: (task: BackgroundTask, due: Date)?
-        // What a turn that has answered stays open for: the CLI's own tasks and any wakeup.
-        var holdsFor: [BackgroundTask] { pendingTasks + (wakeup.map { [$0.task] } ?? []) }
+        // The jobs the agent has put on a schedule, kept until they are called off or, for
+        // a one-off, until the turn it starts begins.
+        var cronJobs: [CronJob] = []
+        // What a turn that has answered stays open for: the CLI's own tasks, any wakeup
+        // and any scheduled job.
+        var holdsFor: [BackgroundTask] {
+            pendingTasks + (wakeup.map { [$0.task] } ?? []) + cronJobs.map(BackgroundTask.cron)
+        }
         var agentTasks: [String: AgentTaskRecord] = [:]
         var agentTaskMessages: [String: UUID] = [:]
         // True from a result that left tasks running until the CLI moves again or a

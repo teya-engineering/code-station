@@ -222,7 +222,12 @@ struct DesignConversation: View {
                         conversationToggle
                     }
                 }
-            Divider().overlay(Theme.hairline)
+                // Drawn over the transcript rather than stacked, so the composer gets all of
+                // its measured height. One point short and it scrolls: a Mac without a trackpad
+                // shows a scroll bar beside it, and a resize can leave it part way scrolled.
+                .overlay(alignment: .bottom) {
+                    Divider().overlay(Theme.hairline)
+                }
             ScrollView {
                 VStack(spacing: 0) {
                     turnNotices(session)
@@ -542,6 +547,7 @@ struct DesignConversation: View {
                         placeholder: placeholder,
                         inset: 14,
                         minimumLines: 3,
+                        buttonAlignment: .center,
                         onOversizedPaste: attachPastedText,
                         onRecallUp: { runner.recallEarlier(sessionID, store: store) },
                         onRecallDown: { runner.recallLater(sessionID, store: store) },

@@ -83,7 +83,7 @@ enum SettingsSearchIndex {
         result("Sunlight", .appearance, .appearanceSunlight,
                "appearance sun sunset sunrise warm warmth night flux kelvin colour temperature always fixed"),
         result("Cursor effects", .appearance, .appearanceCursorEffects,
-               "appearance pointer sparks ember aurora orbit ripple water rings prism facets spectral none animation"),
+               "appearance pointer sparks ember aurora orbit ripple water rings prism facets spectral none animation always running show"),
         result("Session text", .appearance, .appearanceText,
                "appearance size small regular large transcript diff terminal"),
         result("Your messages", .appearance, .appearanceMessages,

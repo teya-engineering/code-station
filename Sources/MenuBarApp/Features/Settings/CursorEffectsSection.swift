@@ -4,6 +4,7 @@ import SwiftUI
 struct CursorEffectsSection: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.accessibilityReduceMotion) private var reduced
+    @Namespace private var scheduleThumb
 
     var body: some View {
         SettingsCard {
@@ -11,7 +12,7 @@ struct CursorEffectsSection: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Cursor effects")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("A little extra life around the pointer while a session is running.")
+                    Text("A little extra life around the pointer.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -21,11 +22,45 @@ struct CursorEffectsSection: View {
                 }
             }
             .padding(14)
+
+            SettingsRowDivider()
+            schedule.padding(14)
         }
         .transaction { if reduced { $0.animation = nil; $0.disablesAnimations = true } }
         .onChange(of: settings.cursorEffects.effect) { _, effect in
             announce("\(effect.title) selected. Changes saved.")
         }
+        .onChange(of: settings.cursorEffects.schedule) { _, schedule in
+            announce("Show cursor effects: \(schedule.title). Changes saved.")
+        }
+    }
+
+    private var schedule: some View {
+        let off = settings.cursorEffects.effect == .none
+        return HStack(alignment: .center, spacing: 20) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Show")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(off ? "Pick an effect first." : settings.cursorEffects.schedule.detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
+                ForEach(CursorEffectSchedule.allCases) { choice in
+                    let selected = settings.cursorEffects.schedule == choice
+                    ChoicePill(title: choice.title, selected: selected, enabled: !off, thumb: scheduleThumb) {
+                        settings.cursorEffects.schedule = choice
+                    }
+                    .accessibilityLabel("Show cursor effects: \(choice.title)")
+                    .accessibilityValue(selected ? "Selected" : "Not selected")
+                }
+            }
+        }
+        .motion(Motion.control, value: settings.cursorEffects.schedule)
+        .motion(Motion.control, value: off)
     }
 
     private func choice(_ effect: CursorEffect) -> some View {

@@ -4,6 +4,7 @@ struct ExplorerDocuments {
     var tabs: [FileNode] = []
     var edits: [String: ExplorerMemory.UnsavedEdit] = [:]
     var pinned: [FileNode] = []
+    var modes: [String: MarkdownEditorMode] = [:]
 
     mutating func open(_ node: FileNode) {
         guard !node.isDirectory else { return }
@@ -26,6 +27,7 @@ struct ExplorerDocuments {
     mutating func close(_ path: String) {
         tabs.removeAll { $0.path == path }
         edits.removeValue(forKey: path)
+        modes.removeValue(forKey: path)
     }
 
     mutating func moved(from old: String, to new: String) {
@@ -37,6 +39,7 @@ struct ExplorerDocuments {
         }
         tabs = tabs.map(movedNode)
         pinned = pinned.map(movedNode)
+        modes = Dictionary(modes.map { (FileTree.path($0.key, afterMoving: old, to: new), $0.value) }, uniquingKeysWith: { _, latest in latest })
         edits = Dictionary(edits.values.map { edit in
             let path = FileTree.path(edit.path, afterMoving: old, to: new)
             return (path, ExplorerMemory.UnsavedEdit(path: path, preview: edit.preview,
@@ -52,6 +55,7 @@ struct ExplorerDocuments {
         tabs.removeAll { contains($0.path) }
         pinned.removeAll { contains($0.path) }
         edits = edits.filter { !contains($0.key) }
+        modes = modes.filter { !contains($0.key) }
     }
 }
 

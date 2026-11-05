@@ -96,8 +96,11 @@ struct MessageView: View, Equatable {
                         SentPromptText(text: message.text)
                     }
                 }
-                if message.dictated == true {
-                    DictatedTag()
+                if message.steered == true || message.dictated == true {
+                    HStack(spacing: 10) {
+                        if message.steered == true { SteeredTag() }
+                        if message.dictated == true { DictatedTag() }
+                    }
                 }
             }
             .environment(\.colorScheme, bubble.inverts ? colorScheme.inverted : colorScheme)
@@ -141,6 +144,22 @@ struct MessageView: View, Equatable {
     }
 
     private static let edgeWidth: CGFloat = 4
+
+    // Says the prompt went into a turn already under way, so the reply above it reads as
+    // written before the agent saw it.
+    private struct SteeredTag: View {
+        var body: some View {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Steered into this turn")
+                    .font(.mono(10.5, .medium))
+            }
+            .foregroundStyle(Theme.accent)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Steered into this turn")
+        }
+    }
 
     // Says the prompt was spoken, so a stray word in it reads as the engine's slip rather
     // than the writer's.

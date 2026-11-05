@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Testing
 @testable import MenuBarApp
 
@@ -44,6 +45,25 @@ struct SkillsManagerTests {
         }
         #expect(manager.marketplaceConfigurations.count == 1)
         #expect(manager.installations.isEmpty)
+    }
+
+    // A real git against a server that wants a login, so the error the Add dialog needs
+    // for its SSH link is known to come all the way through, not only the text matching.
+    @Test @MainActor func previewThrowsTheSignInProblemWhenTheServerWantsALogin() async throws {
+        let server = LoginWall()
+        let port = try await server.start()
+        defer { server.stop() }
+        let suite = "sign-in-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manager = SkillsManager(cacheURL: scratch.path("sign-in-cache"), preferences: defaults, siteSkills: { nil })
+
+        let failure = await #expect(throws: GitSignInRequired.self) {
+            _ = try await manager.previewMarketplace(gitRepository: "http://127.0.0.1:\(port)/org/repo.git")
+        }
+        #expect(failure?.message.hasPrefix("127.0.0.1 asked for a sign-in") == true)
+        #expect(!manager.isBusy)
+        #expect(manager.marketplaceConfigurations.isEmpty)
     }
 
     @Test @MainActor func removalPersistsWithoutChangingFilesOrInstallations() throws {
@@ -513,4 +533,35 @@ struct SkillsManagerTests {
         #expect(SkillsRefreshInterval.thirtyDays.shouldRefresh(
             lastRefresh: now.addingTimeInterval(-30 * 86_400), now: now))
     }
+}
+
+// A server on this machine that answers every request by asking for a login.
+private final class LoginWall: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "skills-manager-tests.login-wall")
+    private let listener = HTTPListener()
+    private let reply = Data(("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"git\"\r\n"
+        + "Content-Length: 0\r\nConnection: close\r\n\r\n").utf8)
+
+    func start() async throws -> UInt16 {
+        let parameters = NWParameters.tcp
+        parameters.requiredInterfaceType = .loopback
+        let bound = try NWListener(using: parameters, on: .any)
+        return try await withCheckedThrowingContinuation { ready in
+            queue.async {
+                self.listener.expect(ready)
+                self.listener.start(bound, on: self.queue) { connection in
+                    connection.start(queue: self.queue)
+                    connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
+                        connection.send(content: self.reply, completion: .contentProcessed { _ in
+                            connection.cancel()
+                        })
+                    }
+                } failed: { error in
+                    self.listener.answer(.failure(error))
+                }
+            }
+        }
+    }
+
+    func stop() { queue.async { self.listener.cancel() } }
 }

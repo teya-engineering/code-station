@@ -40,6 +40,24 @@ struct CursorEffectsTests {
         #expect(CursorEffectActivity(session: .failed("stopped"), needsInput: false) == .inactive)
     }
 
+    @Test func scheduleDefaultsToWhileRunningAndPersists() {
+        let preferences = TestPreferences()
+        #expect(Preferences.cursorEffects(in: preferences.store).schedule == .whileRunning)
+        preferences.store.set(["effect": "ember", "schedule": "unknown"], forKey: "cursorEffects")
+        #expect(Preferences.cursorEffects(in: preferences.store) == CursorEffectsSettings(effect: .ember))
+        let always = CursorEffectsSettings(effect: .orbit, schedule: .always)
+        Preferences.setCursorEffects(always, in: preferences.store)
+        #expect(Preferences.cursorEffects(in: preferences.store) == always)
+    }
+
+    @Test func alwaysOnKeepsTheTrailLiveOutsideARunningTurn() {
+        for state: SessionState in [.idle, .waiting, .stalled, .failed("stopped"), .streaming] {
+            #expect(CursorEffectActivity(session: state, needsInput: false, schedule: .always) == .running)
+        }
+        #expect(CursorEffectActivity(session: nil, needsInput: false, schedule: .always) == .running)
+        #expect(CursorEffectActivity(session: nil, needsInput: false) == .inactive)
+    }
+
     @Test(arguments: ["cursor", "pointer", "sparks", "ember", "aurora", "orbit", "ripple", "prism", "facets", "water"])
     func findsCursorEffects(query: String) {
         #expect(SettingsSearchIndex.results(for: query).contains {

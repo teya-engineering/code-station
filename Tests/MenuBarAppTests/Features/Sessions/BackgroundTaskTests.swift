@@ -546,6 +546,147 @@ struct BackgroundTaskTests {
         #expect(!fixture.runner.waitIsStale(fixture.session.id))
     }
 
+    // MARK: - Waiting for a scheduled job
+
+    @Test func readsAScheduledJob() {
+        let line = """
+        {"type":"user","message":{"role":"user","content":[{"tool_use_id":"c1","type":"tool_result",\
+        "content":"Scheduled recurring job 39960038 (Every 5 minutes)."}]},"tool_use_result":\
+        {"id":"39960038","humanSchedule":"Every 5 minutes","recurring":true,"durable":false,\
+        "nextFireAt":1793479752925}}
+        """
+        let events = StreamEvent.parse(line)
+        guard case .cronScheduled(let job)? = events.last else {
+            Issue.record("expected a scheduled job, got \(events)")
+            return
+        }
+        #expect(job.id == "39960038")
+        #expect(job.recurring)
+        #expect(BackgroundTask.cron(job).label == "a check-in every 5 minutes")
+        #expect(events.count == 2)
+    }
+
+    @Test func readsAJobBeingCalledOff() {
+        let line = """
+        {"type":"user","message":{"role":"user","content":[{"tool_use_id":"c2","type":"tool_result",\
+        "content":"Cancelled job 39960038."}]},"tool_use_result":{"id":"39960038"}}
+        """
+        guard case .cronCancelled(let id)? = StreamEvent.parse(line).last else {
+            Issue.record("expected a cancelled job")
+            return
+        }
+        #expect(id == "39960038")
+    }
+
+    // A listed one-off job leaves out "recurring" altogether.
+    @Test func readsTheListedJobs() {
+        let line = """
+        {"type":"user","message":{"role":"user","content":[]},"tool_use_result":{"jobs":[\
+        {"id":"a1","cron":"*/5 * * * *","humanSchedule":"Every 5 minutes","prompt":"hi",\
+        "recurring":true,"durable":false,"nextFireAt":1793479752925},\
+        {"id":"b2","cron":"0 9 * * *","humanSchedule":"Every day at 9:00 AM","prompt":"bye",\
+        "durable":false,"nextFireAt":1793523576209.462}]}}
+        """
+        guard case .cronJobs(let jobs)? = StreamEvent.parse(line).last else {
+            Issue.record("expected the listed jobs")
+            return
+        }
+        #expect(jobs.map(\.id) == ["a1", "b2"])
+        #expect(jobs.map(\.recurring) == [true, false])
+    }
+
+    // The CLI keeps scheduled jobs in its own process, so a turn that answers with one
+    // pending has to stay open or the job never runs.
+    @MainActor @Test func holdsTheTurnOpenForAScheduledJob() async throws {
+        let fixture = try turn(script: Self.schedulesJob(recurring: true) + """
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+        #expect(BackgroundTaskPhrase.of(fixture.runner.backgroundTasks(fixture.session.id))
+                == "a check-in every minute")
+    }
+
+    // A recurring job runs again after each turn it starts, so that turn ending is not
+    // the end of the wait.
+    @MainActor @Test func aRecurringJobOutlivesItsRuns() async throws {
+        let fixture = try turn(script: Self.schedulesJob(recurring: true) + """
+        wait_for "$folder/fire"
+        printf '%s\\n' '{"type":"system","subtype":"init","session_id":"abc-123"}'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"checked"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"checked"}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+
+        try Data().write(to: fixture.scratch.path("fire"))
+
+        #expect(await waitUntil {
+            fixture.store.transcript(of: fixture.session.id).contains { $0.text == "checked" }
+        })
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+    }
+
+    @MainActor @Test func theTurnAOneOffJobStartsEndsTheWait() async throws {
+        let fixture = try turn(script: Self.schedulesJob(recurring: false, at: Date()) + """
+        wait_for "$folder/fire"
+        printf '%s\\n' '{"type":"system","subtype":"init","session_id":"abc-123"}'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"checked"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"checked"}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+
+        try Data().write(to: fixture.scratch.path("fire"))
+
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+    }
+
+    @MainActor @Test func aCalledOffJobHoldsNothingOpen() async throws {
+        let fixture = try turn(script: """
+        printf '%s\\n' '\(Self.jobLine(recurring: true, at: Self.farFuture))'
+        printf '%s\\n' '{"type":"user","message":{"role":"user","content":[]},"tool_use_result":{"id":"job1"}}'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"done"}'
+        cat > /dev/null
+        """)
+        defer { fixture.tearDown() }
+
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
+    }
+
+    // Nothing says when a recurring job runs next, and it is quiet between runs by design.
+    @MainActor @Test func aRecurringJobIsNeverCalledStale() async throws {
+        let fixture = try turn(script: Self.schedulesJob(recurring: true) + """
+        cat > /dev/null
+        """, waitingStaleAfter: 0.2)
+        defer { fixture.tearDown() }
+        #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
+
+        try? await Task.sleep(for: .milliseconds(400))
+        #expect(!fixture.runner.waitIsStale(fixture.session.id))
+    }
+
+    private static func jobLine(recurring: Bool, at due: Date) -> String {
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[]},"
+            + "\"tool_use_result\":{\"id\":\"job1\",\"humanSchedule\":\"Every minute\","
+            + "\"recurring\":\(recurring),\"durable\":false,"
+            + "\"nextFireAt\":\(Int(due.timeIntervalSince1970 * 1000))}}"
+    }
+
+    // A fake CLI turn that schedules a job, says so, and ends.
+    private static func schedulesJob(recurring: Bool, at due: Date = farFuture) -> String {
+        """
+        printf '%s\\n' '\(jobLine(recurring: recurring, at: due))'
+        printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"scheduled"}]}}'
+        printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"result":"scheduled"}'
+
+        """
+    }
+
     private static let farFuture = Date().addingTimeInterval(3600)
 
     private static func wakeupLine(scheduledFor due: Date) -> String {

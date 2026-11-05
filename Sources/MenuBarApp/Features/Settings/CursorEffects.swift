@@ -82,15 +82,45 @@ enum CursorEffect: String, CaseIterable, Identifiable {
     }
 }
 
+enum CursorEffectSchedule: String, CaseIterable, Identifiable {
+    case whileRunning, always
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .whileRunning: "While running"
+        case .always: "Always"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .whileRunning: "Only while a session is working."
+        case .always: "Wherever the pointer goes in the window."
+        }
+    }
+}
+
 struct CursorEffectsSettings: Equatable {
     var effect: CursorEffect = .none
+    var schedule: CursorEffectSchedule = .whileRunning
     let intensity = 0.55
 }
 
 enum CursorEffectActivity: Hashable {
     case inactive, running, waiting, finished
 
-    init(session: SessionState, needsInput: Bool) {
+    // Always-on effects keep the trail live between turns, but a new turn still plays its entrance.
+    init(session: SessionState?, needsInput: Bool, schedule: CursorEffectSchedule = .whileRunning) {
+        guard let session else {
+            self = schedule == .always ? .running : .inactive
+            return
+        }
+        if schedule == .always {
+            self = .running
+            return
+        }
         guard session.isBusy else {
             self = session.isFailed ? .inactive : .finished
             return
@@ -120,10 +150,11 @@ extension Preferences {
     static func cursorEffects(in store: UserDefaults = .standard) -> CursorEffectsSettings {
         let values = store.dictionary(forKey: "cursorEffects") ?? [:]
         return CursorEffectsSettings(
-            effect: (values["effect"] as? String).flatMap(CursorEffect.init(rawValue:)) ?? .none)
+            effect: (values["effect"] as? String).flatMap(CursorEffect.init(rawValue:)) ?? .none,
+            schedule: (values["schedule"] as? String).flatMap(CursorEffectSchedule.init(rawValue:)) ?? .whileRunning)
     }
 
     static func setCursorEffects(_ value: CursorEffectsSettings, in store: UserDefaults = .standard) {
-        store.set(["effect": value.effect.rawValue], forKey: "cursorEffects")
+        store.set(["effect": value.effect.rawValue, "schedule": value.schedule.rawValue], forKey: "cursorEffects")
     }
 }

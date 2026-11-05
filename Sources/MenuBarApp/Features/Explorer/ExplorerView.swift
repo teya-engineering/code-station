@@ -85,6 +85,11 @@ struct ExplorerView: View {
 
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(ExplorerMemory.self) private var memory
+    @Environment(MenuPresenter.self) private var menus
+    @State private var markdownOnly = false
+    @State private var markdownMode = MarkdownEditorMode.edit
+    @State private var markdownCanEdit = true
+    @State private var saveErrors: [String: String] = [:]
 
     // Children are kept per folder rather than as a nested tree, so a folder can be read
     // the moment it is opened and the rows on screen stay a flat list.
@@ -97,7 +102,6 @@ struct ExplorerView: View {
     @State private var preview: FilePreview?
     @State private var loadingPreview = false
     @State private var previewGeneration = 0
-    @State private var renderingMarkdown = false
     @State private var ownShowHidden = true
     @State private var language: CodeLanguage?
     @State private var pastingFiles = false
@@ -246,7 +250,8 @@ struct ExplorerView: View {
         .background(WindowAnchor(monitor: closeTabMonitor))
         .onAppear {
             closeTabMonitor.start {
-                guard dialogs.current == nil, renaming == nil,
+                guard dialogs.current == nil, renaming == nil else { return false }
+                guard
                       let open = documents.tabs.first(where: { $0.path == selected?.path }) ?? documents.tabs.last
                 else { return false }
                 closeTab(open)
@@ -295,6 +300,10 @@ struct ExplorerView: View {
             fileWasSaved = false
             if findPresented { refreshFind() }
             if draft != original { revealedMatches = [] }
+        }
+        .onChange(of: markdownMode) { _, mode in
+            if let selected { documents.modes[selected.path] = mode }
+            if mode != .source { resetFind() }
         }
         .onChange(of: showHidden) { Task { await reopenFolders() } }
         .onChange(of: openFolderCount, initial: true) { _, count in openFolders?.wrappedValue = count }
@@ -404,6 +413,7 @@ struct ExplorerView: View {
 
     private func rows(in directory: String) -> [Row] {
         Row.rows(in: directory, children: children, expanded: expanded, depth: repositories.isEmpty ? 0 : 1)
+            .filter { !markdownOnly || $0.node.isDirectory || $0.node.supportsMarkdownPreview }
     }
 
     private var rows: [Row] {
@@ -430,6 +440,11 @@ struct ExplorerView: View {
 
     @ViewBuilder private var tree: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ChoicePill(title: "All files", selected: !markdownOnly) { markdownOnly = false }
+                ChoicePill(title: "Markdown", selected: markdownOnly) { markdownOnly = true }
+                Spacer(minLength: 0)
+            }.padding(12)
             if !repositories.isEmpty {
                 HStack {
                     Text("Workspace").font(.system(size: 13, weight: .semibold))
@@ -457,6 +472,15 @@ struct ExplorerView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: repositories.isEmpty ? 1 : 3) {
+                            let pins = projectRoots.flatMap { project in
+                                project.root == root ? documents.pinned : memory.place(for: project.root)?.documents.pinned ?? []
+                            }.filter { !markdownOnly || $0.supportsMarkdownPreview }
+                            if !pins.isEmpty {
+                                sectionLabel("Pinned files")
+                                ForEach(pins) { node in
+                                    plainRow(Row(node: node, depth: 0))
+                                }
+                            }
                             sectionLabel("Project files")
                             ForEach(projectRoots) { project in
                                 if !repositories.isEmpty { projectRow(project).id(project.root) }
@@ -690,18 +714,26 @@ struct ExplorerView: View {
                             fileTitle(node, compact: compact)
                             fileActions(node, compact: compact)
                         }
-                        .padding(.horizontal, inset).padding(.vertical, compact ? 5 : 4)
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: compact ? 65 : 36, alignment: .leading)
+                        .padding(.horizontal, inset)
+                        .padding(.vertical, node.supportsMarkdownPreview ? 10 : compact ? 5 : 4)
+                        .frame(minWidth: 0, maxWidth: .infinity,
+                               minHeight: node.supportsMarkdownPreview ? (compact ? 80 : 52) : (compact ? 65 : 36),
+                               alignment: .leading)
                         if findPresented {
                             findBar.transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
+                        }
+                        if let error = saveErrors[node.path] {
+                            EditorSaveError(message: error, retry: { save(node) }, export: {
+                                exportMarkdown(draft, name: node.name, dialogs: dialogs, notify: { showNote($0) })
+                            }).transition(.fadeIn)
                         }
                         // Keyed on what kind of body is showing rather than on the file, so
                         // moving between two text files keeps the same editor.
                         fileBody(node)
-                            .id(bodyKind(node))
+                            .id(node.supportsMarkdownPreview ? node.path : bodyKind(node))
                             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                             .clipped()
-                            .transition(AnyTransition.fadeIn.animation(Motion.reveal))
+                            .transition(.headerPage(reduceMotion: reduceMotion))
                         if isEditable { editStatus(node, width: editorWidth, inset: inset) }
                     } else {
                         PaneMessage(icon: "sidebar.left", title: "Pick a file",
@@ -733,6 +765,7 @@ struct ExplorerView: View {
             }
         }
         .background(Theme.card)
+        .motion(Motion.reveal, value: selected?.path)
     }
 
     private func editorTabs(navigatorVisible: Bool) -> some View {
@@ -815,47 +848,95 @@ struct ExplorerView: View {
     private func fileTitle(_ node: FileNode, compact: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon(node)).foregroundStyle(Theme.accent).accessibilityHidden(true)
-            Text(node.name)
-                .font(.system(size: compact ? 14 : 15, weight: .semibold))
-                .lineLimit(1).truncationMode(.middle)
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel(node.name)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("explorer.fileTitle")
-                .appTooltip(node.name)
+            HStack(spacing: 8) {
+                Text(node.name)
+                    .font(.system(size: compact ? 14 : 15, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+                    .accessibilityLabel(node.name)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("explorer.fileTitle")
+                    .appTooltip(node.name)
+                if node.supportsMarkdownPreview {
+                    if dirty {
+                        Circle().fill(Theme.attention).frame(width: 6, height: 6)
+                            .accessibilityLabel("Unsaved changes")
+                            .appTooltip("Unsaved changes")
+                            .transition(.opacity)
+                    }
+                    if isPinned(node) {
+                        Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                            .accessibilityLabel("Pinned").transition(.opacity)
+                    }
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .motion(Motion.control, value: dirty)
+            .motion(Motion.control, value: isPinned(node))
             if let status = git.statuses[node.path] {
                 ExplorerStatusMark(status: status, spelledOut: !compact)
                     .fixedSize()
                     .padding(.horizontal, 7).padding(.vertical, 4)
                     .background(Theme.field, in: RoundedRectangle(cornerRadius: 6))
             }
+            // A narrow header keeps the mode beside the title and the file actions below it.
+            if compact { markdownModes(node) }
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: compact ? 24 : nil, alignment: .leading)
     }
 
     private func fileActions(_ node: FileNode, compact: Bool) -> some View {
         HStack(spacing: compact ? 2 : 5) {
-            if isEditable { saveButtons(node) }
+            if !compact { markdownModes(node) }
+            if isEditable {
+                if node.supportsMarkdownPreview { markdownSave(node) }
+                else { saveButtons(node) }
+            }
+            if node.supportsMarkdownPreview {
+                Rectangle().fill(Theme.border).frame(width: 1, height: 20)
+                    .padding(.horizontal, compact ? 5 : 8).accessibilityHidden(true)
+            }
             ExplorerIcon(symbol: "magnifyingglass", label: "Find in file (Cmd+F or Ctrl+F)", action: showFind)
                 .disabled(!canFind)
-            if !node.isDirectory {
-                ExplorerIcon(symbol: isPinned(node) ? "pin.fill" : "pin", label: isPinned(node) ? "Unpin file" : "Pin file",
-                             selected: isPinned(node)) { togglePin(node) }
+            if !node.supportsMarkdownPreview {
+                if !node.isDirectory {
+                    ExplorerIcon(symbol: isPinned(node) ? "pin.fill" : "pin", label: isPinned(node) ? "Unpin file" : "Pin file",
+                                 selected: isPinned(node)) { togglePin(node) }
+                }
+                ExplorerIcon(symbol: "info.circle", label: "File details", selected: detailsPresented) { detailsPresented.toggle() }
             }
-            ExplorerIcon(symbol: "info.circle", label: "File details", selected: detailsPresented) { detailsPresented.toggle() }
             ExplorerIcon(symbol: "ellipsis", label: "File actions")
-                .appMenu {
+                .appMenu(showsFocusRing: true) {
                     var items: [MenuEntry] = []
                     if node.supportsMarkdownPreview {
-                        items.append(.item(renderingMarkdown ? "Edit Markdown" : "Preview Markdown") {
-                            resetFind(); renderingMarkdown.toggle()
-                        })
+                        items += [
+                            .item(isPinned(node) ? "Unpin file" : "Pin file", icon: "pin", checked: isPinned(node)) { togglePin(node) },
+                            .item("File details", icon: "info.circle", checked: detailsPresented) { detailsPresented.toggle() },
+                            .separator,
+                            .item("Revert changes", icon: "arrow.uturn.backward", disabled: !dirty || saving) { revert() },
+                            .separator,
+                            .item("Copy path", icon: "doc.on.doc") { copyPath(node) },
+                            .item("Export Markdown copy", icon: "square.and.arrow.up", disabled: !isEditable) {
+                                exportMarkdown(draft, name: node.name, dialogs: dialogs, notify: { showNote($0) })
+                            }
+                        ]
+                    } else {
+                        items.append(.item("Copy path") { copyPath(node) })
                     }
-                    return items + [.item("Copy path") { copyPath(node) },
-                                    .item("Open externally") { openExternally(node) },
+                    return items + [.item("Open externally") { openExternally(node) },
                                     .item("Reveal in Finder") { revealInFinder(node) }]
                 }
         }.fixedSize()
+    }
+
+    @ViewBuilder private func markdownModes(_ node: FileNode) -> some View {
+        switch preview {
+        case .text, .empty:
+            if node.supportsMarkdownPreview {
+                MarkdownModeMenu(mode: $markdownMode, canEdit: markdownCanEdit)
+                    .padding(.trailing, 6).transition(.fadeIn)
+            }
+        default: EmptyView()
+        }
     }
 
     private var editStatusMessage: String {
@@ -880,12 +961,17 @@ struct ExplorerView: View {
                                                     .priority: NSAccessibilityPriorityLevel.medium.rawValue])
                 }
             HStack(spacing: 14) {
+                if node.supportsMarkdownPreview && width >= 530 {
+                    Text("\(draft.split(whereSeparator: \.isWhitespace).count) words")
+                        .contentTransition(.numericText())
+                }
                 if width >= 530, !node.kind.isEmpty {
                     Text(node.kind.uppercased()).foregroundStyle(Theme.secondaryText)
                 }
                 if width >= 650 { Text("UTF-8").foregroundStyle(Theme.secondaryText) }
                 if saving { LoopSpinner(size: 10).transition(.fadeIn) }
-                Text("⌘ S").font(.mono(10)).accessibilityLabel("Save, Command-S")
+                Text(node.supportsMarkdownPreview && markdownMode == .preview ? "Read only" : "⌘ S")
+                    .font(.mono(10)).accessibilityLabel(markdownMode == .preview ? "Read only preview" : "Save, Command-S")
             }
             .font(.system(size: 10)).fixedSize()
         }
@@ -947,14 +1033,36 @@ struct ExplorerView: View {
     }
 
     private func noteLinkOpened(_ url: URL) {
+        if url.isFileURL { openLinkedFile(url); return }
         showNote(url.scheme == "mailto"
                  ? "Opened your mail app"
                  : "Opened \(url.host() ?? "the link") in your browser")
     }
 
+    // A linked file in this project opens here. A folder, or a file outside the project,
+    // has no place in the tree, so Finder shows it instead.
+    private func openLinkedFile(_ url: URL) {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else {
+            showNote("Could not find \(url.lastPathComponent)", icon: "questionmark.folder")
+            return
+        }
+        guard !isFolder.boolValue, url.path.pathRelative(to: root) != nil else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            showNote("Showed \(url.lastPathComponent) in Finder")
+            return
+        }
+        Task {
+            let siblings = await FileTree.children(of: url.deletingLastPathComponent(), includeHidden: true)
+            if let node = siblings.first(where: { $0.url.standardizedFileURL.path == url.path }) {
+                revealAndSelect(node)
+            }
+        }
+    }
+
     private func bodyKind(_ node: FileNode) -> String {
         switch preview {
-        case .text, .empty: renderingMarkdown && node.supportsMarkdownPreview ? "markdown" : "text"
+        case .text, .empty: "text"
         case .image: "image"
         case .binary: "binary"
         case .tooLarge: "too large"
@@ -966,16 +1074,14 @@ struct ExplorerView: View {
     @ViewBuilder private func fileBody(_ node: FileNode) -> some View {
         switch preview {
         case .text, .empty:
-            if renderingMarkdown, node.supportsMarkdownPreview {
-                ScrollView {
-                    MarkdownDocumentView(text: draft,
-                                         basePath: node.url.deletingLastPathComponent().path,
-                                         textScale: 1)
-                        .environment(\.htmlPreviewLinkOpened, HTMLPreviewLinkOpenedAction(perform: noteLinkOpened))
-                        .padding(28)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .background(Theme.background)
+            if node.supportsMarkdownPreview {
+                MarkdownEditor(documentID: node.path, source: $draft, mode: $markdownMode,
+                               basePath: node.url.deletingLastPathComponent().path, onLink: noteLinkOpened,
+                               sourceEditor: AnyView(CodeEditorView(documentID: node.path, text: $draft, language: language,
+                                                                   matches: findPresented ? findResult.matches : revealedMatches,
+                                                                   currentMatch: findPresented ? currentFindMatch : nil,
+                                                                   findQuery: findQuery, revealLine: lineToReveal, onFind: showFind)),
+                               onOutline: { lineToReveal = $0 }, canEdit: $markdownCanEdit)
             } else {
                 CodeEditorView(documentID: node.path,
                                text: $draft,
@@ -1060,13 +1166,14 @@ struct ExplorerView: View {
     // A file worth searching is open and nothing is in front of it. While this is false
     // both strokes are left alone, so Cmd+F still opens the sidebar's filter.
     private var canFind: Bool {
-        isEditable && !renderingMarkdown && dialogs.current == nil
+        isEditable && dialogs.current == nil
     }
 
     private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }
 
     private func showFind() {
         guard canFind else { return }
+        markdownMode = .source
         withAnimation(reduceMotion ? nil : Motion.reveal) { findPresented = true }
         refreshFind()
         $findFocused.request()
@@ -1170,6 +1277,29 @@ struct ExplorerView: View {
         .layoutPriority(1)
     }
 
+    private func markdownSave(_ node: FileNode) -> some View {
+        ZStack {
+            if dirty || saving {
+                ActionButton(title: saving ? "Saving…" : "Save", tone: .green, height: 30, size: 12,
+                             shortcut: saving ? nil : "⌘S",
+                             keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) { save(node) }
+                    .disabled(!dirty || saving)
+                    .accessibilityLabel(saving ? "Saving changes" : "Save changes")
+                    .appTooltip("Save changes (Cmd+S)")
+                    .transition(.opacity)
+            } else {
+                Label("Saved", systemImage: "checkmark")
+                    .font(.system(size: 12)).foregroundStyle(Theme.accent)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("explorer.saved")
+                    .transition(.opacity)
+            }
+        }
+        .frame(minWidth: 82, minHeight: 30)
+        .motion(Motion.control, value: dirty || saving)
+        .motion(Motion.control, value: saving)
+    }
+
     private func relativePath(_ node: FileNode) -> String {
         node.path.pathRelative(to: root) ?? node.path
     }
@@ -1254,7 +1384,6 @@ struct ExplorerView: View {
                 self.selected = nil
                 preview = nil
                 loadingPreview = false
-                renderingMarkdown = false
                 language = nil
                 draft = ""
                 original = ""
@@ -1446,7 +1575,6 @@ struct ExplorerView: View {
         previewGeneration += 1
         preview = nil
         loadingPreview = false
-        renderingMarkdown = false
         language = nil
         draft = ""
         original = ""
@@ -1492,7 +1620,6 @@ struct ExplorerView: View {
                               selected: selected,
                               showHidden: showHidden,
                               treeWidth: treeWidth,
-                              renderingMarkdown: renderingMarkdown,
                               unsaved: unsaved,
                               documents: documents),
                         for: openedRoot)
@@ -1512,7 +1639,6 @@ struct ExplorerView: View {
         guard !Task.isCancelled, let node = place.selected,
               fileManager.fileExists(atPath: node.path) || documents.edits[node.path] != nil else { return }
         select(node)
-        renderingMarkdown = place.renderingMarkdown && node.supportsMarkdownPreview
     }
 
     // `unfolding` is set when the folder is being opened by hand, so rows read for the
@@ -1660,6 +1786,7 @@ struct ExplorerView: View {
         if node.path == selected?.path {
             narrowNavigator = node.isDirectory
             if let line {
+                markdownMode = .source
                 lineToReveal = line
                 if let query, !findPresented {
                     revealedMatches = FileTextSearch.hits(of: query, onLine: line, in: draft)
@@ -1674,6 +1801,7 @@ struct ExplorerView: View {
 
     private func rememberDraft() {
         guard let selected, !selected.isDirectory else { return }
+        documents.modes[selected.path] = markdownMode
         if dirty, let preview {
             documents.edits[selected.path] = .init(path: selected.path, preview: preview, draft: draft,
                                                    original: original, loadedAt: loadedAt)
@@ -1683,10 +1811,22 @@ struct ExplorerView: View {
     }
 
     private func revert() {
-        confirmDiscard {
+        let discard = {
             draft = original
-            if let selected { documents.edits.removeValue(forKey: selected.path) }
+            if let selected {
+                documents.edits.removeValue(forKey: selected.path)
+                saveErrors.removeValue(forKey: selected.path)
+            }
             rememberPlace()
+        }
+        if let selected, selected.supportsMarkdownPreview {
+            var dialog = Dialog.confirm("Revert your changes?",
+                                        message: "Unsaved edits to \(selected.name) will be replaced with the last saved version.",
+                                        action: "Revert changes", cancel: "Keep editing", handler: discard)
+            dialog.isModal = true
+            dialogs.show(dialog)
+        } else {
+            confirmDiscard(then: discard)
         }
     }
 
@@ -1697,12 +1837,15 @@ struct ExplorerView: View {
     }
 
     private func save(_ node: FileNode) {
+        guard dirty, !saving else { return }
         let saved = draft
         let expectedModification = loadedAt
+        saving = true
         Task {
             let modified = await FileTree.modified(of: node.url)
-            guard selected?.path == node.path else { return }
+            guard selected?.path == node.path else { saving = false; return }
             guard modified == expectedModification else {
+                saving = false
                 dialogs.show(.confirm(
                     "The file has changed",
                     message: "\(node.name) was written by something else since it was opened here. Saving replaces what is on disk now.",
@@ -1715,14 +1858,16 @@ struct ExplorerView: View {
 
     private func write(_ node: FileNode, text saved: String) {
         let writtenRoot = openedRoot ?? root
+        saving = true
         Task {
-            saving = true
+            defer { saving = false }
             let failure = await FileTree.write(saved, to: node.url)
-            saving = false
             if let failure {
-                dialogs.show(.notice("Could not save", message: failure))
+                saveErrors[node.path] = failure
+                announceEditorStatus("Could not save \(node.name). Your edits are still here. Retry or export a copy.")
                 return
             }
+            saveErrors.removeValue(forKey: node.path)
             let modified = await FileTree.modified(of: node.url)
             let fresh = await FileTree.children(of: node.url.deletingLastPathComponent(), includeHidden: true)
                 .first(where: { $0.path == node.path })
@@ -1753,11 +1898,11 @@ struct ExplorerView: View {
         let generation = previewGeneration
         resetFind()
         selected = node
+        markdownMode = line == nil ? documents.modes[node.path] ?? .edit : .source
         fileWasSaved = false
         documents.open(node)
         lineToReveal = line
         preview = nil
-        renderingMarkdown = false
         language = nil
         draft = ""
         original = ""

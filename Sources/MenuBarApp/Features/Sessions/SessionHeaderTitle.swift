@@ -24,7 +24,6 @@ struct SessionHeaderTitle: View {
                 label.transition(.opacity)
             }
         }
-        .padding(.leading, -Self.inset)
         .motion(Motion.control, value: draft != nil)
     }
 
@@ -36,8 +35,10 @@ struct SessionHeaderTitle: View {
             .padding(.horizontal, Self.inset)
             .padding(.vertical, 3)
             .fieldSurface(cornerRadius: 5)
-            // Measured at the same width as the label, so opening the field never makes
-            // the header trade its fit for a narrower one under the cursor.
+            // Laid out like the label, inset left out and at the same ideal width, so
+            // opening the field never makes the header trade its fit for a narrower one
+            // under the cursor.
+            .padding(.horizontal, -Self.inset)
             .frame(minWidth: 0, idealWidth: idealWidth, maxWidth: 360, alignment: .leading)
             .focused($focused)
             .onSubmit(commit)
@@ -64,10 +65,15 @@ struct SessionHeaderTitle: View {
             .padding(.horizontal, Self.inset)
             .padding(.vertical, 3)
             .hoverFill(cornerRadius: 5)
-            .frame(idealWidth: idealWidth, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { startEditing() }
             .appTooltip { Tooltip(title: title, subtitle: "Double-click to rename") }
+            // The inset is drawn but not laid out, so the header sizes the title as bare
+            // text. The title is the first thing the header gives up, and padded text
+            // squeezed to nothing still asks for its padding and an ellipsis, which
+            // pushed the header past the edge of the pane.
+            .padding(.horizontal, -Self.inset)
+            .frame(idealWidth: idealWidth, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
             .accessibilityAction(named: "Rename") { startEditing() }
     }
