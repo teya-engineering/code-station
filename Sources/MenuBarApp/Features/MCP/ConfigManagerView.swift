@@ -232,8 +232,10 @@ struct ConfigManagerView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
-                    .addServerTrigger(entries: { addServerMenuEntries },
-                                      addCustom: { showingAddJSON = true })
+                    .hoverLift()
+                    .appMenu(runsSoleEntry: true) {
+                        addServerMenuEntries
+                    }
 
                 HStack(spacing: 6) {
                     Text("Config file")
@@ -419,8 +421,7 @@ struct ConfigManagerView: View {
                 .transition(.fadeIn)
         } else {
             EmptyDetail(hasServers: !store.servers.isEmpty || !agentConfiguredServers.isEmpty,
-                        addMenu: { addServerMenuEntries },
-                        addCustom: { showingAddJSON = true })
+                        addMenu: { addServerMenuEntries })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .transition(.fadeIn)
         }
@@ -643,7 +644,6 @@ private struct AgentConfiguredServerRow: View {
 private struct EmptyDetail: View {
     let hasServers: Bool
     let addMenu: () -> [MenuEntry]
-    let addCustom: () -> Void
 
     var body: some View {
         VStack(spacing: 14) {
@@ -659,36 +659,9 @@ private struct EmptyDetail: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
-                    .addServerTrigger(entries: addMenu, addCustom: addCustom)
+                    .hoverLift()
+                    .appMenu(runsSoleEntry: true) { addMenu() }
             }
         }
-    }
-}
-
-// With no site presets the add menu would hold a single "Add MCP server" row, so the
-// button opens that panel directly instead of asking the user to pick the only choice.
-private struct AddServerTrigger: ViewModifier {
-    let entries: () -> [MenuEntry]
-    let addCustom: () -> Void
-
-    func body(content: Content) -> some View {
-        if SiteDefaults.current.mcpPresetGroups.isEmpty {
-            Button(action: addCustom) {
-                content.contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .hoverLift()
-        } else {
-            content
-                .appMenu(entries)
-                .hoverLift()
-        }
-    }
-}
-
-private extension View {
-    func addServerTrigger(entries: @escaping () -> [MenuEntry],
-                          addCustom: @escaping () -> Void) -> some View {
-        modifier(AddServerTrigger(entries: entries, addCustom: addCustom))
     }
 }
