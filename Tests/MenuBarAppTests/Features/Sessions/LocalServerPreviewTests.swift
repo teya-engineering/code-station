@@ -599,8 +599,10 @@ struct LocalServerPreviewPageTests {
             #expect(await waitUntil { saved(file) == contents })
         }
         #expect(asked == ["people.csv", "teams.csv", "report.csv"])
+        // A link to a file starts loading it as a page, so the address moves to the file until
+        // WebKit turns the load into a download. The file can be written before it moves back.
+        #expect(await waitUntil { pane.preview.address.path == "/settings" })
         #expect(pane.preview.phase == .showing)
-        #expect(pane.preview.address.path == "/settings")
         #expect(try await page.evaluateJavaScript(name) as? String == "Ada")
         let frame = "document.querySelector('iframe').contentDocument.body.innerText"
         #expect(try await page.evaluateJavaScript(frame) as? String == "Export")

@@ -76,7 +76,11 @@ struct ExplorerPresentationTests {
         let saveEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
                                                      timestamp: 0, windowNumber: window.windowNumber, context: nil,
                                                      characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
-        #expect(window.performKeyEquivalent(with: saveEvent))
+        // Save takes Command-S only while it is enabled, and it stays disabled until the view has
+        // drawn the draft as unsaved and any earlier save has finished. Until then the key does
+        // nothing, so it is pressed again until it is taken.
+        let save = { window.performKeyEquivalent(with: saveEvent) }
+        #expect(await waitUntil { save() })
         #expect(await waitUntil { (try? String(contentsOf: selected.url, encoding: .utf8)) == draft })
         #expect(await waitUntil { memory.place(for: root.path)?.documents.edits[selected.path] == nil })
 
@@ -86,7 +90,7 @@ struct ExplorerPresentationTests {
         try "external edit".write(to: selected.url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: selected.path)
         try await Task.sleep(for: .milliseconds(100))
-        #expect(window.performKeyEquivalent(with: saveEvent))
+        #expect(await waitUntil { save() })
         #expect(await waitUntil { dialogs.current?.title == "The file has changed" })
         #expect(try String(contentsOf: selected.url, encoding: .utf8) == "external edit")
         dialogs.dismiss()
