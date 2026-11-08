@@ -148,14 +148,7 @@ struct CodeEditorView: NSViewRepresentable {
             textView.insertionPointColor = NSColor(Theme.accent)
             textView.textContainerInset = NSSize(width: 10, height: 8)
             textView.typingAttributes = CodeEditorStyle.base
-            // None of the prose helpers belong in code: they rewrite quotes and dashes as
-            // you type, and the rewrite is what would land in the file on save.
-            textView.isAutomaticQuoteSubstitutionEnabled = false
-            textView.isAutomaticDashSubstitutionEnabled = false
-            textView.isAutomaticTextReplacementEnabled = false
-            textView.isAutomaticSpellingCorrectionEnabled = false
-            textView.isContinuousSpellCheckingEnabled = false
-            textView.isGrammarCheckingEnabled = false
+            textView.turnOffProseHelpers()
             // Height follows the text on its own. Width does not: a non-wrapping view
             // would have to lay the whole file out to find its widest line, so it is
             // measured instead and set from there.
@@ -377,14 +370,7 @@ struct CodeEditorView: NSViewRepresentable {
                 let code = text.substring(with: lineRange).withoutNewline
                 guard code.utf8.count <= CodeHighlight.sizeLimit else { continue }
                 var state = states[min(line, states.count - 1)]
-                for token in CodeHighlight.tokens(in: code, language: language, state: &state) {
-                    let offset = NSRange(token.range, in: code)
-                    storage.addAttribute(
-                        .foregroundColor,
-                        value: CodeStyle.nsColor(for: token.kind),
-                        range: NSRange(location: lineRange.location + offset.location,
-                                       length: offset.length))
-                }
+                storage.paintCode(code, at: lineRange.location, language: language, state: &state)
             }
         }
 
