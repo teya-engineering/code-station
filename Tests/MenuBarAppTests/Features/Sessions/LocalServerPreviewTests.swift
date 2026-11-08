@@ -588,6 +588,9 @@ struct LocalServerPreviewPageTests {
         pane.preview.coordinator.saveDownload = { asked.append($0); return scratch.path($0) }
         let saved = { (name: String) in try? String(contentsOf: scratch.path(name), encoding: .utf8) }
         let page = pane.preview.webView
+        var followed: [String] = []
+        let follow = pane.preview.coordinator.onAddress
+        pane.preview.coordinator.onAddress = { followed.append($0.path); follow($0) }
         let name = "document.getElementById('name').value", export = "document.getElementById('export').click()"
         _ = try await page.evaluateJavaScript("\(name) = 'Ada'")
         try "an earlier export".write(to: scratch.path("people.csv"), atomically: true, encoding: .utf8)
@@ -599,9 +602,10 @@ struct LocalServerPreviewPageTests {
             #expect(await waitUntil { saved(file) == contents })
         }
         #expect(asked == ["people.csv", "teams.csv", "report.csv"])
-        // A link to a file starts loading it as a page, so the address moves to the file until
-        // WebKit turns the load into a download. The file can be written before it moves back.
-        #expect(await waitUntil { pane.preview.address.path == "/settings" })
+        // A link to a file starts loading it as a page, and the address must not move to the
+        // file on the way to becoming a download.
+        #expect(!followed.contains("/report.csv"))
+        #expect(pane.preview.address.path == "/settings")
         #expect(pane.preview.phase == .showing)
         #expect(try await page.evaluateJavaScript(name) as? String == "Ada")
         let frame = "document.querySelector('iframe').contentDocument.body.innerText"

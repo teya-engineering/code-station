@@ -115,8 +115,8 @@ struct ExplorerHeaderTests {
         #expect(window.performKeyEquivalent(with: save))
         #expect(await waitUntil { memory.place(for: root.path)?.documents.edits[node.path] == nil })
         #expect(try String(contentsOf: url, encoding: .utf8) == draft)
-        #expect(!window.performKeyEquivalent(with: save))
         try await Task.sleep(for: .seconds(Motion.revealDuration))
+        #expect(!window.performKeyEquivalent(with: save))
         try verify(width: 320, suffix: "-saved")
     }
 

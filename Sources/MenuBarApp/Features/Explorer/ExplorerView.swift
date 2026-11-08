@@ -139,6 +139,9 @@ struct ExplorerView: View {
     @State private var draft = ""
     @State private var original = ""
     @State private var saving = false
+    // Command-S pressed while a save is still running. It runs once that save is done, so a
+    // quick second press is never lost.
+    @State private var saveQueued = false
     @State private var fileWasSaved = false
     // When the file was last written at the moment it was read. An agent works in the same
     // folder, so a pane left open on a file it has since rewritten would save over it.
@@ -1271,7 +1274,7 @@ struct ExplorerView: View {
                          keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) {
                 save(node)
             }
-            .disabled(!dirty || saving)
+            .disabled(!dirty)
         }
         .fixedSize(horizontal: true, vertical: false)
         .layoutPriority(1)
@@ -1283,7 +1286,7 @@ struct ExplorerView: View {
                 ActionButton(title: saving ? "Saving…" : "Save", tone: .green, height: 30, size: 12,
                              shortcut: saving ? nil : "⌘S",
                              keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) { save(node) }
-                    .disabled(!dirty || saving)
+                    .disabled(!dirty)
                     .accessibilityLabel(saving ? "Saving changes" : "Save changes")
                     .appTooltip("Save changes (Cmd+S)")
                     .transition(.opacity)
@@ -1837,15 +1840,25 @@ struct ExplorerView: View {
     }
 
     private func save(_ node: FileNode) {
-        guard dirty, !saving else { return }
+        guard dirty else { return }
+        guard !saving else {
+            saveQueued = true
+            return
+        }
+        saveQueued = false
         let saved = draft
         let expectedModification = loadedAt
         saving = true
         Task {
             let modified = await FileTree.modified(of: node.url)
-            guard selected?.path == node.path else { saving = false; return }
+            guard selected?.path == node.path else {
+                saving = false
+                saveQueued = false
+                return
+            }
             guard modified == expectedModification else {
                 saving = false
+                saveQueued = false
                 dialogs.show(.confirm(
                     "The file has changed",
                     message: "\(node.name) was written by something else since it was opened here. Saving replaces what is on disk now.",
@@ -1860,9 +1873,14 @@ struct ExplorerView: View {
         let writtenRoot = openedRoot ?? root
         saving = true
         Task {
-            defer { saving = false }
+            defer {
+                saving = false
+                if saveQueued, let selected, selected.path == node.path { save(selected) }
+                saveQueued = false
+            }
             let failure = await FileTree.write(saved, to: node.url)
             if let failure {
+                saveQueued = false
                 saveErrors[node.path] = failure
                 announceEditorStatus("Could not save \(node.name). Your edits are still here. Retry or export a copy.")
                 return

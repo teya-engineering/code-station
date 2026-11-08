@@ -746,11 +746,16 @@ struct LocalServerPreviewWebContent: NSViewRepresentable {
         webView.isInspectable = true
         webView.allowsBackForwardNavigationGestures = true
         coordinator.observations = [
-            // The address can change during a SwiftUI update, so it is passed on later.
+            // The address can change during a SwiftUI update, so it is passed on later. A load
+            // still on its way only names where it is headed: it can turn into a download or
+            // fail, so its address is taken when it commits or fails instead.
             webView.observe(\.url) { [weak coordinator] webView, _ in
                 MainActor.assumeIsolated {
                     guard let url = webView.url, TranscriptLink.isLocalServer(url) else { return }
-                    Task { @MainActor in coordinator?.onAddress(url) }
+                    Task { @MainActor in
+                        guard let coordinator, !coordinator.provisional else { return }
+                        coordinator.onAddress(url)
+                    }
                 }
             },
             // A link to an anchor on the same page ends its load without a commit.
@@ -970,6 +975,13 @@ struct LocalServerPreviewWebContent: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                      withError error: Error) {
             provisional = false
+            // The web view goes back to the page it had, but the address names the page that
+            // failed, so Reload tries it again.
+            if Self.counts(error),
+               let url = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+               TranscriptLink.isLocalServer(url) {
+                onAddress(url)
+            }
             report(error)
         }
 
@@ -984,6 +996,7 @@ struct LocalServerPreviewWebContent: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse,
                      didBecome download: WKDownload) {
+            provisional = false
             download.delegate = self
         }
 
@@ -1033,11 +1046,16 @@ struct LocalServerPreviewWebContent: NSViewRepresentable {
             completionHandler(urls.isEmpty ? nil : urls)
         }
 
+        // A cancelled load, or one turned into a download or held back, is not a failure.
+        private static func counts(_ error: Error) -> Bool {
+            let error = error as NSError
+            return error.code != NSURLErrorCancelled
+                && (error.domain != "WebKitErrorDomain" || error.code != interruptedByPolicy)
+        }
+
         private func report(_ error: Error) {
             let error = error as NSError
-            guard error.code != NSURLErrorCancelled,
-                  error.domain != "WebKitErrorDomain" || error.code != Self.interruptedByPolicy
-            else { return }
+            guard Self.counts(error) else { return }
             onPhase(error.code == NSURLErrorCannotConnectToHost
                     ? .unreachable : .failed(error.localizedDescription))
         }
