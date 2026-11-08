@@ -10,6 +10,9 @@ struct ConfigManagerView: View {
     @Environment(CopilotCodeManager.self) private var copilot
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Read once when the view opens, so the add button and its menu always agree on
+    // which presets there are.
+    @State private var presetGroups = SiteDefaults.current.mcpPresetGroups
     @State private var addingPresetGroup: SiteDefaults.MCP.PresetGroup?
     @State private var showingAddJSON = false
     @State private var grafanaExpanded = false
@@ -232,8 +235,7 @@ struct ConfigManagerView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
-                    .addServerTrigger(entries: { addServerMenuEntries },
-                                      addCustom: { showingAddJSON = true })
+                    .addServerTrigger(addServerMenuEntries)
 
                 HStack(spacing: 6) {
                     Text("Config file")
@@ -389,7 +391,7 @@ struct ConfigManagerView: View {
     private var collapsedPath: String { store.configURL.path.abbreviatedPath }
 
     private var addServerMenuEntries: [MenuEntry] {
-        SiteDefaults.current.mcpPresetGroups.map { group in
+        presetGroups.map { group in
             .item(group.addTitle) { addingPresetGroup = group }
         } + [
             .item("Add MCP server") { showingAddJSON = true }
@@ -419,8 +421,7 @@ struct ConfigManagerView: View {
                 .transition(.fadeIn)
         } else {
             EmptyDetail(hasServers: !store.servers.isEmpty || !agentConfiguredServers.isEmpty,
-                        addMenu: { addServerMenuEntries },
-                        addCustom: { showingAddJSON = true })
+                        addEntries: addServerMenuEntries)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .transition(.fadeIn)
         }
@@ -642,8 +643,7 @@ private struct AgentConfiguredServerRow: View {
 
 private struct EmptyDetail: View {
     let hasServers: Bool
-    let addMenu: () -> [MenuEntry]
-    let addCustom: () -> Void
+    let addEntries: [MenuEntry]
 
     var body: some View {
         VStack(spacing: 14) {
@@ -659,28 +659,25 @@ private struct EmptyDetail: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
-                    .addServerTrigger(entries: addMenu, addCustom: addCustom)
+                    .addServerTrigger(addEntries)
             }
         }
     }
 }
 
 private extension View {
-    // With no site presets the add menu would hold one row, so the button opens the add
-    // panel directly instead of asking the user to pick the only choice there is.
-    // Reading the presets while drawing is enough because they are edited in Settings,
-    // and the servers view is built again each time it opens after that.
+    // A menu with a single row would only ask the user to pick the only choice there is,
+    // so the click runs that row instead.
     @ViewBuilder
-    func addServerTrigger(entries: @escaping () -> [MenuEntry],
-                          addCustom: @escaping () -> Void) -> some View {
-        if SiteDefaults.current.mcpPresetGroups.isEmpty {
-            Button(action: addCustom) {
+    func addServerTrigger(_ entries: [MenuEntry]) -> some View {
+        if entries.count == 1, case .item(let item) = entries[0], let handler = item.handler {
+            Button(action: handler) {
                 contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .hoverLift()
         } else {
-            hoverLift().appMenu(entries)
+            hoverLift().appMenu { entries }
         }
     }
 }
