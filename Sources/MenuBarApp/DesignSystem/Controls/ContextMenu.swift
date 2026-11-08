@@ -229,17 +229,13 @@ extension View {
     // same menu opens from a plain click and hangs under the button. A button sitting
     // at the bottom of the window can anchor the menu to its top edge instead, and
     // matching the width makes the menu read as the button unfolding. A refresh keeps
-    // slow external state current without delaying the menu opening. A menu whose
-    // entries can shrink to a single row can run that row on the click instead, so the
-    // user is not asked to pick the only choice there is.
+    // slow external state current without delaying the menu opening.
     func appMenu(edge: VerticalEdge = .bottom,
                  matchWidth: Bool = false,
                  showsFocusRing: Bool = false,
-                 runsSoleEntry: Bool = false,
                  refreshOnOpen: (() async -> Void)? = nil,
                  _ entries: @escaping () -> [MenuEntry]) -> some View {
         modifier(AppMenuButton(edge: edge, matchWidth: matchWidth, showsFocusRing: showsFocusRing,
-                               runsSoleEntry: runsSoleEntry,
                                refreshOnOpen: refreshOnOpen, entries: entries))
     }
 }
@@ -260,7 +256,6 @@ private struct AppMenuButton: ViewModifier {
     let edge: VerticalEdge
     let matchWidth: Bool
     let showsFocusRing: Bool
-    let runsSoleEntry: Bool
     let refreshOnOpen: (() async -> Void)?
     let entries: () -> [MenuEntry]
 
@@ -296,15 +291,9 @@ private struct AppMenuButton: ViewModifier {
     // The menu hangs off the requested edge of the button. Both edges are passed on so
     // the host can use the other side when the menu does not fit.
     private func open() {
-        let built = entries()
-        if runsSoleEntry, built.count == 1, case .item(let item) = built[0],
-           !item.isDisabled, item.handler != nil {
-            presenter.run(item)
-            return
-        }
         guard let frame = anchor.frame() else { return }
         let generation = presenter.show(
-            built,
+            entries(),
             at: CGPoint(x: frame.minX, y: edge == .bottom ? frame.maxY + 4 : frame.minY - 4),
             width: matchWidth ? frame.width : nil,
             trailingAnchor: frame.maxX,

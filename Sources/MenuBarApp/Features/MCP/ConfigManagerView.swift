@@ -232,10 +232,8 @@ struct ConfigManagerView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
-                    .hoverLift()
-                    .appMenu(runsSoleEntry: true) {
-                        addServerMenuEntries
-                    }
+                    .addServerTrigger(entries: { addServerMenuEntries },
+                                      addCustom: { showingAddJSON = true })
 
                 HStack(spacing: 6) {
                     Text("Config file")
@@ -421,7 +419,8 @@ struct ConfigManagerView: View {
                 .transition(.fadeIn)
         } else {
             EmptyDetail(hasServers: !store.servers.isEmpty || !agentConfiguredServers.isEmpty,
-                        addMenu: { addServerMenuEntries })
+                        addMenu: { addServerMenuEntries },
+                        addCustom: { showingAddJSON = true })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .transition(.fadeIn)
         }
@@ -644,6 +643,7 @@ private struct AgentConfiguredServerRow: View {
 private struct EmptyDetail: View {
     let hasServers: Bool
     let addMenu: () -> [MenuEntry]
+    let addCustom: () -> Void
 
     var body: some View {
         VStack(spacing: 14) {
@@ -659,9 +659,28 @@ private struct EmptyDetail: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
-                    .hoverLift()
-                    .appMenu(runsSoleEntry: true) { addMenu() }
+                    .addServerTrigger(entries: addMenu, addCustom: addCustom)
             }
+        }
+    }
+}
+
+private extension View {
+    // With no site presets the add menu would hold one row, so the button opens the add
+    // panel directly instead of asking the user to pick the only choice there is.
+    // Reading the presets while drawing is enough because they are edited in Settings,
+    // and the servers view is built again each time it opens after that.
+    @ViewBuilder
+    func addServerTrigger(entries: @escaping () -> [MenuEntry],
+                          addCustom: @escaping () -> Void) -> some View {
+        if SiteDefaults.current.mcpPresetGroups.isEmpty {
+            Button(action: addCustom) {
+                contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .hoverLift()
+        } else {
+            hoverLift().appMenu(entries)
         }
     }
 }
