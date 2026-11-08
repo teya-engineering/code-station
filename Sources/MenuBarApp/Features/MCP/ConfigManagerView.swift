@@ -232,7 +232,8 @@ struct ConfigManagerView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
-                    .appMenu {
+                    .hoverLift()
+                    .appMenu(runsSoleEntry: true) {
                         addServerMenuEntries
                     }
 
@@ -658,7 +659,8 @@ private struct EmptyDetail: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
-                    .appMenu { addMenu() }
+                    .hoverLift()
+                    .appMenu(runsSoleEntry: true) { addMenu() }
             }
         }
     }
