@@ -4,11 +4,11 @@ import UniformTypeIdentifiers
 // Block-level markdown for chat prose: headings, tables, lists, quotes and rules.
 // Fenced code is split out before this runs (see MessageSegment). A small hand-rolled
 // parser covers what Claude Code emits and keeps the app free of a Markdown dependency.
-struct MarkdownBlock: Identifiable, Equatable {
+struct MarkdownBlock: Identifiable, Equatable, Sendable {
     let id: Int
     let kind: Kind
 
-    enum Kind: Equatable {
+    enum Kind: Equatable, Sendable {
         case paragraph(String)
         case heading(level: Int, text: String)
         case table(MarkdownTable)
@@ -559,7 +559,7 @@ enum TranscriptImage {
     }
 }
 
-struct MarkdownTable: Equatable {
+struct MarkdownTable: Equatable, Sendable {
     enum ColumnAlignment: Equatable {
         case leading, center, trailing
     }
@@ -624,7 +624,7 @@ struct MarkdownTable: Equatable {
     }
 }
 
-struct MarkdownListItem: Equatable {
+struct MarkdownListItem: Equatable, Sendable {
     // The markers that carry no meaning of their own, so the view can draw a shape
     // instead. A number or a tick box says something the shape would lose.
     static let plainBullets: Set<String> = ["•", "◦", "▪"]
@@ -1727,7 +1727,7 @@ private struct LinkAwareText: NSViewRepresentable {
 
 // Blocks that draw together in one text view. Most runs are several paragraphs; a block
 // that keeps sibling views of its own stands alone in a run of one.
-struct ProseRun: Identifiable, Equatable {
+struct ProseRun: Identifiable, Equatable, Sendable {
     let id: Int
     let blocks: [MarkdownBlock]
 }
