@@ -5,8 +5,8 @@ import AppKit
 struct NoteDocument: Codable, Equatable, Sendable {
     enum Block: String, Codable, Sendable, CaseIterable {
         // Literal is Markdown the editor cannot show as formatting. A table is drawn as a
-        // grid but cannot be edited in place. Both keep their source as written and are
-        // never offered as a style.
+        // grid and changed through its own controls, never by typing into the text. Both
+        // keep their source as written and are never offered as a style.
         case text, title, heading, subheading, bullet, numbered, checklist, quote, code, literal, table
 
         var title: String {

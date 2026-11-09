@@ -162,6 +162,7 @@ struct MarkdownEditor: View {
                                        onImage: { _ in unsupportedPaste() },
                                        onLink: openLink, onTable: showTable, height: $height)
                             .frame(minHeight: height)
+                            .padding(-NoteTextEditor.gutter)
                             .accessibilityLabel("Markdown document")
                     }
                 }

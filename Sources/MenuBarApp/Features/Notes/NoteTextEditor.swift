@@ -165,10 +165,16 @@ struct NoteTextEditor: NSViewRepresentable {
     let onFiles: ([URL]) -> Void
     let onImage: (Data) -> Void
     let onLink: (URL) -> Void
-    // Opens a table's source, given the Markdown it was read from. Without it a table
-    // is drawn but offers nothing on a double-click.
+    // Opens a table's source, given the Markdown it was read from. Without it the table
+    // menus offer no way into Source.
     var onTable: ((String) -> Void)?
     @Binding var height: CGFloat
+    @Environment(MenuPresenter.self) private var menus: MenuPresenter?
+
+    // Empty room around the text for the table controls, which sit beside a table's
+    // edges. The host takes it back with a negative padding, so the text lines up with
+    // what is around it.
+    static let gutter = NoteTableControls.gutter
 
     func makeNSView(context: Context) -> NoteTextView {
         let view = NoteTextView(frame: .zero)
@@ -182,7 +188,7 @@ struct NoteTextEditor: NSViewRepresentable {
         view.drawsBackground = false
         view.isHorizontallyResizable = false
         view.isVerticallyResizable = true
-        view.textContainerInset = NSSize(width: 0, height: 3)
+        view.textContainerInset = NSSize(width: Self.gutter, height: 3 + Self.gutter)
         view.textContainer?.lineFragmentPadding = 0
         view.textContainer?.widthTracksTextView = true
         view.textStorage?.setAttributedString(document.attributed)
@@ -207,6 +213,7 @@ struct NoteTextEditor: NSViewRepresentable {
         }
         view.isEditable = editable
         view.onTable = onTable
+        view.menus = menus
         view.onFiles = onFiles
         view.onImage = onImage
         controller.view = view
@@ -214,9 +221,13 @@ struct NoteTextEditor: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NoteTextView, context: Context) -> CGSize? {
         let width = proposal.width ?? 500
-        view.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        view.textContainer?.containerSize = NSSize(width: max(1, width - Self.gutter * 2), height: .greatestFiniteMagnitude)
         view.layoutManager?.ensureLayout(for: view.textContainer!)
-        return CGSize(width: width, height: max(160, (view.layoutManager?.usedRect(for: view.textContainer!).height ?? 0) + 12))
+        return CGSize(width: width, height: Self.height(used: view.layoutManager?.usedRect(for: view.textContainer!).height ?? 0))
+    }
+
+    static func height(used: CGFloat) -> CGFloat {
+        max(160, used + 12) + gutter * 2
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -268,7 +279,7 @@ struct NoteTextEditor: NSViewRepresentable {
             guard let view = parent.controller.view, let container = view.textContainer,
                   let layout = view.layoutManager else { return }
             layout.ensureLayout(for: container)
-            let height = max(160, layout.usedRect(for: container).height + 12)
+            let height = NoteTextEditor.height(used: layout.usedRect(for: container).height)
             if abs(parent.height - height) > 1 {
                 Task { @MainActor [weak self] in self?.parent.height = height }
             }
@@ -323,59 +334,226 @@ final class NoteTextView: NSTextView {
     var onImage: ((Data) -> Void)?
     var onLayout: (() -> Void)?
     var onTable: ((String) -> Void)?
-    private let tableHover = NoteTableHoverState()
-    private var tableHoverHost: NoteTableHoverHost?
+    // The table controls open their menus through this. Without it a table offers no
+    // controls on hover, though its cells can still be edited.
+    var menus: MenuPresenter?
+    private let tableControls = NoteTableControls()
+    private var tableControlsHost: NoteTableControlsHost?
     private var hoveredTable: Int?
     private var tableTracking: NSTrackingArea?
+    private var cellEditor: NoteTableCellEditor?
 
-    // A new width moves and resizes the tables, so the hover follows the one it is on.
+    // A new width moves and resizes the tables, so the controls and an open cell editor
+    // follow the table they belong to.
     override func layout() {
         super.layout()
         onLayout?()
-        if let hoveredTable, tableHover.lit {
-            if let table = tables().first(where: { $0.location == hoveredTable }) { placeTableHover(over: table.frame) }
-            else { tableHover.lit = false }
+        if let hoveredTable, tableControls.lit {
+            if let table = tables().first(where: { $0.location == hoveredTable }), let grid = table.cell.grid {
+                tableControls.columns = grid.columns
+                tableControls.rows = grid.rows
+                placeTableControls(over: table.frame)
+            } else { tableControls.lit = false }
+        }
+        if let cellEditor {
+            if let rect = cellRect(table: cellEditor.table, row: cellEditor.row, column: cellEditor.column) {
+                cellEditor.place(over: rect.insetBy(dx: 2, dy: 2))
+            } else { cellEditor.onEnd?(cellEditor, .cancel) }
         }
     }
 
     // Where each table sits in the view: the bounds of its attachment glyph, which is
     // where TextKit draws the grid.
-    private func tables() -> [(location: Int, source: String, frame: NSRect)] {
+    private func tables() -> [(location: Int, cell: NoteTableCell, frame: NSRect)] {
         guard let storage = textStorage, let layout = layoutManager, let container = textContainer else { return [] }
-        var result: [(Int, String, NSRect)] = []
+        var result: [(Int, NoteTableCell, NSRect)] = []
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let source = NoteTableCell.source(of: value) else { return }
+            guard let cell = (value as? NSTextAttachment)?.attachmentCell as? NoteTableCell else { return }
             let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: range.location, length: 1), actualCharacterRange: nil)
             let frame = layout.boundingRect(forGlyphRange: glyphs, in: container)
                 .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
-            result.append((range.location, source, frame))
+            result.append((range.location, cell, frame))
         }
         return result
     }
 
-    private func table(at point: NSPoint) -> (location: Int, source: String, frame: NSRect)? {
-        tables().first { $0.frame.contains(point) }
+    private func tableSource(at location: Int) -> NoteTableSource? {
+        guard let storage = textStorage, location < storage.length,
+              let source = NoteTableCell.source(of: storage.attribute(.attachment, at: location, effectiveRange: nil)) else { return nil }
+        return NoteTableSource(source)
+    }
+
+    private static func index(in sizes: [CGFloat], at offset: CGFloat) -> Int? {
+        var edge: CGFloat = 0
+        for (index, size) in sizes.enumerated() {
+            edge += size
+            if offset < edge { return index }
+        }
+        return nil
+    }
+
+    private func cellRect(table location: Int, row: Int, column: Int) -> NSRect? {
+        guard let table = tables().first(where: { $0.location == location }), let grid = table.cell.grid,
+              grid.rows.indices.contains(row), grid.columns.indices.contains(column) else { return nil }
+        return NSRect(x: table.frame.minX + grid.columns.prefix(column).reduce(0, +),
+                      y: table.frame.minY + grid.rows.prefix(row).reduce(0, +),
+                      width: grid.columns[column], height: grid.rows[row])
     }
 
     private func updateTableHover(at point: NSPoint) {
-        guard onTable != nil, visibleRect.contains(point), let hit = table(at: point) else {
-            tableHover.lit = false
+        // The controls stay on the row or column their open menu acts on, and stay away
+        // while a cell is being edited.
+        if menus?.isOpen == true, tableControls.lit { return }
+        let gutter = NoteTableControls.gutter
+        // The plus for the last row or column is offered from just past the grid's edge.
+        let reach: CGFloat = 6
+        guard cellEditor == nil, isEditable, menus != nil, visibleRect.contains(point),
+              let hit = tables().first(where: {
+                  NSRect(x: $0.frame.minX - gutter, y: $0.frame.minY - gutter,
+                         width: $0.frame.width + gutter + reach, height: $0.frame.height + gutter + reach).contains(point)
+              }),
+              let grid = hit.cell.grid else {
+            tableControls.lit = false
             return
         }
+        let x = point.x - hit.frame.minX, y = point.y - hit.frame.minY
+        let width = grid.columns.reduce(0, +), height = grid.rows.reduce(0, +)
+        func near(_ edges: [CGFloat], _ offset: CGFloat) -> Int? {
+            edges.indices.filter { abs(edges[$0] - offset) <= 6 }.min { abs(edges[$0] - offset) < abs(edges[$1] - offset) }
+        }
+        // The lines between rows answer near their left end, and the lines between
+        // columns near their top, where the plus sits. Answering along their whole length
+        // would flash a line at every row the pointer crossed.
+        let rowEdges = grid.rows.indices.map { grid.rows.prefix($0 + 1).reduce(0, +) }
+        let columnEdges = (0...grid.columns.count).map { grid.columns.prefix($0).reduce(0, +) }
+        var gap: NoteTableControls.Gap?
+        if x < 12, let edge = near(rowEdges, y) { gap = .row(edge + 1) }
+        else if y > height - 3, x >= 0 { gap = .row(grid.rows.count) }
+        else if y < 8, let edge = near(columnEdges, x) { gap = .column(edge) }
+        else if x > width - 3, y >= 0 { gap = .column(grid.columns.count) }
+        let source = NoteTableSource(hit.cell.source)
+        let controls = tableControls
+        if controls.columns != grid.columns { controls.columns = grid.columns }
+        if controls.rows != grid.rows { controls.rows = grid.rows }
+        if controls.source != source { controls.source = source }
+        let row = (0..<height).contains(y) ? Self.index(in: grid.rows, at: y) : nil
+        let column = (0..<width).contains(x) ? Self.index(in: grid.columns, at: x) : nil
+        if controls.row != row { controls.row = row }
+        if controls.column != column { controls.column = column }
+        if controls.gap != gap { controls.gap = gap }
         hoveredTable = hit.location
-        placeTableHover(over: hit.frame)
-        tableHover.lit = true
+        let location = hit.location
+        controls.apply = { [weak self] edit in self?.applyTableEdit(edit, toTableAt: location) }
+        controls.showSource = onTable.map { show in { [weak self] in
+            guard let source = self?.tableSource(at: location) else { return }
+            show(source.text)
+        } }
+        placeTableControls(over: hit.frame)
+        controls.lit = true
     }
 
-    private func placeTableHover(over frame: NSRect) {
-        let host = tableHoverHost ?? {
-            let host = NoteTableHoverHost(rootView: NoteTableHover(state: tableHover))
+    private func placeTableControls(over frame: NSRect) {
+        guard let menus else { return }
+        let host = tableControlsHost ?? {
+            let host = NoteTableControlsHost(rootView: AnyView(NoteTableControlsView(model: tableControls).environment(menus)))
+            host.model = tableControls
             addSubview(host)
-            tableHoverHost = host
+            tableControlsHost = host
             return host
         }()
-        host.frame = NSRect(x: frame.minX, y: frame.minY - NoteTableHover.tagRoom,
-                            width: frame.width, height: frame.height + NoteTableHover.tagRoom)
+        let gutter = NoteTableControls.gutter
+        host.frame = frame.insetBy(dx: -gutter, dy: -gutter)
+    }
+
+    private func refreshTableHover() {
+        guard let window else { return }
+        updateTableHover(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
+    private func applyTableEdit(_ edit: NoteTableEdit, toTableAt location: Int) {
+        guard var source = tableSource(at: location) else { return }
+        source.apply(edit)
+        replaceTable(at: location, with: source)
+        // A new row or column is empty, so it opens for typing straight away. That also
+        // shows where it went.
+        switch edit {
+        case .insertRow(let row): editCell(table: location, row: row, column: 0)
+        case .insertColumn(let column): editCell(table: location, row: 0, column: column)
+        default: refreshTableHover()
+        }
+    }
+
+    // Swaps the table for one drawn from the new Markdown. It goes through the text
+    // view's own change path, so it can be undone and the document hears about it.
+    private func replaceTable(at location: Int, with source: NoteTableSource) {
+        guard let storage = textStorage, tableSource(at: location) != nil else { return }
+        let range = NSRange(location: location, length: 1)
+        let replacement = NoteDocument(runs: [.init(text: source.text, block: .table)]).attributed
+        let selection = selectedRanges
+        breakUndoCoalescing()
+        guard shouldChangeText(in: range, replacementString: replacement.string) else { return }
+        storage.replaceCharacters(in: range, with: replacement)
+        didChangeText()
+        undoManager?.setActionName("Edit Table")
+        selectedRanges = selection
+        if let layoutManager, let textContainer { layoutManager.ensureLayout(for: textContainer) }
+    }
+
+    func editCell(table location: Int, row: Int, column: Int) {
+        guard isEditable, cellEditor == nil, let source = tableSource(at: location),
+              let rect = cellRect(table: location, row: row, column: column) else { return }
+        tableControls.lit = false
+        let editor = NoteTableCellEditor(table: location, row: row, column: column,
+                                         text: source.cell(row: row, column: column), alignment: source.alignment(of: column))
+        editor.onEnd = { [weak self] editor, ending in self?.endCellEdit(editor, ending) }
+        editor.place(over: rect.insetBy(dx: 2, dy: 2))
+        editor.alphaValue = 0
+        addSubview(editor)
+        cellEditor = editor
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Motion.revealDuration
+            editor.animator().alphaValue = 1
+        }
+        window?.makeFirstResponder(editor.field)
+        if let text = editor.field.currentEditor() {
+            text.selectedRange = NSRange(location: (text.string as NSString).length, length: 0)
+        }
+        scrollToVisible(editor.frame.insetBy(dx: 0, dy: -8))
+    }
+
+    private func endCellEdit(_ editor: NoteTableCellEditor, _ ending: NoteTableCellEditor.Ending) {
+        guard cellEditor === editor else { return }
+        cellEditor = nil
+        var move = 0
+        switch ending {
+        case .commit(let step): move = step
+        case .cancel, .focusLost: break
+        }
+        // A key ended the edit while the field still has the focus, so the focus goes back
+        // to the text. When the focus has already gone elsewhere it stays there.
+        if case .focusLost = ending {} else if move == 0 { window?.makeFirstResponder(self) }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Motion.leaveDuration
+            editor.animator().alphaValue = 0
+        } completionHandler: {
+            Task { @MainActor in editor.removeFromSuperview() }
+        }
+        if case .cancel = ending {} else if var source = tableSource(at: editor.table) {
+            let before = source
+            source.apply(.setCell(row: editor.row, column: editor.column, text: editor.field.stringValue))
+            if source != before { replaceTable(at: editor.table, with: source) }
+        }
+        guard move != 0, var source = tableSource(at: editor.table) else { return }
+        var row = editor.row, column = editor.column + move
+        if column >= source.columnCount { column = 0; row += 1 }
+        if column < 0 { column = source.columnCount - 1; row -= 1 }
+        guard row >= 0 else { window?.makeFirstResponder(self); return }
+        // Tab out of the last cell starts a new row, the way a spreadsheet does.
+        if row >= source.rowCount {
+            source.apply(.insertRow(source.rowCount))
+            replaceTable(at: editor.table, with: source)
+        }
+        editCell(table: editor.table, row: row, column: column)
     }
 
     override func updateTrackingAreas() {
@@ -389,23 +567,24 @@ final class NoteTextView: NSTextView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        updateTableHover(at: convert(event.locationInWindow, from: nil))
-        if tableHover.lit { NSCursor.arrow.set() }
+        let point = convert(event.locationInWindow, from: nil)
+        updateTableHover(at: point)
+        if tableControls.lit || tables().contains(where: { $0.frame.contains(point) }) { NSCursor.arrow.set() }
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        tableHover.lit = false
+        if menus?.isOpen != true { tableControls.lit = false }
     }
 
     override func scrollWheel(with event: NSEvent) {
-        tableHover.lit = false
+        tableControls.lit = false
         super.scrollWheel(with: event)
     }
 
     override func didChangeText() {
         super.didChangeText()
-        tableHover.lit = false
+        tableControls.lit = false
     }
 
     // Rich text and plain text on the pasteboard both lose a table's attachment, so a
@@ -526,9 +705,11 @@ final class NoteTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if event.clickCount == 2, let onTable, let hit = table(at: point) {
-            tableHover.lit = false
-            onTable(hit.source)
+        if event.clickCount == 2, isEditable, let hit = tables().first(where: { $0.frame.contains(point) }),
+           let grid = hit.cell.grid,
+           let row = Self.index(in: grid.rows, at: point.y - hit.frame.minY),
+           let column = Self.index(in: grid.columns, at: point.x - hit.frame.minX) {
+            editCell(table: hit.location, row: row, column: column)
             return
         }
         let index = characterIndexForInsertion(at: point)
