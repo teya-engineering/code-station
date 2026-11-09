@@ -89,21 +89,10 @@ struct MarkdownBlock: Identifiable, Equatable {
                 flushParagraph()
                 kinds.append(.rule)
                 index += 1
-            } else if trimmed.hasPrefix("|"),
-                      index + 1 < lines.count,
-                      let alignments = separatorAlignments(lines[index + 1],
-                                                          columns: cells(trimmed).count) {
+            } else if let (table, end) = MarkdownTable.read(lines, from: index) {
                 flushParagraph()
-                let header = cells(trimmed)
-                var rows: [[String]] = []
-                index += 2
-                while index < lines.count {
-                    let row = lines[index].trimmingCharacters(in: .whitespaces)
-                    guard row.hasPrefix("|") else { break }
-                    rows.append(sized(cells(row), to: header.count))
-                    index += 1
-                }
-                kinds.append(.table(MarkdownTable(header: header, alignments: alignments, rows: rows)))
+                kinds.append(.table(table))
+                index = end
             } else if listItem(lines[index]) != nil {
                 flushParagraph()
                 var items: [MarkdownListItem] = []
@@ -165,43 +154,6 @@ struct MarkdownBlock: Identifiable, Equatable {
         let stripped = line.replacingOccurrences(of: " ", with: "")
         guard stripped.count >= 3, let first = stripped.first, "-*_".contains(first) else { return false }
         return stripped.allSatisfy { $0 == first }
-    }
-
-    private static func cells(_ line: String) -> [String] {
-        var content = line.trimmingCharacters(in: .whitespaces)
-        if content.hasPrefix("|") { content.removeFirst() }
-        if content.hasSuffix("|") { content.removeLast() }
-        // A pipe inside a cell arrives escaped; hide it from the split and put it back after.
-        let hidden = "\u{0}"
-        content = content.replacingOccurrences(of: "\\|", with: hidden)
-        return content.components(separatedBy: "|").map {
-            $0.replacingOccurrences(of: hidden, with: "|").trimmingCharacters(in: .whitespaces)
-        }
-    }
-
-    // The row of dashes under a header is what makes the pipes above it a table. Its
-    // colons carry each column's alignment.
-    private static func separatorAlignments(_ line: String,
-                                            columns: Int) -> [MarkdownTable.ColumnAlignment]? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("|") else { return nil }
-        let parts = cells(trimmed)
-        guard parts.count == columns, !parts.isEmpty else { return nil }
-        var alignments: [MarkdownTable.ColumnAlignment] = []
-        for part in parts {
-            guard part.range(of: #"^:?-+:?$"#, options: .regularExpression) != nil else { return nil }
-            switch (part.hasPrefix(":"), part.hasSuffix(":")) {
-            case (true, true): alignments.append(.center)
-            case (false, true): alignments.append(.trailing)
-            default: alignments.append(.leading)
-            }
-        }
-        return alignments
-    }
-
-    private static func sized(_ row: [String], to count: Int) -> [String] {
-        if row.count > count { return Array(row.prefix(count)) }
-        return row + Array(repeating: "", count: count - row.count)
     }
 
     static let bullets = ["•", "◦", "▪"]
@@ -615,6 +567,61 @@ struct MarkdownTable: Equatable {
     let header: [String]
     let alignments: [ColumnAlignment]
     let rows: [[String]]
+
+    // A header row, the row of dashes under it, and every row after it that starts with
+    // a pipe. Returns the table and the index of the first line past it.
+    static func read(_ lines: [String], from start: Int) -> (table: MarkdownTable, end: Int)? {
+        let first = lines[start].trimmingCharacters(in: .whitespaces)
+        guard first.hasPrefix("|"), start + 1 < lines.count else { return nil }
+        let header = cells(first)
+        guard let alignments = separatorAlignments(lines[start + 1], columns: header.count) else { return nil }
+        var rows: [[String]] = []
+        var index = start + 2
+        while index < lines.count {
+            let row = lines[index].trimmingCharacters(in: .whitespaces)
+            guard row.hasPrefix("|") else { break }
+            rows.append(sized(cells(row), to: header.count))
+            index += 1
+        }
+        return (MarkdownTable(header: header, alignments: alignments, rows: rows), index)
+    }
+
+    private static func cells(_ line: String) -> [String] {
+        var content = line.trimmingCharacters(in: .whitespaces)
+        if content.hasPrefix("|") { content.removeFirst() }
+        if content.hasSuffix("|") { content.removeLast() }
+        // A pipe inside a cell arrives escaped; hide it from the split and put it back after.
+        let hidden = "\u{0}"
+        content = content.replacingOccurrences(of: "\\|", with: hidden)
+        return content.components(separatedBy: "|").map {
+            $0.replacingOccurrences(of: hidden, with: "|").trimmingCharacters(in: .whitespaces)
+        }
+    }
+
+    // The row of dashes under a header is what makes the pipes above it a table. Its
+    // colons carry each column's alignment.
+    private static func separatorAlignments(_ line: String,
+                                            columns: Int) -> [ColumnAlignment]? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("|") else { return nil }
+        let parts = cells(trimmed)
+        guard parts.count == columns, !parts.isEmpty else { return nil }
+        var alignments: [ColumnAlignment] = []
+        for part in parts {
+            guard part.range(of: #"^:?-+:?$"#, options: .regularExpression) != nil else { return nil }
+            switch (part.hasPrefix(":"), part.hasSuffix(":")) {
+            case (true, true): alignments.append(.center)
+            case (false, true): alignments.append(.trailing)
+            default: alignments.append(.leading)
+            }
+        }
+        return alignments
+    }
+
+    private static func sized(_ row: [String], to count: Int) -> [String] {
+        if row.count > count { return Array(row.prefix(count)) }
+        return row + Array(repeating: "", count: count - row.count)
+    }
 }
 
 struct MarkdownListItem: Equatable {

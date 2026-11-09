@@ -135,6 +135,19 @@ struct MarkdownWritingDocument {
                 lists = []
                 return true
             }
+            // A table must start its own block and run to a blank line. One that carries
+            // on from a paragraph, or runs into the text below it, reads differently in
+            // other Markdown readers, so it stays as source.
+            if line.hasPrefix("|"), let table = MarkdownTable.read(lines, from: number) {
+                guard open == nil, table.end == lines.count || lines[table.end].isEmpty else { return false }
+                if !runs.isEmpty { runs.append(.init(text: "\n")) }
+                runs.append(.init(text: lines[number..<table.end].joined(separator: "\n"), block: .table))
+                spans.append(number..<table.end)
+                index = table.end
+                lastMerging = nil
+                lists = []
+                return true
+            }
             let leading = line.prefix(while: { $0 == " " }).count
             line.removeFirst(leading)
             let prefixes: [(String, NoteDocument.Block, String)] = [
@@ -272,7 +285,7 @@ struct MarkdownWritingDocument {
     private static func normalized(_ document: NoteDocument) -> [NoteDocument.Run] {
         var result: [NoteDocument.Run] = []
         for run in document.runs where !run.text.isEmpty {
-            if var last = result.last, last.bold == run.bold, last.italic == run.italic,
+            if var last = result.last, run.block != .table, last.bold == run.bold, last.italic == run.italic,
                last.block == run.block, last.link == run.link, last.code == run.code, last.indent == run.indent {
                 last.text += run.text; result[result.count - 1] = last
             } else { result.append(run) }
@@ -280,8 +293,8 @@ struct MarkdownWritingDocument {
         return result
     }
 
-    fileprivate static func inline(_ text: String, block: NoteDocument.Block,
-                               bold: Bool = false, italic: Bool = false) -> [NoteDocument.Run]? {
+    static func inline(_ text: String, block: NoteDocument.Block,
+                       bold: Bool = false, italic: Bool = false) -> [NoteDocument.Run]? {
         var rest = text[...]
         var runs: [NoteDocument.Run] = []
         while let first = rest.first {

@@ -109,7 +109,7 @@ struct MarkdownEditor: View {
         HStack(spacing: 3) {
             ActionButton(title: editor.block.title, tone: .outlined, height: 28, size: 10, disclosure: true)
                 .appMenu {
-                    NoteDocument.Block.allCases.filter { $0 != .literal }.map { block in
+                    NoteDocument.Block.styles.map { block in
                         .item(block.title, checked: editor.block == block) { editor.setBlock(block) }
                     }
                 }.accessibilityLabel("Text style")
@@ -160,7 +160,7 @@ struct MarkdownEditor: View {
                                            self.writing = MarkdownWritingDocument(source: source, document: edited)
                                        }, onFiles: { _ in unsupportedPaste() },
                                        onImage: { _ in unsupportedPaste() },
-                                       onLink: openLink, height: $height)
+                                       onLink: openLink, onTable: showTable, height: $height)
                             .frame(minHeight: height)
                             .accessibilityLabel("Markdown document")
                     }
@@ -219,6 +219,15 @@ struct MarkdownEditor: View {
         }
         outlineLine = heading.line
         onOutline?(heading.line)
+        mode = .source
+    }
+
+    private func showTable(_ table: String) {
+        if let range = source.range(of: table) {
+            let line = source[..<range.lowerBound].count { $0 == "\n" } + 1
+            outlineLine = line
+            onOutline?(line)
+        }
         mode = .source
     }
 

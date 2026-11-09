@@ -69,6 +69,8 @@ final class NoteEditorController {
             let line = (replacement.string as NSString).paragraphRange(for: NSRange(location: offset, length: 0))
             let old = (replacement.attribute(.noteBlock, at: offset, effectiveRange: nil) as? String)
                 .flatMap(NoteDocument.Block.init(rawValue:)) ?? .text
+            // A table keeps its own shape. Restyling it would turn its source into prose.
+            if old == .table { offset = NSMaxRange(line); continue }
             let value = (replacement.string as NSString).substring(with: line)
             let markerLength = NoteDocument.markerLength(value, block: old)
             let text = NSMutableAttributedString(attributedString: replacement.attributedSubstring(from: line))
@@ -163,10 +165,16 @@ struct NoteTextEditor: NSViewRepresentable {
     let onFiles: ([URL]) -> Void
     let onImage: (Data) -> Void
     let onLink: (URL) -> Void
+    // Opens a table's source, given the Markdown it was read from. Without it a table
+    // is drawn but offers nothing on a double-click.
+    var onTable: ((String) -> Void)?
     @Binding var height: CGFloat
 
     func makeNSView(context: Context) -> NoteTextView {
         let view = NoteTextView(frame: .zero)
+        // Tables are drawn by TextKit 1 attachment cells. Asking for the layout manager
+        // before any text arrives keeps the view on TextKit 1 from the start.
+        _ = view.layoutManager
         view.isRichText = true
         view.importsGraphics = false
         view.usesFontPanel = false
@@ -195,9 +203,10 @@ struct NoteTextEditor: NSViewRepresentable {
         if NoteDocument(view.attributedString()) != document {
             let selection = view.selectedRange()
             view.textStorage?.setAttributedString(document.attributed)
-            view.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
+            view.setSelectedRange(NSRange(location: min(selection.location, (view.string as NSString).length), length: 0))
         }
         view.isEditable = editable
+        view.onTable = onTable
         view.onFiles = onFiles
         view.onImage = onImage
         controller.view = view
@@ -220,6 +229,34 @@ struct NoteTextEditor: NSViewRepresentable {
             guard let view = notification.object as? NSTextView else { return }
             parent.onChange(NoteDocument(view.attributedString()))
             measure()
+        }
+
+        // Text typed beside a table must not take on its attributes, or it would be read
+        // back as part of the table.
+        func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String: Any],
+                      toAttributes newTypingAttributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+            guard newTypingAttributes[.noteBlock] as? String == NoteDocument.Block.table.rawValue else { return newTypingAttributes }
+            return NoteDocument.attributes()
+        }
+
+        // A table is a block of its own, so text typed against either side of it starts
+        // on a new line rather than sharing the table's line.
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
+            guard let text, !text.isEmpty, let storage = textView.textStorage else { return true }
+            func isTable(_ location: Int) -> Bool {
+                location >= 0 && location < storage.length
+                    && NoteTableCell.source(of: storage.attribute(.attachment, at: location, effectiveRange: nil)) != nil
+            }
+            let before = isTable(range.location - 1) && !text.hasPrefix("\n")
+            let after = isTable(NSMaxRange(range)) && !text.hasSuffix("\n")
+            guard before || after else { return true }
+            var attributes = textView.typingAttributes
+            if attributes[.noteBlock] as? String == NoteDocument.Block.table.rawValue { attributes = NoteDocument.attributes() }
+            attributes.removeValue(forKey: .attachment)
+            let padded = (before ? "\n" : "") + text + (after ? "\n" : "")
+            textView.insertText(NSAttributedString(string: padded, attributes: attributes), replacementRange: range)
+            if after { textView.setSelectedRange(NSRange(location: textView.selectedRange().location - 1, length: 0)) }
+            return false
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -285,8 +322,157 @@ final class NoteTextView: NSTextView {
     var onFiles: (([URL]) -> Void)?
     var onImage: ((Data) -> Void)?
     var onLayout: (() -> Void)?
+    var onTable: ((String) -> Void)?
+    private let tableHover = NoteTableHoverState()
+    private var tableHoverHost: NoteTableHoverHost?
+    private var hoveredTable: Int?
+    private var tableTracking: NSTrackingArea?
 
-    override func layout() { super.layout(); onLayout?() }
+    // A new width moves and resizes the tables, so the hover follows the one it is on.
+    override func layout() {
+        super.layout()
+        onLayout?()
+        if let hoveredTable, tableHover.lit {
+            if let table = tables().first(where: { $0.location == hoveredTable }) { placeTableHover(over: table.frame) }
+            else { tableHover.lit = false }
+        }
+    }
+
+    // Where each table sits in the view: the bounds of its attachment glyph, which is
+    // where TextKit draws the grid.
+    private func tables() -> [(location: Int, source: String, frame: NSRect)] {
+        guard let storage = textStorage, let layout = layoutManager, let container = textContainer else { return [] }
+        var result: [(Int, String, NSRect)] = []
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard let source = NoteTableCell.source(of: value) else { return }
+            let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: range.location, length: 1), actualCharacterRange: nil)
+            let frame = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+            result.append((range.location, source, frame))
+        }
+        return result
+    }
+
+    private func table(at point: NSPoint) -> (location: Int, source: String, frame: NSRect)? {
+        tables().first { $0.frame.contains(point) }
+    }
+
+    private func updateTableHover(at point: NSPoint) {
+        guard onTable != nil, visibleRect.contains(point), let hit = table(at: point) else {
+            tableHover.lit = false
+            return
+        }
+        hoveredTable = hit.location
+        placeTableHover(over: hit.frame)
+        tableHover.lit = true
+    }
+
+    private func placeTableHover(over frame: NSRect) {
+        let host = tableHoverHost ?? {
+            let host = NoteTableHoverHost(rootView: NoteTableHover(state: tableHover))
+            addSubview(host)
+            tableHoverHost = host
+            return host
+        }()
+        host.frame = NSRect(x: frame.minX, y: frame.minY - NoteTableHover.tagRoom,
+                            width: frame.width, height: frame.height + NoteTableHover.tagRoom)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tableTracking { removeTrackingArea(tableTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        tableTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateTableHover(at: convert(event.locationInWindow, from: nil))
+        if tableHover.lit { NSCursor.arrow.set() }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        tableHover.lit = false
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        tableHover.lit = false
+        super.scrollWheel(with: event)
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        tableHover.lit = false
+    }
+
+    // Rich text and plain text on the pasteboard both lose a table's attachment, so a
+    // selection holding a table also goes out as the document itself. Other apps get
+    // the table's Markdown as plain text.
+    static let documentPasteboardType = NSPasteboard.PasteboardType("com.teya.code-station.note-document")
+
+    private var selectionHoldsTable: Bool {
+        guard let storage = textStorage else { return false }
+        return selectedRanges.map(\.rangeValue).contains { range in
+            var found = false
+            storage.enumerateAttribute(.attachment, in: range) { value, _, stop in
+                if NoteTableCell.source(of: value) != nil { found = true; stop.pointee = true }
+            }
+            return found
+        }
+    }
+
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        selectionHoldsTable ? [Self.documentPasteboardType, .string] : super.writablePasteboardTypes
+    }
+
+    override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard selectionHoldsTable, let storage = textStorage,
+              let data = try? JSONEncoder().encode(NoteDocument(storage.attributedSubstring(from: selectedRange()))) else {
+            return super.writeSelection(to: pboard, types: types)
+        }
+        pboard.declareTypes([Self.documentPasteboardType, .string], owner: nil)
+        pboard.setData(data, forType: Self.documentPasteboardType)
+        pboard.setString(NoteDocument(storage.attributedSubstring(from: selectedRange())).markdown, forType: .string)
+        return true
+    }
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        [Self.documentPasteboardType] + super.readablePasteboardTypes
+    }
+
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == Self.documentPasteboardType else { return super.readSelection(from: pboard, type: type) }
+        return insertDocument(from: pboard, replacing: rangeForUserTextChange)
+    }
+
+    private func insertDocument(from pboard: NSPasteboard, replacing range: NSRange) -> Bool {
+        guard isEditable, range.location != NSNotFound, let storage = textStorage,
+              let data = pboard.data(forType: Self.documentPasteboardType),
+              let document = try? JSONDecoder().decode(NoteDocument.self, from: data) else { return false }
+        // A table always sits on a line of its own, so the pasted text is set apart from
+        // a table it lands against, and a table it carries is set apart from the text
+        // around it.
+        let string = storage.string as NSString
+        func isTable(_ location: Int) -> Bool {
+            location >= 0 && location < storage.length
+                && NoteTableCell.source(of: storage.attribute(.attachment, at: location, effectiveRange: nil)) != nil
+        }
+        let text = NSMutableAttributedString(attributedString: document.attributed)
+        let startsWithTable = document.runs.first?.block == .table, endsWithTable = document.runs.last?.block == .table
+        if range.location > 0, string.character(at: range.location - 1) != 0x0A,
+           startsWithTable || isTable(range.location - 1) {
+            text.insert(NSAttributedString(string: "\n", attributes: NoteDocument.attributes()), at: 0)
+        }
+        if NSMaxRange(range) < string.length, string.character(at: NSMaxRange(range)) != 0x0A,
+           endsWithTable || isTable(NSMaxRange(range)) {
+            text.append(NSAttributedString(string: "\n", attributes: NoteDocument.attributes()))
+        }
+        insertText(text, replacementRange: range)
+        return true
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? { nil }
 
@@ -306,6 +492,7 @@ final class NoteTextView: NSTextView {
         guard isEditable else { return }
         let pasteboard = NSPasteboard.general
         if takeFiles(pasteboard) { return }
+        if insertDocument(from: pasteboard, replacing: selectedRange()) { return }
         if let image = NSImage(pasteboard: pasteboard), let tiff = image.tiffRepresentation,
            let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) {
             onImage?(png); return
@@ -339,6 +526,11 @@ final class NoteTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if event.clickCount == 2, let onTable, let hit = table(at: point) {
+            tableHover.lit = false
+            onTable(hit.source)
+            return
+        }
         let index = characterIndexForInsertion(at: point)
         let paragraph = (string as NSString).paragraphRange(for: NSRange(location: min(index, (string as NSString).length), length: 0))
         if isEditable, index <= paragraph.location + 1, toggleChecklist(at: paragraph.location) { return }

@@ -4,9 +4,10 @@ import AppKit
 // resolved when read, so documents follow the current appearance and never archive objects.
 struct NoteDocument: Codable, Equatable, Sendable {
     enum Block: String, Codable, Sendable, CaseIterable {
-        // Literal is Markdown the editor cannot show as formatting. It keeps its source as
-        // written and is never offered as a style.
-        case text, title, heading, subheading, bullet, numbered, checklist, quote, code, literal
+        // Literal is Markdown the editor cannot show as formatting. A table is drawn as a
+        // grid but cannot be edited in place. Both keep their source as written and are
+        // never offered as a style.
+        case text, title, heading, subheading, bullet, numbered, checklist, quote, code, literal, table
 
         var title: String {
             switch self {
@@ -20,10 +21,12 @@ struct NoteDocument: Codable, Equatable, Sendable {
             case .quote: "Quote"
             case .code: "Code block"
             case .literal: "Markdown source"
+            case .table: "Table"
             }
         }
 
         static let lists: Set<Block> = [.bullet, .numbered, .checklist]
+        static let styles = allCases.filter { $0 != .literal && $0 != .table }
     }
 
     struct Run: Codable, Equatable, Sendable {
@@ -43,8 +46,22 @@ struct NoteDocument: Codable, Equatable, Sendable {
     @MainActor init(_ attributed: NSAttributedString) {
         attributed.enumerateAttributes(in: NSRange(location: 0, length: attributed.length)) { attributes, range, _ in
             let traits = (attributes[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
-            let block = (attributes[.noteBlock] as? String).flatMap(Block.init(rawValue:)) ?? .text
-            runs.append(Run(text: attributed.attributedSubstring(from: range).string,
+            var block = (attributes[.noteBlock] as? String).flatMap(Block.init(rawValue:)) ?? .text
+            var text = attributed.attributedSubstring(from: range).string
+            // A table is one attachment character standing in for its source. Text typed
+            // or pasted beside it can pick up its attributes, but only the attachment
+            // itself is the table.
+            if block == .table || text.contains(Self.attachmentCharacter) {
+                if let source = NoteTableCell.source(of: attributes[.attachment]),
+                   text == String(Self.attachmentCharacter) {
+                    runs.append(Run(text: source, block: .table))
+                    return
+                }
+                text.removeAll { $0 == Self.attachmentCharacter }
+                if block == .table { block = .text }
+                if text.isEmpty { return }
+            }
+            runs.append(Run(text: text,
                             bold: traits.contains(.bold) && ![.title, .heading, .subheading].contains(block),
                             italic: traits.contains(.italic), block: block,
                             link: Self.keptLink(attributes[.link].map { String(describing: $0) }),
@@ -58,6 +75,17 @@ struct NoteDocument: Codable, Equatable, Sendable {
     @MainActor var attributed: NSAttributedString {
         let result = NSMutableAttributedString()
         for run in runs {
+            if run.block == .table {
+                var attributes = Self.attributes()
+                attributes[.noteBlock] = Block.table.rawValue
+                // Line spacing would add a strip under the grid that a selection fills.
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.paragraphSpacing = 12
+                attributes[.paragraphStyle] = paragraph
+                attributes[.attachment] = NoteTableCell.attachment(source: run.text)
+                result.append(NSAttributedString(string: String(Self.attachmentCharacter), attributes: attributes))
+                continue
+            }
             var attributes = Self.attributes(block: run.block, bold: run.bold, italic: run.italic,
                                              code: run.code, indent: run.indent)
             if let link = Self.keptLink(run.link) { attributes[.link] = link }
@@ -102,6 +130,8 @@ struct NoteDocument: Codable, Equatable, Sendable {
         }
         return attributes
     }
+
+    static let attachmentCharacter: Character = "\u{FFFC}"
 
     static func safeLink(_ value: String?) -> String? {
         guard let value, let url = URL(string: value),
@@ -162,13 +192,23 @@ struct NoteDocument: Codable, Equatable, Sendable {
         var lines: [(Block, [Run])] = []
         var current: [Run] = []
         for run in runs {
+            // A table's source spans several lines but is one block, and it never shares
+            // a line with text written next to it.
+            if run.block == .table {
+                if !current.isEmpty { lines.append((current[0].block, current)) }
+                current = [run]
+                continue
+            }
             let pieces = run.text.components(separatedBy: "\n")
             for (index, piece) in pieces.enumerated() {
                 if index > 0 {
                     lines.append((current.first?.block ?? run.block, current))
                     current = []
                 }
-                if !piece.isEmpty { var part = run; part.text = piece; current.append(part) }
+                if !piece.isEmpty {
+                    if current.first?.block == .table { lines.append((.table, current)); current = [] }
+                    var part = run; part.text = piece; current.append(part)
+                }
             }
         }
         if !current.isEmpty { lines.append((current.first?.block ?? .text, current)) }
@@ -187,6 +227,12 @@ struct NoteDocument: Codable, Equatable, Sendable {
             output.append((.code, "\(fence)\n\(text)\n\(fence)"))
         }
         for (block, runs) in lines {
+            if block == .table {
+                flushCode()
+                output.append((.table, runs.map(\.text).joined()))
+                listContent = []
+                continue
+            }
             if block == .code || block == .literal {
                 if verbatim?.block != block { flushCode() }
                 verbatim = (block, (verbatim?.lines ?? []) + [runs.map(\.text).joined()])
