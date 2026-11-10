@@ -740,6 +740,7 @@ struct LocalServerPreviewWebContent: NSViewRepresentable {
         configuration.userContentController.addUserScript(WKUserScript(
             source: Self.pickerScript, injectionTime: .atDocumentStart,
             forMainFrameOnly: true, in: .defaultClient))
+        WebPagePrinter.install(in: configuration.userContentController)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = coordinator
         webView.uiDelegate = coordinator

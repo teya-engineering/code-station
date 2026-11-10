@@ -226,6 +226,7 @@ struct HTMLPreviewWebContent: NSViewRepresentable {
               report();
             })();
             """, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        WebPagePrinter.install(in: configuration.userContentController)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = coordinator
         webView.underPageBackgroundColor = Theme.backgroundNSColor

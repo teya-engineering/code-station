@@ -111,6 +111,7 @@ struct DesignWebContent: NSViewRepresentable {
             forMainFrameOnly: true))
         configuration.userContentController.add(
             coordinator, name: Coordinator.messageName)
+        WebPagePrinter.install(in: configuration.userContentController)
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = coordinator
