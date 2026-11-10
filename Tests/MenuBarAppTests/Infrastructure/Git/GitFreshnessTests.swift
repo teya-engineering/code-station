@@ -176,6 +176,83 @@ struct GitFreshnessTests {
                 == "The checkout is main at its latest revision. Origin could not be reached, so this may be out of date.")
     }
 
+    // A retry only earns a longer wait when origin was slow, and the wait stops
+    // climbing at the last step.
+    @Test func climbsTheWaitLadderOnlyAfterATimeout() {
+        var report = GitFreshness.Report(fetchAttempted: true, fetched: false, fetchWait: 8,
+                                         fetchTimedOut: true)
+        #expect(report.retryWait == 30)
+        report.fetchWait = 30
+        #expect(report.retryWait == 60)
+        report.fetchWait = 60
+        #expect(report.retryWait == 60)
+
+        let refused = GitFreshness.Report(fetchAttempted: true, fetched: false, fetchWait: 30,
+                                          fetchFailure: "fatal: Could not read from remote repository.")
+        #expect(refused.retryWait == 30)
+    }
+
+    // The notice names the wait when origin was slow, and points away from waiting when
+    // origin said no.
+    @Test func explainsAFailedFetchByHowItFailed() {
+        let first = GitFreshness.Report(fetchAttempted: true, fetched: false, fetchWait: 8,
+                                        fetchTimedOut: true)
+        #expect(first.fetchProblem == "Origin did not answer within 8 seconds, so this may be out of date.")
+        #expect(first.fetchAdvice == "A slow VPN or a large repository can take longer than that.")
+
+        let again = GitFreshness.Report(fetchAttempted: true, fetched: false, fetchWait: 30,
+                                        fetchTimedOut: true)
+        #expect(again.fetchProblem == "Origin did not answer within 30 seconds, so this may be out of date.")
+        #expect(again.fetchAdvice == "Still no answer. Check that you are on the VPN, or start from what is already here.")
+
+        let key = GitFreshness.Report(fetchAttempted: true, fetched: false, fetchWait: 8,
+                                      fetchFailure: "git@github.com: Permission denied (publickey).")
+        #expect(key.fetchProblem == "Origin refused the fetch, so this may be out of date.")
+        #expect(key.fetchAdvice == "Waiting longer will not help here. Check that your SSH key is loaded, then try again.")
+
+        let fine = GitFreshness.Report(fetchAttempted: true, fetched: true, fetchWait: 8)
+        #expect(fine.fetchProblem == nil)
+        #expect(fine.fetchAdvice == nil)
+    }
+
+    @Test func keepsWhatGitSaidWhenOriginRefuses() async throws {
+        let pair = try ClonedRepo()
+        try pair.clone.git("remote", "set-url", "origin", pair.origin.path + "-missing")
+
+        let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true))
+        #expect(report.fetchFailed)
+        #expect(!report.fetchTimedOut)
+        #expect(report.fetchWait == 8)
+        #expect(report.fetchFailure?.isEmpty == false)
+    }
+
+    @Test func tellsATimeoutFromARefusal() async throws {
+        let pair = try ClonedRepo()
+        try pair.clone.git("config", "protocol.ext.allow", "always")
+        try pair.clone.git("remote", "set-url", "origin", "ext::sh -c sleep% 10")
+
+        let report = try #require(await GitFreshness.check(at: pair.clone.path, fetch: true,
+                                                           timeout: 0.5))
+        #expect(report.fetchFailed)
+        #expect(report.fetchTimedOut)
+        #expect(report.fetchFailure == nil)
+        #expect(report.fetchWait == 0.5)
+    }
+
+    // Stopping a retry gives no report at all, so the card keeps the failure it had.
+    @Test func answersNothingWhenTheFetchIsStopped() async throws {
+        let pair = try ClonedRepo()
+        try pair.clone.git("config", "protocol.ext.allow", "always")
+        try pair.clone.git("remote", "set-url", "origin", "ext::sh -c sleep% 10")
+
+        let started = Date.now
+        let check = Task { await GitFreshness.check(at: pair.clone.path, fetch: true, timeout: 30) }
+        try await Task.sleep(for: .milliseconds(300))
+        check.cancel()
+        #expect(await check.value == nil)
+        #expect(Date.now.timeIntervalSince(started) < 5)
+    }
+
     // New sessions start from the default branch at its latest revision and bring the
     // project folder along, unless uncommitted work makes the update unsafe.
     @Test func recommendsUpdatingTheCheckoutFirst() {

@@ -22,6 +22,9 @@ struct NewSessionView: View {
     @State private var freshness: GitFreshness.Report?
     // The fetch pass is still running, which holds the footer's button.
     @State private var fetching: Bool
+    // A fetch the user asked to run again after the first pass failed. It holds the
+    // footer's button too, for as long as it runs.
+    @State private var retries = FreshnessRetries()
     // Where the session should start when the checkout is stale. The three states are
     // shown as choices instead of making an unchecked pair of boxes mean a third answer.
     @State private var startPoint: SessionStartPoint = .currentCheckout
@@ -67,7 +70,11 @@ struct NewSessionView: View {
                                        updateDefaultBranch: $updateDefaultBranch,
                                        selectWorktree: selectWorktree,
                                        selectProjectFolder: selectProjectFolder,
-                                       onChoose: { startPointWasChosen = true })
+                                       onChoose: { startPointWasChosen = true },
+                                       retry: retries.attempts[project.id],
+                                       reachedOrigin: retries.reached.contains(project.id),
+                                       retryFetch: retryFetch,
+                                       stopFetch: { retries.stop(project.id) })
                     SessionCheckoutPaths(entries: [
                         .init(name: project.name,
                               branch: project.isGitRepository
@@ -87,6 +94,7 @@ struct NewSessionView: View {
                              note: SessionCreationImpact(updates: updatesCheckout || fastForwardsDefaultBranch ? 1 : 0,
                                                          worktrees: useWorktree ? 1 : 0).text,
                              fetching: fetching,
+                             retrying: retries.isEmpty ? nil : project.name,
                              updating: pulling ? (freshness?.defaultBranch ?? "the checkout") : nil,
                              selectedAgent: $selectedAgent,
                              selectedAvatarName: $selectedAvatarName,
@@ -98,6 +106,7 @@ struct NewSessionView: View {
         .disabled(pulling)
         .interactiveDismissDisabled(pulling)
         .onAppear { selectedAvatarName = appSettings.defaultAgentAvatarName }
+        .onDisappear { retries.stopAll() }
         .task {
             guard project.isGitRepository else { return }
             let local = await GitFreshness.check(at: project.path, fetch: false)
@@ -147,6 +156,14 @@ struct NewSessionView: View {
         useWorktree = false
         if let freshness { selectRecommendedStartPoint(for: freshness) }
         if startPoint == .remote { startPoint = .currentCheckout }
+    }
+
+    private func retryFetch() {
+        guard let freshness else { return }
+        retries.start(project.id, path: project.path, after: freshness) { report in
+            self.freshness = report
+            selectRecommendedStartPoint(for: report)
+        }
     }
 
     private func selectRecommendedStartPoint(for report: GitFreshness.Report) {
@@ -257,8 +274,12 @@ struct FreshnessNotice: View {
     @Binding var carryChanges: Bool
     @Binding var updateDefaultBranch: Bool
     let onChoose: () -> Void
+    var retry: FreshnessRetries.Attempt? = nil
+    var retryFetch: () -> Void = {}
+    var stopFetch: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var retryActOuts = 0
     // Nil while the check runs, or when there is nothing to check.
     @State private var preview: GitCarryOver.Preview?
 
@@ -295,6 +316,27 @@ struct FreshnessNotice: View {
                             .font(.system(size: 12.5))
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if report.fetchFailed && retry == nil {
+                        if let advice = report.fetchAdvice {
+                            Text(advice)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let failure = report.fetchFailure {
+                            Text(failure)
+                                .font(.mono(11.5))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(6)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 7)
+                                .frame(maxWidth: 520, alignment: .leading)
+                                .background(Theme.sunken, in: RoundedRectangle(cornerRadius: 6))
+                                .padding(.top, 3)
+                        }
+                    }
                     if report.dirty {
                         Text(forWorktree
                              ? "The project folder has uncommitted changes. A worktree starts from the last commit, so they stay behind unless you bring them along."
@@ -304,6 +346,20 @@ struct FreshnessNotice: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
+            if report.fetchFailed {
+                Group {
+                    if let retry {
+                        FetchRetryProgress(attempt: retry, stop: stopFetch)
+                            .transition(reduceMotion ? .opacity : .fadeIn)
+                    } else {
+                        retryButton
+                            .transition(reduceMotion ? .opacity : .fadeIn)
+                    }
+                }
+                .frame(minHeight: 30)
+                .padding(.leading, 19)
+                .padding(.vertical, 2)
             }
             if report.isStale {
                 VStack(alignment: .leading, spacing: 8) {
@@ -329,6 +385,8 @@ struct FreshnessNotice: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
+        .motion(Motion.reveal, value: retry)
+        .motion(Motion.reveal, value: report)
         .background(Theme.attention.opacity(0.10))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Checkout start point")
@@ -339,6 +397,39 @@ struct FreshnessNotice: View {
             let result = await GitCarryOver.preview(at: projectPath, onto: base)
             if !Task.isCancelled { preview = result }
         }
+    }
+
+    // A longer wait is only offered when origin was slow. When it said no, the same
+    // wait is tried again, since time would not change its answer.
+    private var retryTitle: String {
+        report.fetchTimedOut
+            ? "Try again, waiting up to \(counted(Int(report.retryWait), "second"))"
+            : "Try again"
+    }
+
+    private var retryButton: some View {
+        Button {
+            retryActOuts += 1
+            retryFetch()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11, weight: .semibold))
+                    .actOut("arrow.clockwise", trigger: retryActOuts)
+                Text(retryTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .fixedSize()
+            }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 13)
+            .frame(height: 30)
+            .background(Theme.card, in: Capsule())
+            .overlay(Capsule().stroke(Theme.border))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .hoverLift()
+        .accessibilityHint("Fetches from origin again.")
     }
 
     private var carryToggle: some View {
@@ -489,12 +580,56 @@ struct FreshnessNotice: View {
             let subject = sentences.isEmpty ? (report.currentBranch ?? "The checkout") : "It"
             sentences.append("\(subject) is \(counted(report.behind, "commit")) behind \(target).")
         }
-        if report.fetchAttempted && !report.fetched {
-            sentences.append(report.lastFetch.map {
-                "Origin could not be reached, so this is as of the last fetch, \($0.formatted(.relative(presentation: .named)))."
-            } ?? "Origin could not be reached, so this may be out of date.")
-        }
+        if let problem = report.fetchProblem { sentences.append(problem) }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+    }
+}
+
+// A retried fetch in flight: how long it has been going against how long it may take,
+// and a way to give up on it.
+private struct FetchRetryProgress: View {
+    let attempt: FreshnessRetries.Attempt
+    let stop: () -> Void
+
+    @State private var elapsed = 0
+
+    private var wait: Int { Int(attempt.wait) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            LoopSpinner(colour: Theme.accent, size: 14)
+            HStack(spacing: 4) {
+                Text("Fetching from origin")
+                Text("\(elapsed) of \(wait) s")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .motion(Motion.control, value: elapsed)
+            }
+            .font(.system(size: 12))
+            .fixedSize()
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.accent.opacity(0.12))
+                    Capsule().fill(Theme.accent)
+                        .frame(width: geometry.size.width * CGFloat(elapsed) / CGFloat(max(wait, 1)))
+                        .motion(Motion.draw, value: elapsed)
+                }
+            }
+            .frame(maxWidth: 180)
+            .frame(height: 3)
+            InlineLink(title: "Stop", action: stop)
+                .padding(.horizontal, 6)
+                .accessibilityLabel("Stop fetching")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Fetching from origin, \(elapsed) of \(wait) seconds")
+        .task(id: attempt) {
+            while !Task.isCancelled {
+                elapsed = min(wait, Int(Date.now.timeIntervalSince(attempt.started)))
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 }
 
