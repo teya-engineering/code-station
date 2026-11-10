@@ -1118,6 +1118,9 @@ enum GitInspector {
         var errorText = ""
         var status: Int32 = -1
         var truncated = false
+        // The command was stopped for running past its timeout, which says the other end
+        // was slow rather than that it said no.
+        var timedOut = false
 
         var ok: Bool { status == 0 }
         // Most answers are one line, and git ends every one of them with a newline.
@@ -1168,6 +1171,32 @@ enum GitInspector {
             result.truncated = output.outputTruncated || output.errorOutputTruncated
         } catch {
             result.errorText = error.localizedDescription
+            result.timedOut = error as? CommandRunner.RunError == .timedOut
+        }
+        return result
+    }
+
+    // The same run for a command the caller may give up on, such as a fetch the user
+    // stops: cancelling the calling task stops git and everything it started.
+    static func runCancellable(_ tool: GitTool, _ arguments: [String], in directory: URL? = nil,
+                               timeout: TimeInterval? = nil) async -> CommandOutput {
+        var result = CommandOutput()
+        do {
+            let output = try await CommandRunner.run(
+                executable: tool.path,
+                arguments: arguments,
+                currentDirectory: directory,
+                environment: GitEnvironment.nonInteractive(searchPath: tool.searchPath),
+                timeout: timeout.map { .seconds($0) },
+                outputByteLimit: GitInspector.outputByteLimit
+            )
+            result.text = output.output
+            result.errorText = output.errorOutput
+            result.status = output.status
+            result.truncated = output.outputTruncated || output.errorOutputTruncated
+        } catch {
+            result.errorText = error.localizedDescription
+            result.timedOut = error as? CommandRunner.RunError == .timedOut
         }
         return result
     }

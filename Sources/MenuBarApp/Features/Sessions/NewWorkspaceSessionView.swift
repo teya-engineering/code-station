@@ -37,6 +37,9 @@ struct NewWorkspaceSessionView: View {
     @State private var fastForwarded: Set<UUID> = []
     // Fetch passes still running, which hold the footer's button.
     @State private var activeFetches = 0
+    // Fetches the user asked to run again, one per project. They hold the footer's
+    // button too, for as long as they run.
+    @State private var retries = FreshnessRetries()
     // A requested pull is running. The sheet stays up and quiet until it finishes, since
     // a click anywhere while git works could only start the same work twice.
     @State private var pulling = false
@@ -106,6 +109,7 @@ struct NewWorkspaceSessionView: View {
             NewSessionFooter(sessionID: sessionID,
                              note: footerNote,
                              fetching: activeFetches > 0,
+                             retrying: retryingNames,
                              updating: pulling ? "checkouts" : nil,
                              ready: hasEnoughProjects,
                              selectedAgent: $selectedAgent,
@@ -118,6 +122,7 @@ struct NewWorkspaceSessionView: View {
         .disabled(pulling)
         .interactiveDismissDisabled(pulling)
         .onAppear { selectedAvatarName = appSettings.defaultAgentAvatarName }
+        .onDisappear { retries.stopAll() }
         .task { await check(gitProjects) }
     }
 
@@ -161,7 +166,23 @@ struct NewWorkspaceSessionView: View {
                 }
             },
             onChoose: { chosenStartPoints.insert(project.id) },
+            retry: retries.attempts[project.id],
+            reachedOrigin: retries.reached.contains(project.id),
+            retryFetch: {
+                guard let report = freshness[project.id] else { return }
+                retries.start(project.id, path: project.path, after: report) { report in
+                    freshness[project.id] = report
+                    selectRecommendedStartPoint(for: project.id)
+                }
+            },
+            stopFetch: { retries.stop(project.id) },
             detach: lead ? nil : { detach(project.id) })
+    }
+
+    private var retryingNames: String? {
+        let names = projectIDs.filter { retries.attempts[$0] != nil }
+            .compactMap { store.project($0)?.name }
+        return names.isEmpty ? nil : names.formatted(.list(type: .and))
     }
 
     private func selectRecommendedStartPoint(for id: UUID) {
@@ -220,6 +241,7 @@ struct NewWorkspaceSessionView: View {
             projectIDs.removeAll { $0 == id }
         }
         worktrees.remove(id)
+        retries.stop(id)
         startPoints.removeValue(forKey: id)
         chosenStartPoints.remove(id)
         carried.remove(id)

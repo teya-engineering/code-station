@@ -29,12 +29,20 @@ enum GitFreshness {
         var fetchAttempted = false
         var fetched = false
         var lastFetch: Date?
+        // How long the fetch was allowed to wait for origin, and how it failed: by
+        // running out of that time, or by origin saying no. Only a timeout is worth
+        // retrying with a longer wait.
+        var fetchWait: TimeInterval?
+        var fetchTimedOut = false
+        // What git said when origin said no.
+        var fetchFailure: String?
         // The folder holds work git does not have, which no new worktree would carry.
         var dirty = false
 
         // A repository with no idea of a default branch leaves nothing for the checkout
         // to differ from, so it reads as fine.
         var onDefaultBranch: Bool { defaultBranch == nil || currentBranch == defaultBranch }
+        var fetchFailed: Bool { fetchAttempted && !fetched }
         var isStale: Bool { !onDefaultBranch || behind > 0 }
         var defaultBranchHasDiverged: Bool {
             defaultBranchAhead > 0 && defaultBranchBehind > 0
@@ -80,18 +88,55 @@ enum GitFreshness {
                 sentences.append(defaultBranch.map { "The checkout is \($0) at its latest revision." }
                                  ?? "There is no default branch to compare against.")
             }
-            if fetchAttempted && !fetched {
-                sentences.append(lastFetch.map {
-                    "Origin could not be reached, so this is as of the last fetch, \($0.formatted(.relative(presentation: .named)))."
-                } ?? "Origin could not be reached, so this may be out of date.")
-            }
+            if let fetchProblem { sentences.append(fetchProblem) }
             return sentences.joined(separator: " ")
+        }
+
+        // Why the answer may be old, naming the wait when origin was only slow.
+        var fetchProblem: String? {
+            guard fetchFailed else { return nil }
+            let cause: String
+            if fetchTimedOut, let fetchWait {
+                cause = "Origin did not answer within \(counted(Int(fetchWait), "second"))"
+            } else if fetchFailure != nil {
+                cause = "Origin refused the fetch"
+            } else {
+                cause = "Origin could not be reached"
+            }
+            return lastFetch.map {
+                "\(cause), so this is as of the last fetch, \($0.formatted(.relative(presentation: .named)))."
+            } ?? "\(cause), so this may be out of date."
+        }
+
+        // What the user can do about a failed fetch. A refusal will not go away with a
+        // longer wait, so it points at the cause instead.
+        var fetchAdvice: String? {
+            guard fetchFailed else { return nil }
+            if fetchTimedOut {
+                return fetchWait.map { $0 > GitFreshness.fetchWaits[0] } == true
+                    ? "Still no answer. Check that you are on the VPN, or start from what is already here."
+                    : "A slow VPN or a large repository can take longer than that."
+            }
+            guard let fetchFailure else { return nil }
+            return fetchFailure.contains("Permission denied (publickey)")
+                ? "Waiting longer will not help here. Check that your SSH key is loaded, then try again."
+                : "Waiting longer will not help here. Fix what git reports below, then try again."
+        }
+
+        // How long a retry may wait. A timeout earns the next step up the ladder, and the
+        // last step is the ceiling. Any other failure is retried with the same wait,
+        // since more time would not change the answer.
+        var retryWait: TimeInterval {
+            let current = fetchWait ?? GitFreshness.fetchWaits[0]
+            guard fetchTimedOut else { return current }
+            return GitFreshness.fetchWaits.first { $0 > current } ?? GitFreshness.fetchWaits.last ?? current
         }
     }
 
-    // Long enough for a fetch over a normal connection, short enough that a dead VPN
-    // does not hold the sheet's answer hostage.
-    private static let fetchTimeout: TimeInterval = 8
+    // How long a fetch may wait for origin. The first, automatic pass is long enough for
+    // a normal connection and short enough that a dead VPN does not hold the sheet's
+    // answer hostage. A retry the user asks for climbs to the next step.
+    static let fetchWaits: [TimeInterval] = [8, 30, 60]
 
     // A check can spend seconds waiting on the network, so it runs on its own concurrent
     // queue rather than the shared serial git lane, which a fetch would otherwise block
@@ -104,13 +149,22 @@ enum GitFreshness {
     // few run side by side. More would gain little: they share one connection and disk.
     private static let maxConcurrentChecks = 3
 
-    // nil when there is nothing to compare: no git, no repository, or no commits yet.
-    static func check(at path: String, fetch: Bool) async -> Report? {
+    // nil when there is nothing to compare: no git, no repository, or no commits yet,
+    // and when the calling task is cancelled, which also stops a fetch in flight.
+    static func check(at path: String, fetch: Bool,
+                      timeout: TimeInterval = fetchWaits[0]) async -> Report? {
         guard let tool = await GitInspector.tool() else { return nil }
         let url = URL(fileURLWithPath: path)
-        return await withCheckedContinuation { continuation in
+        var fetched: (output: GitInspector.CommandOutput, wait: TimeInterval)?
+        if fetch {
+            let output = await GitInspector.runCancellable(tool, ["fetch", "--quiet", "origin"],
+                                                           in: url, timeout: timeout)
+            if Task.isCancelled { return nil }
+            fetched = (output, timeout)
+        }
+        return await withCheckedContinuation { [fetched] continuation in
             queue.async {
-                continuation.resume(returning: inspect(tool: tool, url: url, fetch: fetch))
+                continuation.resume(returning: inspect(tool: tool, url: url, fetch: fetched))
             }
         }
     }
@@ -138,7 +192,8 @@ enum GitFreshness {
         }
     }
 
-    private static func inspect(tool: GitInspector.GitTool, url: URL, fetch: Bool) -> Report? {
+    private static func inspect(tool: GitInspector.GitTool, url: URL,
+                                fetch: (output: GitInspector.CommandOutput, wait: TimeInterval)?) -> Report? {
         guard GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", "HEAD"], in: url).ok else { return nil }
 
         var report = Report()
@@ -149,10 +204,14 @@ enum GitFreshness {
             report.currentBranch = name == "HEAD" ? nil : name
         }
 
-        if fetch {
+        if let fetch {
             report.fetchAttempted = true
-            report.fetched = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
-                                              timeout: fetchTimeout).ok
+            report.fetched = fetch.output.ok
+            report.fetchWait = fetch.wait
+            if !fetch.output.ok {
+                report.fetchTimedOut = fetch.output.timedOut
+                report.fetchFailure = fetch.output.timedOut ? nil : fetch.output.failureMessage
+            }
         }
 
         report.defaultBranch = defaultBranch(tool, in: url)

@@ -9,6 +9,10 @@ struct NewSessionFooter: View {
     // from an answer that was about to change, and so the warning a fetch turns up is
     // seen before the choice is made rather than after.
     let fetching: Bool
+    // The projects the user asked to fetch again, by name. Creating waits for these too,
+    // and with no time limit of its own: the user asked for a fresh answer, and can stop
+    // the fetch from its card.
+    var retrying: String? = nil
     // What a requested pull is moving while it runs: a branch name, or "checkouts".
     var updating: String? = nil
     // The sheet's own condition on top of the shared ones, such as having enough
@@ -25,9 +29,9 @@ struct NewSessionFooter: View {
     @Environment(AppSettings.self) private var appSettings
 
     // Only the fetch itself is bounded, and every git command in the app shares one
-    // queue, so the pass can take longer than the sheet should ever hold the button
-    // for. Past this the footer gives up waiting rather than becoming a dead end; a
-    // report that lands afterwards is still shown.
+    // queue, so the first pass can take longer than the sheet should ever hold the
+    // button for. Past this the footer gives up waiting on it rather than becoming a
+    // dead end; a report that lands afterwards is still shown.
     private static let longestWait: Duration = .seconds(12)
     @State private var gaveUpWaiting = false
 
@@ -86,6 +90,7 @@ struct NewSessionFooter: View {
     // checkout the fetch was reading.
     private var waitingOn: String? {
         if let updating { return "Updating \(updating) from origin…" }
+        if let retrying { return "Fetching \(retrying) again…" }
         if fetching && !gaveUpWaiting { return "Fetching branch information…" }
         return nil
     }
