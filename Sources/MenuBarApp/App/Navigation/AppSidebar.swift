@@ -7,7 +7,9 @@ struct AppSidebar: View {
     let skills: SkillsManager
     let tools: ToolsMenuActions
     let oldSessionDeletion: OldSessionSweep.Deletion?
+    var parkedSessions: [OldSessionSweep.Parked] = []
     let onReviewOldSessions: () -> Void
+    var onReviewParkedSessions: () -> Void = {}
     // Set while a file open in the detail pane has taken Command-F for its own find.
     let paneOwnsFindShortcut: Bool
 
@@ -1192,11 +1194,17 @@ struct AppSidebar: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if oldSessions.summary.sessions > 0 {
+            if showsOldSessionsStrip {
                 OldSessionsStrip(summary: oldSessions.summary,
                                  deletion: oldSessionDeletion,
+                                 parkedWithSavedWork: parkedSessions.count { $0.reason == .savedWork },
                                  days: appSettings.oldSessionDays,
                                  onReview: onReviewOldSessions)
+                    .transition(.fold)
+            }
+            if !parkedSessions.isEmpty {
+                ParkedSessionsStrip(parked: parkedSessions, onReview: onReviewParkedSessions)
+                    .transition(.fold)
             }
             if !orphanedWorktrees.worktrees.isEmpty { OrphanedWorktreesStrip() }
 
@@ -1219,6 +1227,16 @@ struct AppSidebar: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 14)
+        .motion(Motion.reveal, value: parkedSessions.isEmpty)
+        .motion(Motion.reveal, value: showsOldSessionsStrip)
+    }
+
+    // Under the ask-first policy, sessions with saved work wait in the parked strip
+    // instead, so the plain offer to review is only shown while a cohort counts down.
+    // Otherwise both strips would name the same sessions.
+    private var showsOldSessionsStrip: Bool {
+        guard oldSessions.summary.sessions > 0 else { return false }
+        return !appSettings.oldSessionCleanupPolicy.asksAboutRest || oldSessionDeletion != nil
     }
 
     // MARK: - Actions

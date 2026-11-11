@@ -348,6 +348,7 @@ struct OldSessionsView: View {
     // "last turn 9 days ago · 4 turns · ⑂ code-station/pty-test · clean"
     private func detail(_ row: Row) -> String {
         var parts = ["last turn " + SessionAge.phrase(since: row.session.lastActivity)]
+        if store.isUnread(row.id) { parts.append("unread") }
         if let turns = row.session.usage?.turns, turns > 0 {
             parts.append(counted(turns, "turn"))
         }
@@ -379,7 +380,7 @@ struct OldSessionsView: View {
         for i in rows.indices {
             rows[i].cost = startingCost(rows[i].session)
         }
-        ticked = Set(rows.filter { $0.cost.losesNothing }
+        ticked = Set(rows.filter { preselects($0.session.id, cost: $0.cost) }
             .prefix(Self.preselectLimit)
             .map(\.id))
         autoTicked = ticked.count
@@ -409,10 +410,16 @@ struct OldSessionsView: View {
         rows[i].cost = cost
         // Ticking happens here rather than up front, so a box is only ever ticked for the
         // user once git has said the worktree holds nothing.
-        if cost.losesNothing, autoTicked < Self.preselectLimit {
+        if preselects(id, cost: cost), autoTicked < Self.preselectLimit {
             ticked.insert(id)
             autoTicked += 1
         }
+    }
+
+    // An unread session is only here because someone was asked about it, so its box is
+    // left for them to tick.
+    private func preselects(_ id: UUID, cost: SessionRemovalCost) -> Bool {
+        cost.losesNothing && !store.isUnread(id)
     }
 
     // MARK: - Acting

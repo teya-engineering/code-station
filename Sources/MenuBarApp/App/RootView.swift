@@ -26,6 +26,7 @@ struct RootView: View {
     @State private var sessionCleanupError: String?
     @State private var orphanCleanupError: String?
     @State private var oldSessionDeletion: OldSessionSweep.Deletion?
+    @State private var parkedSessions: [OldSessionSweep.Parked] = []
     @State private var dismissedAttention: Attention?
     // An update being taken is news of its own, so putting the offer away does not also
     // hide the download it started. Each stage can be dismissed once.
@@ -59,7 +60,9 @@ struct RootView: View {
                 AppSidebar(skills: skills,
                            tools: tools,
                            oldSessionDeletion: oldSessionDeletion,
+                           parkedSessions: parkedSessions,
                            onReviewOldSessions: { sheet = .oldSessions },
+                           onReviewParkedSessions: { sheet = .parkedSessions },
                            paneOwnsFindShortcut: paneOwnsFindShortcut)
                 Divider().overlay(Theme.hairline)
                 detail
@@ -250,7 +253,7 @@ struct RootView: View {
     // place to sit, which is why none of them is a pane of its own.
     enum Sheet: Identifiable {
         case servers, skills, docker, settings, dispatch, shortcuts
-        case oldSessions, onboarding
+        case oldSessions, parkedSessions, onboarding
 
         var id: Self { self }
     }
@@ -266,6 +269,9 @@ struct RootView: View {
         case .oldSessions:
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
                                                              store: store, runner: runner))
+        case .parkedSessions:
+            OldSessionsView(sessions: parkedSessions.compactMap { store.session($0.id) }
+                .filter { !runner.isBusy($0.id, store: store) })
         case .onboarding:
             FirstRunWizard(initialAgent: runner.agent,
                            onSiteConfigurationLoaded: applySiteConfiguration) {
@@ -374,6 +380,7 @@ struct RootView: View {
     private func deleteOldSessionsAutomatically() async {
         let rule = sweepRule
         oldSessionDeletion = nil
+        parkedSessions = []
         guard rule.policy.deletesAutomatically else { return }
         var buffer = OldSessionSweep.EligibilityBuffer()
 
@@ -384,6 +391,9 @@ struct RootView: View {
             guard !Task.isCancelled else { return }
             if oldSessionDeletion != buffer.deletion {
                 oldSessionDeletion = buffer.deletion
+            }
+            if parkedSessions != buffer.parked {
+                parkedSessions = buffer.parked
             }
             do {
                 try await Task.sleep(for: OldSessionSweep.monitorInterval)

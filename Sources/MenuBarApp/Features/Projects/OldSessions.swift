@@ -16,23 +16,30 @@ enum OldSessions {
     // sheet can leave it out and keep showing what a snooze has taken from the count.
     typealias SnoozeDeadline = (ChatSession) -> Date?
 
+    // Unread lives in the store rather than on the session, since a turn that ended unseen
+    // is only known while the app runs.
+    typealias UnreadCheck = (UUID) -> Bool
+
     // A pinned session is never old: pinning is how a session is kept for good. A snoozed
     // session is kept for as long as its snooze lasts, since putting it aside for later is
-    // the opposite of being done with it. The sheet, the sidebar count and the sweep all
-    // leave both out.
+    // the opposite of being done with it. An unread session is kept as well: a reply
+    // nobody has looked at yet is not something anyone is done with. The sheet, the
+    // sidebar count and the sweep all leave these out.
     static func olderThan(_ days: Int, in sessions: [ChatSession], now: Date = Date(),
-                          snoozedUntil: SnoozeDeadline = { _ in nil }) -> [ChatSession] {
+                          snoozedUntil: SnoozeDeadline = { _ in nil },
+                          isUnread: UnreadCheck = { _ in false }) -> [ChatSession] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return sessions
             .filter {
-                !isKept($0, now: now) && $0.lastActivity < cutoff
+                !isKept($0, now: now, isUnread: isUnread) && $0.lastActivity < cutoff
                     && !ProjectSnooze.isActive(snoozedUntil($0), now: now)
             }
             .sorted { $0.lastActivity < $1.lastActivity }
     }
 
-    static func isKept(_ session: ChatSession, now: Date = Date()) -> Bool {
-        session.isPinned || session.snooze?.isActive(now: now) == true
+    static func isKept(_ session: ChatSession, now: Date = Date(),
+                       isUnread: UnreadCheck = { _ in false }) -> Bool {
+        session.isPinned || session.snooze?.isActive(now: now) == true || isUnread(session.id)
     }
 
     // What the review sheet lists: old enough to offer, minus the ones in the middle of a
@@ -41,15 +48,19 @@ enum OldSessions {
     @MainActor
     static func reviewable(days: Int, store: ProjectStore, runner: SessionRunner)
         -> [ChatSession] {
-        olderThan(days, in: store.userSessions).filter { !runner.state($0.id).isBusy }
+        olderThan(days, in: store.userSessions, isUnread: store.isUnread)
+            .filter { !runner.state($0.id).isBusy }
     }
 
     // When the list changes next: either a session goes quiet for long enough, or a
     // snooze runs out and hands its sessions back, a project's or a session's own.
+    // Reading an unread session is a change in the store, not on the clock, so it is not
+    // counted here.
     static func nextOldAt(_ days: Int, in sessions: [ChatSession], now: Date = Date(),
-                          snoozedUntil: SnoozeDeadline = { _ in nil }) -> Date? {
+                          snoozedUntil: SnoozeDeadline = { _ in nil },
+                          isUnread: UnreadCheck = { _ in false }) -> Date? {
         let age = Double(days) * 86_400
-        let turningOld = sessions.filter { !isKept($0, now: now) }
+        let turningOld = sessions.filter { !isKept($0, now: now, isUnread: isUnread) }
             .map { $0.lastActivity.addingTimeInterval(age) }
         let waking = sessions.compactMap(snoozedUntil) + sessions.compactMap { $0.snooze?.deadline }
         return (turningOld + waking)
@@ -109,6 +120,9 @@ enum ProjectSnooze {
 enum OldSessionCleanupPolicy: String, CaseIterable {
     case review
     case deleteSafe
+    // Deletes what loses nothing, and holds the rest for a yes from the person: sessions
+    // that would lose work, and old sessions nobody has read yet.
+    case deleteSafeAskRest
     case deleteAll
 
     var deletesAutomatically: Bool {
@@ -117,6 +131,10 @@ enum OldSessionCleanupPolicy: String, CaseIterable {
 
     var includesSavedWork: Bool {
         self == .deleteAll
+    }
+
+    var asksAboutRest: Bool {
+        self == .deleteSafeAskRest
     }
 }
 

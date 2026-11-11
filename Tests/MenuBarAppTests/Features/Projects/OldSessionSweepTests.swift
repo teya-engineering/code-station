@@ -382,6 +382,121 @@ struct OldSessionSweepTests {
         #expect(store.session(old.id)?.isPinned == true)
     }
 
+    // MARK: - Unread sessions and the ask-first policy
+
+    @Test func neverDeletesAnUnreadSession() async throws {
+        let old = agedSession()
+        store.setMarkedUnread(true, for: old.id)
+        let firstSeen = Date()
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        for policy in [OldSessionCleanupPolicy.deleteSafe, .deleteAll] {
+            _ = await OldSessionSweep.run(
+                days: 7, policy: policy, store: store, runner: runner,
+                buffer: &buffer, now: firstSeen)
+            let deleted = await OldSessionSweep.run(
+                days: 7, policy: policy, store: store, runner: runner, buffer: &buffer,
+                now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+            #expect(deleted == 0)
+            #expect(buffer.parked.isEmpty)
+        }
+        #expect(store.session(old.id) != nil)
+    }
+
+    @Test func parksAnUnreadSessionUntilItIsRead() async throws {
+        let old = agedSession()
+        store.setMarkedUnread(true, for: old.id)
+        let firstSeen = Date()
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen)
+        #expect(buffer.parked == [OldSessionSweep.Parked(id: old.id, reason: .unread)])
+        #expect(buffer.deletion == nil)
+
+        let afterWarning = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+        #expect(afterWarning == 0)
+        #expect(store.session(old.id) != nil)
+
+        // Once read it is an ordinary old session again, and the sweep takes it on the
+        // far side of its own warning hour.
+        store.markRead(old.id)
+        let readAt = firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer, now: readAt)
+        #expect(buffer.parked.isEmpty)
+        #expect(buffer.deletion?.sessions == 1)
+
+        let deleted = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer, now: readAt.addingTimeInterval(OldSessionSweep.gracePeriod))
+        #expect(deleted == 1)
+        #expect(store.session(old.id) == nil)
+    }
+
+    @Test func parksASessionThatWouldLoseWorkAndDeletesTheSafeOnes() async throws {
+        let dirtyWorktree = try folderOnDisk()
+        let dirty = agedSession(worktreePath: dirtyWorktree)
+        let clean = agedSession()
+        let firstSeen = Date()
+        var buffer = OldSessionSweep.EligibilityBuffer()
+        let inspect: SessionCost.Inspect = { path in
+            self.snapshot(changedFiles: path == dirtyWorktree ? 2 : 0)
+        }
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen, inspect: inspect)
+        #expect(buffer.parked == [OldSessionSweep.Parked(id: dirty.id, reason: .savedWork)])
+        #expect(buffer.deletion?.sessions == 1)
+
+        let deleted = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod),
+            inspect: inspect)
+
+        #expect(deleted == 1)
+        #expect(store.session(clean.id) == nil)
+        #expect(store.session(dirty.id) != nil)
+        #expect(buffer.parked.map(\.id) == [dirty.id])
+    }
+
+    // Work started during the warning hour is held for a yes rather than quietly skipped.
+    @Test func parksASessionThatGainsWorkDuringTheWarningHour() async throws {
+        let old = agedSession(worktreePath: try folderOnDisk())
+        let firstSeen = Date()
+        var buffer = OldSessionSweep.EligibilityBuffer()
+
+        _ = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 0) }
+        #expect(buffer.deletion?.sessions == 1)
+
+        let deleted = await OldSessionSweep.run(
+            days: 7, policy: .deleteSafeAskRest, store: store, runner: runner,
+            buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
+                self.snapshot(changedFiles: 1)
+            }
+
+        #expect(deleted == 0)
+        #expect(store.session(old.id) != nil)
+        #expect(buffer.parked == [OldSessionSweep.Parked(id: old.id, reason: .savedWork)])
+    }
+
+    @Test func parkedStripNamesWhatEachSessionHolds() {
+        let parked = [OldSessionSweep.Parked(id: UUID(), reason: .savedWork),
+                      OldSessionSweep.Parked(id: UUID(), reason: .unread),
+                      OldSessionSweep.Parked(id: UUID(), reason: .unread)]
+        #expect(ParkedSessionsStrip.title(parked) == "3 sessions need your OK")
+        #expect(ParkedSessionsStrip.title(Array(parked.prefix(1))) == "1 session needs your OK")
+        #expect(ParkedSessionsStrip.detail(parked) == "1 would lose work · 2 unread")
+    }
+
     // MARK: - What git has to say first
 
     @Test func aSessionWithNoWorktreeCostsOnlyItsHistory() async {

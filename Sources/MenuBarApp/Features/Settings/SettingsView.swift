@@ -469,14 +469,15 @@ struct SettingsView: View {
     private var oldSessions: some View {
         @Bindable var settings = settings
         let days = settings.oldSessionDays
-        let stale = OldSessions.olderThan(days, in: store.userSessions).count
+        let stale = OldSessions.olderThan(days, in: store.userSessions,
+                                          isUnread: store.isUnread).count
 
         return ChoiceBlock("OLD SESSIONS") {
             SettingsCard {
                 HStack(alignment: .top, spacing: 12) {
                     settingCopy(
                         title: "Count a session as old after",
-                        detail: "Counted from its last turn. The sidebar offers to clear them.")
+                        detail: "Counted from its last turn. Pinned and unread sessions never count. The sidebar offers to clear them.")
                     Spacer(minLength: 0)
                     DayField(days: $settings.oldSessionDays)
                 }
@@ -500,6 +501,15 @@ struct SettingsView: View {
                     detail: "After one warning hour, removes sessions with no Design files and no uncommitted worktree changes.",
                     selected: settings.oldSessionCleanupPolicy == .deleteSafe) {
                         settings.oldSessionCleanupPolicy = .deleteSafe
+                }
+
+                SettingsRowDivider()
+
+                OptionRow(
+                    title: "Delete what is safe, ask about the rest",
+                    detail: "After one warning hour, removes sessions that lose nothing. Sessions that would lose work, and unread ones, wait in the sidebar for your OK.",
+                    selected: settings.oldSessionCleanupPolicy == .deleteSafeAskRest) {
+                        settings.oldSessionCleanupPolicy = .deleteSafeAskRest
                 }
 
                 SettingsRowDivider()

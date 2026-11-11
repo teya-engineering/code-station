@@ -91,13 +91,17 @@ struct CleanupStrip: View {
 struct OldSessionsStrip: View {
     let summary: OldSessionsWatch.Summary
     let deletion: OldSessionSweep.Deletion?
+    // Sessions with saved work that are waiting in the parked strip. They are counted
+    // there, so they are not also counted here as left out of this round.
+    var parkedWithSavedWork = 0
     let days: Int
     let onReview: () -> Void
 
     var body: some View {
         CleanupStrip(
             title: Self.title(summary, deleting: deletion?.sessions, days: days),
-            detail: Self.detail(summary, deleting: deletion?.sessions, days: days),
+            detail: Self.detail(summary, deleting: deletion?.sessions,
+                                parked: parkedWithSavedWork, days: days),
             isUrgent: summary.losesWork > 0,
             countdownAt: deletion?.at,
             countdownLabel: "Automatic deletion countdown",
@@ -122,13 +126,14 @@ struct OldSessionsStrip: View {
     // saved work stays only while that work is there. So the line says they are outside
     // this round, not that they are kept. With no cohort waiting the strip is only an
     // offer to review, so the detail counts what accepting it would cost.
-    nonisolated static func detail(_ summary: OldSessionsWatch.Summary, deleting: Int?, days: Int) -> String {
+    nonisolated static func detail(_ summary: OldSessionsWatch.Summary, deleting: Int?,
+                                   parked: Int = 0, days: Int) -> String {
         guard let deleting else { return reviewDetail(summary) }
         var parts = ["Older than \(counted(days, "day"))"]
         // The summary is refreshed on its own slower clock, so it can lag a cohort that
         // has just lost a member and count fewer sessions than the cohort takes. There is
         // nothing left for review when it does.
-        let leftOver = summary.sessions - deleting
+        let leftOver = summary.sessions - deleting - parked
         if leftOver > 0 { parts.append("\(leftOver) not in this round") }
         if summary.snoozedProjects > 0 {
             parts.append("\(counted(summary.snoozedProjects, "project")) snoozed")
@@ -146,6 +151,42 @@ struct OldSessionsStrip: View {
         let snoozed = "\(counted(summary.snoozedProjects, "project")) snoozed"
         guard summary.losesWork > 0 else { return snoozed }
         return "\(snoozed) · \(summary.losesWork) would lose work"
+    }
+}
+
+// Sessions the sweep would have taken but is holding for a yes: ones that would lose
+// work, and old ones nobody has read. Nothing here runs out, so there is no countdown,
+// only a standing question. It is urgent because each one holds something a person
+// would miss.
+struct ParkedSessionsStrip: View {
+    let parked: [OldSessionSweep.Parked]
+    let onReview: () -> Void
+
+    var body: some View {
+        CleanupStrip(
+            title: Self.title(parked),
+            detail: Self.detail(parked),
+            isUrgent: true,
+            countdownAt: nil,
+            countdownLabel: "",
+            hoverTitle: "Click to review",
+            label: "Review sessions waiting for your OK",
+            action: onReview)
+            .contentTransition(.numericText())
+    }
+
+    nonisolated static func title(_ parked: [OldSessionSweep.Parked]) -> String {
+        "\(counted(parked.count, "session")) \(parked.count == 1 ? "needs" : "need") your OK"
+    }
+
+    // "1 would lose work · 2 unread"
+    nonisolated static func detail(_ parked: [OldSessionSweep.Parked]) -> String {
+        let savedWork = parked.count { $0.reason == .savedWork }
+        let unread = parked.count { $0.reason == .unread }
+        var parts: [String] = []
+        if savedWork > 0 { parts.append("\(savedWork) would lose work") }
+        if unread > 0 { parts.append("\(unread) unread") }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -186,13 +227,15 @@ final class OldSessionsWatch {
         return RefreshRule(
             days: days,
             oldSessions: OldSessions.olderThan(days, in: sessions,
-                                               snoozedUntil: { store.snoozeDeadline(for: $0) })
+                                               snoozedUntil: { store.snoozeDeadline(for: $0) },
+                                               isUnread: store.isUnread)
                 .map {
                     RefreshRule.Session(id: $0.id,
                                         isBusy: runner.isBusy($0.id, store: store))
                 },
             nextOldAt: OldSessions.nextOldAt(days, in: sessions,
-                                             snoozedUntil: { store.snoozeDeadline(for: $0) }))
+                                             snoozedUntil: { store.snoozeDeadline(for: $0) },
+                                             isUnread: store.isUnread))
     }
 
     func watch(store: ProjectStore, runner: SessionRunner, days: Int) async {
@@ -204,7 +247,7 @@ final class OldSessionsWatch {
             // minute a project comes back rather than at the next hourly pass.
             let nextOld = OldSessions.nextOldAt(
                 days, in: store.sidebarSessions, now: now,
-                snoozedUntil: { store.snoozeDeadline(for: $0) })
+                snoozedUntil: { store.snoozeDeadline(for: $0) }, isUnread: store.isUnread)
             let next = min(hourly, nextOld ?? .distantFuture)
             do {
                 try await Task.sleep(for: .seconds(max(0, next.timeIntervalSinceNow)))
@@ -215,7 +258,7 @@ final class OldSessionsWatch {
     }
 
     private func refresh(store: ProjectStore, runner: SessionRunner, days: Int) async {
-        let old = OldSessions.olderThan(days, in: store.sidebarSessions)
+        let old = OldSessions.olderThan(days, in: store.sidebarSessions, isUnread: store.isUnread)
             .filter { !runner.isBusy($0.id, store: store) }
         let heldBack = old.filter { ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }
         let sessions = old.filter { !ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }

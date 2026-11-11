@@ -65,7 +65,7 @@ enum SettingsSearchIndex {
         result("Session finished sound", .general, .generalSound,
                "sound alert audio chime beep play finish turn ends notification silent off"),
         result("Old sessions", .general, .generalOldSessions,
-               "count old after days delete automatically review clear stale design saved work uncommitted"),
+               "count old after days delete automatically review clear stale design saved work uncommitted ask confirm unread park"),
         result("Orphaned worktrees", .general, .generalOrphanedWorktrees,
                "git checkout prune automatically no session disk cleanup uncommitted branch"),
         result("Session memory", .general, .generalSessionMemory,

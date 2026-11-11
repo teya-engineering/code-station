@@ -69,6 +69,22 @@ struct OldSessionsTests {
         #expect(OldSessions.nextOldAt(7, in: [turningOld], now: now) == nil)
     }
 
+    // A reply nobody has read is not something anyone is done with, however long ago it
+    // came in.
+    @Test func anUnreadSessionIsNeverOld() {
+        let unread = session(daysAgo: 30)
+        let read = session(daysAgo: 30)
+        let isUnread = { (id: UUID) in id == unread.id }
+
+        #expect(OldSessions.olderThan(7, in: [unread, read], now: now, isUnread: isUnread)
+            .map(\.id) == [read.id])
+        #expect(OldSessions.isKept(unread, now: now, isUnread: isUnread))
+
+        let turningOld = session(daysAgo: 6.5)
+        #expect(OldSessions.nextOldAt(7, in: [turningOld], now: now,
+                                      isUnread: { $0 == turningOld.id }) == nil)
+    }
+
     @Test func findsWhenTheNextSessionBecomesOld() {
         let alreadyOld = session(daysAgo: 10)
         let next = session(daysAgo: 6.5)
