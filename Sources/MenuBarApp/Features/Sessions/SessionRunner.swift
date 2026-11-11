@@ -42,6 +42,9 @@ final class SessionRunner {
     fileprivate final class SessionRecord {
         var state: SessionState = .idle
         var turn: Turn?
+        // The result can arrive before the process closes, for example while Claude
+        // Code predicts the next prompt. Keep this observed so the status changes then.
+        var hasFinishedResponse = false
         // Which avatar the next turn wears. Each turn takes the next number in order.
         var nextAvatarSequence = 0
         // The tool calls the turn is inside, oldest first. Parallel calls can nest more
@@ -240,6 +243,18 @@ final class SessionRunner {
     var available: Bool { catalog.available }
 
     func state(_ sessionID: UUID) -> SessionState { records[sessionID]?.state ?? .idle }
+
+    func completionActivity(_ sessionID: UUID) -> SessionCompletionActivity? {
+        guard let record = records[sessionID], let turn = record.turn,
+              record.asked.isEmpty else { return nil }
+        switch record.state {
+        case .starting, .streaming:
+            if let summary = turn.summary { return summary.mode.isTitle ? .title : .recap }
+            return record.hasFinishedResponse ? .finishing : nil
+        default:
+            return nil
+        }
+    }
 
     func runningTool(_ sessionID: UUID) -> ToolUse? { records[sessionID]?.runningTools.last }
 
@@ -952,7 +967,7 @@ final class SessionRunner {
 
     // A title or recap is the app asking about a turn that has already ended and been
     // announced, so it is not the agent working. A title followed by a queued prompt is
-    // different: the session goes straight back to work, so it still reads as running.
+    // different: the session goes straight back to work, so it stays in the running list.
     func isWrappingUp(_ sessionID: UUID) -> Bool {
         isRecapping(sessionID)
             || (hasSummary(sessionID, title: true) && !queued(sessionID).contains { $0.summary == nil })
@@ -1958,6 +1973,7 @@ final class SessionRunner {
         for event in events {
             if event.isAnswering {
                 turn.answered = true
+                records[sessionID]?.hasFinishedResponse = false
                 // The agent moving on after a steer is the only word Claude Code gives
                 // that the prompt reached it.
                 for key in turn.steersInFlight.keys { turn.steersInFlight[key]?.answered = true }
@@ -2004,6 +2020,7 @@ final class SessionRunner {
                 }
 
             case .turnStarted:
+                records[sessionID]?.hasFinishedResponse = false
                 freshReply(turn, sessionID: sessionID, store: store)
                 setState(.streaming, for: sessionID)
 
@@ -2310,6 +2327,7 @@ final class SessionRunner {
                 }
                 // Nothing more is coming, and the CLI keeps its input stream open waiting
                 // for another message, so this is where the turn is let go.
+                records[sessionID]?.hasFinishedResponse = !isError
                 if turn.endingWait { stopStartedGroups(sessionID, reason: "wait ended by hand") }
                 endHold(turn, sessionID: sessionID)
                 turn.closeInput()
@@ -2624,6 +2642,7 @@ final class SessionRunner {
         }
         turn.steersInFlight = [:]
         records[sessionID]?.turn = nil
+        records[sessionID]?.hasFinishedResponse = false
         records[sessionID]?.runningTools = []
         records[sessionID]?.agentsAtWork = []
         records[sessionID]?.wait = nil

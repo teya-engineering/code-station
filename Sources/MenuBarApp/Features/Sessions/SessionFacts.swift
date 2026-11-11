@@ -77,9 +77,11 @@ struct SessionStateReading: Equatable {
     // A diagnosis runs like any other turn, but naming it is what tells the reader the
     // brief landed and the agent is working through it.
     var diagnosing = false
+    var completionActivity: SessionCompletionActivity?
 
     var word: String {
-        diagnosing && tone == .running ? "DIAGNOSING" : tone.word
+        if diagnosing && tone == .running && completionActivity == nil { return "DIAGNOSING" }
+        return tone.word(completionActivity: completionActivity)
     }
 
     // The word as a sentence would say it, for VoiceOver: "Needs you" rather than
@@ -271,6 +273,8 @@ struct SessionFactsChip: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
                         StatusCaps(text: state.word, tint: state.tone.wordColour, size: 9.5)
+                            .contentTransition(.opacity)
+                            .motion(Motion.control, value: state.word)
                         if let since = state.since {
                             StatusDot(size: 9.5)
                             if state.ticks {
@@ -364,6 +368,8 @@ struct SessionFactsChip: View {
                     StateLight(tone: state.tone, size: 7)
                 }
                 StatusCaps(text: state.word, tint: state.tone.wordColour)
+                    .contentTransition(.opacity)
+                    .motion(Motion.control, value: state.word)
                 if let since = state.since {
                     if state.ticks {
                         TickingReading(since: since, reading: { since, now in

@@ -11,6 +11,7 @@ struct WorkingRow: View {
     let sessionID: UUID
     let avatarName: String?
     let agentTitle: String
+    var completionActivity: SessionCompletionActivity?
     // The tasks holding the turn open, if that is why it is still here. Naming one is the
     // whole point of the row in that state: silence is expected, and what decides whether
     // it will ever end is what is running, not how long it has been quiet.
@@ -40,7 +41,8 @@ struct WorkingRow: View {
             let quiet = context.date.timeIntervalSince(since)
             let avatar = currentAvatar
             let personality = avatar.personality
-            let word = waiting ? "Waiting" : words.word(after: context.date.timeIntervalSince(started))
+            let word = completionActivity?.label
+                ?? (waiting ? "Waiting" : words.word(after: context.date.timeIntervalSince(started)))
             HStack(spacing: 8) {
                 AgentAvatarView(image: avatar.displayImage(for: sessionID), size: 20)
                     .id(avatar.id)
@@ -82,6 +84,9 @@ struct WorkingRow: View {
             // Only worth a hint once the silence is long enough to worry about; the
             // empty one shows nothing.
             .appTooltip {
+                if let completionActivity {
+                    return Tooltip(title: completionActivity.label, note: completionActivity.detail)
+                }
                 if waiting {
                     guard !tasks.isEmpty else { return Tooltip(title: "") }
                     return Tooltip(title: "\(agentTitle) has answered and is holding the turn open.",

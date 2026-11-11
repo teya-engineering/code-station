@@ -1,5 +1,25 @@
 import Foundation
 
+enum SessionCompletionActivity: Equatable {
+    case title, recap, finishing
+
+    var label: String {
+        switch self {
+        case .title: "Generating title"
+        case .recap: "Writing recap"
+        case .finishing: "Finishing up"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .title: "Naming the session from its conversation."
+        case .recap: "Summarising the completed turn."
+        case .finishing: "The agent has reported completion. Waiting for its process to close."
+        }
+    }
+}
+
 // Which of a session's two conversations a screen is talking about. A Design companion
 // lives behind the tab of the session that opened it and has no row anywhere, so that
 // session's row is the only place its work can show.
@@ -84,6 +104,7 @@ enum SessionActivity {
                      runner: SessionRunner) -> String {
         let live = LiveConversation.of(session.id, store: store, runner: runner) ?? session
         let busy = runner.state(live.id).isBusy
+        if let activity = runner.completionActivity(live.id) { return activity.label }
         return line(permission: runner.question(live.id),
                     runningTool: busy ? runner.runningTool(live.id) : nil,
                     root: store.workingDirectory(for: session) ?? "",
@@ -94,6 +115,10 @@ enum SessionActivity {
 }
 
 extension SessionTone {
+    func word(completionActivity: SessionCompletionActivity?) -> String {
+        self == .running ? completionActivity?.label.uppercased() ?? word : word
+    }
+
     // Every screen reads the tone from the same two places, so the lookup lives here
     // instead of being written out again on each one.
     @MainActor

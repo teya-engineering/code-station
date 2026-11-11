@@ -91,11 +91,13 @@ struct SessionRecapRunnerTests {
         })
 
         #expect(harness.runner.isRecapping(harness.session.id))
+        #expect(harness.runner.completionActivity(harness.session.id) == .recap)
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
             == ["Make the change", "Initial response"])
 
         try Data().write(to: harness.scratch.path("release-recap"))
         #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+        #expect(harness.runner.completionActivity(harness.session.id) == nil)
         #expect(harness.store.recap(for: harness.session.id)?.text
             == "The change is complete. Review it next.")
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)

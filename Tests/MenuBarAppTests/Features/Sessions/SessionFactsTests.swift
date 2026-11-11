@@ -82,6 +82,17 @@ struct SessionFactsTests {
         #expect(SessionStateReading(tone: .running, diagnosing: true).spokenWord == "Diagnosing")
     }
 
+    @Test func namesCompletionWorkWithoutHidingAttentionOrWaiting() {
+        for activity in [SessionCompletionActivity.title, .recap, .finishing] {
+            let running = SessionStateReading(tone: .running, diagnosing: true,
+                                              completionActivity: activity)
+            #expect(running.spokenWord == activity.label)
+            for tone in [SessionTone.needsYou, .waiting, .idle] {
+                #expect(SessionStateReading(tone: tone, completionActivity: activity).word == tone.word)
+            }
+        }
+    }
+
     // The card carries the count the pill rounds off.
     @Test func countsPreciselyOnTheCard() {
         #expect(SessionStateReading.preciseElapsed(4) == "0m 04s")

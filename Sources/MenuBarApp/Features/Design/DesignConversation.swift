@@ -514,6 +514,7 @@ struct DesignConversation: View {
                    sessionID: sessionID,
                    avatarName: session.agentAvatarName,
                    agentTitle: session.agent.title,
+                   completionActivity: runner.completionActivity(sessionID),
                    tasks: runner.backgroundTasks(sessionID),
                    waitingSince: runner.waitingSince(sessionID))
             .transition(.fadeIn)

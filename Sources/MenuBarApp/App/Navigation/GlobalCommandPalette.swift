@@ -542,7 +542,7 @@ struct GlobalCommandPalette: View {
             } else if finished {
                 "REVIEW"
             } else if busy {
-                "RUNNING"
+                runner.completionActivity(live)?.label.uppercased() ?? "RUNNING"
             } else {
                 nil
             }

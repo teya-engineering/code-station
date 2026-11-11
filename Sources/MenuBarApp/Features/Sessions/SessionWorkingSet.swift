@@ -91,6 +91,8 @@ struct SessionWorkingSet: View {
                         StateLight(tone: status.isNew ? .idle : tone, size: 7)
                     }
                     Text(status.word)
+                        .contentTransition(.opacity)
+                        .motion(Motion.control, value: status.word)
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(status.isNew ? Color.primary : tone.wordColour)
                     if let since = status.elapsedSince {
@@ -173,6 +175,10 @@ struct SessionWorkingSet: View {
         }
         switch tone {
         case .running:
+            if let activity = runner.completionActivity(live) {
+                return HeaderStatus(word: activity.label, line: activity.detail,
+                                    elapsedSince: runner.turnStarted(live))
+            }
             let doing = headline?.title ?? "Thinking"
             return HeaderStatus(word: "Running", line: doing, elapsedSince: turnStart ?? headline?.startedAt)
         case .waiting:

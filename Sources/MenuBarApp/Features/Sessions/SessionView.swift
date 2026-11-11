@@ -1260,7 +1260,8 @@ struct SessionView: View {
         }
         return SessionStateReading(tone: tone, since: since,
                             ticks: tone == .running || waitingSince != nil,
-                            diagnosing: isTroubleshooting)
+                            diagnosing: isTroubleshooting,
+                            completionActivity: runner.completionActivity(conversation.id))
     }
 
     private func workspaceRepositories(_ session: ChatSession) -> [ChangesRepository] {
@@ -1893,6 +1894,7 @@ struct SessionView: View {
                            sessionID: sessionID,
                            avatarName: session.agentAvatarName,
                            agentTitle: session.agent.title,
+                           completionActivity: runner.completionActivity(sessionID),
                            tasks: runner.backgroundTasks(sessionID),
                            waitingSince: runner.waitingSince(sessionID))
                     .transition(.fadeIn)
@@ -2485,7 +2487,6 @@ struct SessionView: View {
     // keyed off its text goes dark the moment the model speaks and stays dark for the rest
     // of the turn - which is also when the silence counter is worth the most.
     private func showsThinking(state: SessionState) -> Bool {
-        guard !runner.isWrappingUp(sessionID) else { return false }
         // A parked turn is waiting on the person, not working.
         return switch state {
         case .reconnecting, .stalled:

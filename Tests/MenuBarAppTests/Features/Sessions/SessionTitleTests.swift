@@ -127,6 +127,7 @@ struct SessionTitleRunnerTests {
         })
         #expect(harness.runner.state(harness.session.id).isBusy)
         #expect(harness.runner.isWrappingUp(harness.session.id))
+        #expect(harness.runner.completionActivity(harness.session.id) == .title)
         let notice = SidebarNotices.all(store: harness.store, runner: harness.runner)
             .first { $0.session.id == harness.session.id }?.notice
         #expect(notice == .finished)
@@ -145,12 +146,14 @@ struct SessionTitleRunnerTests {
             FileManager.default.fileExists(atPath: harness.scratch.path("title-streamed").path)
         })
         #expect(!harness.runner.isWrappingUp(harness.session.id))
+        #expect(harness.runner.completionActivity(harness.session.id) == .title)
 
         try Data().write(to: harness.scratch.path("release-title"))
         #expect(await waitUntil {
             harness.runner.state(harness.session.id) == .idle
                 && harness.runner.queued(harness.session.id).isEmpty
         })
+        #expect(harness.runner.completionActivity(harness.session.id) == nil)
     }
 
     @Test func leavesAManuallyNamedSessionAlone() async throws {

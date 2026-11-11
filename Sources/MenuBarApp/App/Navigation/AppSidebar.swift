@@ -663,6 +663,7 @@ struct AppSidebar: View {
                             waitingSince: runner.waitingSince(live.id),
                             needsInput: runner.question(live.id) != nil,
                             finished: finished,
+                            completionActivity: runner.completionActivity(live.id),
                             snoozed: snooze,
                             activity: { [runner, store] in
                                 Self.activity(live, runner: runner, store: store)
@@ -1127,6 +1128,7 @@ struct AppSidebar: View {
     // needs-you card above.
     private static func activity(_ session: ChatSession, runner: SessionRunner,
                                  store: ProjectStore) -> String? {
+        if let activity = runner.completionActivity(session.id) { return activity.label }
         let runningTool = runner.state(session.id).isBusy ? runner.runningTool(session.id) : nil
         let tasks = runner.backgroundTasks(session.id)
         // A card with nothing to say draws no line, where a wider row would say so in words.
@@ -2132,6 +2134,7 @@ struct SessionCard: View {
     let waitingSince: Date?
     let needsInput: Bool
     let finished: Bool
+    var completionActivity: SessionCompletionActivity?
     // Set while the session is put out of the way, so the card can say so.
     var snoozed: SessionSnooze? = nil
     // Worked out inside the card rather than handed in, because it reads the tool the
@@ -2242,7 +2245,7 @@ struct SessionCard: View {
 
     // A failed turn needs the user like any other unread end, but says what happened
     // in its own word and colour, so the colour is never the only sign.
-    private var word: String { failed ? "FAILED" : tone.word }
+    private var word: String { failed ? "FAILED" : tone.word(completionActivity: completionActivity) }
 
     private var band: StateBand? {
         failed
@@ -2276,6 +2279,8 @@ struct SessionCard: View {
             HStack(spacing: 6) {
                 StateLight(tone: tone, colour: failed ? Theme.deletion : nil)
                 Text(word)
+                    .contentTransition(.opacity)
+                    .motion(Motion.control, value: word)
                     .font(.mono(9, .semibold))
                     .kerning(0.9)
                     .foregroundStyle(band?.word ?? tone.colour)
