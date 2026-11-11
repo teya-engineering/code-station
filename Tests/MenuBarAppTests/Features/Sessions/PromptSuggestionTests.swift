@@ -59,6 +59,57 @@ struct PromptSuggestionTests {
         #expect(!tail.contains(String(repeating: "b", count: 2_001)))
     }
 
+    @Test func codexSuggestionsSkipExpensiveDefaultsAndConfiguredServers() async throws {
+        let scratch = ScratchDirectory(prefix: "prompt-suggestion")
+        let executable = scratch.path("agent")
+        try FixtureCLI.write("""
+            cat >/dev/null
+            if [ "$1" = mcp ]; then
+                printf '%s' '[{"name":"slow-server","enabled":true,"transport":{"command":"slow-mcp"}},{"name":"remote-server","enabled":true,"transport":{"url":"https://example.com/mcp"}}]'
+                exit 0
+            fi
+            printf '%s\\n' "$@" > "$folder/arguments"
+            case "$*" in *'model_reasoning_effort="low"'*) ;; *) exit 7 ;; esac
+            case "$*" in *'"slow-server"={enabled=false,'*) ;; *) exit 7 ;; esac
+            case "$*" in *'"remote-server"={enabled=false,'*) ;; *) exit 7 ;; esac
+            printf '%s' '{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"Run the tests"}}'
+            """, to: executable)
+
+        let suggestion = await PromptSuggestion.read(
+            agent: .codex, at: executable.path, searchPath: "/usr/bin:/bin",
+            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt", model: "gpt-6-astra")
+
+        #expect(suggestion == "Run the tests")
+        let arguments = try String(contentsOf: scratch.path("arguments"), encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        #expect(arguments.contains("--ephemeral"))
+        #expect(arguments.contains("gpt-6-astra"))
+        #expect(arguments.contains("read-only"))
+        #expect(arguments.contains(#"approval_policy="never""#))
+        #expect(arguments.contains("project_doc_max_bytes=0"))
+    }
+
+    @Test(arguments: ["exit 7", "printf 'invalid json'"])
+    func skipsCodexSuggestionWhenServersCannotBeListed(response: String) async throws {
+        let scratch = ScratchDirectory(prefix: "prompt-suggestion")
+        let executable = scratch.path("agent")
+        try FixtureCLI.write("""
+            if [ "$1" = mcp ]; then
+                \(response)
+                exit
+            fi
+            touch "$folder/started"
+            printf '%s' '{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"Run the tests"}}'
+            """, to: executable)
+
+        let suggestion = await PromptSuggestion.read(
+            agent: .codex, at: executable.path, searchPath: "/usr/bin:/bin",
+            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt")
+
+        #expect(suggestion == nil)
+        #expect(!FileManager.default.fileExists(atPath: scratch.path("started").path))
+    }
+
     @Test(arguments: [AgentKind.claudeCode, .codex, .copilot], [0, 7])
     func readsTheLastLineOnlyWhenTheCommandSucceeds(agent: AgentKind, status: Int) async throws {
         let scratch = ScratchDirectory(prefix: "prompt-suggestion")
@@ -73,6 +124,7 @@ struct PromptSuggestionTests {
         }
         try FixtureCLI.write("""
             cat >/dev/null
+            if [ "$1" = mcp ]; then printf '[]'; exit 0; fi
             printf '%s' '\(message)'
             exit \(status)
             """, to: executable)
@@ -88,6 +140,7 @@ struct PromptSuggestionTests {
         let scratch = ScratchDirectory(prefix: "prompt-suggestion")
         let executable = scratch.path("agent")
         try FixtureCLI.write("""
+            if [ "$1" = mcp ]; then printf '[]'; exit 0; fi
             printf '%s\\n' '{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"Run the tests"}}'
             yes output | head -c 262144
             """, to: executable)
@@ -284,6 +337,7 @@ struct PromptSuggestionRunnerTests {
         // would keep it from reaching the suggestion request.
         return """
         \(agent == .codex ? "input=$(cat)" : "")
+        if [ "$1" = mcp ]; then printf '[]'; exit 0; fi
         case "$*" in
             *'Return only the prompt.'*)
                 printf '%s\\n' "$@" > "$folder/suggestion-arguments"

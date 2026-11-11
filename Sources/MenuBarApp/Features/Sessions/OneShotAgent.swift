@@ -13,14 +13,20 @@ enum OneShotAgent {
 
         // A line handler keeps stdin open for replies. Codex drains stdin before
         // starting even with a prompt argument, so collect its output after exit.
-        guard let output = try? await CommandRunner.run(
-            executable: path,
-            arguments: arguments,
-            currentDirectory: URL(fileURLWithPath: workingDirectory),
-            environment: environment,
-            timeout: timeout,
-            outputByteLimit: 262_144
-        ) else {
+        let output: CommandRunner.Output
+        do {
+            output = try await CommandRunner.run(
+                executable: path,
+                arguments: arguments,
+                currentDirectory: URL(fileURLWithPath: workingDirectory),
+                environment: environment,
+                timeout: timeout,
+                outputByteLimit: 262_144
+            )
+        } catch CommandRunner.RunError.timedOut {
+            SessionLog.note("\(agent.command) \(purpose) command timed out")
+            return nil
+        } catch {
             SessionLog.note("\(agent.command) \(purpose) command did not complete")
             return nil
         }

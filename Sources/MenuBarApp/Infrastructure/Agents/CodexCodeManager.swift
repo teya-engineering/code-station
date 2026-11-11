@@ -275,13 +275,22 @@ final class CodexCodeManager {
         guard let codexPath = ProcessManager.resolve("codex") else {
             throw DiscoveryFailure(message: "Codex CLI not found on PATH.")
         }
+        return try await Self.enabledServers(at: codexPath, searchPath: ProcessManager.searchPath,
+                                             in: directory)
+    }
+
+    nonisolated static func enabledServers(at path: String, searchPath: String,
+                                          in directory: String,
+                                          timeout: Duration = .seconds(30)) async throws -> [DisabledMCPServer] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = searchPath
         let result: CommandRunner.Output
         do {
-            result = try await CommandRunner.run(executable: codexPath,
+            result = try await CommandRunner.run(executable: path,
                                                  arguments: ["mcp", "list", "--json"],
                                                  currentDirectory: URL(fileURLWithPath: directory),
-                                                 environment: CLIRegistrar.environment,
-                                                 timeout: .seconds(30))
+                                                 environment: environment,
+                                                 timeout: timeout)
         } catch {
             throw DiscoveryFailure(message: "Could not run Codex: \(error.localizedDescription)")
         }
@@ -291,7 +300,8 @@ final class CodexCodeManager {
                 ? "Codex could not list its MCP servers."
                 : message)
         }
-        guard let snapshots = Self.enabledServers(in: Data(result.output.utf8)) else {
+        guard !result.outputTruncated,
+              let snapshots = Self.enabledServers(in: Data(result.output.utf8)) else {
             throw DiscoveryFailure(message: "Codex returned an MCP server without a usable transport.")
         }
         return snapshots

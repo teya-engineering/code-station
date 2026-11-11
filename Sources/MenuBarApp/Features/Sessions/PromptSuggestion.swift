@@ -112,7 +112,8 @@ enum PromptSuggestion {
         }
     }
 
-    static func arguments(for agent: AgentKind, prompt: String, model: String? = nil) -> [String] {
+    static func arguments(for agent: AgentKind, prompt: String, model: String? = nil,
+                          disabledMCPServers: [DisabledMCPServer] = []) -> [String] {
         switch agent {
         case .claudeCode:
             // Here for completeness. A Claude Code session reads the CLI's own prediction
@@ -123,11 +124,16 @@ enum PromptSuggestion {
             return arguments
 
         case .codex:
-            // Read-only with approvals off, so a run that ignores the instruction and
-            // reaches for a tool is stopped by the sandbox rather than by the prompt.
-            var arguments = ["exec", "--json", "--skip-git-repo-check",
+            // The conversation tail is all this needs. Project instructions, MCP startup
+            // and a high reasoning default can spend the whole deadline before it answers.
+            var arguments = ["exec", "--json", "--skip-git-repo-check", "--ephemeral",
                              "--sandbox", "read-only",
-                             "-c", #"approval_policy="never""#]
+                             "-c", #"approval_policy="never""#,
+                             "-c", #"model_reasoning_effort="low""#,
+                             "-c", "project_doc_max_bytes=0"]
+            if let override = AgentLaunchConfiguration.disabledMCPServersOverride(disabledMCPServers) {
+                arguments += ["-c", override]
+            }
             if let model { arguments += ["-m", model] }
             arguments.append(prompt)
             return arguments
@@ -144,12 +150,30 @@ enum PromptSuggestion {
     // failure here must never reach the session it was asked about.
     static func read(agent: AgentKind, at path: String, searchPath: String,
                      workingDirectory: String, prompt: String, model: String? = nil) async -> String? {
-        cleaned(await OneShotAgent.read(agent: agent, at: path,
-                                        arguments: arguments(for: agent, prompt: prompt, model: model),
-                                        searchPath: searchPath,
-                                        workingDirectory: workingDirectory,
-                                        timeout: .seconds(45),
-                                        purpose: "prompt suggestion"))
+        var disabledMCPServers: [DisabledMCPServer] = []
+        if agent == .codex {
+            // An empty mcp_servers table merges with the user's config, so each enabled
+            // server must be switched off by name for this invocation.
+            guard let servers = try? await CodexCodeManager.enabledServers(
+                at: path, searchPath: searchPath, in: workingDirectory, timeout: .seconds(5)) else {
+                SessionLog.note("codex prompt suggestion could not list MCP servers")
+                return nil
+            }
+            disabledMCPServers = servers
+        }
+        guard let response = await OneShotAgent.read(
+            agent: agent, at: path,
+            arguments: arguments(for: agent, prompt: prompt, model: model,
+                                 disabledMCPServers: disabledMCPServers),
+            searchPath: searchPath, workingDirectory: workingDirectory,
+            timeout: .seconds(45), purpose: "prompt suggestion") else { return nil }
+        let suggestion = cleaned(response)
+        if suggestion == nil {
+            SessionLog.note(response.trimmed.lowercased() == "none"
+                ? "\(agent.command) prompt suggestion found no useful follow-up"
+                : "\(agent.command) prompt suggestion rejected response format")
+        }
+        return suggestion
     }
 }
 
