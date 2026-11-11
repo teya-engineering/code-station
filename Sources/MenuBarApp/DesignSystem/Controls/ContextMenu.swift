@@ -275,6 +275,10 @@ private struct AppMenuButton: ViewModifier {
         }
         .buttonStyle(.plain)
         .background(FrameAnchorView(anchor: anchor))
+        .anchorPreference(key: MenuControlAnchorKey.self, value: .bounds) { bounds in
+            guard isOpen, let opened else { return [:] }
+            return [opened: bounds]
+        }
         .focused($triggerFocused)
         .focusEffectDisabled(showsFocusRing)
         .overlay {
@@ -354,7 +358,20 @@ struct MenuChevron: View {
 
 // MARK: - Host
 
+// Resolving the button's bounds in the host keeps an open menu attached when a dialog
+// or sheet resizes, without reopening the menu or resetting its focus.
+struct MenuControlAnchorKey: PreferenceKey {
+    static let defaultValue: [Int: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [Int: Anchor<CGRect>],
+                       nextValue: () -> [Int: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    }
+}
+
 struct ContextMenuHost: View {
+    var controlAnchor: Anchor<CGRect>? = nil
+
     @Environment(MenuPresenter.self) private var presenter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -379,6 +396,8 @@ struct ContextMenuHost: View {
 
     private var content: some View {
         GeometryReader { geometry in
+            let controlFrame = controlAnchor.map { geometry[$0] }
+            let width = presenter.width.map { max(menuMinimumWidth, controlFrame?.width ?? $0) }
             ZStack(alignment: .topLeading) {
                 // Swallows the click that dismisses the menu so it does not also
                 // land on whatever is underneath.
@@ -387,14 +406,15 @@ struct ContextMenuHost: View {
                     .onTapGesture { presenter.dismiss() }
 
                 card(maxHeight: max(0, geometry.size.height - 16))
-                    // A menu opened to a fixed width keeps it; anything else takes
-                    // the width its own rows ask for.
-                    .fixedSize(horizontal: presenter.width == nil, vertical: false)
-                    .frame(width: presenter.width)
+                    // A menu that matches its control follows its width; anything
+                    // else takes the width its own rows ask for.
+                    .fixedSize(horizontal: width == nil, vertical: false)
+                    .frame(width: width)
                     .id(presenter.generation)
                     .smoothlyResizes(when: presenter.contentRevision)
                     .measuredOverlay(generation: presenter.generation, into: $measurement)
-                    .offset(x: x(in: geometry.size), y: y(in: geometry.size))
+                    .offset(x: x(in: geometry.size, controlFrame: controlFrame),
+                            y: y(in: geometry.size, controlFrame: controlFrame))
                     .transition(opening)
 
                 // Escape closes the menu, the way a menu is expected to behave when
@@ -525,17 +545,25 @@ struct ContextMenuHost: View {
 
     // A menu near an edge stays attached to its control when it has one. A right-click
     // menu instead flips over the click, which is what the system menu does too.
-    private func x(in bounds: CGSize) -> CGFloat {
-        let flipped = presenter.origin.x + size.width > bounds.width - 8
-            ? (presenter.trailingAnchor ?? presenter.origin.x) - size.width
-            : presenter.origin.x
+    private func x(in bounds: CGSize, controlFrame: CGRect?) -> CGFloat {
+        let leading = controlFrame?.minX ?? presenter.origin.x
+        let trailing = controlFrame?.maxX ?? presenter.trailingAnchor ?? presenter.origin.x
+        let flipped = leading + size.width > bounds.width - 8
+            ? trailing - size.width : leading
         return max(8, min(flipped, bounds.width - size.width - 8))
     }
 
-    private func y(in bounds: CGSize) -> CGFloat {
-        presenter.verticalAttachment.y(originY: presenter.origin.y,
-                                       menuHeight: size.height,
-                                       boundsHeight: bounds.height)
+    private func y(in bounds: CGSize, controlFrame: CGRect?) -> CGFloat {
+        if let controlFrame, case .control(let edge, _) = presenter.verticalAttachment {
+            let above = controlFrame.minY - 4
+            let below = controlFrame.maxY + 4
+            return MenuVerticalAttachment.control(edge: edge, oppositeY: edge == .top ? below : above)
+                .y(originY: edge == .top ? above : below,
+                   menuHeight: size.height, boundsHeight: bounds.height)
+        }
+        return presenter.verticalAttachment.y(originY: presenter.origin.y,
+                                              menuHeight: size.height,
+                                              boundsHeight: bounds.height)
     }
 }
 

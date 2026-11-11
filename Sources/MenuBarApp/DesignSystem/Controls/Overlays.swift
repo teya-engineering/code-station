@@ -31,7 +31,9 @@ private struct AppOverlays: ViewModifier {
             .overlay { DialogHost() }
             // Last, so a menu opened from inside a dialog is not drawn behind it. It
             // draws nothing at all while closed, so nothing else moves under it.
-            .overlay { ContextMenuHost() }
+            .overlayPreferenceValue(MenuControlAnchorKey.self) { anchors in
+                ContextMenuHost(controlAnchor: anchors[menus.generation])
+            }
             .environment(dialogs)
             .environment(menus)
             .environment(tooltips)
