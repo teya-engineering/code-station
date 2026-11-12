@@ -299,7 +299,7 @@ extension View {
     // Lays a header out as a band of the shared height and draws the rule that closes it,
     // along with anything else the band wants along that edge. The rule belongs to the
     // band rather than sitting next to it, so a header cannot be given one twice or left
-    // without one.
+    // without one. A band at the top of the window also acts as its title bar.
     //
     // Every line is drawn under the row rather than over it. A row sits well clear of the
     // bottom edge, so nothing is lost by it, and a card or menu hanging off the band no
@@ -312,6 +312,7 @@ extension View {
             .background(alignment: .bottom) {
                 ZStack(alignment: .bottom) {
                     background
+                    TitleBarArea()
                     Rectangle()
                         .fill(Theme.hairline)
                         .frame(height: 1)
