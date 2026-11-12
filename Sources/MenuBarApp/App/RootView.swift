@@ -506,7 +506,7 @@ struct RootView: View {
     }
 
     private var home: some View {
-        HomeView(tools: tools, skills: skills)
+        HomeView()
             .transition(.headerPage(reduceMotion: reduceMotion))
     }
 }
