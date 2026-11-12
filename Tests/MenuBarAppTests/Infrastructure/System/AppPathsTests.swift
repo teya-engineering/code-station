@@ -138,7 +138,7 @@ struct AppPathsTests {
 
         #expect(Preferences.oldSessionDays(in: defaults) == 3)
 
-        for days in [1, 2, 180, 365] {
+        for days in [1, 2, 15, 30] {
             defaults.set(days, forKey: "oldSessionDays")
             #expect(Preferences.oldSessionDays(in: defaults) == days)
         }
@@ -146,8 +146,8 @@ struct AppPathsTests {
         defaults.set(0, forKey: "oldSessionDays")
         #expect(Preferences.oldSessionDays(in: defaults) == 1)
 
-        defaults.set(366, forKey: "oldSessionDays")
-        #expect(Preferences.oldSessionDays(in: defaults) == 365)
+        defaults.set(31, forKey: "oldSessionDays")
+        #expect(Preferences.oldSessionDays(in: defaults) == 30)
     }
 
     @Test func defaultsAndMigratesTheOldSessionCleanupPolicy() throws {
