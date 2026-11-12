@@ -344,3 +344,37 @@ struct OrphanedWorktreesStrip: View {
                              message: result.failures.map(\.message).joined(separator: "\n")))
     }
 }
+
+// MARK: - Empty workspaces
+
+// The warning hour for workspaces that remove themselves once they sit empty. Nothing in
+// them is lost, but the countdown is still shown, so a workspace never vanishes unseen.
+// The line opens the workspace, where "Keep for good" stops it.
+struct EmptyWorkspacesStrip: View {
+    let removal: EmptyWorkspaceSweep.Removal
+    let onOpen: (UUID) -> Void
+
+    @Environment(ProjectStore.self) private var store
+
+    var body: some View {
+        let names = removal.workspaces.compactMap { store.workspace($0)?.name }
+        CleanupCard(isUrgent: true) {
+            CleanupLine(title: Self.title(count: removal.workspaces.count),
+                        detail: Self.detail(names: names),
+                        tone: .attention,
+                        countdownAt: removal.at,
+                        label: "Show the empty workspace that will be removed",
+                        action: { if let first = removal.workspaces.first { onOpen(first) } })
+        }
+    }
+
+    // "1 empty workspace will be removed"
+    nonisolated static func title(count: Int) -> String {
+        "\(counted(count, "empty workspace")) will be removed"
+    }
+
+    // "Fix flaky login tests · projects stay"
+    nonisolated static func detail(names: [String]) -> String {
+        names.count == 1 ? "\(names[0]) · projects stay" : "Their projects stay"
+    }
+}

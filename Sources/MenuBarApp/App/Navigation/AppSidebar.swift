@@ -44,6 +44,8 @@ struct AppSidebar: View {
     @State private var oldSessions = OldSessionsWatch()
     // The rows a hovered cleanup line is talking about.
     @State private var cleanupHighlight: CleanupHighlight?
+    // The empty workspaces in their final hour, and when that hour ends.
+    @State private var workspaceRemoval: EmptyWorkspaceSweep.Removal?
     @State private var dropSlot: SidebarDropSlot?
     @State private var picks = SidebarMultiSelection()
     @State private var note: String?
@@ -118,6 +120,7 @@ struct AppSidebar: View {
             setExpanded(true, for: id)
         }
         .task { await watchWorkingTrees() }
+        .task { await removeEmptyWorkspacesAutomatically() }
         .task(id: store.navigation.sidebarHighlight) { await endHighlight() }
         .task(id: oldSessions.rule(store: store, runner: runner, days: appSettings.oldSessionDays)) {
             await oldSessions.watch(store: store, runner: runner, days: appSettings.oldSessionDays)
@@ -512,6 +515,14 @@ struct AppSidebar: View {
             needsYouCount: needsYouCount(sessions),
             isRenaming: renamingID == workspace.id,
             checked: checked(workspace.id),
+            lifeLine: { now in
+                EmptyWorkspaceSweep.lifeLine(
+                    for: workspace, holdsSessions: store.holdsSessions(workspace: workspace.id),
+                    removalAt: workspaceRemoval?.goes(workspace.id) == true
+                        ? workspaceRemoval?.at : nil,
+                    now: now)
+            },
+            onKeepForGood: { keepForGood(workspace) },
             onOpen: {
                 if picks.isActive { picks.click(workspace.id) } else { openWorkspace(workspace) }
             },
@@ -526,16 +537,24 @@ struct AppSidebar: View {
         .onPressAndHold { beginSelection(with: workspace.id) }
         .appContextMenu {
             if picks.isActive { return selectionMenu(adding: workspace.id) }
-            return [.item(workspace.isPinned ? "Unpin" : "Pin",
-                   icon: workspace.isPinned ? "pin.slash" : "pin") {
-                 store.setPinned(!workspace.isPinned, forWorkspace: workspace.id)
-             },
-             .item("Rename…") { renamingID = workspace.id },
-             .item("New session") { choosingWorkspaceSession = workspace },
-             .separator,
-             .item("Delete workspace", kind: .destructive) {
-                 confirmRemoveWorkspace(workspace)
-             }]
+            var entries: [MenuEntry] = [
+                .item(workspace.isPinned ? "Unpin" : "Pin",
+                      icon: workspace.isPinned ? "pin.slash" : "pin") {
+                    store.setPinned(!workspace.isPinned, forWorkspace: workspace.id)
+                },
+                .item("Rename…") { renamingID = workspace.id },
+                .item("New session") { choosingWorkspaceSession = workspace }]
+            if workspace.removeWhenEmptyAfterDays != nil {
+                entries.append(.item("Keep for good", icon: "hourglass",
+                                     subtitle: "Stop removing it when it sits empty.") {
+                    keepForGood(workspace)
+                })
+            }
+            entries.append(.separator)
+            entries.append(.item("Delete workspace", kind: .destructive) {
+                confirmRemoveWorkspace(workspace)
+            })
+            return entries
         }
         .sidebarRevealGlow(store.navigation.sidebarHighlight == workspace.id)
         .sidebarReorder(workspace.id, enabled: canReorder, slot: $dropSlot) {
@@ -1102,6 +1121,29 @@ struct AppSidebar: View {
                                dialogs: dialogs)
     }
 
+    private func keepForGood(_ workspace: ProjectWorkspace) {
+        store.keepForGood(workspace: workspace.id)
+        showNote("\(workspace.name) will stay until you delete it", icon: "checkmark")
+    }
+
+    // Workspaces made for a short job go once they have sat empty for their days. They
+    // are a rule of their own, so this runs whatever the old session setting says.
+    private func removeEmptyWorkspacesAutomatically() async {
+        var buffer = EmptyWorkspaceSweep.Buffer()
+        while !Task.isCancelled {
+            let removed = EmptyWorkspaceSweep.run(store: store, buffer: &buffer)
+            if workspaceRemoval != buffer.removal { workspaceRemoval = buffer.removal }
+            if !removed.isEmpty {
+                showNote(EmptyWorkspaceSweep.removedNote(removed), icon: "hourglass")
+            }
+            do {
+                try await Task.sleep(for: EmptyWorkspaceSweep.monitorInterval)
+            } catch {
+                return
+            }
+        }
+    }
+
     private func confirmRemoveWorkspace(_ workspace: ProjectWorkspace) {
         WorkspaceRemoval.confirm(workspace, in: store, runner: runner, dialogs: dialogs)
     }
@@ -1206,6 +1248,12 @@ struct AppSidebar: View {
                                       onReview: onReviewOldSessions)
                     .transition(.fold)
             }
+            if let workspaceRemoval {
+                EmptyWorkspacesStrip(removal: workspaceRemoval) { id in
+                    if let workspace = store.workspace(id) { openWorkspace(workspace) }
+                }
+                .transition(.fold)
+            }
             if showsOrphanedWorktreesStrip { OrphanedWorktreesStrip() }
 
             HStack(spacing: 8) {
@@ -1230,6 +1278,7 @@ struct AppSidebar: View {
         .motion(Motion.reveal, value: cleanup.parked.isEmpty)
         .motion(Motion.reveal, value: cleanup.deletion == nil)
         .motion(Motion.reveal, value: oldSessions.summary.sessions > 0)
+        .motion(Motion.reveal, value: workspaceRemoval == nil)
         .onChange(of: appSettings.oldSessionsDeleteOnTheirOwn) { _, _ in cleanupHighlight = nil }
     }
 
@@ -1602,6 +1651,9 @@ private struct WorkspaceHeaderRow: View {
     let needsYouCount: Int
     let isRenaming: Bool
     let checked: Bool?
+    // Set while the workspace removes itself once it sits empty.
+    var lifeLine: (Date) -> EmptyWorkspaceSweep.LifeLine? = { _ in nil }
+    var onKeepForGood: () -> Void = {}
     let onOpen: () -> Void
     let onToggle: () -> Void
     let onNewSession: () -> Void
@@ -1620,7 +1672,10 @@ private struct WorkspaceHeaderRow: View {
     }
 
     var body: some View {
-        TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
+        TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering,
+                footer: workspace.removeWhenEmptyAfterDays == nil ? nil : AnyView(
+                    WorkspaceLifeLineRow(lifeLine: lifeLine, onKeepForGood: onKeepForGood,
+                                         name: workspace.name))) {
             if sessionCount > 0 {
                 SidebarDisclosure(name: workspace.name, expanded: isExpanded, action: onToggle)
             } else {
@@ -1713,6 +1768,73 @@ private struct WorkspaceHeaderRow: View {
     }
 }
 
+// The second line of a workspace that removes itself when it sits empty. It turns amber
+// in the final hour and offers to keep the workspace for good. The clock only moves the
+// words once a minute, which is as fine as the line speaks.
+private struct WorkspaceLifeLineRow: View {
+    let lifeLine: (Date) -> EmptyWorkspaceSweep.LifeLine?
+    let onKeepForGood: () -> Void
+    let name: String
+
+    // Lines the words up under the workspace name: the row's inset, the disclosure, and
+    // the tile with the gaps around it.
+    private static let indent: CGFloat = 8 + SidebarDisclosure.width + 4 + 26 + 9
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            if let line = lifeLine(context.date) {
+                HStack(spacing: 6) {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(line.isFinalHour ? Theme.attentionText : Theme.workspaceTint.ink)
+                        .accessibilityHidden(true)
+                    Text(line.text)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .contentTransition(.numericText())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if line.isFinalHour {
+                        KeepForGoodButton(name: name, action: onKeepForGood)
+                            .transition(.fadeIn)
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(line.isFinalHour ? Theme.attentionText : Color.secondary)
+                .padding(.leading, Self.indent)
+                .padding(.trailing, 8)
+                .padding(.bottom, 7)
+                .motion(Motion.control, value: line)
+                .accessibilityElement(children: .contain)
+            }
+        }
+    }
+}
+
+private struct KeepForGoodButton: View {
+    let name: String
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text("Keep for good")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Theme.accent.opacity(hovering ? 0.1 : 0),
+                            in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onPointerHover { hovering = $0 }
+        .hoverLift(hovering, amount: Motion.smallLift)
+        .motion(Motion.hover, value: hovering)
+        .accessibilityLabel("Keep \(name) for good")
+    }
+}
+
 // The current container keeps its navigation marker even when its sessions are folded.
 // Open means a block is drawn below, not that the flag is set: a row with nothing under
 // it wears the plain fill, or the tint reads as a state the row does not have.
@@ -1721,20 +1843,26 @@ private struct TreeRow<Leading: View, Content: View, Trailing: View>: View {
     let selected: Bool
     let isExpanded: Bool
     let hovering: Bool
+    // A second line inside the row's card, under the name, for something the row has to
+    // say that will not fit beside it.
+    var footer: AnyView? = nil
     @ViewBuilder let leading: Leading
     @ViewBuilder let content: Content
     // Handed the row's fill, so what it lays over the row's end can cover what is there.
     @ViewBuilder let trailing: (Color) -> Trailing
 
     var body: some View {
-        HStack(spacing: 4) {
-            leading
-            HStack(spacing: 9) { content }
-        }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 4) {
+                leading
+                HStack(spacing: 9) { content }
+            }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 9).fill(fill))
             .overlay(alignment: .trailing) { trailing(fill) }
+            if let footer { footer }
+        }
+            .background(RoundedRectangle(cornerRadius: 9).fill(fill))
             .overlay(RoundedRectangle(cornerRadius: 9)
                 .stroke(selected ? Theme.accent.opacity(0.14) : .clear, lineWidth: 1))
             .overlay(alignment: .leading) {

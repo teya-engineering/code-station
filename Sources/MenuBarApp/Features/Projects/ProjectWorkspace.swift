@@ -15,10 +15,17 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
     // preselected when a session starts, which keeps repeated workspace setup quick.
     var worktreeProjectIDs: [UUID]
     var sidebarPlacement: SidebarPlacement?
+    // A workspace made for a short job can remove itself once it has sat with no session
+    // for this many days. Nil keeps it until someone deletes it.
+    var removeWhenEmptyAfterDays: Int?
+    // When it last became empty: the moment it was made, or the moment its last session
+    // went. Only read while it holds no session, since any session keeps it.
+    var emptySince: Date?
 
     init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID,
          isPinned: Bool = false, sidebarAvatarIndex: Int? = nil,
-         worktreeProjectIDs: [UUID]? = nil) {
+         worktreeProjectIDs: [UUID]? = nil, removeWhenEmptyAfterDays: Int? = nil,
+         emptySince: Date? = nil) {
         self.id = id
         self.name = name
         self.projectIDs = projectIDs
@@ -26,11 +33,13 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
         self.isPinned = isPinned
         self.sidebarAvatarIndex = sidebarAvatarIndex
         self.worktreeProjectIDs = worktreeProjectIDs ?? projectIDs
+        self.removeWhenEmptyAfterDays = removeWhenEmptyAfterDays
+        self.emptySince = emptySince
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, projectIDs, leadProjectID, isPinned, sidebarAvatarIndex
-        case worktreeProjectIDs, sidebarPlacement
+        case worktreeProjectIDs, sidebarPlacement, removeWhenEmptyAfterDays, emptySince
     }
 
     init(from decoder: any Decoder) throws {
@@ -49,6 +58,9 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
             ?? projectIDs
         sidebarPlacement = try container.decodeIfPresent(SidebarPlacement.self,
                                                          forKey: .sidebarPlacement)
+        removeWhenEmptyAfterDays = try container.decodeIfPresent(
+            Int.self, forKey: .removeWhenEmptyAfterDays)
+        emptySince = try container.decodeIfPresent(Date.self, forKey: .emptySince)
     }
 }
 

@@ -778,7 +778,9 @@ final class ProjectStore {
     // MARK: - Workspaces
 
     @discardableResult
-    func addWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID) -> ProjectWorkspace? {
+    func addWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID,
+                      removeWhenEmptyAfterDays: Int? = nil, now: Date = Date())
+        -> ProjectWorkspace? {
         let trimmed = name.trimmed
         var seen: Set<UUID> = []
         let members = projectIDs.filter {
@@ -792,7 +794,10 @@ final class ProjectStore {
         }
         let workspace = ProjectWorkspace(name: trimmed, projectIDs: ordered,
                                          leadProjectID: leadProjectID,
-                                         worktreeProjectIDs: worktreeProjectIDs)
+                                         worktreeProjectIDs: worktreeProjectIDs,
+                                         removeWhenEmptyAfterDays: removeWhenEmptyAfterDays
+                                             .map(OldSessions.resolvedDays),
+                                         emptySince: now)
         workspaces.append(workspace)
         workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         saveIndex()
@@ -813,6 +818,20 @@ final class ProjectStore {
               workspaces[i].isPinned != isPinned else { return }
         workspaces[i].isPinned = isPinned
         scheduleIndexSave()
+    }
+
+    // Turns off removal when empty, so the workspace stays until it is deleted by hand.
+    func keepForGood(workspace id: UUID) {
+        guard let i = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[i].removeWhenEmptyAfterDays != nil else { return }
+        workspaces[i].removeWhenEmptyAfterDays = nil
+        saveIndex()
+    }
+
+    // Any session keeps a workspace, design sessions included, since removing the
+    // workspace would take them with it.
+    func holdsSessions(workspace id: UUID) -> Bool {
+        sessions.contains { $0.workspaceID == id }
     }
 
     func changeSidebarAvatar(forWorkspace id: UUID) {
@@ -1678,11 +1697,22 @@ final class ProjectStore {
     private func removeSessionFromMemory(_ sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         ToolPresentationCache.forget(sessions[i].messages.flatMap(\.tools).map(\.id))
+        let workspaceID = sessions[i].workspaceID
         sessions.remove(at: i)
         publishSidebarSessions()
         clearSessionMemory(sessionID)
         if case .session(sessionID) = selection { selection = nil }
+        if let workspaceID { startEmptyClock(workspaceID) }
         onRemoved?(.session(sessionID))
+    }
+
+    // The days a workspace may sit empty are counted from when its last session went,
+    // however long ago the workspace itself was made.
+    private func startEmptyClock(_ workspaceID: UUID, now: Date = Date()) {
+        guard !holdsSessions(workspace: workspaceID),
+              let w = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        workspaces[w].emptySince = now
+        markIndexDirty()
     }
 
     private func clearSessionMemory(_ sessionID: UUID) {

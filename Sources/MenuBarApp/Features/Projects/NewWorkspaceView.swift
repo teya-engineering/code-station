@@ -7,12 +7,17 @@ struct NewWorkspaceView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(ProjectStore.self) private var store
+    @Environment(AppSettings.self) private var settings
 
     @State private var name = ""
     @State private var projectFilter = ""
     @State private var selected: [UUID] = []
     @State private var leadProjectID: UUID?
     @State private var listHeight: CGFloat?
+    // Off by default: a workspace stays until it is deleted unless asked otherwise.
+    @State private var removesWhenEmpty = false
+    // Nil until the stepper is touched, so the count follows the old session setting.
+    @State private var removalDays: Int?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -85,6 +90,11 @@ struct NewWorkspaceView: View {
             // Keyed on the rows rather than the typed text, so a keystroke that leaves the
             // list as it was does not start an animation.
             .motion(Motion.reveal, value: filteredProjects.map(\.id))
+
+            RemoveWhenEmptyBand(isOn: $removesWhenEmpty,
+                                days: Binding(get: { removalDays ?? settings.oldSessionDays },
+                                              set: { removalDays = $0 }),
+                                oldSessionDays: settings.oldSessionDays)
 
             SheetFooter(title: "Projects can belong to several workspaces.",
                         primary: SheetAction(title: "Create", enabled: canCreate,
@@ -209,10 +219,97 @@ struct NewWorkspaceView: View {
 
     private func create() {
         guard let leadProjectID,
-              let workspace = store.addWorkspace(name: name, projectIDs: selected,
-                                                 leadProjectID: leadProjectID) else { return }
+              let workspace = store.addWorkspace(
+                  name: name, projectIDs: selected, leadProjectID: leadProjectID,
+                  removeWhenEmptyAfterDays: removesWhenEmpty
+                      ? removalDays ?? settings.oldSessionDays : nil) else { return }
         onCreate(workspace)
         dismiss()
+    }
+}
+
+// The one setting about a workspace's life. Off, it reads as a quiet note that the
+// workspace stays; on, it opens a sentence that says when it goes.
+private struct RemoveWhenEmptyBand: View {
+    @Binding var isOn: Bool
+    @Binding var days: Int
+    let oldSessionDays: Int
+
+    @State private var detailHeight: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Toggle(isOn: Binding(get: { isOn }, set: { on in
+                if reduceMotion { isOn = on } else { withAnimation(Motion.reveal) { isOn = on } }
+            })) {
+                HStack(spacing: 12) {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(isOn ? Theme.workspaceTint.ink : Color.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(isOn ? Theme.workspaceTint.fill : Theme.field,
+                                    in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Remove it when it sits empty")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(isOn
+                             ? "On: it goes once it has had no session for a while. Its projects stay."
+                             : "Off: the workspace stays until you delete it. Turn on for a short job.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .contentTransition(.opacity)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .toggleStyle(.appSwitch)
+
+            // Always laid out and measured, so the band grows by the sentence's real
+            // height and the sheet's window glides with it rather than jumping.
+            detail
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailHeight = $0 }
+                .opacity(isOn ? 1 : 0)
+                .offset(y: isOn || reduceMotion ? 0 : -3)
+                .modifier(AnimatedHeight(height: isOn ? detailHeight : 0, alignment: .top))
+                .clipped()
+                .allowsHitTesting(isOn)
+                .accessibilityHidden(!isOn)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Theme.statusBand)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+    }
+
+    private var detail: some View {
+        HStack(spacing: 10) {
+            Text("Remove after")
+            DayField(days: $days, accessibilityLabel: "Days the workspace may sit empty")
+            Text("with no session in it.")
+            if days == oldSessionDays {
+                Text("Same as old sessions")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.workspaceTint.ink)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Theme.workspaceTint.fill, in: Capsule())
+                    .transition(.fadeIn)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 12.5))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border, lineWidth: 1))
+        .motion(Motion.control, value: days == oldSessionDays)
+        .padding(.leading, 40)
+        .padding(.top, 10)
     }
 }
 
@@ -221,6 +318,7 @@ struct NewWorkspaceView: View {
 // of the curve, so the window is handed each height in turn and glides to the new one.
 nonisolated private struct AnimatedHeight: ViewModifier, Animatable {
     var height: CGFloat
+    var alignment: Alignment = .center
 
     var animatableData: CGFloat {
         get { height }
@@ -228,6 +326,6 @@ nonisolated private struct AnimatedHeight: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        content.frame(height: height)
+        content.frame(height: height, alignment: alignment)
     }
 }
