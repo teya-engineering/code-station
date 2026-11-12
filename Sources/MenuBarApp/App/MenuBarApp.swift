@@ -259,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // minimum comes from the view, because the hosting controller resets the
             // window's own contentMinSize to zero.
             hosting.sizingOptions = [.minSize]
-            let win = NSWindow(
+            let win = TitleBarWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 1180, height: 820),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered, defer: false)

@@ -49,4 +49,29 @@ struct TitleBarAreaTests {
         #expect(!(hit(50, 30) is TitleBarAreaView), "the button lost its click to the title bar")
         #expect(!(hit(400, 90) is TitleBarAreaView), "a band lower down acted as the title bar")
     }
+
+    // The window answers a double-click on the clear strip above the band itself.
+    @Test func aDoubleClickOnTheThinStripAboveTheBandZoomsTheWindow() {
+        let window = TitleBarWindow(contentRect: NSRect(x: 100, y: 100, width: 600, height: 400),
+                                    styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                    backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        defer { window.close() }
+        window.contentView = NSHostingView(rootView: Color.clear)
+        window.orderFront(nil)
+        let before = window.frame
+        let strip = NSPoint(x: window.contentLayoutRect.midX, y: window.contentLayoutRect.maxY + 10)
+        for clicks in [1, 2] {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                window.sendEvent(NSEvent.mouseEvent(with: type, location: strip, modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: window.windowNumber, context: nil,
+                                                    eventNumber: 0, clickCount: clicks, pressure: 1)!)
+            }
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        #expect(window.frame != before, "the window did not zoom")
+    }
 }

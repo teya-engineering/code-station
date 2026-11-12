@@ -38,6 +38,26 @@ final class TitleBarAreaView: NSView {
     }
 }
 
+// The thin real title bar above the band. With its title hidden and drawn clear, AppKit
+// does not zoom on a double-click there, so the window answers it the same way the band
+// does. The traffic lights keep their own clicks.
+final class TitleBarWindow: NSWindow {
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown, event.clickCount == 2, isInTitleBarStrip(event.locationInWindow) {
+            TitleBarDoubleClick.current().perform(on: self)
+            return
+        }
+        super.sendEvent(event)
+    }
+
+    private func isInTitleBarStrip(_ point: NSPoint) -> Bool {
+        guard !styleMask.contains(.fullScreen), point.y >= contentLayoutRect.maxY else { return false }
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { standardWindowButton($0) }
+        return !buttons.contains { $0.convert($0.bounds, to: nil).contains(point) }
+    }
+}
+
 // What the user picked under Desktop & Dock for a double-click on a title bar.
 enum TitleBarDoubleClick: Equatable {
     case zoom

@@ -479,33 +479,38 @@ struct SessionView: View {
         let tone = SessionTone(sessionID, store: store, runner: runner)
         return HStack(spacing: 8) {
             HStack(spacing: 9) {
-                if let workspace {
-                    SidebarIdentityTile(
-                        avatar: workspace.sidebarAvatar,
-                        name: workspace.name,
-                        tint: Theme.workspaceTint,
-                        stacked: true)
-                } else {
-                    SidebarIdentityTile(
-                        avatar: project.sidebarAvatar,
-                        name: project.name,
-                        tint: Theme.projectTint(for: project.name),
-                        dashed: project.kind == .adHoc)
+                // These are only labels, so a click on them reaches the band under them,
+                // which acts as the window's title bar.
+                Group {
+                    if let workspace {
+                        SidebarIdentityTile(
+                            avatar: workspace.sidebarAvatar,
+                            name: workspace.name,
+                            tint: Theme.workspaceTint,
+                            stacked: true)
+                    } else {
+                        SidebarIdentityTile(
+                            avatar: project.sidebarAvatar,
+                            name: project.name,
+                            tint: Theme.projectTint(for: project.name),
+                            dashed: project.kind == .adHoc)
+                    }
+                    // The durable name reads as the heading, in the same family as everything
+                    // else on the deck. It holds its width while there is any title left to
+                    // give up, and is only cut short once the title is gone.
+                    Text(container)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                    Text("/")
+                        .font(.mono(11))
+                        .foregroundStyle(.tertiary)
+                    if session.isTroubleshooting {
+                        MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
+                    }
                 }
-                // The durable name reads as the heading, in the same family as everything
-                // else on the deck. It holds its width while there is any title left to
-                // give up, and is only cut short once the title is gone.
-                Text(container)
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                Text("/")
-                    .font(.mono(11))
-                    .foregroundStyle(.tertiary)
-                if session.isTroubleshooting {
-                    MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
-                }
+                .allowsHitTesting(false)
                 SessionHeaderTitle(title: session.title, idealWidth: Self.titleRoom,
                                    draft: $titleDraft) { name in
                     store.renameSession(session.id, to: name)
