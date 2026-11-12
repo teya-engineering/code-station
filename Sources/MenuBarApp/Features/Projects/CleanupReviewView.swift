@@ -72,7 +72,7 @@ struct CleanupReviewView: View {
                                              enabled: canDeletePicked,
                                              tone: .danger,
                                              action: { confirmDelete(pickedItems) }),
-                        dismissTitle: "Done",
+                        dismissTitle: "Cancel",
                         dismiss: { if !isDeleting { dismiss() } })
         }
         .frame(width: 660)
