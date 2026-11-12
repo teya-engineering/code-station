@@ -89,10 +89,14 @@ struct OldSessionsTests {
             .reasons.isEmpty)
     }
 
-    @Test func theAlwaysAskedReasonsCannotBeTurnedOff() {
-        let rule = CleanupRule(deletesOnItsOwn: true, asked: [], includesOrphans: false)
-        #expect(rule.held([.uncommittedChanges, .unpushedCommits, .unbuiltDesign, .unread,
-                           .snoozed]) == [.uncommittedChanges, .unbuiltDesign])
+    @Test func holdsOnlyTheReasonsOnTheAskList() {
+        let all: [CleanupReason] = [.uncommittedChanges, .unpushedCommits, .unbuiltDesign,
+                                    .unread, .snoozed]
+        let none = CleanupRule(deletesOnItsOwn: true, asked: [], includesOrphans: false)
+        let some = CleanupRule(deletesOnItsOwn: true, asked: [.unbuiltDesign, .snoozed],
+                               includesOrphans: false)
+        #expect(none.held(all).isEmpty)
+        #expect(some.held(all) == [.unbuiltDesign, .snoozed])
     }
 
     @Test func findsWhenTheNextSessionBecomesOld() {

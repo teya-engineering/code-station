@@ -251,19 +251,25 @@ enum Preferences {
         store.removeObject(forKey: "autoDeleteOldSessions")
     }
 
-    // The reasons on the "ask me first" list that the person can turn off. The ones that
-    // are always asked are not stored, since there is no choice to keep.
+    // The reasons on the "ask me first" list. An older install stored only the reasons
+    // that could be turned off, and always asked about uncommitted changes and unbuilt
+    // designs. Those two carry over as ticked, so no work starts going on its own
+    // without the person choosing it.
     static func oldSessionAskReasons(in store: UserDefaults = .standard) -> Set<CleanupReason> {
-        guard let raw = store.stringArray(forKey: "oldSessionAskReasons") else {
+        if let raw = store.stringArray(forKey: "oldSessionAskList") {
+            return Set(raw.compactMap(CleanupReason.init(rawValue:)))
+        }
+        guard let legacy = store.stringArray(forKey: "oldSessionAskReasons") else {
             return CleanupRule.askedByDefault
         }
-        return Set(raw.compactMap(CleanupReason.init(rawValue:)))
+        return Set(legacy.compactMap(CleanupReason.init(rawValue:)))
+            .union([.uncommittedChanges, .unbuiltDesign])
     }
 
     static func setOldSessionAskReasons(_ reasons: Set<CleanupReason>,
                                         in store: UserDefaults = .standard) {
-        let optional = reasons.filter { !$0.isAlwaysAsked }.map(\.rawValue).sorted()
-        store.set(optional, forKey: "oldSessionAskReasons")
+        store.set(reasons.map(\.rawValue).sorted(), forKey: "oldSessionAskList")
+        store.removeObject(forKey: "oldSessionAskReasons")
     }
 
     // Orphaned worktrees the person asked to hear about later, by path.

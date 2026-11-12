@@ -290,8 +290,7 @@ struct OldSessionSweepTests {
         #expect(FileManager.default.fileExists(atPath: artifact.path))
     }
 
-    // Work that exists nowhere else is asked about whatever the list says.
-    @Test func neverTakesAnUnbuiltDesignEvenWithNothingTickedOnTheAskList() async throws {
+    @Test func takesAnUnbuiltDesignWhenTheAskListLeavesItOut() async throws {
         let old = agedSession(seed: .init(mode: .design))
         let artifact = try #require(store.designArtifactURL(for: old))
         try FileManager.default.createDirectory(
@@ -307,13 +306,12 @@ struct OldSessionSweepTests {
             days: 7, rule: rule(asking: []), store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
-        #expect(deleted == 0)
-        #expect(buffer.parked == [OldSessionSweep.Parked(item: .session(old.id),
-                                                         reasons: [.unbuiltDesign])])
-        #expect(FileManager.default.fileExists(atPath: artifact.path))
+        #expect(deleted == 1)
+        #expect(store.session(old.id) == nil)
+        #expect(buffer.parked.isEmpty)
     }
 
-    @Test func neverTakesUncommittedChangesEvenWithNothingTickedOnTheAskList() async throws {
+    @Test func takesUncommittedChangesWhenTheAskListLeavesThemOut() async throws {
         let old = agedSession(worktreePath: try folderOnDisk())
         let firstSeen = Date()
         var buffer = OldSessionSweep.EligibilityBuffer()
@@ -327,9 +325,9 @@ struct OldSessionSweepTests {
                 self.snapshot(changedFiles: 1)
             }
 
-        #expect(deleted == 0)
-        #expect(store.session(old.id) != nil)
-        #expect(buffer.parked.map(\.reasons) == [[.uncommittedChanges]])
+        #expect(deleted == 1)
+        #expect(store.session(old.id) == nil)
+        #expect(buffer.parked.isEmpty)
     }
 
     @Test func takesNothingWhenTheSwitchIsOff() async throws {
@@ -607,29 +605,6 @@ struct OldSessionSweepTests {
 
         #expect(buffer.deletion == nil)
         #expect(buffer.parked.isEmpty)
-    }
-
-    // MARK: - The preview in Settings
-
-    // Unticking a reason moves what it held to "goes on its own" at once, without
-    // reading git again.
-    @Test func previewMovesSessionsWhenAReasonIsUnticked() {
-        let unread = agedSession()
-        store.setMarkedUnread(true, for: unread.id)
-        let pinned = agedSession()
-        store.setPinned(true, forSession: pinned.id)
-        let costs = Dictionary(uniqueKeysWithValues: store.sidebarSessions.map {
-            ($0.id, SessionRemovalCost(worktree: .historyOnly, design: .absent))
-        })
-
-        let asking = OldSessionSweep.preview(days: 7, rule: rule, store: store,
-                                             runner: runner, costs: costs)
-        let notAsking = OldSessionSweep.preview(
-            days: 7, rule: rule(asking: [.unpushedCommits, .snoozed]), store: store,
-            runner: runner, costs: costs)
-
-        #expect(asking == OldSessionSweep.Preview(goes: 0, waits: 1, stays: 3))
-        #expect(notAsking == OldSessionSweep.Preview(goes: 1, waits: 0, stays: 3))
     }
 
     // MARK: - What the strip says

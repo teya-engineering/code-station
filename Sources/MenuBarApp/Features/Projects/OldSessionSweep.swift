@@ -337,69 +337,6 @@ enum OldSessionSweep {
         return (Array(goes.prefix(batchLimit)), Array(cleanWorktrees.prefix(batchLimit)))
     }
 
-    // How Settings says what the rule would do right now: what would go after the warning
-    // hour, what would wait for a yes, and what is not old at all. Worked out from the
-    // same reasons the sweep uses, so ticking a reason moves the numbers at once.
-    struct Preview: Equatable {
-        var goes = 0
-        var waits = 0
-        var stays = 0
-    }
-
-    static func preview(days: Int, rule: CleanupRule, store: ProjectStore,
-                        runner: SessionRunner, costs: [UUID: SessionRemovalCost],
-                        orphans: [OrphanedWorktree] = [], orphanChanges: [String: Bool] = [:],
-                        now: Date = Date()) -> Preview {
-        let sessions = store.sidebarSessions
-        let old = due(days: days, in: sessions, now: now,
-                      isBusy: { runner.isBusy($0, store: store) },
-                      isOpen: { store.selection == .session($0) },
-                      snoozedUntil: { store.snoozeDeadline(for: $0) })
-        var preview = Preview(stays: sessions.count - old.count)
-        guard rule.deletesOnItsOwn else {
-            preview.waits = old.count
-            return preview
-        }
-        for session in old {
-            let held = rule.held(reasons(of: session, cost: costs[session.id], store: store,
-                                         now: now))
-            if held.isEmpty { preview.goes += 1 } else { preview.waits += 1 }
-        }
-        if rule.includesOrphans {
-            for orphan in orphans {
-                switch orphanChanges[orphan.id] {
-                case true?: preview.waits += 1
-                case false?: preview.goes += 1
-                case nil: break
-                }
-            }
-        }
-        return preview
-    }
-
-    // What git says about every old session and orphan, for the preview. Slow, so it is
-    // read once and the preview is worked out from it as the settings change.
-    static func previewCosts(days: Int, store: ProjectStore, runner: SessionRunner,
-                             orphans: [OrphanedWorktree],
-                             inspect: SessionCost.Inspect = SessionCost.live) async
-        -> (sessions: [UUID: SessionRemovalCost], orphans: [String: Bool]) {
-        let old = due(days: days, in: store.sidebarSessions,
-                      isBusy: { runner.isBusy($0, store: store) },
-                      isOpen: { store.selection == .session($0) },
-                      snoozedUntil: { store.snoozeDeadline(for: $0) })
-        var costs: [UUID: SessionRemovalCost] = [:]
-        for session in old.prefix(batchLimit * 4) {
-            guard !Task.isCancelled else { break }
-            costs[session.id] = await cost(of: session, in: store, inspect: inspect)
-        }
-        var changes: [String: Bool] = [:]
-        for orphan in orphans.prefix(batchLimit) {
-            guard !Task.isCancelled else { break }
-            changes[orphan.id] = await hasChanges(orphan, inspect: inspect)
-        }
-        return (costs, changes)
-    }
-
     private static func cost(of session: ChatSession, in store: ProjectStore,
                              inspect: SessionCost.Inspect) async -> SessionRemovalCost {
         await SessionCost.settledCost(

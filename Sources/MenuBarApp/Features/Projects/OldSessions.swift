@@ -92,12 +92,6 @@ enum CleanupReason: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
-    // Changes and designs that exist nowhere else cannot be got back once deleted, so
-    // they are asked about whatever the settings say.
-    var isAlwaysAsked: Bool {
-        self == .uncommittedChanges || self == .unbuiltDesign
-    }
-
     var title: String {
         switch self {
         case .uncommittedChanges: "Uncommitted changes"
@@ -110,9 +104,9 @@ enum CleanupReason: String, CaseIterable, Codable, Sendable, Identifiable {
 
     var detail: String {
         switch self {
-        case .uncommittedChanges: "Deleting would throw the changes away. Always asked."
+        case .uncommittedChanges: "Deleting would throw the changes away."
         case .unpushedCommits: "The branch has commits that exist nowhere else."
-        case .unbuiltDesign: "The design files are the only copy of that work. Always asked."
+        case .unbuiltDesign: "The design files are the only copy of that work."
         case .unread: "A turn ended while you were away and you have not looked at it."
         case .snoozed: "You put it aside for later. It is shown, not deleted, once it is old."
         }
@@ -125,8 +119,7 @@ enum CleanupReason: String, CaseIterable, Codable, Sendable, Identifiable {
 }
 
 // What the person allows cleanup to do on its own. One switch turns the countdown on;
-// the ask list names what still needs a yes. The reasons that are always asked are
-// left out of the stored list, since they cannot be turned off.
+// the ask list names what still needs a yes.
 struct CleanupRule: Equatable, Sendable {
     var deletesOnItsOwn: Bool
     var asked: Set<CleanupReason>
@@ -137,7 +130,7 @@ struct CleanupRule: Equatable, Sendable {
     static let askedByDefault = Set(CleanupReason.allCases)
 
     func asks(_ reason: CleanupReason) -> Bool {
-        reason.isAlwaysAsked || asked.contains(reason)
+        asked.contains(reason)
     }
 
     // The reasons that hold a session back under this rule. An empty answer means it

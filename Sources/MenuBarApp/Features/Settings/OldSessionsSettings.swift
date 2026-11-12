@@ -1,8 +1,7 @@
 import SwiftUI
 
 // When a session counts as old, whether old sessions go on their own, and what always
-// needs a yes first. The preview under the list says what the rule would do to the
-// sessions there are right now, so a change is seen before it is lived with.
+// needs a yes first.
 struct OldSessionsSettings: View {
     let review: () -> Void
 
@@ -10,18 +9,9 @@ struct OldSessionsSettings: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var settings
     @Environment(OrphanedWorktreeMonitor.self) private var orphans
-    @Environment(\.settingsNote) private var settingsNote
-
-    @State private var costs: [UUID: SessionRemovalCost] = [:]
-    @State private var orphanChanges: [String: Bool] = [:]
 
     var body: some View {
         @Bindable var settings = settings
-        let preview = OldSessionSweep.preview(
-            days: settings.oldSessionDays, rule: settings.cleanupRule, store: store,
-            runner: runner, costs: costs, orphans: orphans.cleanupCandidates(),
-            orphanChanges: orphanChanges)
-
         return ChoiceBlock("OLD SESSIONS") {
             SettingsCard {
                 HStack(alignment: .top, spacing: 12) {
@@ -37,7 +27,7 @@ struct OldSessionsSettings: View {
 
                 SettingsToggleRow(
                     "Delete old sessions on their own",
-                    detail: "Read sessions with nothing to lose go after a one-hour countdown in the sidebar. Turn this off to only ever delete from the review screen.",
+                    detail: "Old sessions go after a one-hour countdown in the sidebar, unless the list below asks first. Turn this off to only ever delete from the review screen.",
                     isOn: $settings.oldSessionsDeleteOnTheirOwn)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
@@ -49,10 +39,9 @@ struct OldSessionsSettings: View {
                     .opacity(settings.oldSessionsDeleteOnTheirOwn ? 1 : 0.45)
                     .motion(Motion.control, value: settings.oldSessionsDeleteOnTheirOwn)
 
-                previewRow(preview)
+                reviewRow
             }
         }
-        .task(id: settings.oldSessionDays) { await loadCosts() }
     }
 
     private var askList: some View {
@@ -64,11 +53,7 @@ struct OldSessionsSettings: View {
                     AskReasonRow(reason: reason,
                                  isOn: Binding(
                                     get: { settings.cleanupRule.asks(reason) },
-                                    set: { setAsked(reason, $0) }),
-                                 explainLock: {
-                                     settingsNote("\(reason.title): always asked, since it cannot be undone",
-                                                  "lock")
-                                 })
+                                    set: { setAsked(reason, $0) }))
                 }
             }
         }
@@ -78,7 +63,6 @@ struct OldSessionsSettings: View {
     }
 
     private func setAsked(_ reason: CleanupReason, _ asked: Bool) {
-        guard !reason.isAlwaysAsked else { return }
         if asked {
             settings.oldSessionAskReasons.insert(reason)
         } else {
@@ -86,33 +70,29 @@ struct OldSessionsSettings: View {
         }
     }
 
-    private func previewRow(_ preview: OldSessionSweep.Preview) -> some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(Theme.settingsHairline).frame(height: 1)
-            HStack(spacing: 0) {
-                PreviewCount(count: preview.goes, tint: Theme.deletion,
-                             label: "would go after the warning hour")
-                Rectangle().fill(Theme.settingsHairline).frame(width: 1)
-                PreviewCount(count: preview.waits, tint: Theme.attentionText,
-                             label: "would wait for your OK")
-                Rectangle().fill(Theme.settingsHairline).frame(width: 1)
-                PreviewCount(count: preview.stays, tint: Theme.dotOnText,
-                             label: "not old yet, pinned or running")
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .background(Theme.field.opacity(0.5))
+    private var reviewRow: some View {
+        let nothingOld = !hasAnythingOld
+        return VStack(spacing: 0) {
             Rectangle().fill(Theme.settingsHairline).frame(height: 1)
             HStack {
                 Spacer(minLength: 0)
                 InlineLink(title: "Review old sessions…", action: review)
-                    .disabled(preview.goes + preview.waits == 0)
-                    .opacity(preview.goes + preview.waits == 0 ? 0.4 : 1)
+                    .disabled(nothingOld)
+                    .opacity(nothingOld ? 0.4 : 1)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("What the rule would do now")
+    }
+
+    private var hasAnythingOld: Bool {
+        let old = OldSessionSweep.due(
+            days: settings.oldSessionDays, in: store.sidebarSessions,
+            isBusy: { runner.isBusy($0, store: store) },
+            isOpen: { store.selection == .session($0) },
+            snoozedUntil: { store.snoozeDeadline(for: $0) })
+        return !old.isEmpty
+            || (settings.cleanupRule.includesOrphans && !orphans.cleanupCandidates().isEmpty)
     }
 
     private func copy(title: String, detail: String) -> some View {
@@ -125,47 +105,17 @@ struct OldSessionsSettings: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
-
-    private func loadCosts() async {
-        let loaded = await OldSessionSweep.previewCosts(
-            days: settings.oldSessionDays, store: store, runner: runner,
-            orphans: orphans.cleanupCandidates())
-        guard !Task.isCancelled else { return }
-        costs = loaded.sessions
-        orphanChanges = loaded.orphans
-    }
 }
 
-// One reason on the ask list. A reason that is always asked keeps its tick and says
-// "Always" instead of naming its family, since there is no choice to make.
+// One reason on the ask list.
 private struct AskReasonRow: View {
     let reason: CleanupReason
     @Binding var isOn: Bool
-    let explainLock: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            if reason.isAlwaysAsked {
-                Button(action: explainLock) {
-                    HStack(alignment: .top, spacing: 8) {
-                        CheckboxMark(isOn: true)
-                            .opacity(0.5)
-                        label
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(reason.title)
-                .accessibilityValue("Always asked")
-            } else {
-                Toggle(isOn: $isOn) { label }
-                    .toggleStyle(.appCheckbox)
-                    .accessibilityLabel(reason.title)
-            }
-            Spacer(minLength: 8)
-            CleanupReasonChip(text: reason.isAlwaysAsked ? "Always" : reason.familyTitle,
-                              reason: reason)
-        }
+        Toggle(isOn: $isOn) { label }
+            .toggleStyle(.appCheckbox)
+            .accessibilityLabel(reason.title)
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -173,49 +123,13 @@ private struct AskReasonRow: View {
 
     private var label: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(reason.title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                if reason.isNew {
-                    Text("New")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Theme.plan)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Theme.plan.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-                }
-            }
+            Text(reason.title)
+                .font(.system(size: 12.5, weight: .semibold))
             Text(reason.detail)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-// One of the three numbers under the ask list. It bumps when it changes, so ticking a
-// reason shows at once where the sessions went.
-private struct PreviewCount: View {
-    let count: Int
-    let tint: Color
-    let label: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("\(count)")
-                .font(.serif(22))
-                .foregroundStyle(tint)
-                .contentTransition(.numericText(value: Double(count)))
-                .motion(Motion.pop, value: count)
-            Text(label)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -250,21 +164,5 @@ struct CleanupReasonChip: View {
         case .unread: Theme.attention.opacity(0.14)
         default: Theme.warningBackground
         }
-    }
-}
-
-extension CleanupReason {
-    // The name of the family, as the settings list shows it beside a reason.
-    var familyTitle: String {
-        switch self {
-        case .uncommittedChanges, .unpushedCommits, .unbuiltDesign: "Would lose work"
-        case .unread: "Not looked at"
-        case .snoozed: "Put aside"
-        }
-    }
-
-    // Marked so someone who knows the list sees what it can now ask about.
-    var isNew: Bool {
-        self == .unpushedCommits || self == .snoozed
     }
 }

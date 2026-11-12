@@ -192,8 +192,23 @@ struct AppPathsTests {
         let reloaded = AppSettings(agentAvatarURL: avatar, preferences: defaults)
         #expect(reloaded.cleanupRule == CleanupRule(deletesOnItsOwn: false, asked: [.snoozed],
                                                     includesOrphans: true))
-        #expect(reloaded.cleanupRule.asks(.uncommittedChanges))
+        #expect(!reloaded.cleanupRule.asks(.uncommittedChanges))
         #expect(!reloaded.cleanupRule.asks(.unread))
+    }
+
+    // An older install never stored the two reasons it always asked about, so they come
+    // back ticked rather than letting that work go on its own.
+    @Test func keepsAskingAboutLostWorkForAnOlderInstall() throws {
+        let suite = "code-station-old-session-ask-list-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["snoozed"], forKey: "oldSessionAskReasons")
+
+        #expect(Preferences.oldSessionAskReasons(in: defaults)
+                    == [.snoozed, .uncommittedChanges, .unbuiltDesign])
+
+        Preferences.setOldSessionAskReasons([], in: defaults)
+        #expect(Preferences.oldSessionAskReasons(in: defaults).isEmpty)
     }
 
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {
@@ -290,7 +305,7 @@ struct AppPathsTests {
         }
         let avatar = root.appendingPathComponent("avatar.png")
 
-        Preferences.setOldSessionDays(42, in: firstDefaults)
+        Preferences.setOldSessionDays(21, in: firstDefaults)
         Preferences.setSkillsRefreshInterval(.oneDay, in: firstDefaults)
         Preferences.setProjectSort(.lastUsed, in: firstDefaults)
         Preferences.setProjectGrouping(.kind, in: firstDefaults)
@@ -303,7 +318,7 @@ struct AppPathsTests {
         let first = AppSettings(agentAvatarURL: avatar, preferences: firstDefaults)
         let second = AppSettings(agentAvatarURL: avatar, preferences: secondDefaults)
 
-        #expect(first.oldSessionDays == 42)
+        #expect(first.oldSessionDays == 21)
         #expect(first.skillsRefreshInterval == .oneDay)
         #expect(first.projectSort == .lastUsed)
         #expect(first.projectGrouping == .kind)
