@@ -6,10 +6,9 @@ import SwiftUI
 struct AppSidebar: View {
     let skills: SkillsManager
     let tools: ToolsMenuActions
-    let oldSessionDeletion: OldSessionSweep.Deletion?
-    var parkedSessions: [OldSessionSweep.Parked] = []
+    var cleanup = OldSessionSweep.Status()
     let onReviewOldSessions: () -> Void
-    var onReviewParkedSessions: () -> Void = {}
+    var onReviewCleanup: () -> Void = {}
     // Set while a file open in the detail pane has taken Command-F for its own find.
     let paneOwnsFindShortcut: Bool
 
@@ -43,6 +42,8 @@ struct AppSidebar: View {
     @State private var scrollOffset: CGFloat = 0
     @State private var filterBox = SidebarFilterBox()
     @State private var oldSessions = OldSessionsWatch()
+    // The rows a hovered cleanup line is talking about.
+    @State private var cleanupHighlight: CleanupHighlight?
     @State private var dropSlot: SidebarDropSlot?
     @State private var picks = SidebarMultiSelection()
     @State private var note: String?
@@ -692,6 +693,7 @@ struct AppSidebar: View {
                             },
                             onCancelRename: { renamingID = nil })
                     .sidebarRevealGlow(store.navigation.sidebarHighlight == session.id)
+                    .sidebarCleanupMark(cleanupMark(session.id))
             }
             .sidebarReorder(session.id, enabled: canReorder, slot: $dropSlot) {
                 dropSession($0, beside: session.id, after: $1, in: sessions)
@@ -1194,19 +1196,17 @@ struct AppSidebar: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if showsOldSessionsStrip {
-                OldSessionsStrip(summary: oldSessions.summary,
-                                 deletion: oldSessionDeletion,
-                                 parkedWithSavedWork: parkedSessions.count { $0.reason == .savedWork },
-                                 days: appSettings.oldSessionDays,
-                                 onReview: onReviewOldSessions)
+            if appSettings.oldSessionsDeleteOnTheirOwn {
+                CleanupStrip(status: cleanup, onReview: onReviewCleanup) { highlight in
+                    cleanupHighlight = highlight
+                }
+            } else if oldSessions.summary.sessions > 0 {
+                OldSessionsOfferStrip(summary: oldSessions.summary,
+                                      days: appSettings.oldSessionDays,
+                                      onReview: onReviewOldSessions)
                     .transition(.fold)
             }
-            if !parkedSessions.isEmpty {
-                ParkedSessionsStrip(parked: parkedSessions, onReview: onReviewParkedSessions)
-                    .transition(.fold)
-            }
-            if !orphanedWorktrees.worktrees.isEmpty { OrphanedWorktreesStrip() }
+            if showsOrphanedWorktreesStrip { OrphanedWorktreesStrip() }
 
             HStack(spacing: 8) {
                 ActionButton(title: "Add", height: 38, size: 13, fills: true)
@@ -1227,16 +1227,26 @@ struct AppSidebar: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 14)
-        .motion(Motion.reveal, value: parkedSessions.isEmpty)
-        .motion(Motion.reveal, value: showsOldSessionsStrip)
+        .motion(Motion.reveal, value: cleanup.parked.isEmpty)
+        .motion(Motion.reveal, value: cleanup.deletion == nil)
+        .motion(Motion.reveal, value: oldSessions.summary.sessions > 0)
+        .onChange(of: appSettings.oldSessionsDeleteOnTheirOwn) { _, _ in cleanupHighlight = nil }
     }
 
-    // Under the ask-first policy, sessions with saved work wait in the parked strip
-    // instead, so the plain offer to review is only shown while a cohort counts down.
-    // Otherwise both strips would name the same sessions.
-    private var showsOldSessionsStrip: Bool {
-        guard oldSessions.summary.sessions > 0 else { return false }
-        return !appSettings.oldSessionCleanupPolicy.asksAboutRest || oldSessionDeletion != nil
+    // When cleanup looks after orphans they are counted in its card. Otherwise this is
+    // the only place they are named.
+    private var showsOrphanedWorktreesStrip: Bool {
+        let rule = appSettings.cleanupRule
+        return !orphanedWorktrees.worktrees.isEmpty
+            && !(rule.deletesOnItsOwn && rule.includesOrphans)
+    }
+
+    private func cleanupMark(_ sessionID: UUID) -> SidebarCleanupMark.Tone? {
+        switch cleanupHighlight {
+        case .goes: cleanup.goes(sessionID) ? .goes : nil
+        case .waits: cleanup.waits(sessionID) ? .waits : nil
+        case nil: nil
+        }
     }
 
     // MARK: - Actions
@@ -2529,9 +2539,42 @@ private struct SidebarRevealGlow: ViewModifier {
     }
 }
 
+// The wash a row wears while a cleanup line that names it is under the pointer: red
+// for what the countdown will take, amber for what waits for a yes.
+private struct SidebarCleanupMark: ViewModifier {
+    enum Tone {
+        case goes
+        case waits
+    }
+
+    let tone: Tone?
+
+    private var colour: Color {
+        switch tone {
+        case .goes: Theme.deletion
+        case .waits: Theme.attention
+        case nil: .clear
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: 9)
+                .fill(colour.opacity(tone == nil ? 0 : 0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 9)
+                .stroke(colour.opacity(tone == nil ? 0 : 0.5), lineWidth: 1)
+                .allowsHitTesting(false))
+            .motion(Motion.hover, value: tone)
+    }
+}
+
 private extension View {
     func sidebarRevealGlow(_ revealed: Bool) -> some View {
         modifier(SidebarRevealGlow(revealed: revealed))
+    }
+
+    func sidebarCleanupMark(_ tone: SidebarCleanupMark.Tone?) -> some View {
+        modifier(SidebarCleanupMark(tone: tone))
     }
 }
 

@@ -66,6 +66,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     var isMarkedUnread = false
     // Put out of the way for a while. Saved, like the unread mark, because it is a choice.
     var snooze: SessionSnooze?
+    // Set when the person answers "ask again later" to cleanup. Until then the session is
+    // kept like a pinned one, so it is neither offered nor taken.
+    var cleanupDeferredUntil: Date?
     var isTroubleshooting = false
     // What the diagnosis was briefed with, kept for the strip over its conversation: the
     // site name of the deployment it looks at, and the time window in the person's words.
@@ -241,7 +244,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // encodes to. It is still decoded: a file written before the split holds every
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
-        case id, projectID, title, titleRevision, isPinned, isMarkedUnread, snooze, isTroubleshooting
+        case id, projectID, title, titleRevision, isPinned, isMarkedUnread, snooze, cleanupDeferredUntil
+        case isTroubleshooting
         case troubleshootEnvironment, troubleshootTimeWindow
         case agent, mode, designPhase
         case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
@@ -272,6 +276,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         isMarkedUnread = try container.decodeIfPresent(Bool.self, forKey: .isMarkedUnread)
             ?? false
         snooze = try container.decodeIfPresent(SessionSnooze.self, forKey: .snooze)
+        cleanupDeferredUntil = try container.decodeIfPresent(Date.self,
+                                                             forKey: .cleanupDeferredUntil)
         isTroubleshooting = try container.decodeIfPresent(Bool.self, forKey: .isTroubleshooting)
             ?? false
         troubleshootEnvironment = try container.decodeIfPresent(
@@ -335,6 +341,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         try container.encode(isPinned, forKey: .isPinned)
         if isMarkedUnread { try container.encode(isMarkedUnread, forKey: .isMarkedUnread) }
         try container.encodeIfPresent(snooze, forKey: .snooze)
+        try container.encodeIfPresent(cleanupDeferredUntil, forKey: .cleanupDeferredUntil)
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encodeIfPresent(troubleshootEnvironment, forKey: .troubleshootEnvironment)
         try container.encodeIfPresent(troubleshootTimeWindow, forKey: .troubleshootTimeWindow)

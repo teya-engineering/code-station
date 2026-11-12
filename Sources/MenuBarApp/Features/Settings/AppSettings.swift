@@ -28,21 +28,31 @@ final class AppSettings {
         didSet { Preferences.setOldSessionDays(oldSessionDays, in: preferences) }
     }
 
-    var oldSessionCleanupPolicy: OldSessionCleanupPolicy {
+    var oldSessionsDeleteOnTheirOwn: Bool {
         didSet {
-            Preferences.setOldSessionCleanupPolicy(oldSessionCleanupPolicy, in: preferences)
+            Preferences.setOldSessionsDeleteOnTheirOwn(oldSessionsDeleteOnTheirOwn,
+                                                       in: preferences)
         }
+    }
+
+    var oldSessionAskReasons: Set<CleanupReason> {
+        didSet { Preferences.setOldSessionAskReasons(oldSessionAskReasons, in: preferences) }
     }
 
     var sessionMemoryLimit: SessionMemoryLimit {
         didSet { Preferences.setSessionMemoryLimit(sessionMemoryLimit, in: preferences) }
     }
 
-    var autoPruneOrphanedWorktrees: Bool {
+    var sweepsOrphanedWorktrees: Bool {
         didSet {
-            Preferences.setAutoPruneOrphanedWorktrees(autoPruneOrphanedWorktrees,
-                                                      in: preferences)
+            Preferences.setSweepsOrphanedWorktrees(sweepsOrphanedWorktrees, in: preferences)
         }
+    }
+
+    var cleanupRule: CleanupRule {
+        CleanupRule(deletesOnItsOwn: oldSessionsDeleteOnTheirOwn,
+                    asked: oldSessionAskReasons,
+                    includesOrphans: sweepsOrphanedWorktrees)
     }
 
     var skillsRefreshInterval: SkillsRefreshInterval {
@@ -191,8 +201,9 @@ final class AppSettings {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
         oldSessionDays = Preferences.oldSessionDays(in: preferences)
-        oldSessionCleanupPolicy = Preferences.oldSessionCleanupPolicy(in: preferences)
-        autoPruneOrphanedWorktrees = Preferences.autoPruneOrphanedWorktrees(in: preferences)
+        oldSessionsDeleteOnTheirOwn = Preferences.oldSessionsDeleteOnTheirOwn(in: preferences)
+        oldSessionAskReasons = Preferences.oldSessionAskReasons(in: preferences)
+        sweepsOrphanedWorktrees = Preferences.sweepsOrphanedWorktrees(in: preferences)
         sessionMemoryLimit = Preferences.sessionMemoryLimit(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         skillsRefreshInterval = Preferences.skillsRefreshInterval(in: preferences)

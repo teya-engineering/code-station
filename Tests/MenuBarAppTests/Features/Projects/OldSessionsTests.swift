@@ -41,22 +41,27 @@ struct OldSessionsTests {
         #expect(OldSessions.olderThan(1, in: [session(daysAgo: 24.01 / 24)], now: now).count == 1)
     }
 
-    // Putting a session aside for later is the opposite of being done with it, so the
-    // sweep leaves it alone until the snooze is over, and plans to look again then.
-    @Test func aSnoozedSessionIsNotOldUntilItWakes() {
+    // A snoozed session still goes old. It is shown once old rather than hidden, and the
+    // ask list decides whether it waits for a yes.
+    @Test func aSnoozedSessionStillGoesOld() {
         var untilWoken = session(daysAgo: 30)
         untilWoken.snooze = .untilWoken
-        var untilReply = session(daysAgo: 30)
-        untilReply.snooze = .untilReply
-        #expect(OldSessions.olderThan(7, in: [untilWoken, untilReply], now: now).isEmpty)
-
-        let wakes = now.addingTimeInterval(3_600)
         var timed = session(daysAgo: 30)
-        timed.snooze = .until(wakes)
-        #expect(OldSessions.olderThan(7, in: [timed], now: now).isEmpty)
-        #expect(OldSessions.olderThan(7, in: [timed], now: wakes.addingTimeInterval(1)).count == 1)
-        #expect(OldSessions.nextOldAt(7, in: [timed], now: now) == wakes)
-        #expect(OldSessions.nextOldAt(7, in: [untilWoken], now: now) == nil)
+        timed.snooze = .until(now.addingTimeInterval(3_600))
+
+        #expect(OldSessions.olderThan(7, in: [untilWoken, timed], now: now).count == 2)
+    }
+
+    // "Ask again in a week" keeps a session like a pin until the date, and the list looks
+    // again on that day.
+    @Test func aDeferredSessionIsKeptUntilItsDate() {
+        let until = now.addingTimeInterval(OldSessions.deferral)
+        var deferred = session(daysAgo: 30)
+        deferred.cleanupDeferredUntil = until
+
+        #expect(OldSessions.olderThan(7, in: [deferred], now: now).isEmpty)
+        #expect(OldSessions.olderThan(7, in: [deferred], now: until).count == 1)
+        #expect(OldSessions.nextOldAt(7, in: [deferred], now: now) == until)
     }
 
     @Test func aPinnedSessionIsNeverOld() {
@@ -69,20 +74,25 @@ struct OldSessionsTests {
         #expect(OldSessions.nextOldAt(7, in: [turningOld], now: now) == nil)
     }
 
-    // A reply nobody has read is not something anyone is done with, however long ago it
-    // came in.
-    @Test func anUnreadSessionIsNeverOld() {
+    // Unread is a reason to ask, not a reason to hide, so an unread session goes old.
+    @Test func anUnreadSessionStillGoesOld() {
         let unread = session(daysAgo: 30)
-        let read = session(daysAgo: 30)
-        let isUnread = { (id: UUID) in id == unread.id }
+        #expect(OldSessions.olderThan(7, in: [unread], now: now).count == 1)
+        #expect(!OldSessions.isKept(unread, now: now))
+    }
 
-        #expect(OldSessions.olderThan(7, in: [unread, read], now: now, isUnread: isUnread)
-            .map(\.id) == [read.id])
-        #expect(OldSessions.isKept(unread, now: now, isUnread: isUnread))
+    @Test func aRemovalCostNamesItsReasons() {
+        let cost = SessionRemovalCost(worktree: .wouldLoseWork(added: 1, removed: 0),
+                                      design: .unimplemented, unpushedCommits: 2)
+        #expect(cost.reasons == [.uncommittedChanges, .unpushedCommits, .unbuiltDesign])
+        #expect(SessionRemovalCost(worktree: .worktreeRemoved, design: .implemented)
+            .reasons.isEmpty)
+    }
 
-        let turningOld = session(daysAgo: 6.5)
-        #expect(OldSessions.nextOldAt(7, in: [turningOld], now: now,
-                                      isUnread: { $0 == turningOld.id }) == nil)
+    @Test func theAlwaysAskedReasonsCannotBeTurnedOff() {
+        let rule = CleanupRule(deletesOnItsOwn: true, asked: [], includesOrphans: false)
+        #expect(rule.held([.uncommittedChanges, .unpushedCommits, .unbuiltDesign, .unread,
+                           .snoozed]) == [.uncommittedChanges, .unbuiltDesign])
     }
 
     @Test func findsWhenTheNextSessionBecomesOld() {
@@ -144,15 +154,6 @@ struct OldSessionsTests {
             == "checking…")
         #expect(SessionRemovalCost(worktree: .checkFailed, design: .implemented).label
             == "check failed")
-    }
-
-    @Test func cleanupPoliciesEscalateWithoutOverlapping() {
-        #expect(!OldSessionCleanupPolicy.review.deletesAutomatically)
-        #expect(!OldSessionCleanupPolicy.review.includesSavedWork)
-        #expect(OldSessionCleanupPolicy.deleteSafe.deletesAutomatically)
-        #expect(!OldSessionCleanupPolicy.deleteSafe.includesSavedWork)
-        #expect(OldSessionCleanupPolicy.deleteAll.deletesAutomatically)
-        #expect(OldSessionCleanupPolicy.deleteAll.includesSavedWork)
     }
 
     @Test func formatsTheAutomaticDeletionCountdown() {

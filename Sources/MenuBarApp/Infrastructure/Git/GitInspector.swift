@@ -83,6 +83,9 @@ struct GitSnapshot: Sendable, Equatable {
     var lastCommitSubject: String?
     var lastCommitDate: Date?
     var files: [GitChange] = []
+    // Commits on HEAD that no remote has. Only filled in by cleanup, which needs it to
+    // know whether deleting a checkout throws away the only copy of some commits.
+    var unpushedCommits = 0
 
     var totalAdded: Int { files.compactMap(\.added).reduce(0, +) }
     var totalRemoved: Int { files.compactMap(\.removed).reduce(0, +) }
@@ -404,6 +407,22 @@ enum GitInspector {
             guard exists && isDirectory.boolValue else { return 0 }
             let status = run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url)
             return status.ok ? parseStatus(status.text).count : 0
+        }
+    }
+
+    // Commits on HEAD that are on no remote branch. A repository with no remote at all
+    // answers zero: nothing there was ever meant to be pushed, so every local commit
+    // would count and the answer would say nothing.
+    static func unpushedCommitCount(at path: String,
+                                    commandTimeout: TimeInterval? = nil) async -> Int {
+        guard let tool = await tool() else { return 0 }
+        let url = URL(fileURLWithPath: path)
+        return await offMain {
+            let remotes = run(tool, ["remote"], in: url, timeout: commandTimeout)
+            guard remotes.ok, !remotes.trimmedText.isEmpty else { return 0 }
+            let count = run(tool, ["rev-list", "--count", "HEAD", "--not", "--remotes"],
+                            in: url, timeout: commandTimeout)
+            return count.ok ? Int(count.trimmedText) ?? 0 : 0
         }
     }
 

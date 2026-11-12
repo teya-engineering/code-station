@@ -1,67 +1,74 @@
 import SwiftUI
 
-// The two strips above the sidebar's buttons both say the same kind of thing: what has
-// piled up, what clearing it would cost, and how long is left before the app clears it
-// itself. Drawing them through one view is what keeps them reading as one row that
-// changed its mind rather than two rows that happen to sit together.
-struct CleanupStrip: View {
+// One line of a cleanup card: what is piled up, what it is, and either how long is left
+// before the app acts on its own or a chevron that says the line opens the review. The
+// whole line is the button, so the card reads as two answers to one question.
+struct CleanupLine: View {
+    enum Tone {
+        case plain
+        // Something here waits for a person, so the words wear the amber of attention.
+        case attention
+    }
+
     let title: String
     let detail: String
-    // An urgent strip is one holding something a person would miss. A calm strip is only
-    // an offer, so it sits on the plain field colour and says nothing in its border.
-    let isUrgent: Bool
-    let countdownAt: Date?
-    let countdownLabel: String
-    let hoverTitle: String
+    var tone: Tone = .plain
+    var countdownAt: Date? = nil
     let label: String
-    // A strip doing the work it offered cannot be asked again until it is done.
-    var isWorking = false
+    var onHover: (Bool) -> Void = { _ in }
     let action: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(isUrgent ? Theme.attentionText : Color.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                        Text(detail)
-                            .font(.mono(10))
-                            .foregroundStyle(isUrgent ? Theme.attentionText : Color.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    if let countdownAt { countdown(until: countdownAt) }
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(tone == .attention ? Theme.attentionText : Color.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .contentTransition(.numericText())
+                    Text(detail)
+                        .font(.mono(10))
+                        .foregroundStyle(tone == .attention ? Theme.attentionText : Color.secondary)
+                        .lineLimit(1)
+                        .contentTransition(.numericText())
                 }
-                .opacity(hovering ? 0 : 1)
-
-                Text(hoverTitle)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(isUrgent ? Theme.attentionText : Color.primary)
-                    .opacity(hovering ? 1 : 0)
+                Spacer(minLength: 8)
+                if let countdownAt {
+                    CleanupCountdownLabel(deadline: countdownAt)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(tone == .attention ? Theme.attentionText : Color.secondary)
+                        .offset(x: hovering ? 2 : 0)
+                }
             }
             .padding(.horizontal, 11)
             .padding(.vertical, 9)
-            .surface(isUrgent ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: 9,
-                     border: isUrgent ? Theme.attention.opacity(0.45) : .clear)
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(hovering ? 0.05 : 0))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isWorking)
-        .opacity(isWorking ? 0.55 : 1)
         .motion(Motion.hover, value: hovering)
-        .onPointerHover { hovering = $0 }
+        .onPointerHover {
+            hovering = $0
+            onHover($0)
+        }
         .accessibilityLabel(label)
+        .accessibilityValue("\(title), \(detail)")
     }
+}
 
-    // Counted down on the second, since the number is a promise about when the app will
-    // act on its own and a stale one would be a promise it is already breaking.
-    private func countdown(until deadline: Date) -> some View {
+// Counted down on the second, since the number is a promise about when the app will
+// act on its own and a stale one would be a promise it is already breaking.
+private struct CleanupCountdownLabel: View {
+    let deadline: Date
+
+    var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let text = CleanupCountdown.text(until: deadline, now: context.date)
             HStack(spacing: 4) {
@@ -72,120 +79,142 @@ struct CleanupStrip: View {
                     .monospacedDigit()
             }
             .foregroundStyle(CleanupCountdown.isUrgent(until: deadline, now: context.date)
-                ? Theme.deletion
-                : isUrgent ? Theme.attentionText : Theme.accent)
+                ? Theme.deletion : Theme.accent)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(countdownLabel)
+            .accessibilityLabel("Automatic deletion countdown")
             .accessibilityValue(text)
         }
     }
 }
 
+// The card the lines sit in. Amber when everything in it waits for a person, plain
+// otherwise, so the colour of the card says whether the app will act on its own.
+private struct CleanupCard<Content: View>: View {
+    var isUrgent = false
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) { content }
+            .surface(isUrgent ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: 9,
+                     border: isUrgent ? Theme.attention.opacity(0.45) : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+    }
+}
+
 // MARK: - Old sessions
 
-// Sessions pile up quietly, and the worktrees behind them take real disk. The strip says
-// how much has gone stale and hands it to a screen that explains what clearing each one
-// would cost. Once the sweep has a cohort waiting, the strip switches to that cohort: the
-// count beside the countdown is what the sweep will take, so the number a person reads
-// before walking away is the number that goes.
-struct OldSessionsStrip: View {
+// Everything cleanup has to say, in one card. The top line is the promise: what goes when
+// the countdown ends. The bottom line is the standing question: what waits for a yes and
+// why. Hovering a line lights up the sidebar rows it is talking about, so the numbers are
+// never abstract.
+struct CleanupStrip: View {
+    let status: OldSessionSweep.Status
+    let onReview: () -> Void
+    // The rows a hovered line names, or nil once the pointer leaves.
+    var onHighlight: (CleanupHighlight?) -> Void = { _ in }
+
+    var body: some View {
+        let deletion = status.deletion
+        let parked = status.parked
+        if deletion == nil && parked.isEmpty {
+            if status.swept > 0 {
+                Text("Nothing old is left. Sessions are checked again every hour.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+                    .transition(.fadeIn)
+            }
+        } else {
+            CleanupCard(isUrgent: deletion == nil) {
+                if let deletion {
+                    CleanupLine(title: Self.deletionTitle(deletion),
+                                detail: Self.deletionDetail(deletion),
+                                countdownAt: deletion.at,
+                                label: "Review what the sweep will delete",
+                                onHover: { onHighlight($0 ? .goes : nil) },
+                                action: onReview)
+                }
+                if deletion != nil && !parked.isEmpty {
+                    Rectangle()
+                        .fill(Theme.attention.opacity(0.35))
+                        .frame(height: 1)
+                }
+                if !parked.isEmpty {
+                    CleanupLine(title: Self.waitingTitle(parked),
+                                detail: Self.waitingDetail(parked),
+                                tone: .attention,
+                                label: "Review sessions waiting for your OK",
+                                onHover: { onHighlight($0 ? .waits : nil) },
+                                action: onReview)
+                        .background(deletion == nil ? .clear : Theme.attention.opacity(0.10))
+                }
+            }
+            .transition(.fold)
+        }
+    }
+
+    // "7 will be deleted"
+    nonisolated static func deletionTitle(_ deletion: OldSessionSweep.Deletion) -> String {
+        "\(deletion.total) will be deleted"
+    }
+
+    // "6 sessions, 1 worktree"
+    nonisolated static func deletionDetail(_ deletion: OldSessionSweep.Deletion) -> String {
+        var parts: [String] = []
+        if deletion.sessions > 0 { parts.append(counted(deletion.sessions, "session")) }
+        if deletion.worktrees > 0 { parts.append(counted(deletion.worktrees, "worktree")) }
+        return parts.joined(separator: ", ")
+    }
+
+    nonisolated static func waitingTitle(_ parked: [OldSessionSweep.Parked]) -> String {
+        "\(parked.count) waiting for your OK"
+    }
+
+    // "5 hold work · 2 not seen yet"
+    nonisolated static func waitingDetail(_ parked: [OldSessionSweep.Parked]) -> String {
+        let work = parked.count { $0.family == .losesWork }
+        let unseen = parked.count - work
+        var parts: [String] = []
+        if work > 0 { parts.append("\(work) \(work == 1 ? "holds" : "hold") work") }
+        if unseen > 0 { parts.append("\(unseen) not seen yet") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+// Which rows a hovered strip line is talking about.
+enum CleanupHighlight: Equatable {
+    case goes
+    case waits
+}
+
+// With automatic cleanup off the app never deletes on its own, so the strip is only an
+// offer to review what has gone quiet.
+struct OldSessionsOfferStrip: View {
     let summary: OldSessionsWatch.Summary
-    let deletion: OldSessionSweep.Deletion?
-    // Sessions with saved work that are waiting in the parked strip. They are counted
-    // there, so they are not also counted here as left out of this round.
-    var parkedWithSavedWork = 0
     let days: Int
     let onReview: () -> Void
 
     var body: some View {
-        CleanupStrip(
-            title: Self.title(summary, deleting: deletion?.sessions, days: days),
-            detail: Self.detail(summary, deleting: deletion?.sessions,
-                                parked: parkedWithSavedWork, days: days),
-            isUrgent: summary.losesWork > 0,
-            countdownAt: deletion?.at,
-            countdownLabel: "Automatic deletion countdown",
-            hoverTitle: "Click to review",
-            label: "Review old sessions",
-            action: onReview)
-    }
-
-    // The strip makes one statement at a time. Once a cohort is waiting the top line is a
-    // promise about that cohort and nothing else, so it counts the sessions the sweep has
-    // already settled on rather than everything that has gone quiet.
-    nonisolated static func title(_ summary: OldSessionsWatch.Summary, deleting: Int?, days: Int) -> String {
-        guard let deleting else {
-            return "\(counted(summary.sessions, "session")) older than \(counted(days, "day"))"
+        CleanupCard {
+            CleanupLine(title: Self.title(summary, days: days),
+                        detail: Self.detail(summary),
+                        label: "Review old sessions",
+                        action: onReview)
         }
-        return "\(counted(deleting, "session")) will be deleted"
     }
 
-    // Under a promise the detail carries the threshold the top line gave up naming and
-    // says what the cohort is leaving behind. Those sessions are not safe: one that went
-    // stale during the countdown is taken by the next cohort, and one held back for its
-    // saved work stays only while that work is there. So the line says they are outside
-    // this round, not that they are kept. With no cohort waiting the strip is only an
-    // offer to review, so the detail counts what accepting it would cost.
-    nonisolated static func detail(_ summary: OldSessionsWatch.Summary, deleting: Int?,
-                                   parked: Int = 0, days: Int) -> String {
-        guard let deleting else { return reviewDetail(summary) }
-        var parts = ["Older than \(counted(days, "day"))"]
-        // The summary is refreshed on its own slower clock, so it can lag a cohort that
-        // has just lost a member and count fewer sessions than the cohort takes. There is
-        // nothing left for review when it does.
-        let leftOver = summary.sessions - deleting - parked
-        if leftOver > 0 { parts.append("\(leftOver) not in this round") }
+    nonisolated static func title(_ summary: OldSessionsWatch.Summary, days: Int) -> String {
+        "\(counted(summary.sessions, "session")) older than \(counted(days, "day"))"
+    }
+
+    // "Automatic cleanup is off · 1 would lose work", so a quiet strip is never a mystery.
+    nonisolated static func detail(_ summary: OldSessionsWatch.Summary) -> String {
+        var parts = ["Automatic cleanup is off"]
+        if summary.losesWork > 0 { parts.append("\(summary.losesWork) would lose work") }
         if summary.snoozedProjects > 0 {
             parts.append("\(counted(summary.snoozedProjects, "project")) snoozed")
         }
-        return parts.joined(separator: " · ")
-    }
-
-    // "1 project snoozed · 1 would lose work", so a quiet strip is never a mystery.
-    // With nothing snoozed the line says only what it has always said.
-    private nonisolated static func reviewDetail(_ summary: OldSessionsWatch.Summary) -> String {
-        let work = summary.losesWork == 1
-            ? "1 session would lose work"
-            : "\(summary.losesWork) sessions would lose work"
-        guard summary.snoozedProjects > 0 else { return work }
-        let snoozed = "\(counted(summary.snoozedProjects, "project")) snoozed"
-        guard summary.losesWork > 0 else { return snoozed }
-        return "\(snoozed) · \(summary.losesWork) would lose work"
-    }
-}
-
-// Sessions the sweep would have taken but is holding for a yes: ones that would lose
-// work, and old ones nobody has read. Nothing here runs out, so there is no countdown,
-// only a standing question. It is urgent because each one holds something a person
-// would miss.
-struct ParkedSessionsStrip: View {
-    let parked: [OldSessionSweep.Parked]
-    let onReview: () -> Void
-
-    var body: some View {
-        CleanupStrip(
-            title: Self.title(parked),
-            detail: Self.detail(parked),
-            isUrgent: true,
-            countdownAt: nil,
-            countdownLabel: "",
-            hoverTitle: "Click to review",
-            label: "Review sessions waiting for your OK",
-            action: onReview)
-            .contentTransition(.numericText())
-    }
-
-    nonisolated static func title(_ parked: [OldSessionSweep.Parked]) -> String {
-        "\(counted(parked.count, "session")) \(parked.count == 1 ? "needs" : "need") your OK"
-    }
-
-    // "1 would lose work · 2 unread"
-    nonisolated static func detail(_ parked: [OldSessionSweep.Parked]) -> String {
-        let savedWork = parked.count { $0.reason == .savedWork }
-        let unread = parked.count { $0.reason == .unread }
-        var parts: [String] = []
-        if savedWork > 0 { parts.append("\(savedWork) would lose work") }
-        if unread > 0 { parts.append("\(unread) unread") }
         return parts.joined(separator: " · ")
     }
 }
@@ -227,15 +256,13 @@ final class OldSessionsWatch {
         return RefreshRule(
             days: days,
             oldSessions: OldSessions.olderThan(days, in: sessions,
-                                               snoozedUntil: { store.snoozeDeadline(for: $0) },
-                                               isUnread: store.isUnread)
+                                               snoozedUntil: { store.snoozeDeadline(for: $0) })
                 .map {
                     RefreshRule.Session(id: $0.id,
                                         isBusy: runner.isBusy($0.id, store: store))
                 },
             nextOldAt: OldSessions.nextOldAt(days, in: sessions,
-                                             snoozedUntil: { store.snoozeDeadline(for: $0) },
-                                             isUnread: store.isUnread))
+                                             snoozedUntil: { store.snoozeDeadline(for: $0) }))
     }
 
     func watch(store: ProjectStore, runner: SessionRunner, days: Int) async {
@@ -247,7 +274,7 @@ final class OldSessionsWatch {
             // minute a project comes back rather than at the next hourly pass.
             let nextOld = OldSessions.nextOldAt(
                 days, in: store.sidebarSessions, now: now,
-                snoozedUntil: { store.snoozeDeadline(for: $0) }, isUnread: store.isUnread)
+                snoozedUntil: { store.snoozeDeadline(for: $0) })
             let next = min(hourly, nextOld ?? .distantFuture)
             do {
                 try await Task.sleep(for: .seconds(max(0, next.timeIntervalSinceNow)))
@@ -258,7 +285,7 @@ final class OldSessionsWatch {
     }
 
     private func refresh(store: ProjectStore, runner: SessionRunner, days: Int) async {
-        let old = OldSessions.olderThan(days, in: store.sidebarSessions, isUnread: store.isUnread)
+        let old = OldSessions.olderThan(days, in: store.sidebarSessions)
             .filter { !runner.isBusy($0.id, store: store) }
         let heldBack = old.filter { ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }
         let sessions = old.filter { !ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }
@@ -280,11 +307,11 @@ final class OldSessionsWatch {
 // MARK: - Orphaned worktrees
 
 // A worktree whose session is gone keeps its whole checkout on disk, and nothing else in
-// the app mentions it. This is the only place it is ever named.
+// the app mentions it. When cleanup does not look after orphans, this is the only place
+// one is ever named, and pruning is always a click and a yes.
 struct OrphanedWorktreesStrip: View {
     @Environment(ProjectStore.self) private var store
     @Environment(DialogPresenter.self) private var dialogs
-    @Environment(AppSettings.self) private var appSettings
     @Environment(OrphanedWorktreeMonitor.self) private var monitor
 
     var body: some View {
@@ -292,18 +319,15 @@ struct OrphanedWorktreesStrip: View {
         let bytes = worktrees.reduce(Int64(0)) { $0 + $1.allocatedBytes }
         let size = bytes > 0 ? bytes.formatted(.byteCount(style: .file)) : "No disk usage"
 
-        return CleanupStrip(
-            title: counted(worktrees.count, "orphaned worktree"),
-            detail: "No session · \(size)",
-            isUrgent: true,
-            countdownAt: appSettings.autoPruneOrphanedWorktrees
-                ? monitor.automaticDeletionAt
-                : nil,
-            countdownLabel: "Automatic pruning countdown",
-            hoverTitle: "Click to prune",
-            label: "Prune orphaned worktrees",
-            isWorking: monitor.isPruning,
-            action: { confirmPrune(worktrees) })
+        return CleanupCard(isUrgent: true) {
+            CleanupLine(title: counted(worktrees.count, "orphaned worktree"),
+                        detail: "No session · \(size)",
+                        tone: .attention,
+                        label: "Prune orphaned worktrees",
+                        action: { confirmPrune(worktrees) })
+                .disabled(monitor.isPruning)
+                .opacity(monitor.isPruning ? 0.55 : 1)
+        }
     }
 
     private func confirmPrune(_ worktrees: [OrphanedWorktree]) {

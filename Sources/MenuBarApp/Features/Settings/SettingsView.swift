@@ -464,81 +464,8 @@ struct SettingsView: View {
         }
     }
 
-    // The threshold and cleanup policy are separate choices: one says when a session is
-    // old, while the other says what the app may do once the warning hour has passed.
     private var oldSessions: some View {
-        @Bindable var settings = settings
-        let days = settings.oldSessionDays
-        let stale = OldSessions.olderThan(days, in: store.userSessions,
-                                          isUnread: store.isUnread).count
-
-        return ChoiceBlock("OLD SESSIONS") {
-            SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
-                    settingCopy(
-                        title: "Count a session as old after",
-                        detail: "Counted from its last turn. Pinned and unread sessions never count. The sidebar offers to clear them.")
-                    Spacer(minLength: 0)
-                    DayField(days: $settings.oldSessionDays)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                SettingsRowDivider()
-
-                OptionRow(
-                    title: "Review before deleting",
-                    detail: "Old sessions stay in the app until you delete them from the review screen.",
-                    selected: settings.oldSessionCleanupPolicy == .review) {
-                        settings.oldSessionCleanupPolicy = .review
-                }
-
-                SettingsRowDivider()
-
-                OptionRow(
-                    title: "Delete without asking when nothing would be lost",
-                    detail: "After one warning hour, removes sessions with no Design files and no uncommitted worktree changes.",
-                    selected: settings.oldSessionCleanupPolicy == .deleteSafe) {
-                        settings.oldSessionCleanupPolicy = .deleteSafe
-                }
-
-                SettingsRowDivider()
-
-                OptionRow(
-                    title: "Delete what is safe, ask about the rest",
-                    detail: "After one warning hour, removes sessions that lose nothing. Sessions that would lose work, and unread ones, wait in the sidebar for your OK.",
-                    selected: settings.oldSessionCleanupPolicy == .deleteSafeAskRest) {
-                        settings.oldSessionCleanupPolicy = .deleteSafeAskRest
-                }
-
-                SettingsRowDivider()
-
-                OptionRow(
-                    title: "Delete without asking even when work would be lost",
-                    detail: "After one warning hour, removes every old session, including generated Design files and uncommitted worktree changes.",
-                    selected: settings.oldSessionCleanupPolicy == .deleteAll,
-                    warning: true) {
-                        settings.oldSessionCleanupPolicy = .deleteAll
-                }
-
-                SettingsRowDivider()
-
-                HStack(spacing: 10) {
-                    Text(stale == 0
-                         ? "Nothing is older than that right now."
-                         : "\(counted(stale, "session")) \(stale == 1 ? "is" : "are") older than that right now.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    InlineLink(title: "Review them…") { reviewingOldSessions = true }
-                        .disabled(stale == 0)
-                        .opacity(stale == 0 ? 0.4 : 1)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
-            }
-        }
+        OldSessionsSettings(review: { reviewingOldSessions = true })
     }
 
     private var orphanedWorktrees: some View {
@@ -546,9 +473,9 @@ struct SettingsView: View {
         return ChoiceBlock("ORPHANED WORKTREES") {
             SettingsCard {
                 SettingsToggleRow(
-                    "Prune automatically",
-                    detail: "After one warning hour, removes app-created worktrees that no session owns. Uncommitted changes are lost; branches with unmerged commits are kept.",
-                    isOn: $settings.autoPruneOrphanedWorktrees)
+                    "Treat them like old sessions",
+                    detail: "Checkouts no session owns go with the same countdown when they have no changes. One with uncommitted changes waits for your OK instead of being pruned.",
+                    isOn: $settings.sweepsOrphanedWorktrees)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 13)
             }
@@ -1364,7 +1291,7 @@ private struct SettingsThemePreview: View {
     }
 }
 
-private struct DayField: View {
+struct DayField: View {
     @Binding var days: Int
 
     private var value: Binding<Int> {

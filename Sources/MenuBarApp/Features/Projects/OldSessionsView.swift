@@ -349,6 +349,7 @@ struct OldSessionsView: View {
     private func detail(_ row: Row) -> String {
         var parts = ["last turn " + SessionAge.phrase(since: row.session.lastActivity)]
         if store.isUnread(row.id) { parts.append("unread") }
+        if row.session.snooze?.isActive() == true { parts.append("snoozed") }
         if let turns = row.session.usage?.turns, turns > 0 {
             parts.append(counted(turns, "turn"))
         }
@@ -416,10 +417,12 @@ struct OldSessionsView: View {
         }
     }
 
-    // An unread session is only here because someone was asked about it, so its box is
-    // left for them to tick.
+    // Only what loses nothing and has been seen arrives ticked. Unpushed commits, an
+    // unread reply or a snooze are each a reason someone may want it, so those boxes
+    // are left for them to tick.
     private func preselects(_ id: UUID, cost: SessionRemovalCost) -> Bool {
-        cost.losesNothing && !store.isUnread(id)
+        cost.losesNothing && cost.unpushedCommits == 0 && !store.isUnread(id)
+            && store.session(id)?.snooze?.isActive() != true
     }
 
     // MARK: - Acting

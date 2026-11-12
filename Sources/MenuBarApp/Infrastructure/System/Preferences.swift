@@ -229,23 +229,51 @@ enum Preferences {
         store.set(OldSessions.resolvedDays(days), forKey: "oldSessionDays")
     }
 
-    // What happens after a session has remained old for the warning hour. The old Boolean
-    // maps to the equivalent safe choice, so an upgrade does not make cleanup more
-    // destructive than the person previously allowed.
-    static func oldSessionCleanupPolicy(in store: UserDefaults = .standard)
-        -> OldSessionCleanupPolicy {
-        if let rawValue = store.string(forKey: "oldSessionCleanupPolicy"),
-           let policy = OldSessionCleanupPolicy(rawValue: rawValue) {
-            return policy
+    // Whether old sessions go on their own after the warning hour. An older install kept
+    // a four-way policy, or before that a single Boolean. Only "review" meant no, so
+    // every other answer carries over as yes: what may be taken is now decided by the
+    // ask list, which starts out asking about everything.
+    static func oldSessionsDeleteOnTheirOwn(in store: UserDefaults = .standard) -> Bool {
+        if store.object(forKey: "oldSessionsDeleteOnTheirOwn") != nil {
+            return store.bool(forKey: "oldSessionsDeleteOnTheirOwn")
         }
-        guard store.object(forKey: "autoDeleteOldSessions") != nil else { return .deleteAll }
-        return store.bool(forKey: "autoDeleteOldSessions") ? .deleteSafe : .review
+        if let policy = store.string(forKey: "oldSessionCleanupPolicy") {
+            return policy != "review"
+        }
+        guard store.object(forKey: "autoDeleteOldSessions") != nil else { return true }
+        return store.bool(forKey: "autoDeleteOldSessions")
     }
 
-    static func setOldSessionCleanupPolicy(_ policy: OldSessionCleanupPolicy,
-                                           in store: UserDefaults = .standard) {
-        store.set(policy.rawValue, forKey: "oldSessionCleanupPolicy")
+    static func setOldSessionsDeleteOnTheirOwn(_ enabled: Bool,
+                                               in store: UserDefaults = .standard) {
+        store.set(enabled, forKey: "oldSessionsDeleteOnTheirOwn")
+        store.removeObject(forKey: "oldSessionCleanupPolicy")
         store.removeObject(forKey: "autoDeleteOldSessions")
+    }
+
+    // The reasons on the "ask me first" list that the person can turn off. The ones that
+    // are always asked are not stored, since there is no choice to keep.
+    static func oldSessionAskReasons(in store: UserDefaults = .standard) -> Set<CleanupReason> {
+        guard let raw = store.stringArray(forKey: "oldSessionAskReasons") else {
+            return CleanupRule.askedByDefault
+        }
+        return Set(raw.compactMap(CleanupReason.init(rawValue:)))
+    }
+
+    static func setOldSessionAskReasons(_ reasons: Set<CleanupReason>,
+                                        in store: UserDefaults = .standard) {
+        let optional = reasons.filter { !$0.isAlwaysAsked }.map(\.rawValue).sorted()
+        store.set(optional, forKey: "oldSessionAskReasons")
+    }
+
+    // Orphaned worktrees the person asked to hear about later, by path.
+    static func orphanCleanupDeferrals(in store: UserDefaults = .standard) -> [String: Date] {
+        store.dictionary(forKey: "orphanCleanupDeferrals") as? [String: Date] ?? [:]
+    }
+
+    static func setOrphanCleanupDeferrals(_ deferrals: [String: Date],
+                                          in store: UserDefaults = .standard) {
+        store.set(deferrals, forKey: "orphanCleanupDeferrals")
     }
 
     // How much memory a single turn may hold before the app stops it to keep the Mac
@@ -262,14 +290,14 @@ enum Preferences {
         store.set(limit.rawValue, forKey: "sessionMemoryLimit")
     }
 
-    static func autoPruneOrphanedWorktrees(in store: UserDefaults = .standard) -> Bool {
+    // Whether orphaned worktrees are cleaned up by the same rule as old sessions. The key
+    // is older than the rule: it used to prune every orphan, changes and all.
+    static func sweepsOrphanedWorktrees(in store: UserDefaults = .standard) -> Bool {
         store.bool(forKey: "autoPruneOrphanedWorktrees")
     }
 
-    static func setAutoPruneOrphanedWorktrees(
-        _ enabled: Bool,
-        in store: UserDefaults = .standard
-    ) {
+    static func setSweepsOrphanedWorktrees(_ enabled: Bool,
+                                           in store: UserDefaults = .standard) {
         store.set(enabled, forKey: "autoPruneOrphanedWorktrees")
     }
 

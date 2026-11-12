@@ -16,83 +16,41 @@ struct OrphanedWorktreeSweepTests {
                          allocatedBytes: 1_024)
     }
 
-    @Test func waitsAFullHourAfterAnOrphanIsFirstSeen() {
-        let orphan = worktree("one")
-        var buffer = OrphanedWorktreeSweep.EligibilityBuffer()
-
-        #expect(buffer.nextReadyAt == nil)
-        #expect(buffer.ready([orphan], now: now).isEmpty)
-        #expect(buffer.nextReadyAt
-            == now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod))
-        #expect(buffer.ready(
-            [orphan],
-            now: now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod - 1)).isEmpty)
-        #expect(buffer.ready(
-            [orphan],
-            now: now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod)) == [orphan])
+    private func orphaned(_ orphan: OrphanedWorktree) -> GitWorktree.Orphaned {
+        GitWorktree.Orphaned(path: orphan.path, branch: orphan.branch,
+                             allocatedBytes: orphan.allocatedBytes)
     }
 
-    @Test func forgetsAnOrphanThatDisappearsDuringTheWarningHour() {
-        let orphan = worktree("one")
-        var buffer = OrphanedWorktreeSweep.EligibilityBuffer()
-
-        #expect(buffer.ready([orphan], now: now).isEmpty)
-        #expect(buffer.ready([], now: now.addingTimeInterval(1_800)).isEmpty)
-        #expect(buffer.nextReadyAt == nil)
-        #expect(buffer.ready([orphan], now: now.addingTimeInterval(3_600)).isEmpty)
+    private func project(of orphan: OrphanedWorktree) -> Project {
+        Project(id: orphan.projectID, name: orphan.projectName, path: orphan.projectPath)
     }
 
-    @Test func capsEachAutomaticPruningPass() {
-        let worktrees = (0..<(OrphanedWorktreeSweep.batchLimit + 10)).map {
-            worktree("\($0)")
-        }
-        var buffer = OrphanedWorktreeSweep.EligibilityBuffer()
+    // "Ask again in a week" takes an orphan out of cleanup until that date, and the answer
+    // outlasts a restart.
+    @Test func leavesADeferredOrphanOutOfCleanupUntilItsDate() {
+        let preferences = TestPreferences()
+        let first = worktree("one")
+        let second = worktree("two")
+        let monitor = OrphanedWorktreeMonitor(preferences: preferences.store)
+        monitor.replace([orphaned(first), orphaned(second)], for: project(of: first))
+        let until = now.addingTimeInterval(OldSessions.deferral)
 
-        #expect(buffer.ready(worktrees, now: now).isEmpty)
-        let ready = buffer.ready(
-            worktrees,
-            now: now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod))
+        monitor.deferCleanup(of: first.id, until: until, now: now)
 
-        #expect(ready.count == OrphanedWorktreeSweep.batchLimit)
+        #expect(monitor.cleanupCandidates(now: now) == [second])
+        #expect(monitor.cleanupCandidates(now: until) == [first, second])
+        let relaunched = OrphanedWorktreeMonitor(preferences: preferences.store)
+        #expect(relaunched.deferredUntil == [first.id: until])
     }
 
-    @Test func replacingVisibleWorktreesStartsTheAutomaticPruningCountdown() {
-        let orphan = worktree("one")
-        let project = Project(id: orphan.projectID,
-                              name: orphan.projectName,
-                              path: orphan.projectPath)
-        let monitor = OrphanedWorktreeMonitor()
-        monitor.setAutomaticPruningEnabled(true, now: now)
+    @Test func forgetsDeferralsThatHaveRunOut() {
+        let preferences = TestPreferences()
+        let monitor = OrphanedWorktreeMonitor(preferences: preferences.store)
+        monitor.deferCleanup(of: "/worktrees/old", until: now.addingTimeInterval(-1), now: now)
 
-        monitor.replace([
-            GitWorktree.Orphaned(path: orphan.path,
-                                 branch: orphan.branch,
-                                 allocatedBytes: orphan.allocatedBytes)
-        ], for: project, now: now)
+        monitor.deferCleanup(of: "/worktrees/new", until: now.addingTimeInterval(60), now: now)
 
-        #expect(monitor.automaticDeletionAt
-            == now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod))
-        #expect(monitor.automaticPruningCandidates(now: now).isEmpty)
-    }
-
-    @Test func disablingAutomaticPruningClearsTheCountdown() {
-        let orphan = worktree("one")
-        let project = Project(id: orphan.projectID,
-                              name: orphan.projectName,
-                              path: orphan.projectPath)
-        let monitor = OrphanedWorktreeMonitor()
-        monitor.setAutomaticPruningEnabled(true, now: now)
-        monitor.replace([
-            GitWorktree.Orphaned(path: orphan.path,
-                                 branch: orphan.branch,
-                                 allocatedBytes: orphan.allocatedBytes)
-        ], for: project, now: now)
-
-        monitor.setAutomaticPruningEnabled(false, now: now)
-
-        #expect(monitor.automaticDeletionAt == nil)
-        #expect(monitor.automaticPruningCandidates(
-            now: now.addingTimeInterval(OrphanedWorktreeSweep.gracePeriod)).isEmpty)
+        #expect(Array(monitor.deferredUntil.keys) == ["/worktrees/new"])
     }
 
     @Test func dropsAWorktreeClaimedWhileDiscoveryIsRunning() async throws {
@@ -117,7 +75,7 @@ struct OrphanedWorktreeSweepTests {
         _ = scratch
         let removed = worktree("removed")
         let kept = worktree("kept")
-        let monitor = OrphanedWorktreeMonitor()
+        let monitor = OrphanedWorktreeMonitor(preferences: TestPreferences().store)
         monitor.replace([
             GitWorktree.Orphaned(path: removed.path,
                                  branch: removed.branch,
@@ -147,7 +105,7 @@ struct OrphanedWorktreeSweepTests {
         let claimed = worktree("claimed")
         store.newSession(in: project.id, worktreePath: claimed.path)
         let recorder = OrphanRemovalRecorder()
-        let monitor = OrphanedWorktreeMonitor()
+        let monitor = OrphanedWorktreeMonitor(preferences: TestPreferences().store)
         monitor.replace([
             GitWorktree.Orphaned(path: claimed.path,
                                  branch: claimed.branch,

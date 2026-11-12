@@ -150,54 +150,50 @@ struct AppPathsTests {
         #expect(Preferences.oldSessionDays(in: defaults) == 30)
     }
 
-    @Test func defaultsAndMigratesTheOldSessionCleanupPolicy() throws {
+    // Only "review" used to mean no, so every other old answer carries over as yes.
+    @Test func defaultsAndMigratesTheOldSessionSwitch() throws {
         let suite = "code-station-old-session-cleanup-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteAll)
+        #expect(Preferences.oldSessionsDeleteOnTheirOwn(in: defaults))
 
         defaults.set(false, forKey: "autoDeleteOldSessions")
-        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .review)
+        #expect(!Preferences.oldSessionsDeleteOnTheirOwn(in: defaults))
 
-        defaults.set(true, forKey: "autoDeleteOldSessions")
-        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteSafe)
+        defaults.set("review", forKey: "oldSessionCleanupPolicy")
+        #expect(!Preferences.oldSessionsDeleteOnTheirOwn(in: defaults))
+        for policy in ["deleteSafe", "deleteSafeAskRest", "deleteAll"] {
+            defaults.set(policy, forKey: "oldSessionCleanupPolicy")
+            #expect(Preferences.oldSessionsDeleteOnTheirOwn(in: defaults))
+        }
 
-        Preferences.setOldSessionCleanupPolicy(.deleteAll, in: defaults)
-        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .deleteAll)
+        Preferences.setOldSessionsDeleteOnTheirOwn(false, in: defaults)
+        #expect(!Preferences.oldSessionsDeleteOnTheirOwn(in: defaults))
+        #expect(defaults.object(forKey: "oldSessionCleanupPolicy") == nil)
         #expect(defaults.object(forKey: "autoDeleteOldSessions") == nil)
     }
 
-    @Test @MainActor func appSettingsPersistsTheOldSessionCleanupPolicy() throws {
+    @Test @MainActor func appSettingsPersistsTheCleanupRule() throws {
         let suite = "code-station-app-old-session-cleanup-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
-        #expect(settings.oldSessionCleanupPolicy == .deleteAll)
+        #expect(settings.cleanupRule == CleanupRule(deletesOnItsOwn: true,
+                                                    asked: CleanupRule.askedByDefault,
+                                                    includesOrphans: false))
 
-        settings.oldSessionCleanupPolicy = .review
+        settings.oldSessionsDeleteOnTheirOwn = false
+        settings.oldSessionAskReasons = [.snoozed]
+        settings.sweepsOrphanedWorktrees = true
 
-        #expect(Preferences.oldSessionCleanupPolicy(in: defaults) == .review)
-        #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
-            .oldSessionCleanupPolicy == .review)
-    }
-
-    @Test @MainActor func orphanedWorktreeAutoPruningDefaultsOffAndPersists() throws {
-        let suite = "code-station-orphan-pruning-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let avatar = root.appendingPathComponent("avatar.png")
-        let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
-
-        #expect(!settings.autoPruneOrphanedWorktrees)
-
-        settings.autoPruneOrphanedWorktrees = true
-
-        #expect(Preferences.autoPruneOrphanedWorktrees(in: defaults))
-        #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
-            .autoPruneOrphanedWorktrees)
+        let reloaded = AppSettings(agentAvatarURL: avatar, preferences: defaults)
+        #expect(reloaded.cleanupRule == CleanupRule(deletesOnItsOwn: false, asked: [.snoozed],
+                                                    includesOrphans: true))
+        #expect(reloaded.cleanupRule.asks(.uncommittedChanges))
+        #expect(!reloaded.cleanupRule.asks(.unread))
     }
 
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {

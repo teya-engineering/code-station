@@ -1484,6 +1484,15 @@ final class ProjectStore {
         renameSession(request.sessionID, to: title)
     }
 
+    // Takes the session out of cleanup until the date, after which it is old again and
+    // asked about again.
+    func deferCleanup(of sessionID: UUID, until date: Date) {
+        guard let i = index(sessionID), sessions[i].cleanupDeferredUntil != date else { return }
+        sessions[i].cleanupDeferredUntil = date
+        publishSidebarSessions()
+        scheduleIndexSave()
+    }
+
     func setPinned(_ isPinned: Bool, forSession sessionID: UUID) {
         guard let i = index(sessionID), sessions[i].isPinned != isPinned else { return }
         sessions[i].isPinned = isPinned

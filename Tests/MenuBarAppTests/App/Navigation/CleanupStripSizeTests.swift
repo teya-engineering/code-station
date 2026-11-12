@@ -3,54 +3,44 @@ import SwiftUI
 import Testing
 @testable import MenuBarApp
 
-// Both cleanup strips sit in the sidebar's bottom bar, which is 318pt wide less 14pt of
-// padding on each side. They only appear once sessions have gone stale or a worktree has
-// been orphaned, so nobody sees them during ordinary work and a strip that outgrew that
-// column would ship clipped. Measured against a real offer rather than an ideal size,
-// since a row answers the ideal question well and only swells once it is handed room.
+// The cleanup card sits in the sidebar's bottom bar, which is 318pt wide less 14pt of
+// padding on each side. It only appears once sessions have gone stale, so nobody sees it
+// during ordinary work and a card that outgrew that column would ship clipped. Measured
+// against a real offer rather than an ideal size, since a row answers the ideal question
+// well and only swells once it is handed room.
 @MainActor
 struct CleanupStripSizeTests {
     private static let column: CGFloat = 318 - 28
 
-    private func strip(title: String, detail: String, isUrgent: Bool,
-                       countdownAt: Date?) -> CleanupStrip {
-        CleanupStrip(title: title, detail: detail, isUrgent: isUrgent,
-                     countdownAt: countdownAt,
-                     countdownLabel: "Automatic deletion countdown",
-                     hoverTitle: "Click to review",
-                     label: "Review old sessions",
-                     action: {})
+    private func parked(_ count: Int, reasons: [CleanupReason]) -> [OldSessionSweep.Parked] {
+        (0..<count).map { _ in OldSessionSweep.Parked(item: .session(UUID()), reasons: reasons) }
     }
 
-    // The longest wording either strip produces, with the countdown beside it taking room
-    // the text cannot have.
-    @Test func theWordiestStripStillFitsTheSidebarColumnInOneRow() {
-        let wordy = strip(
-            title: "128 sessions will be deleted",
-            detail: "Older than 30 days · 96 not in this round · 12 projects snoozed",
-            isUrgent: true,
-            countdownAt: Date().addingTimeInterval(59 * 60))
+    // The wordiest card: both lines, with the countdown taking room the text cannot have.
+    @Test func theWordiestCardKeepsEachLineToOneRow() {
+        let status = OldSessionSweep.Status(
+            deletion: .init(at: Date().addingTimeInterval(59 * 60), sessions: 128,
+                            worktrees: 12),
+            parked: parked(96, reasons: [.uncommittedChanges])
+                + parked(88, reasons: [.unread]))
 
-        let height = measuredHeight(of: wordy)
+        let height = measuredHeight(of: CleanupStrip(status: status, onReview: {}))
 
         #expect(height > 0)
-        #expect(height <= 56, "the strip wrapped to \(height)pt in the sidebar column")
+        #expect(height <= 104, "the card wrapped to \(height)pt in the sidebar column")
     }
 
-    // A calm strip with no countdown is the common case and must not be taller than the
-    // urgent one, or the bottom bar would jump as a cohort settles.
-    @Test func aCalmStripIsNoTallerThanAnUrgentOne() {
-        let calm = measuredHeight(of: strip(
-            title: "4 sessions older than 30 days",
-            detail: "2 sessions would lose work",
-            isUrgent: false, countdownAt: nil))
-        let urgent = measuredHeight(of: strip(
-            title: "4 sessions will be deleted",
-            detail: "Older than 30 days",
-            isUrgent: true, countdownAt: Date().addingTimeInterval(600)))
+    // A card with one line is the same height whichever line it is, so the bottom bar
+    // does not jump as the countdown ends and only the waiting line is left.
+    @Test func eitherLineAloneIsTheSameHeight() {
+        let goes = measuredHeight(of: CleanupStrip(
+            status: .init(deletion: .init(at: Date().addingTimeInterval(600), sessions: 4)),
+            onReview: {}))
+        let waits = measuredHeight(of: CleanupStrip(
+            status: .init(parked: parked(3, reasons: [.unread])), onReview: {}))
 
-        #expect(calm > 0)
-        #expect(calm == urgent, "calm drew \(calm)pt against urgent's \(urgent)pt")
+        #expect(goes > 0)
+        #expect(goes == waits, "the countdown line drew \(goes)pt against \(waits)pt")
     }
 
     private func measuredHeight(of strip: CleanupStrip) -> CGFloat {

@@ -16,31 +16,32 @@ enum OldSessions {
     // sheet can leave it out and keep showing what a snooze has taken from the count.
     typealias SnoozeDeadline = (ChatSession) -> Date?
 
-    // Unread lives in the store rather than on the session, since a turn that ended unseen
-    // is only known while the app runs.
-    typealias UnreadCheck = (UUID) -> Bool
-
-    // A pinned session is never old: pinning is how a session is kept for good. A snoozed
-    // session is kept for as long as its snooze lasts, since putting it aside for later is
-    // the opposite of being done with it. An unread session is kept as well: a reply
-    // nobody has looked at yet is not something anyone is done with. The sheet, the
-    // sidebar count and the sweep all leave these out.
+    // A pinned session is never old: pinning is how a session is kept for good. One the
+    // person asked to hear about later is kept until that date. Unread and snoozed
+    // sessions do go old: they are not deleted on their own, but they are shown, so
+    // nothing sits out of sight forever.
     static func olderThan(_ days: Int, in sessions: [ChatSession], now: Date = Date(),
-                          snoozedUntil: SnoozeDeadline = { _ in nil },
-                          isUnread: UnreadCheck = { _ in false }) -> [ChatSession] {
+                          snoozedUntil: SnoozeDeadline = { _ in nil }) -> [ChatSession] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return sessions
             .filter {
-                !isKept($0, now: now, isUnread: isUnread) && $0.lastActivity < cutoff
+                !isKept($0, now: now) && $0.lastActivity < cutoff
                     && !ProjectSnooze.isActive(snoozedUntil($0), now: now)
             }
             .sorted { $0.lastActivity < $1.lastActivity }
     }
 
-    static func isKept(_ session: ChatSession, now: Date = Date(),
-                       isUnread: UnreadCheck = { _ in false }) -> Bool {
-        session.isPinned || session.snooze?.isActive(now: now) == true || isUnread(session.id)
+    static func isKept(_ session: ChatSession, now: Date = Date()) -> Bool {
+        session.isPinned || isDeferred(session, now: now)
     }
+
+    static func isDeferred(_ session: ChatSession, now: Date = Date()) -> Bool {
+        guard let until = session.cleanupDeferredUntil else { return false }
+        return until > now
+    }
+
+    // How long "ask again later" keeps a session or a worktree out of cleanup.
+    static let deferral: TimeInterval = 7 * 86_400
 
     // What the review sheet lists: old enough to offer, minus the ones in the middle of a
     // turn, which are busy right now rather than quiet. A snoozed project stays in, since
@@ -48,24 +49,101 @@ enum OldSessions {
     @MainActor
     static func reviewable(days: Int, store: ProjectStore, runner: SessionRunner)
         -> [ChatSession] {
-        olderThan(days, in: store.userSessions, isUnread: store.isUnread)
+        olderThan(days, in: store.userSessions)
             .filter { !runner.state($0.id).isBusy }
     }
 
     // When the list changes next: either a session goes quiet for long enough, or a
-    // snooze runs out and hands its sessions back, a project's or a session's own.
-    // Reading an unread session is a change in the store, not on the clock, so it is not
-    // counted here.
+    // project snooze or an "ask again later" runs out and hands its sessions back.
     static func nextOldAt(_ days: Int, in sessions: [ChatSession], now: Date = Date(),
-                          snoozedUntil: SnoozeDeadline = { _ in nil },
-                          isUnread: UnreadCheck = { _ in false }) -> Date? {
+                          snoozedUntil: SnoozeDeadline = { _ in nil }) -> Date? {
         let age = Double(days) * 86_400
-        let turningOld = sessions.filter { !isKept($0, now: now, isUnread: isUnread) }
+        let turningOld = sessions.filter { !isKept($0, now: now) }
             .map { $0.lastActivity.addingTimeInterval(age) }
-        let waking = sessions.compactMap(snoozedUntil) + sessions.compactMap { $0.snooze?.deadline }
+        let waking = sessions.compactMap(snoozedUntil)
+            + sessions.filter { !$0.isPinned }.compactMap(\.cleanupDeferredUntil)
         return (turningOld + waking)
             .filter { $0 > now }
             .min()
+    }
+}
+
+// What can hold an old session back for a yes. Each one is either work that deleting
+// would throw away, or something the person has not looked at yet. The family decides
+// where a session is grouped and what colour its chips are.
+enum CleanupReason: String, CaseIterable, Codable, Sendable, Identifiable {
+    case uncommittedChanges
+    case unpushedCommits
+    case unbuiltDesign
+    case unread
+    case snoozed
+
+    enum Family: Equatable {
+        case losesWork
+        case notLookedAt
+    }
+
+    var id: Self { self }
+
+    var family: Family {
+        switch self {
+        case .uncommittedChanges, .unpushedCommits, .unbuiltDesign: .losesWork
+        case .unread, .snoozed: .notLookedAt
+        }
+    }
+
+    // Changes and designs that exist nowhere else cannot be got back once deleted, so
+    // they are asked about whatever the settings say.
+    var isAlwaysAsked: Bool {
+        self == .uncommittedChanges || self == .unbuiltDesign
+    }
+
+    var title: String {
+        switch self {
+        case .uncommittedChanges: "Uncommitted changes"
+        case .unpushedCommits: "Commits not pushed"
+        case .unbuiltDesign: "Design never built"
+        case .unread: "Reply not read"
+        case .snoozed: "Snoozed"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .uncommittedChanges: "Deleting would throw the changes away. Always asked."
+        case .unpushedCommits: "The branch has commits that exist nowhere else."
+        case .unbuiltDesign: "The design files are the only copy of that work. Always asked."
+        case .unread: "A turn ended while you were away and you have not looked at it."
+        case .snoozed: "You put it aside for later. It is shown, not deleted, once it is old."
+        }
+    }
+
+    // The reasons a session has that need no git to know.
+    static func attention(isUnread: Bool, isSnoozed: Bool) -> [CleanupReason] {
+        (isUnread ? [.unread] : []) + (isSnoozed ? [.snoozed] : [])
+    }
+}
+
+// What the person allows cleanup to do on its own. One switch turns the countdown on;
+// the ask list names what still needs a yes. The reasons that are always asked are
+// left out of the stored list, since they cannot be turned off.
+struct CleanupRule: Equatable, Sendable {
+    var deletesOnItsOwn: Bool
+    var asked: Set<CleanupReason>
+    // Orphaned worktrees follow the same rule: a clean one goes with the countdown, one
+    // with changes waits.
+    var includesOrphans: Bool
+
+    static let askedByDefault = Set(CleanupReason.allCases)
+
+    func asks(_ reason: CleanupReason) -> Bool {
+        reason.isAlwaysAsked || asked.contains(reason)
+    }
+
+    // The reasons that hold a session back under this rule. An empty answer means it
+    // goes on its own.
+    func held(_ reasons: [CleanupReason]) -> [CleanupReason] {
+        reasons.filter(asks)
     }
 }
 
@@ -111,30 +189,6 @@ enum ProjectSnooze {
     // "2 sessions · back on 15 Sep"
     static func detail(sessions: Int, until deadline: Date) -> String {
         "\(counted(sessions, "session")) · back on \(wakeDay(deadline))"
-    }
-}
-
-// One policy owns the whole automatic-cleanup choice. The destructive modes are ordered
-// by what they are allowed to take, so Settings cannot represent a contradictory pair of
-// switches such as deleting saved work while keeping sessions that have nothing to lose.
-enum OldSessionCleanupPolicy: String, CaseIterable {
-    case review
-    case deleteSafe
-    // Deletes what loses nothing, and holds the rest for a yes from the person: sessions
-    // that would lose work, and old sessions nobody has read yet.
-    case deleteSafeAskRest
-    case deleteAll
-
-    var deletesAutomatically: Bool {
-        self != .review
-    }
-
-    var includesSavedWork: Bool {
-        self == .deleteAll
-    }
-
-    var asksAboutRest: Bool {
-        self == .deleteSafeAskRest
     }
 }
 
@@ -193,6 +247,9 @@ enum DesignCost: Equatable {
 struct SessionRemovalCost: Equatable {
     let worktree: SessionOutcome
     let design: DesignCost
+    // Commits in the worktrees that no remote has. The branch is usually kept when the
+    // worktree goes, but it is still the only copy, so it is a reason to ask.
+    var unpushedCommits = 0
 
     // Before anything has been looked at. Nothing can be ticked from here, and the row
     // says so, which is what a session shows while its cost is still being worked out.
@@ -225,6 +282,14 @@ struct SessionRemovalCost: Equatable {
     var losesWork: Bool {
         worktree.losesWork || design == .unimplemented
     }
+
+    var reasons: [CleanupReason] {
+        var reasons: [CleanupReason] = []
+        if worktree.losesWork { reasons.append(.uncommittedChanges) }
+        if unpushedCommits > 0 { reasons.append(.unpushedCommits) }
+        if design == .unimplemented { reasons.append(.unbuiltDesign) }
+        return reasons
+    }
 }
 
 // What deleting a session would cost, as git answers it. The review sheet and the
@@ -235,8 +300,14 @@ enum SessionCost {
 
     typealias Inspect = @Sendable (String) async -> GitSnapshot
 
-    static let live: Inspect = {
-        await GitInspector.snapshot(at: $0, commandTimeout: inspectionCommandTimeout)
+    static let live: Inspect = { path in
+        var snapshot = await GitInspector.snapshot(at: path,
+                                                   commandTimeout: inspectionCommandTimeout)
+        if snapshot.state == .ready {
+            snapshot.unpushedCommits = await GitInspector.unpushedCommitCount(
+                at: path, commandTimeout: inspectionCommandTimeout)
+        }
+        return snapshot
     }
 
     // Worktrees that are still on disk are the only ones worth asking git about. Without
@@ -255,26 +326,34 @@ enum SessionCost {
     // same as an empty worktree, and only one of the two is safe to act on.
     static func settledOutcome(worktrees: [String],
                                inspect: Inspect = live) async -> SessionOutcome {
-        let existingWorktrees = worktrees.filter { FileManager.default.fileExists(atPath: $0) }
-        guard !existingWorktrees.isEmpty else { return .historyOnly }
-
-        var added = 0
-        var removed = 0
-        var hasChanges = false
-        for path in existingWorktrees {
-            let snapshot = await inspect(path)
-            guard snapshot.state == .ready else { return .checkFailed }
-            hasChanges = hasChanges || !snapshot.files.isEmpty
-            added += snapshot.totalAdded
-            removed += snapshot.totalRemoved
-        }
-        return hasChanges ? .wouldLoseWork(added: added, removed: removed) : .worktreeRemoved
+        await settledCost(worktrees: worktrees, design: .absent, inspect: inspect).worktree
     }
 
     static func settledCost(worktrees: [String], design: DesignCost,
                             inspect: Inspect = live) async -> SessionRemovalCost {
-        let worktree = await settledOutcome(worktrees: worktrees, inspect: inspect)
-        return SessionRemovalCost(worktree: worktree, design: design)
+        let existingWorktrees = worktrees.filter { FileManager.default.fileExists(atPath: $0) }
+        guard !existingWorktrees.isEmpty else {
+            return SessionRemovalCost(worktree: .historyOnly, design: design)
+        }
+
+        var added = 0
+        var removed = 0
+        var unpushed = 0
+        var hasChanges = false
+        for path in existingWorktrees {
+            let snapshot = await inspect(path)
+            guard snapshot.state == .ready else {
+                return SessionRemovalCost(worktree: .checkFailed, design: design)
+            }
+            hasChanges = hasChanges || !snapshot.files.isEmpty
+            added += snapshot.totalAdded
+            removed += snapshot.totalRemoved
+            unpushed += snapshot.unpushedCommits
+        }
+        return SessionRemovalCost(
+            worktree: hasChanges ? .wouldLoseWork(added: added, removed: removed) : .worktreeRemoved,
+            design: design,
+            unpushedCommits: unpushed)
     }
 }
 
