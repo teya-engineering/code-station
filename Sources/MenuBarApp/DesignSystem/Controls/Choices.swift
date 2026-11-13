@@ -203,6 +203,9 @@ struct ChoicePill: View {
     var detail: String? = nil
     // Takes an equal share of the track rather than hugging its title.
     var fills = false
+    var icon: String? = nil
+    // How many items the choice covers, such as the rows a filter would show.
+    var count: Int? = nil
     let choose: () -> Void
 
     @State private var hovering = false
@@ -263,17 +266,29 @@ struct ChoicePill: View {
                 }
                 .foregroundStyle(selected ? Color.white : Color.primary)
             } else {
+                if let icon {
+                    Image(systemName: icon).font(.system(size: 11.5, weight: .semibold))
+                }
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
                     // A squeezed pill must never fold its title onto two lines.
                     .lineLimit(1)
                     .fixedSize()
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .opacity(0.7)
+                        .fixedSize()
+                        .contentTransition(.numericText())
+                        .motion(Motion.pop, value: count)
+                }
             }
         }
         .foregroundStyle(selected ? Color.white : Color.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, detail == nil ? 6 : 7)
-        .frame(maxWidth: fills ? .infinity : nil, alignment: .leading)
+        // A counted filter shares its track evenly, so its words sit in the middle.
+        .frame(maxWidth: fills ? .infinity : nil, alignment: count == nil ? .leading : .center)
     }
 
     private var fill: Color {

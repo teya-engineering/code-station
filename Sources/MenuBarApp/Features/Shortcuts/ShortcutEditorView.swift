@@ -79,53 +79,60 @@ struct ShortcutEditorForm<CommandContent: View>: View {
     @FocusState private var focusedKind: ShortcutKind?
     @Bindable var draft: ShortcutDraft
     var locked = false
-    var showsCommandOutput = false
+    // Offered only for a saved shortcut. A new one is thrown away from the footer instead.
+    var remove: (() -> Void)? = nil
     @ViewBuilder var commandContent: CommandContent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             heading
             VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("Shortcut type")
-                HStack(spacing: 6) {
+                fieldLabel("Type")
+                HStack(spacing: 2) {
                     ForEach(ShortcutKind.allCases, id: \.self) { kind in
                         ChoicePill(title: kind.title, selected: draft.value.kind == kind, thumb: typeTrack,
-                                   detail: kind == .prompt ? "Fills the message input" : "Runs a shell command",
-                                   fills: true) {
+                                   icon: kind.icon) {
                             draft.selectKind(kind)
                             textFocused = true
                         }
                         .focused($focusedKind, equals: kind)
                         .overlay(RoundedRectangle(cornerRadius: 8)
                             .stroke(focusedKind == kind ? Theme.accent : .clear, lineWidth: 2))
-                        .accessibilityAddTraits(draft.value.kind == kind ? .isSelected : [])
                     }
                 }
+                .padding(3)
+                .fieldSurface(cornerRadius: 10)
+                .fixedSize()
                 .motion(Motion.control, value: draft.value.kind)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Shortcut type")
             }
             .disabled(locked)
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Name")
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("Name")
+                HStack(spacing: 8) {
+                    ShortcutIconMenu(symbol: $draft.value.icon)
                     TextField(draft.value.kind == .prompt ? "Review changes" : "Run tests",
                               text: $draft.value.name)
-                        .appTextField(size: 14, cornerRadius: 8)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14))
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                        .fieldSurface(cornerRadius: 8)
                         .accessibilityLabel("Shortcut name")
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Icon")
-                    ShortcutIconMenu(symbol: $draft.value.icon)
-                }
-                .frame(width: 75)
             }
             .disabled(locked)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     fieldLabel(draft.value.kind.title)
                     Spacer()
-                    Text("\(draft.value.text.count) characters")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                    if draft.value.kind == .prompt {
+                        Text("\(draft.value.text.count) characters")
+                            .font(.system(size: 10.5).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
+                    }
                 }
                 TextEditor(text: $draft.value.text)
                     .font(draft.value.kind == .command ? .mono(12) : .system(size: 13))
@@ -137,28 +144,23 @@ struct ShortcutEditorForm<CommandContent: View>: View {
                     .overlay(RoundedRectangle(cornerRadius: 8)
                         .stroke(textFocused ? Theme.accent : .clear, lineWidth: 2))
                     .accessibilityLabel(draft.value.kind.title)
-                Text(draft.value.kind == .prompt
-                     ? "Added to your message input. Edit it before sending." : commandHelp)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                if locked {
+                    Text("Stop the command to edit it.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .transition(.fadeIn)
+                }
             }
             .disabled(locked)
             if draft.value.kind == .command {
                 commandContent.transition(.fadeIn)
             }
             if draft.projectIDWhenPrivate == nil {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("All shortcuts here are available in all projects.")
-                            .fontWeight(.semibold)
-                        Text("For a shortcut just for one project or workspace, add it directly there.")
-                    }
-                } icon: {
-                    Image(systemName: "globe")
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Label("Every project and session can use this shortcut. For one that only a single project needs, add it from that project.",
+                      systemImage: "globe")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 ShortcutScopePicker(availableInAllProjects: $draft.value.availableInAllProjects,
                                     projectName: draft.projectName)
@@ -166,16 +168,36 @@ struct ShortcutEditorForm<CommandContent: View>: View {
             }
         }
         .motion(Motion.reveal, value: draft.value.kind)
+        .motion(Motion.reveal, value: locked)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // The shortcut's own name, so the pane says which one is open while it is renamed.
     private var heading: some View {
-        Text(draft.isNew ? "Add shortcut" : "Edit shortcut")
-            .font(.system(size: 17, weight: .semibold))
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(draft.value.name.isBlank ? "New shortcut" : draft.value.name)
+                    .font(.serif(19))
+                    .foregroundStyle(draft.value.name.isBlank ? Theme.secondaryText : Color.primary)
+                    .lineLimit(2)
+                    .accessibilityAddTraits(.isHeader)
+                Text(detail)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+            }
+            Spacer(minLength: 0)
+            if let remove {
+                GlyphLink(icon: "trash", title: "Remove shortcut", tint: Theme.deletion, action: remove)
+                    .disabled(locked)
+                    .accessibilityLabel("Remove shortcut")
+            }
+        }
     }
 
-    private var commandHelp: String {
-        if showsCommandOutput { return "Run it here, or from a project using this shortcut." }
+    private var detail: String {
+        if draft.value.kind == .prompt { return "Fills the message input. You can edit it before sending." }
         if draft.value.availableInAllProjects {
             return "Runs with zsh in the project folder or session worktree that runs it."
         }
@@ -200,16 +222,21 @@ extension ShortcutEditorForm where CommandContent == EmptyView {
 
 private struct ShortcutIconMenu: View {
     @Binding var symbol: String?
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 13) {
-            Image(systemName: symbol ?? "slash.circle").font(.system(size: 17))
+        HStack(spacing: 8) {
+            Image(systemName: symbol ?? "slash.circle").font(.system(size: 15))
             Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                .opacity(0.6)
         }
         .foregroundStyle(Theme.accent)
-        .frame(width: 75, height: 38)
-        .cardSurface(cornerRadius: 8)
+        .frame(width: 52, height: 36)
+        .surface(hovering ? Theme.border : Theme.field, cornerRadius: 8)
         .contentShape(Rectangle())
+        .hoverLift(hovering)
+        .onPointerHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
         .appMenu {
             [.icons([MenuItem(label: "No icon", icon: "slash.circle", checked: symbol == nil,
                               handler: { symbol = nil })] + ShortcutIcon.catalogue.map { icon in

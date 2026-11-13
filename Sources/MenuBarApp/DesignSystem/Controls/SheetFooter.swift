@@ -7,6 +7,8 @@ struct SheetAction {
     var icon: String? = nil
     var enabled: Bool = true
     var shortcut: KeyboardShortcut? = nil
+    // The shortcut written on the button, such as "⌘S", for a sheet where people save often.
+    var hint: String? = nil
     // Left nil, the action wears the shape of its slot: green as the primary, outlined
     // as the secondary. A primary that deletes wears the danger tone instead.
     var tone: ButtonTone? = nil
@@ -74,7 +76,8 @@ struct SheetFooter<Leading: View>: View {
                 if primaryLast { dismissButton }
                 if let primary {
                     ActionButton(title: primary.title, tone: primary.tone ?? .green, size: 13,
-                                 icon: primary.icon, keyboardShortcut: primary.shortcut,
+                                 icon: primary.icon, shortcut: primary.hint,
+                                 keyboardShortcut: primary.shortcut,
                                  action: primary.action)
                         // The Mac shortcut is Cmd-something, but fingers trained
                         // elsewhere press Ctrl-something; both land on the same action.

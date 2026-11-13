@@ -145,7 +145,7 @@ struct MCPPresetsEditorView: View {
                     .padding(.bottom, 10)
             }
             Rectangle().fill(Theme.hairline).frame(height: 1)
-            NewPresetButton(filled: false, action: addPreset)
+            NewItemButton(title: "New preset", action: addPreset)
                 .padding(14)
         }
         .background(Theme.sidebar)
@@ -342,7 +342,7 @@ struct MCPPresetsEditorView: View {
             Text("Or make a new one for a server your team uses.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.secondaryText)
-            NewPresetButton(filled: true, action: addPreset)
+            NewItemButton(title: "New preset", filled: true, action: addPreset)
                 .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1035,76 +1035,5 @@ private struct EntryRow: View {
 
     private var lockTransition: AnyTransition {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: HeaderMotion.seed))
-    }
-}
-
-// Accent or red words with a glyph in front, for the small inline actions in this sheet.
-// The glyph plays its part once when clicked.
-private struct GlyphLink: View {
-    let icon: String
-    let title: String
-    let tint: Color
-    let action: () -> Void
-
-    @State private var hovering = false
-    @State private var actOuts = 0
-
-    var body: some View {
-        Button {
-            actOuts += 1
-            action()
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .actOut(icon, trigger: actOuts)
-                Text(title).font(.system(size: 12.5, weight: .semibold))
-            }
-            .foregroundStyle(tint)
-            .opacity(hovering ? 0.75 : 1)
-            .fixedSize()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverLift(hovering)
-        .onPointerHover { hovering = $0 }
-        .motion(Motion.hover, value: hovering)
-    }
-}
-
-private struct NewPresetButton: View {
-    let filled: Bool
-    let action: () -> Void
-
-    @State private var hovering = false
-    @State private var actOuts = 0
-
-    var body: some View {
-        Button {
-            actOuts += 1
-            action()
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .actOut("plus", trigger: actOuts)
-                Text("New preset").font(.system(size: 12.5, weight: .semibold))
-            }
-            .foregroundStyle(filled ? Color.white : Color.primary)
-            .padding(.horizontal, 14)
-            .frame(maxWidth: filled ? nil : .infinity)
-            .frame(height: 32)
-            .surface(fill, cornerRadius: 8, border: filled ? .clear : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .hoverLift(hovering)
-        .onPointerHover { hovering = $0 }
-        .motion(Motion.hover, value: hovering)
-    }
-
-    private var fill: Color {
-        if filled { return hovering ? Theme.accentFill.opacity(0.86) : Theme.accentFill }
-        return hovering ? Theme.field : Theme.card
     }
 }

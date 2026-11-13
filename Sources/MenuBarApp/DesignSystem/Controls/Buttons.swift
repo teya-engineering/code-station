@@ -291,3 +291,77 @@ private struct OptionMenuPill: View {
         .motion(Motion.reveal, value: open)
     }
 }
+
+// Accent or red words with a glyph in front, for a small inline action such as the
+// delete link in an editor heading. The glyph plays its part once when clicked.
+struct GlyphLink: View {
+    let icon: String
+    let title: String
+    let tint: Color
+    let action: () -> Void
+
+    @State private var hovering = false
+    @State private var actOuts = 0
+
+    var body: some View {
+        Button {
+            actOuts += 1
+            action()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .actOut(icon, trigger: actOuts)
+                Text(title).font(.system(size: 12.5, weight: .semibold))
+            }
+            .foregroundStyle(tint)
+            .opacity(hovering ? 0.75 : 1)
+            .fixedSize()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverLift(hovering)
+        .onPointerHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
+    }
+}
+
+// The button that makes a new item in a list-and-editor sheet. Outlined and full width
+// at the foot of the list, where the new item appears, or filled on an empty pane.
+struct NewItemButton: View {
+    let title: String
+    var filled = false
+    let action: () -> Void
+
+    @State private var hovering = false
+    @State private var actOuts = 0
+
+    var body: some View {
+        Button {
+            actOuts += 1
+            action()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .actOut("plus", trigger: actOuts)
+                Text(title).font(.system(size: 12.5, weight: .semibold))
+            }
+            .foregroundStyle(filled ? Color.white : Color.primary)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: filled ? nil : .infinity)
+            .frame(height: 32)
+            .surface(fill, cornerRadius: 8, border: filled ? .clear : Theme.border)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .hoverLift(hovering)
+        .onPointerHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
+    }
+
+    private var fill: Color {
+        if filled { return hovering ? Theme.accentFill.opacity(0.86) : Theme.accentFill }
+        return hovering ? Theme.field : Theme.card
+    }
+}
