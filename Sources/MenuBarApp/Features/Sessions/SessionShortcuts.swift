@@ -2,28 +2,24 @@ import AppKit
 import Foundation
 import SwiftUI
 
-// The project's commands, behind one Run button at the end of the composer's own row.
-// They belong there because running the tests for what was just written is the next
-// thing that happens as much as sending another prompt is. A command run here uses this
-// session's worktree, so the tests it runs are the tests for the branch it is on.
-//
-// The main half runs again whatever this session ran last, which is the command most
-// worth a second run. The other half opens every command as a card, each saying how its
-// last run went, so a failure is visible without opening anything.
-//
-// Every checkout's commands are here at once. A session with several of them marks each
-// card with its project, since a command saved against one project always runs in that
-// project's checkout anyway.
+// Commands and prompts share one picker. The main Run action only follows commands;
+// inserting a prompt changes the session-owned draft without starting a turn.
 struct SessionRunButton: View {
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(ProjectStore.self) private var store
+    @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let session: ChatSession
+    var availableWidth: CGFloat = 340
     let edit: (ShortcutEditorRequest) -> Void
 
     @State private var listOpen = false
+    @State private var libraryOpen = false
+    @State private var query = ""
+    @FocusState private var pickerFocused: Bool
+    @FocusState private var focusedRow: String?
     // The card the arrow keys are on, counted from the top of the list.
     @State private var highlighted = 0
     @State private var buttonAnchor = FrameAnchor()
@@ -33,27 +29,45 @@ struct SessionRunButton: View {
     private var scope: ShortcutScope { .session(session.id) }
 
     var body: some View {
-        let commands = commands
-        if let current = current(in: commands) {
-            splitButton(current, count: commands.count)
-                .background(FrameAnchorView(anchor: buttonAnchor))
-                .overlay(alignment: .topTrailing) {
-                    list(commands, current: current)
-                        .alignmentGuide(.top) { $0[.bottom] + 10 }
+        let current = current(in: commands)
+        HStack(spacing: 0) {
+            if let current {
+                splitButton(current)
+            } else {
+                Button(action: toggleList) {
+                    Label("Shortcuts", systemImage: "bolt")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .cardSurface(cornerRadius: 9)
+                        .contentShape(Rectangle())
                 }
-                .background(keyShortcuts(current: current))
-                .onChange(of: listOpen) { _, open in
-                    open ? startListening() : listMonitor.stop()
-                }
-                .onDisappear { listMonitor.stop() }
-        } else {
-            saveButton
+                .buttonStyle(.plain)
+                .hoverLift()
+                .accessibilityValue(listOpen ? "Expanded" : "Collapsed")
+            }
         }
+        .background(FrameAnchorView(anchor: buttonAnchor))
+        .overlay(alignment: .topTrailing) {
+            if listOpen {
+                list
+                    .alignmentGuide(.top) { $0[.bottom] + 10 }
+                    .transition(.popover(reduceMotion: reduceMotion))
+            }
+        }
+        .background(keyShortcuts(current: current))
+        .motion(listOpen ? Motion.reveal : Motion.leave, value: listOpen)
+        .onChange(of: listOpen) { _, open in
+            open ? startListening() : listMonitor.stop()
+        }
+        .onDisappear { listMonitor.stop() }
+        .sheet(isPresented: $libraryOpen) { ShortcutsView().appOverlays() }
     }
 
     // MARK: - The button
 
-    private func splitButton(_ current: Command, count: Int) -> some View {
+    private func splitButton(_ current: Entry) -> some View {
         HStack(spacing: 0) {
             RunHalf(name: current.shortcut.name, state: shortcuts.state(current.run)) {
                 activate(current)
@@ -70,136 +84,179 @@ struct SessionRunButton: View {
                 .fill(Color.white.opacity(0.18))
                 .frame(width: 1, height: 30)
 
-            ListHalf(count: count, open: listOpen) { toggleList() }
-                .appTooltip("Every command (⇧⌘R)")
+            ListHalf(open: listOpen) { toggleList() }
+                .appTooltip("All shortcuts (⇧⌘R)")
         }
         .fixedSize()
     }
 
-    // A project with nothing saved yet offers to save its first command where the Run
-    // button would be, so the place the commands go is never a dead end.
-    private var saveButton: some View {
-        BarPill(fill: Theme.card) {
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .bold))
-                Text("Save a command")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(Theme.accent)
-        }
-        .overlay(Capsule().stroke(Theme.border))
-        .appMenu(edge: .top) { newMenu }
-        .appTooltip("Save a command for this project")
-    }
-
     // MARK: - The list
 
-    private func list(_ commands: [Command], current: Command) -> some View {
-        let rows = rows(commands)
-        return VStack(alignment: .trailing, spacing: 6) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                if listOpen {
-                    card(row, highlighted: highlighted == index)
-                        .transition(rise(order: rows.count - 1 - index))
+    private var list: some View {
+        let rows = rows
+        return VStack(spacing: 8) {
+            HStack {
+                Text("Shortcuts").font(.system(size: 13, weight: .semibold))
+                Spacer()
+                GlyphButton(icon: "xmark", side: 24, tint: .secondary, action: closeList)
+                    .accessibilityLabel("Close shortcuts")
+            }
+            .padding(.horizontal, 6)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Find a shortcut", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($pickerFocused)
+                    .accessibilityLabel("Find a shortcut")
+                if !query.isEmpty {
+                    GlyphButton(icon: "xmark.circle.fill", side: 24, tint: .secondary) { query = "" }
+                        .accessibilityLabel("Clear shortcut search")
                 }
             }
+            .font(.system(size: 12))
+            .padding(.horizontal, 9)
+            .frame(height: 32)
+            .fieldSurface(cornerRadius: 8)
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(pickerFocused ? Theme.accent : .clear, lineWidth: 2))
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach([ShortcutKind.prompt, .command], id: \.self) { kind in
+                            HStack {
+                                Text(kind == .prompt ? "Prompts" : "Commands").fontWeight(.semibold)
+                                Spacer()
+                                Text(kind == .prompt ? "Insert into message" : "Run in this worktree")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.system(size: 10.5))
+                            .padding(.horizontal, 6)
+                            .padding(.top, 5)
+                            let group = rows.enumerated().filter { $0.element.kind == kind }
+                            if group.isEmpty {
+                                Text(query.isBlank ? "No \(kind == .prompt ? "prompts" : "commands") saved. Add a shortcut below."
+                                     : "No matches. Try another phrase or clear the search.")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(8)
+                            }
+                            ForEach(group, id: \.element.id) { index, row in
+                                card(row, highlighted: highlighted == index)
+                                    .focused($focusedRow, equals: row.id)
+                                    .id(index)
+                            }
+                        }
+                    }
+                }
+                .frame(height: min(330, CGFloat(rows.count - 2) * 58 + 120))
+                .onChange(of: highlighted) { _, index in scroller.scrollTo(index) }
+            }
+            Divider().overlay(Theme.hairline)
+            HStack {
+                footerAction("Add shortcut", icon: "plus", row: .new)
+                Spacer(minLength: 8)
+                footerAction("Manage shortcuts", row: .manage)
+            }
         }
-        .frame(width: 340, alignment: .bottomTrailing)
-        // One opaque tray under every card, so the transcript never shows between or
-        // through them. It stays in the layout while closed and only fades, so the cards
-        // inside it still get their own staggered rise each time it opens.
-        .padding(6)
+        .padding(10)
+        .frame(width: min(380, max(240, availableWidth)))
         .background {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 11)
                 .fill(Theme.sidebar)
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.settingsBorder))
+                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.settingsBorder))
                 .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
         }
-        .opacity(listOpen ? 1 : 0)
-        .offset(y: listOpen || reduceMotion ? 0 : 8)
-        // Not `.motion`, which would stand still under Reduce Motion: there the tray
-        // still fades, it only stops moving.
-        .animation(listOpen ? (reduceMotion ? Motion.reveal : Motion.pop) : Motion.leave,
-                   value: listOpen)
-        .allowsHitTesting(listOpen)
         .background(FrameAnchorView(anchor: listAnchor))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Commands")
-        .accessibilityHidden(!listOpen)
+        .accessibilityLabel("Shortcuts")
+        .onChange(of: query) { _, _ in highlighted = 0 }
+        .onChange(of: focusedRow) { _, id in
+            if let index = rows.firstIndex(where: { $0.id == id }) { highlighted = index }
+        }
+    }
+
+    private func footerAction(_ title: String, icon: String? = nil, row: Row) -> some View {
+        Button { choose(row) } label: {
+            HStack(spacing: 5) {
+                if let icon { Image(systemName: icon) }
+                Text(title)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Theme.accent)
+            .padding(5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focused($focusedRow, equals: row.id)
+        .hoverFill(cornerRadius: 6)
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .stroke((rows.indices.contains(highlighted) && rows[highlighted].id == row.id) ? Theme.accent : .clear, lineWidth: 2))
     }
 
     @ViewBuilder private func card(_ row: Row, highlighted: Bool) -> some View {
         switch row {
-        case .new:
-            CommandCard(icon: "plus", name: "Save a new command",
-                        detail: .plain("Name it and say what it runs"),
-                        tint: nil, dashed: true, highlighted: highlighted) {
-                closeList()
-                edit(blankRequest)
-            }
+        case .new, .manage: EmptyView()
         case .saveLast(let command):
             CommandCard(icon: "square.and.arrow.down", name: "Save the agent's last command",
                         detail: .command(command),
-                        tint: nil, dashed: true, highlighted: highlighted) {
-                closeList()
-                var request = blankRequest
-                request.text = command
-                edit(request)
-            }
+                        tint: nil, dashed: true, highlighted: highlighted) { choose(row) }
+        case .prompt(let entry):
+            CommandCard(icon: entry.shortcut.icon ?? ShortcutKind.prompt.icon,
+                        name: entry.shortcut.name, detail: .plain(entry.shortcut.text),
+                        tint: entry.tint, dashed: false, highlighted: highlighted,
+                        verb: "Insert") { choose(row) }
+                .appContextMenu { promptMenu(entry) }
         case .command(let command):
             CommandCard(icon: command.shortcut.glyph ?? "terminal",
                         name: command.shortcut.name,
                         detail: .outcome(summary(of: command)),
-                        tint: command.tint,
-                        dashed: false, highlighted: highlighted) {
-                closeList()
-                activate(command)
-            }
-            .appContextMenu { commandMenu(command) }
+                        tint: command.tint, dashed: false, highlighted: highlighted,
+                        verb: shortcuts.state(command.run).isActive ? "Output" : "Run") { choose(row) }
+                .appContextMenu { commandMenu(command) }
         }
-    }
-
-    // Cards rise from the button nearest first, a beat apart, and all drop together. No
-    // scale: a card carries AppKit views that cannot be laid out under one.
-    private func rise(order: Int) -> AnyTransition {
-        guard !reduceMotion else {
-            return .asymmetric(insertion: .opacity.animation(Motion.reveal),
-                               removal: .opacity.animation(Motion.leave))
-        }
-        return .asymmetric(
-            insertion: .offset(y: 14).combined(with: .opacity)
-                .animation(Motion.pop.delay(Double(order) * 0.038)),
-            removal: .opacity.animation(Motion.leave))
     }
 
     private enum Row: Identifiable {
         case new
+        case manage
         case saveLast(String)
-        case command(Command)
+        case prompt(Entry)
+        case command(Entry)
 
         var id: String {
             switch self {
             case .new: "new"
+            case .manage: "manage"
             case .saveLast: "save-last"
-            case .command(let command): command.id.uuidString
+            case .prompt(let entry), .command(let entry): entry.id.uuidString
+            }
+        }
+
+        var kind: ShortcutKind? {
+            switch self {
+            case .prompt: .prompt
+            case .command, .saveLast: .command
+            case .new, .manage: nil
             }
         }
     }
 
-    private func rows(_ commands: [Command]) -> [Row] {
-        var rows: [Row] = [.new]
-        // The command the agent just ran is the one most worth keeping, and it has
-        // already been typed once.
-        if let last = SessionShortcuts.lastAgentCommand(in: session),
+    private var rows: [Row] {
+        let matches = entries.filter {
+            query.isBlank || ($0.shortcut.name + " " + $0.shortcut.text).localizedStandardContains(query.trimmed)
+        }
+        let sorted = matches.filter { $0.shortcut.favorite } + matches.filter { !$0.shortcut.favorite }
+        var rows = sorted.filter { $0.shortcut.kind == .prompt }.map(Row.prompt)
+            + sorted.filter { $0.shortcut.kind == .command }.map(Row.command)
+        if query.isBlank, let last = SessionShortcuts.lastAgentCommand(in: session),
            !commands.contains(where: { $0.shortcut.text == last }) {
             rows.append(.saveLast(last))
         }
-        rows += commands.map { .command($0) }
-        return rows
+        return rows + [.new, .manage]
     }
 
-    private func summary(of command: Command) -> CommandRunSummary {
+    private func summary(of command: Entry) -> CommandRunSummary {
         CommandRunSummary(state: shortcuts.state(command.run),
                           duration: shortcuts.duration(command.run),
                           started: shortcuts.hasStarted(command.run))
@@ -213,13 +270,14 @@ struct SessionRunButton: View {
 
     private func openList() {
         let commands = commands
-        let rows = rows(commands)
+        let rows = rows
         let current = current(in: commands)?.id
         highlighted = rows.firstIndex {
             if case .command(let command) = $0 { return command.id == current }
             return false
         } ?? 0
         listOpen = true
+        pickerFocused = true
     }
 
     private func closeList() {
@@ -234,10 +292,14 @@ struct SessionRunButton: View {
             anchor: buttonAnchor,
             regions: [buttonAnchor, listAnchor],
             key: { key in
-                let rows = rows(self.commands)
+                let rows = self.rows
                 switch key {
-                case .up: highlighted = max(0, highlighted - 1)
-                case .down: highlighted = min(rows.count - 1, highlighted + 1)
+                case .up:
+                    highlighted = max(0, highlighted - 1)
+                    focusedRow = rows[highlighted].id
+                case .down:
+                    highlighted = min(rows.count - 1, highlighted + 1)
+                    focusedRow = rows[highlighted].id
                 case .choose:
                     guard rows.indices.contains(highlighted) else { return }
                     choose(rows[highlighted])
@@ -251,9 +313,12 @@ struct SessionRunButton: View {
         closeList()
         switch row {
         case .new: edit(blankRequest)
+        case .manage: libraryOpen = true
+        case .prompt(let entry): runner.composer.insert(entry.shortcut, in: session.id)
         case .saveLast(let command):
             var request = blankRequest
             request.text = command
+            request.kind = .command
             edit(request)
         case .command(let command): activate(command)
         }
@@ -262,10 +327,12 @@ struct SessionRunButton: View {
     // MARK: - Keys
 
     // ⌘R runs the last command again and ⇧⌘R opens the list.
-    private func keyShortcuts(current: Command) -> some View {
+    private func keyShortcuts(current: Entry?) -> some View {
         ZStack {
-            Button("") { activate(current) }
-                .keyboardShortcut("r", modifiers: .command)
+            if let current {
+                Button("") { activate(current) }
+                    .keyboardShortcut("r", modifiers: .command)
+            }
             Button("") { toggleList() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
         }
@@ -280,7 +347,8 @@ struct SessionRunButton: View {
     // While a command runs, its button is the way back to what it is printing, not the
     // way to kill it. Stopping is the rarer of the two and stays in its menu and in the
     // drawer the output opens in.
-    private func activate(_ command: Command) {
+    private func activate(_ command: Entry) {
+        guard shortcuts.shortcut(command.id)?.kind == .command else { return }
         if shortcuts.state(command.run).isActive {
             shortcuts.showOutput(command.run, for: scope)
         } else {
@@ -289,7 +357,7 @@ struct SessionRunButton: View {
         }
     }
 
-    private func toggle(_ command: Command) {
+    private func toggle(_ command: Entry) {
         if shortcuts.state(command.run).isActive {
             shortcuts.stop(command.run)
         } else {
@@ -297,13 +365,17 @@ struct SessionRunButton: View {
         }
     }
 
-    private func commandMenu(_ command: Command) -> [MenuEntry] {
+    private func commandMenu(_ command: Entry) -> [MenuEntry] {
         var entries: [MenuEntry] = [
             shortcuts.state(command.run).isActive
                 ? .item("Stop", action: { toggle(command) })
                 : .item("Run", action: { toggle(command) }),
             .item("Show output", action: { shortcuts.showOutput(command.run, for: scope) }),
+            .item(command.shortcut.favorite ? "Remove from favorites" : "Add to favorites", action: {
+                shortcuts.toggleFavorite(command.id)
+            }),
             .item("Edit", action: {
+                closeList()
                 edit(ShortcutEditorRequest(shortcut: command.shortcut,
                                            projectID: command.checkout.projectID,
                                            projectName: command.projectName))
@@ -318,10 +390,10 @@ struct SessionRunButton: View {
 
     // The list goes away first, or its key monitor would take the Return and Escape
     // meant for the dialog.
-    private func confirmRemove(_ command: Command) {
+    private func confirmRemove(_ command: Entry) {
         closeList()
         let shortcut = command.shortcut
-        var rows = [Dialog.Impact.Row(title: "Saved command", detail: "Removed from this project.")]
+        var rows = [Dialog.Impact.Row(title: "Saved \(shortcut.kind.rawValue)", detail: "Removed from this project.")]
         if shortcuts.isRunningAnywhere(shortcut.id) {
             rows.append(.init(title: "Running commands", detail: "Stopped right away."))
         }
@@ -335,32 +407,36 @@ struct SessionRunButton: View {
         })
     }
 
-    private var newMenu: [MenuEntry] {
-        var entries: [MenuEntry] = [
-            .item("New command…", action: { edit(blankRequest) })
+    private func promptMenu(_ entry: Entry) -> [MenuEntry] {
+        var items: [MenuEntry] = [
+            .item("Insert", action: { choose(.prompt(entry)) }),
+            .item(entry.shortcut.favorite ? "Remove from favorites" : "Add to favorites", action: {
+                shortcuts.toggleFavorite(entry.id)
+            }),
+            .item("Edit", action: {
+                closeList()
+                edit(ShortcutEditorRequest(shortcut: entry.shortcut,
+                                           projectID: entry.checkout.projectID,
+                                           projectName: entry.projectName))
+            })
         ]
-        if let command = SessionShortcuts.lastAgentCommand(in: session) {
-            entries.append(.item("Save last terminal command",
-                                 subtitle: command,
-                                 action: {
-                                     var request = blankRequest
-                                     request.text = command
-                                     edit(request)
-                                 }))
+        if !entry.shortcut.availableInAllProjects {
+            items.append(.separator)
+            items.append(.item("Remove", kind: .destructive, action: { confirmRemove(entry) }))
         }
-        return entries
+        return items
     }
 
-    // Anything made from here starts as a command for the session's own project. The
-    // editor can share it with every project instead.
     private var blankRequest: ShortcutEditorRequest {
         ShortcutEditorRequest(projectID: session.projectID,
-                              projectName: store.project(session.projectID)?.name)
+                              projectName: store.project(session.projectID)?.name,
+                              text: runner.composer.draft(session.id).text,
+                              kind: .prompt)
     }
 
     // MARK: - The commands
 
-    private struct Command: Identifiable {
+    private struct Entry: Identifiable {
         let shortcut: Shortcut
         let checkout: SessionProject
         let projectName: String?
@@ -370,7 +446,9 @@ struct SessionRunButton: View {
         var id: Shortcut.ID { shortcut.id }
     }
 
-    private var commands: [Command] {
+    private var commands: [Entry] { entries.filter { $0.shortcut.kind == .command } }
+
+    private var entries: [Entry] {
         let checkouts = store.checkoutProjects(for: session)
         let tinted = checkouts.count > 1
         return shortcuts.shortcuts(for: checkouts.map(\.projectID)).compactMap { placement in
@@ -378,7 +456,7 @@ struct SessionRunButton: View {
             else { return nil }
             let project = store.project(checkout.projectID)
             let shortcut = placement.shortcut
-            return Command(
+            return Entry(
                 shortcut: shortcut,
                 checkout: checkout,
                 projectName: project?.name,
@@ -391,7 +469,7 @@ struct SessionRunButton: View {
 
     // What Run offers before this session has run anything is the first command, the
     // one the project put at the top of its list.
-    private func current(in commands: [Command]) -> Command? {
+    private func current(in commands: [Entry]) -> Entry? {
         let last = shortcuts.lastStarted(for: scope)
         return commands.first { $0.id == last } ?? commands.first
     }
@@ -457,7 +535,6 @@ private struct RunHalf: View {
 }
 
 private struct ListHalf: View {
-    let count: Int
     let open: Bool
     let action: () -> Void
 
@@ -466,7 +543,10 @@ private struct ListHalf: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Text("\(count)")
+                Image(systemName: "bolt")
+                    .font(.system(size: 10))
+                    .actOut("bolt", trigger: open ? 1 : 0)
+                Text("Shortcuts")
                     .font(.system(size: 11.5, weight: .medium))
                     .monospacedDigit()
                     .opacity(0.75)
@@ -491,7 +571,7 @@ private struct ListHalf: View {
         .hoverLift(hovering)
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
-        .accessibilityLabel("All commands")
+        .accessibilityLabel("All shortcuts")
         .accessibilityValue(open ? "Expanded" : "Collapsed")
     }
 }
@@ -660,6 +740,7 @@ private struct CommandCard: View {
     let tint: Theme.ProjectTint?
     let dashed: Bool
     let highlighted: Bool
+    var verb: String? = nil
     let action: () -> Void
 
     @State private var hovering = false
@@ -683,6 +764,15 @@ private struct CommandCard: View {
                 }
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                if let verb {
+                    Text(verb)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .cardSurface(cornerRadius: 4)
+                        .fixedSize()
+                }
             }
             .padding(.leading, 10)
             .padding(.trailing, 12)
@@ -699,7 +789,7 @@ private struct CommandCard: View {
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
-        .accessibilityLabel(name)
+        .accessibilityLabel(verb.map { "\($0) \(name)" } ?? name)
         .accessibilityValue(accessibilityDetail)
         .accessibilityAddTraits(highlighted ? .isSelected : [])
     }
@@ -732,7 +822,7 @@ private struct CommandCard: View {
         case .plain(let text):
             Text(text)
                 .font(.system(size: 11.5))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         case .command(let text):
             Text(text)
                 .font(.mono(10.5))

@@ -67,7 +67,7 @@ struct ShortcutLibraryTests {
         #expect(!draft.isDirty)
     }
 
-    @Test func theListPreviewsTheDraftsScopeBeforeItIsSaved() {
+    @Test func theListPreviewsEditsBeforeTheyAreSaved() {
         let qwen = Shortcut(name: "Qwen", text: "ollama run qwen")
         let maven = Shortcut(name: "Maven", text: "./mvnw verify", availableInAllProjects: true)
         var draft = qwen
@@ -75,7 +75,7 @@ struct ShortcutLibraryTests {
         draft.availableInAllProjects = true
         let previewed = ShortcutsView.previewing(draft, in: [qwen, maven])
         #expect(previewed.map(\.availableInAllProjects) == [true, true])
-        #expect(previewed[0].name == "Qwen")
+        #expect(previewed[0].name == "Renamed")
         #expect(ShortcutsView.previewing(nil, in: [qwen, maven]) == [qwen, maven])
     }
 
@@ -111,16 +111,62 @@ struct ShortcutLibraryTests {
         #expect(try String(contentsOf: url, encoding: .utf8) == "invalid")
     }
 
-    @Test func sheetKeepsItsWidthOverANarrowWindow() throws {
+    @Test func switchingTypesKeepsSeparateBuffersAndTheName() {
+        let project = UUID()
+        let draft = ShortcutDraft(request: ShortcutEditorRequest(projectID: project,
+                                                                 text: "Review the diff", kind: .prompt))
+        draft.value.name = "Review"
+        draft.selectKind(.command)
+        #expect(draft.value.text.isEmpty)
+        #expect(!draft.canSave)
+        draft.value.text = "make test"
+        draft.selectKind(.prompt)
+        #expect(draft.value.text == "Review the diff")
+        #expect(draft.value.name == "Review")
+        #expect(draft.shortcut.projectID == project)
+        draft.selectKind(.command)
+        #expect(draft.value.text == "make test")
+        draft.reset()
+        draft.selectKind(.command)
+        #expect(draft.value.text.isEmpty)
+    }
+
+    @Test func savedDraftNeedsChangesAndGlobalDraftsAreAlwaysShared() {
+        let shortcut = Shortcut(name: "Review", text: "Review the diff", kind: .prompt)
+        let draft = ShortcutDraft(request: ShortcutEditorRequest(shortcut: shortcut))
+        #expect(!draft.canSave)
+        #expect(draft.shortcut.availableInAllProjects)
+        draft.value.text += " and tests"
+        #expect(draft.canSave)
+        draft.accept(draft.shortcut)
+        #expect(!draft.canSave)
+    }
+
+    @Test func typeFiltersSearchBothNamesAndBodiesAndKeepFavoritesFirst() {
+        let store = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
+        let command = Shortcut(name: "Review", text: "make review")
+        let prompt = Shortcut(name: "Review changes", text: "Review the diff", kind: .prompt)
+        let favorite = Shortcut(name: "Explain", text: "Review this code", kind: .prompt, favorite: true)
+        for shortcut in [command, prompt, favorite] { #expect(store.saveShortcut(shortcut)) }
+        #expect(store.libraryShortcuts(query: "review", kind: .prompt).map(\.id) == [favorite.id, prompt.id])
+        #expect(store.libraryShortcuts(kind: .command).map(\.id) == [command.id])
+        #expect(store.libraryShortcuts(query: "missing").isEmpty)
+    }
+
+    @Test(arguments: [ShortcutKind.command, .prompt], [ColorScheme.light, .dark])
+    func sheetKeepsItsWidthOverANarrowWindow(kind: ShortcutKind, appearance: ColorScheme) throws {
         let store = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
         let examples = [
-            Shortcut(name: "Qwen 3", text: "ollama run qwen3.8:27b-mlx", icon: "terminal"),
+            Shortcut(name: kind == .prompt ? "Review changes" : "Qwen 3",
+                     text: kind == .prompt ? "Review the current diff for bugs, missing edge cases, and unclear behavior."
+                         : "ollama run qwen3.8:27b-mlx", kind: kind, icon: kind.icon),
             Shortcut(name: "Teleport", text: "./teleport.sh", icon: "cylinder.split.1x2", availableInAllProjects: true),
             Shortcut(name: "Maven Build", text: "./mvnw clean verify", icon: "hammer", availableInAllProjects: true),
             Shortcut(name: "Tests", text: "./mvnw test", icon: "ladybug", availableInAllProjects: true)
         ]
         for shortcut in examples { #expect(store.saveShortcut(shortcut)) }
         let host = NSHostingView(rootView: ShortcutsView()
+            .environment(\.colorScheme, appearance)
             .environment(store)
             .appOverlays())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 390, height: 780),
@@ -136,7 +182,7 @@ struct ShortcutLibraryTests {
            let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])?.write(
-                to: URL(fileURLWithPath: directory).appendingPathComponent("shortcuts-command.png"))
+                to: URL(fileURLWithPath: directory).appendingPathComponent("shortcuts-\(kind.rawValue)-\(appearance == .dark ? "dark" : "light").png"))
         }
     }
 }

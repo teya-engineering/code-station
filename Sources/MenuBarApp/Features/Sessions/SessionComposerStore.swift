@@ -8,6 +8,37 @@ final class SessionComposerStore {
     private var drafts: [UUID: Draft] = [:]
     private var briefs: [UUID: TroubleshootBrief] = [:]
     @ObservationIgnored private var walks: [UUID: PromptWalk] = [:]
+    private var insertions: [UUID: PromptInsertion] = [:]
+    private var focusRequests: [UUID: UUID] = [:]
+
+    struct PromptInsertion {
+        let name: String
+        let previous: Draft
+    }
+
+    func insertion(_ sessionID: UUID) -> PromptInsertion? { insertions[sessionID] }
+    func focusRequest(_ sessionID: UUID) -> UUID? { focusRequests[sessionID] }
+
+    @discardableResult
+    func insert(_ shortcut: Shortcut, in sessionID: UUID) -> Bool {
+        guard shortcut.kind == .prompt, !shortcut.text.isBlank else { return false }
+        let previous = draft(sessionID)
+        var next = previous
+        let separator = previous.text.isEmpty || previous.text.hasSuffix("\n\n") ? ""
+            : previous.text.hasSuffix("\n") ? "\n" : "\n\n"
+        next.text += separator + shortcut.text
+        drafts[sessionID] = next
+        walks[sessionID] = nil
+        insertions[sessionID] = PromptInsertion(name: shortcut.name, previous: previous)
+        focusRequests[sessionID] = UUID()
+        return true
+    }
+
+    func undoInsertion(_ sessionID: UUID) {
+        guard let insertion = insertions.removeValue(forKey: sessionID) else { return }
+        drafts[sessionID] = insertion.previous
+        focusRequests[sessionID] = UUID()
+    }
 
     // An unsent composer: what has been typed, and what has been dropped or pasted onto it.
     struct Draft: Equatable {
@@ -33,12 +64,15 @@ final class SessionComposerStore {
     func editDraft(_ sessionID: UUID, _ change: (inout Draft) -> Void) {
         var draft = drafts[sessionID] ?? Draft()
         change(&draft)
-        drafts[sessionID] = draft.isEmpty ? nil : draft
+        if draft != self.draft(sessionID) { insertions[sessionID] = nil }
+        drafts[sessionID] = draft == Draft() ? nil : draft
     }
 
     func clearDraft(_ sessionID: UUID) {
         drafts[sessionID] = nil
         walks[sessionID] = nil
+        insertions[sessionID] = nil
+        focusRequests[sessionID] = nil
     }
 
     // An unsent troubleshoot brief: the problem, the evidence for it, and the two choices
@@ -91,6 +125,7 @@ final class SessionComposerStore {
 
     func restore(_ draft: Draft, in sessionID: UUID) {
         walks[sessionID] = nil
+        insertions[sessionID] = nil
         drafts[sessionID] = draft.isEmpty ? nil : draft
     }
 
@@ -130,6 +165,7 @@ final class SessionComposerStore {
     }
 
     private func show(_ text: String, at position: Int, sessionID: UUID) -> Bool {
+        insertions[sessionID] = nil
         walks[sessionID] = PromptWalk(position: position, shown: text)
         drafts[sessionID] = Draft(text: text)
         return true

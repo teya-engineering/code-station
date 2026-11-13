@@ -51,14 +51,13 @@ struct ShortcutStoreTests {
         #expect(store.macShortcuts.count == 1)
     }
 
-    // Private Mac shortcuts ignore every checkout, while project and shared shortcuts
-    // use the project folder or session worktree they are offered.
+    // Global and project commands use the active checkout when one is available.
     @Test func resolvesTheFolderFromWhoTheShortcutBelongsTo() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
 
         let mac = Shortcut(name: "Prune", text: "docker system prune")
         #expect(mac.directory(projectPath: "/repos/lantern", workspacePath: "/worktrees/a")
-            == home)
+            == "/worktrees/a")
 
         let owned = Shortcut(name: "Lint", text: "npm run lint",
                                     projectID: UUID())
@@ -91,11 +90,11 @@ struct ShortcutStoreTests {
                                             availableInAllProjects: true))
 
         #expect(store.macShortcuts.map(\.id) == [prune, shared])
-        #expect(store.shortcuts(for: lantern).map(\.id) == [lint, test, shared])
-        #expect(store.shortcuts(for: other).map(\.id) == [build, shared])
+        #expect(store.shortcuts(for: lantern).map(\.id) == [prune, lint, test, shared])
+        #expect(store.shortcuts(for: other).map(\.id) == [prune, build, shared])
 
         store.removeAll(ownedBy: lantern)
-        #expect(store.shortcuts(for: lantern).map(\.id) == [shared])
+        #expect(store.shortcuts(for: lantern).map(\.id) == [prune, shared])
         #expect(store.shortcuts.count == 3)
     }
 
@@ -405,7 +404,7 @@ struct ShortcutStoreTests {
         #expect(store.output(for: scope) == run)
     }
 
-    @Test func dropsSavedPromptsWithoutLosingCommands() throws {
+    @Test func restoresSavedPromptsWithoutRunningThem() throws {
         let command = UUID()
         let explicitCommand = UUID()
         let prompt = UUID()
@@ -420,7 +419,7 @@ struct ShortcutStoreTests {
 
         let store = emptyStore(url)
         #expect(store.loadError == nil)
-        #expect(store.shortcuts.map(\.id) == [command, explicitCommand])
+        #expect(store.shortcuts.map(\.id) == [command, prompt, explicitCommand])
         #expect(store.shortcut(command)?.favorite == true)
         let run = ShortcutRun(prompt, in: FileManager.default.temporaryDirectory.path)
         store.start(run)
@@ -430,8 +429,9 @@ struct ShortcutStoreTests {
         #expect(store.save())
         #expect(emptyStore(url).shortcuts == store.shortcuts)
         let saved = try String(contentsOf: url, encoding: .utf8)
-        #expect(!saved.contains("prompt"))
-        #expect(!saved.contains("kind"))
+        #expect(saved.contains("prompt"))
+        #expect(saved.contains("kind"))
+        #expect(store.shortcut(prompt)?.kind == .prompt)
     }
 
     @Test func rejectsUnknownShortcutKinds() throws {
@@ -444,6 +444,50 @@ struct ShortcutStoreTests {
         #expect(store.loadError != nil)
         #expect(store.shortcuts.isEmpty)
         #expect(!store.save())
+    }
+
+    @Test func migratesMacOnlyRecordsAndPreservesProjectOwnership() throws {
+        let global = UUID()
+        let local = UUID()
+        let project = UUID()
+        try Data("""
+        {"shortcuts":[
+          {"id":"\(global)","name":"Build","command":"make","icon":"hammer",
+           "favorite":true,"availableInAllProjects":false},
+          {"id":"\(local)","name":"Review","command":"Review this diff","kind":"prompt",
+           "projectID":"\(project)","availableInAllProjects":false}
+        ]}
+        """.utf8).write(to: url)
+        let store = emptyStore(url)
+        #expect(store.shortcut(global)?.availableInAllProjects == true)
+        #expect(store.shortcut(global)?.favorite == true)
+        #expect(store.shortcut(global)?.icon == "hammer")
+        #expect(store.shortcut(global)?.text == "make")
+        #expect(store.shortcut(local)?.projectID == project)
+        #expect(store.shortcuts(for: UUID()).map(\.id) == [global])
+        #expect(store.shortcuts(for: project).map(\.id) == [global, local])
+        #expect(store.libraryShortcuts(kind: .prompt).isEmpty)
+        #expect(store.save())
+        #expect(emptyStore(url).shortcuts == store.shortcuts)
+    }
+
+    @Test func changingACommandToAPromptClearsRunState() async throws {
+        let store = emptyStore(url)
+        let id = try #require(store.add(name: "Build", text: "true"))
+        let scope = ShortcutScope.session(UUID())
+        let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
+        store.start(run, for: scope)
+        #expect(await waitUntil { !store.state(run).isActive })
+        store.showOutput(run, for: scope)
+        var prompt = try #require(store.shortcut(id))
+        prompt.kind = .prompt
+        #expect(store.saveShortcut(prompt))
+        #expect(store.lastStarted(for: scope) == nil)
+        #expect(store.output(for: scope) == nil)
+        store.start(run, for: scope)
+        #expect(store.state(run) == .stopped)
+        #expect(!store.hasStarted(run))
+        #expect(store.lastStarted(for: scope) == nil)
     }
 
     private func emptyStore(_ url: URL) -> ShortcutStore {

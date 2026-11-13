@@ -2,49 +2,54 @@ import Foundation
 import Observation
 import Synchronization
 
-// Mac commands run from home. Project commands and shared Mac commands run in the
-// active worktree, so they apply to the branch the reader is working on.
+enum ShortcutKind: String, Codable, CaseIterable, Sendable {
+    case command
+    case prompt
+
+    var title: String { self == .command ? "Command" : "Prompt" }
+    var icon: String { self == .command ? "terminal" : "text.quote" }
+}
+
 struct Shortcut: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var name: String
     var text: String
+    var kind: ShortcutKind
     // An SF Symbol drawn beside the name, and nil for a shortcut that goes by its name
     // alone. Only a symbol the system can render is kept, so a file naming one this
     // build does not have leaves the shortcut without an icon rather than with a gap.
     var icon: String?
-    // The project this shortcut is filed under, and nil for the ones that belong to the
-    // Mac rather than to any checkout.
+    // A nil owner makes the shortcut available in every project.
     var projectID: UUID?
-    // A Mac shortcut can also be offered by every project. It stays on the Mac's list so
-    // there is still one place to edit or remove it.
     var availableInAllProjects: Bool
     var favorite: Bool
 
-    init(id: UUID = UUID(), name: String, text: String,
+    init(id: UUID = UUID(), name: String, text: String, kind: ShortcutKind = .command,
          icon: String? = nil, projectID: UUID? = nil, availableInAllProjects: Bool = false,
          favorite: Bool = false) {
         self.id = id
         self.name = name
         self.text = text
+        self.kind = kind
         self.icon = ShortcutIcon.resolve(icon)
         self.projectID = availableInAllProjects ? nil : projectID
-        self.availableInAllProjects = availableInAllProjects
+        self.availableInAllProjects = availableInAllProjects || projectID == nil
         self.favorite = favorite
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, icon, projectID, availableInAllProjects, favorite
+        case id, name, kind, icon, projectID, availableInAllProjects, favorite
         case text = "command"
     }
 
-    // Shortcuts saved before they could belong to a project are the Mac's own. Shortcuts
-    // saved before sharing was added remain private to that list, ones saved before icons
-    // go by their name. Favorites are opt-in.
+    // Records without a kind are commands. Ownerless records join the global library;
+    // project ownership, text, icons and favorites survive that migration.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(id: try container.decode(UUID.self, forKey: .id),
                   name: try container.decode(String.self, forKey: .name),
                   text: try container.decode(String.self, forKey: .text),
+                  kind: try container.decodeIfPresent(ShortcutKind.self, forKey: .kind) ?? .command,
                   icon: try container.decodeIfPresent(String.self, forKey: .icon),
                   projectID: try container.decodeIfPresent(UUID.self, forKey: .projectID),
                   availableInAllProjects: try container.decodeIfPresent(
@@ -142,8 +147,7 @@ final class ShortcutStore {
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            shortcuts = try container.decode([CommandShortcutRecord<Shortcut>].self,
-                                              forKey: .shortcuts).compactMap(\.value)
+            shortcuts = try container.decode([Shortcut].self, forKey: .shortcuts)
             importedSiteShortcutIDs = try container.decodeIfPresent([UUID].self,
                                                                     forKey: .importedSiteShortcutIDs)
         }
@@ -151,7 +155,7 @@ final class ShortcutStore {
 
     private struct InvalidFile: LocalizedError {
         var errorDescription: String? {
-            "Each shortcut needs a unique ID, a name, and a command."
+            "Each shortcut needs a unique ID, a name, and command or prompt text."
         }
     }
 
@@ -247,9 +251,10 @@ final class ShortcutStore {
         shortcuts.filter { $0.projectID == nil }
     }
 
-    func libraryShortcuts(query: String = "") -> [Shortcut] {
+    func libraryShortcuts(query: String = "", kind: ShortcutKind? = nil) -> [Shortcut] {
         let matches = macShortcuts.filter {
-            query.isBlank || ($0.name + " " + $0.text).localizedStandardContains(query.trimmed)
+            (kind == nil || $0.kind == kind)
+                && (query.isBlank || ($0.name + " " + $0.text).localizedStandardContains(query.trimmed))
         }
         return matches.filter(\.favorite) + matches.filter { !$0.favorite }
     }
@@ -267,7 +272,7 @@ final class ShortcutStore {
 
     var siteConfigurationShortcuts: [SiteDefaults.ShortcutEntry] {
         shortcuts.compactMap { shortcut in
-            guard importedSiteShortcutIDs.contains(shortcut.id) else { return nil }
+            guard shortcut.kind == .command, importedSiteShortcutIDs.contains(shortcut.id) else { return nil }
             return SiteDefaults.ShortcutEntry(name: shortcut.name, command: shortcut.text,
                                               icon: shortcut.icon)
         }
@@ -408,9 +413,10 @@ final class ShortcutStore {
         let previous = shortcuts
         var saved = shortcut
         saved.name = saved.name.trimmed
-        saved.text = saved.text.trimmed
+        if saved.kind == .command { saved.text = saved.text.trimmed }
         saved.icon = ShortcutIcon.resolve(saved.icon)
         if saved.availableInAllProjects { saved.projectID = nil }
+        if saved.projectID == nil { saved.availableInAllProjects = true }
         if let index = shortcuts.firstIndex(where: { $0.id == saved.id }) {
             // Stars save independently of an open editor's draft.
             saved.favorite = shortcuts[index].favorite
@@ -423,29 +429,30 @@ final class ShortcutStore {
             return false
         }
         if let old = previous.first(where: { $0.id == saved.id }),
-           old.text != saved.text {
+           old.text != saved.text || old.kind != saved.kind {
             forgetRuns(of: saved.id)
+        }
+        if saved.kind == .prompt {
+            lastStarted = lastStarted.filter { $0.value != saved.id }
         }
         return true
     }
 
     @discardableResult
-    func add(name: String, text: String,
+    func add(name: String, text: String, kind: ShortcutKind = .command,
              icon: String? = nil, projectID: UUID? = nil,
              availableInAllProjects: Bool = false) -> Shortcut.ID? {
         let name = name.trimmed
-        let text = text.trimmed
-        guard !name.isEmpty, !text.isEmpty else { return nil }
+        guard !name.isEmpty, !text.isBlank else { return nil }
         let shortcut = Shortcut(
             name: name,
             text: text,
+            kind: kind,
             icon: icon,
             projectID: projectID,
             availableInAllProjects: availableInAllProjects
         )
-        shortcuts.append(shortcut)
-        save()
-        return shortcut.id
+        return saveShortcut(shortcut) ? shortcut.id : nil
     }
 
     func update(_ shortcut: Shortcut) {
@@ -477,7 +484,8 @@ final class ShortcutStore {
     // MARK: - Running
 
     func start(_ run: ShortcutRun, for scope: ShortcutScope? = nil) {
-        guard !state(run).isActive, let shortcut = shortcut(run.shortcutID) else { return }
+        guard !state(run).isActive, let shortcut = shortcut(run.shortcutID),
+              shortcut.kind == .command else { return }
         if let scope { lastStarted[scope] = run.shortcutID }
 
         let token = UUID()

@@ -284,7 +284,7 @@ struct ProjectDetailView: View {
     // room of one reading. A run happens in the project folder, since a project screen is
     // not looking at any one worktree.
     private func shortcutsControl(_ project: Project) -> some View {
-        let saved = shortcuts.shortcuts(for: project.id)
+        let saved = shortcuts.shortcuts(for: project.id).filter { $0.kind == .command }
         let running = shortcuts.runningCount(of: saved)
         let failed = shortcuts.failureCount(of: saved)
         let tint = running > 0 ? Theme.accent : failed > 0 ? Theme.deletion : Color.secondary

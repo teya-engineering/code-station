@@ -152,6 +152,30 @@ struct Composer<Above: View, Accessory: View>: View {
             .motion(Motion.control, value: busy)
             .motion(Motion.control, value: state == .stopping)
 
+            if let insertion = runner.composer.insertion(sessionID) {
+                HStack(spacing: 8) {
+                    Label("\(insertion.name) inserted", systemImage: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                        .motion(Motion.reveal, value: insertion.name)
+                    Spacer(minLength: 0)
+                    Button {
+                        runner.composer.undoInsertion(sessionID)
+                        announceInsertion("Insertion undone")
+                    } label: {
+                        Text("Undo insertion")
+                            .foregroundStyle(Theme.accent)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .hoverLift()
+                }
+                .font(.system(size: 11))
+                .transition(.fadeIn)
+            }
+
             if busy && state != .stopping {
                 returnHint
                     .transition(.fadeIn)
@@ -159,6 +183,7 @@ struct Composer<Above: View, Accessory: View>: View {
         }
         .motion(Motion.reveal, value: menuShown)
         .motion(Motion.reveal, value: noticeShown)
+        .motion(Motion.reveal, value: runner.composer.insertion(sessionID) != nil)
         .smoothlyResizes(when: attachments.count)
         .padding(.horizontal, inset)
         // The top matches the stack spacing, so a row above the field sits evenly
@@ -185,6 +210,16 @@ struct Composer<Above: View, Accessory: View>: View {
             // Waving the menu away is about the word that was on screen, so the next one
             // typed gets its own answer.
             if typed != dismissedQuery { dismissedQuery = nil }
+        }
+        .onChange(of: runner.composer.focusRequest(sessionID)) { _, request in
+            guard request != nil else { return }
+            dismissedQuery = query
+            isFocused = true
+            fieldLink.placeCaret((runner.composer.draft(sessionID).text as NSString).length)
+            fieldLink.focus()
+            if let insertion = runner.composer.insertion(sessionID) {
+                announceInsertion("\(insertion.name) inserted into your message. Nothing sent.")
+            }
         }
         .background {
             if dictationHere != nil {
@@ -224,6 +259,12 @@ struct Composer<Above: View, Accessory: View>: View {
             attach(Attachments.fromDrop(urls))
             return true
         } isTargeted: { dropTargeted = $0 }
+    }
+
+    private func announceInsertion(_ message: String) {
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: message,
+                                        .priority: NSAccessibilityPriorityLevel.medium.rawValue])
     }
 
     // While a turn runs, Return can steer it or queue for later, and nothing else on

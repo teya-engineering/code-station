@@ -50,6 +50,7 @@ struct SessionView: View {
     @State private var opinionLineup: [SecondOpinion.Reviewer]?
     @State private var explorerShowsDesignFiles = false
     @State private var shortcutEditor: ShortcutEditorRequest?
+    @State private var composerBarWidth: CGFloat = 340
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
     @State private var transcriptPinnedToBottom = true
@@ -2627,11 +2628,13 @@ struct SessionView: View {
             // Ad-hoc tasks run in a private folder the app made for one prompt, so there
             // is nothing there worth saving a command against.
             if project.kind == .project {
-                SessionRunButton(session: session, edit: { shortcutEditor = $0 })
+                SessionRunButton(session: session, availableWidth: composerBarWidth,
+                                 edit: { shortcutEditor = $0 })
             }
         }
         // The command list rises over the transcript, so the row is drawn above it.
         .zIndex(1)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { composerBarWidth = $0 }
     }
 
     private func botSelection(for session: ChatSession) -> Binding<String> {

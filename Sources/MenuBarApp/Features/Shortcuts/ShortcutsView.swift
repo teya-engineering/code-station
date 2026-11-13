@@ -8,18 +8,24 @@ struct ShortcutsView: View {
     @State private var draft: ShortcutDraft?
     @State private var query = ""
     @State private var saveStatus = ""
+    @State private var kind: ShortcutKind?
+    @Namespace private var filterTrack
 
-    // The list and the header show the open draft's pick before it is saved, so they
-    // never disagree with the editor beside them. Cancel puts the saved value back.
+    // Favorites save independently; other edits preview in the list until cancelled.
     private var shortcuts: [Shortcut] { Self.previewing(draft?.value, in: store.macShortcuts) }
-    private var matches: [Shortcut] { Self.previewing(draft?.value, in: store.libraryShortcuts(query: query)) }
+    private var matches: [Shortcut] {
+        Self.previewing(draft?.value, in: store.libraryShortcuts()).filter {
+            (kind == nil || $0.kind == kind)
+                && (query.isBlank || ($0.name + " " + $0.text).localizedStandardContains(query.trimmed))
+        }
+    }
 
     static func previewing(_ draft: Shortcut?, in shortcuts: [Shortcut]) -> [Shortcut] {
         guard let draft else { return shortcuts }
         return shortcuts.map { shortcut in
             guard shortcut.id == draft.id else { return shortcut }
-            var previewed = shortcut
-            previewed.availableInAllProjects = draft.availableInAllProjects
+            var previewed = draft
+            previewed.favorite = shortcut.favorite
             return previewed
         }
     }
@@ -56,7 +62,7 @@ struct ShortcutsView: View {
                 Text("Shortcuts").font(.serif(32, .semibold))
                     .lineLimit(1)
                     .fixedSize()
-                Text("\(shortcuts.count) saved on this Mac · \(shortcuts.count(where: \.availableInAllProjects)) in all projects")
+                Text("\(shortcuts.count) shortcuts · Available in all projects")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -95,6 +101,13 @@ struct ShortcutsView: View {
                 .padding(.trailing, 5)
                 .frame(height: 37)
                 .fieldSurface(cornerRadius: 8)
+                HStack(spacing: 4) {
+                    ChoicePill(title: "All", selected: kind == nil, thumb: filterTrack) { kind = nil }
+                    ChoicePill(title: "Commands", selected: kind == .command, thumb: filterTrack) { kind = .command }
+                    ChoicePill(title: "Prompts", selected: kind == .prompt, thumb: filterTrack) { kind = .prompt }
+                }
+                .motion(Motion.control, value: kind)
+                .accessibilityLabel("Filter shortcuts by type")
                 Label(shortcuts.contains(where: \.favorite) ? "Favorites first" : "Star shortcuts to keep them first",
                       systemImage: "star")
                     .font(.system(size: 10))
@@ -179,7 +192,7 @@ struct ShortcutsView: View {
     }
 
     private func add() {
-        draft = ShortcutDraft(request: ShortcutEditorRequest(name: "New Shortcut"))
+        draft = ShortcutDraft(request: ShortcutEditorRequest(kind: kind ?? .prompt))
         saveStatus = ""
     }
 
@@ -200,9 +213,8 @@ struct ShortcutsView: View {
 
     private func remove(_ draft: ShortcutDraft) {
         guard let shortcut = store.shortcut(draft.value.id) else { return }
-        var rows = [Dialog.Impact.Row(title: "Saved command",
-                                     detail: shortcut.availableInAllProjects
-                                     ? "Removed from all projects." : "Removed from this Mac.")]
+        var rows = [Dialog.Impact.Row(title: "Saved \(shortcut.kind.rawValue)",
+                                     detail: "Removed from all projects.")]
         if store.isRunningAnywhere(shortcut.id) {
             rows.append(.init(title: "Running commands", detail: "Stopped right away."))
         }
@@ -230,8 +242,8 @@ struct ShortcutLibraryList: View {
     @State private var movingID: Shortcut.ID?
     @State private var visibleRect = CGRect.zero
 
-    static let rowHeight: CGFloat = 76
-    static let rowStride: CGFloat = 80
+    static let rowHeight: CGFloat = 60
+    static let rowStride: CGFloat = 64
 
     private var rows: [Shortcut] { (pending.map { [$0] } ?? []) + shortcuts }
 
@@ -249,8 +261,8 @@ struct ShortcutLibraryList: View {
                         if rows.isEmpty {
                             PaneMessage(icon: isEmptyLibrary ? "bolt.slash" : "magnifyingglass",
                                         title: isEmptyLibrary ? "No shortcuts saved" : "No shortcuts found",
-                                        detail: isEmptyLibrary ? "Add a command to get started."
-                                        : "Try another name or clear the search.")
+                                        detail: isEmptyLibrary ? "Add a command or prompt to get started."
+                                        : "Try another name, clear the search, or choose All.")
                                 .frame(minHeight: 100)
                         }
                         if let pending {
@@ -352,7 +364,7 @@ struct ShortcutLibraryRow: View {
         ZStack(alignment: .topTrailing) {
             Button(action: select) {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: shortcut.icon ?? "terminal")
+                    Image(systemName: shortcut.icon ?? shortcut.kind.icon)
                         .font(.system(size: 15))
                         .foregroundStyle(selected ? .white : Theme.accent)
                         .frame(width: 28, height: 28)
@@ -363,12 +375,8 @@ struct ShortcutLibraryRow: View {
                             .font(.system(size: 13, weight: .semibold))
                             .padding(.trailing, 26)
                         Text(shortcut.text.split(whereSeparator: \.isWhitespace).joined(separator: " "))
-                            .font(.mono(10.5))
+                            .font(shortcut.kind == .command ? .mono(10.5) : .system(size: 10.5))
                             .foregroundStyle(.secondary)
-                        Label(shortcut.availableInAllProjects ? "All projects" : "Shortcuts window",
-                              systemImage: shortcut.availableInAllProjects ? "globe" : "macwindow")
-                            .foregroundStyle(.secondary)
-                            .font(.system(size: 10))
                     }
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -379,6 +387,8 @@ struct ShortcutLibraryRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("\(shortcut.name.isBlank ? "New shortcut" : shortcut.name), \(shortcut.kind.rawValue), available in all projects")
+            .accessibilityValue(shortcut.text)
             .accessibilityAddTraits(selected ? .isSelected : [])
             if let favorite {
                 Button {

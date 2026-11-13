@@ -14,6 +14,7 @@ struct ShortcutEditorRequest: Identifiable {
     // A command the reader has already seen run, so promoting it is a naming job rather
     // than a retype.
     var text: String?
+    var kind: ShortcutKind = .command
 }
 
 struct ShortcutEditorView: View {
@@ -49,6 +50,7 @@ struct ShortcutEditorView: View {
     }
 
     private func save() {
+        guard draft.canSave, !store.isRunningAnywhere(draft.value.id) else { return }
         if onSave(draft.shortcut) { dismiss() }
     }
 
@@ -72,6 +74,9 @@ func shortcutUnsavedDialog(draft: ShortcutDraft, save: @escaping () -> Void,
 }
 
 struct ShortcutEditorForm<CommandContent: View>: View {
+    @Namespace private var typeTrack
+    @FocusState private var textFocused: Bool
+    @FocusState private var focusedKind: ShortcutKind?
     @Bindable var draft: ShortcutDraft
     var locked = false
     var showsCommandOutput = false
@@ -80,10 +85,29 @@ struct ShortcutEditorForm<CommandContent: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             heading
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("Shortcut type")
+                HStack(spacing: 6) {
+                    ForEach(ShortcutKind.allCases, id: \.self) { kind in
+                        ChoicePill(title: kind.title, selected: draft.value.kind == kind, thumb: typeTrack,
+                                   detail: kind == .prompt ? "Fills the message input" : "Runs a shell command",
+                                   fills: true) {
+                            draft.selectKind(kind)
+                            textFocused = true
+                        }
+                        .focused($focusedKind, equals: kind)
+                        .overlay(RoundedRectangle(cornerRadius: 8)
+                            .stroke(focusedKind == kind ? Theme.accent : .clear, lineWidth: 2))
+                        .accessibilityAddTraits(draft.value.kind == kind ? .isSelected : [])
+                    }
+                }
+                .motion(Motion.control, value: draft.value.kind)
+            }
+            .disabled(locked)
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
                     fieldLabel("Name")
-                    TextField("Local service",
+                    TextField(draft.value.kind == .prompt ? "Review changes" : "Run tests",
                               text: $draft.value.name)
                         .appTextField(size: 14, cornerRadius: 8)
                         .accessibilityLabel("Shortcut name")
@@ -96,24 +120,52 @@ struct ShortcutEditorForm<CommandContent: View>: View {
             }
             .disabled(locked)
             VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("Command")
+                HStack {
+                    fieldLabel(draft.value.kind.title)
+                    Spacer()
+                    Text("\(draft.value.text.count) characters")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
                 TextEditor(text: $draft.value.text)
-                    .font(.mono(12))
+                    .font(draft.value.kind == .command ? .mono(12) : .system(size: 13))
                     .scrollContentBackground(.hidden)
                     .padding(9)
-                    .frame(height: 80)
+                    .frame(height: draft.value.kind == .prompt ? 180 : 80)
                     .fieldSurface(cornerRadius: 8)
-                    .accessibilityLabel("Command")
-                Text(commandHelp)
+                    .focused($textFocused)
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(textFocused ? Theme.accent : .clear, lineWidth: 2))
+                    .accessibilityLabel(draft.value.kind.title)
+                Text(draft.value.kind == .prompt
+                     ? "Added to your message input. Edit it before sending." : commandHelp)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
             .disabled(locked)
-            commandContent
-            ShortcutScopePicker(availableInAllProjects: $draft.value.availableInAllProjects,
-                                projectName: draft.projectName)
-                .disabled(locked)
+            if draft.value.kind == .command {
+                commandContent.transition(.fadeIn)
+            }
+            if draft.projectIDWhenPrivate == nil {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("All shortcuts here are available in all projects.")
+                            .fontWeight(.semibold)
+                        Text("For a shortcut just for one project or workspace, add it directly there.")
+                    }
+                } icon: {
+                    Image(systemName: "globe")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ShortcutScopePicker(availableInAllProjects: $draft.value.availableInAllProjects,
+                                    projectName: draft.projectName)
+                    .disabled(locked)
+            }
         }
+        .motion(Motion.reveal, value: draft.value.kind)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -189,7 +241,7 @@ struct ShortcutScopePicker: View {
 
     static func help(availableInAllProjects: Bool, projectName: String?) -> String {
         if availableInAllProjects {
-            return "Shows in every project and session. Runs in that project folder or session worktree."
+            return "Shows in every project and session."
         }
         if let projectName {
             return "Only \(projectName) and its sessions show it. Other projects do not."
