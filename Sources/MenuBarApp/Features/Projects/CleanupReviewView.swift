@@ -5,9 +5,11 @@ import SwiftUI
 // is the sweep's own, so its length is the number on the sidebar card. Each row says why
 // it waits and what deleting it would cost, and offers three answers: open it, keep it
 // (for a week, for good, or by reading it), or delete it after a dialog that names what
-// goes. Under the list is what the countdown will take, with a way to keep any of it.
+// goes. What the countdown will take lives in its own sheet, one link away.
 struct CleanupReviewView: View {
     let status: OldSessionSweep.Status
+    // Swaps this sheet for the list of what the countdown will take.
+    let showCountdown: () -> Void
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
@@ -59,7 +61,13 @@ struct CleanupReviewView: View {
                         family(.notLookedAt, title: "Not looked at yet",
                                detail: "Nothing on disk is lost, but you have not been back to these.")
                     }
-                    goingSection
+                    if let deletion = status.deletion {
+                        CleanupCrossLink(icon: "timer",
+                                         tint: Theme.accent,
+                                         text: Self.countdownLink(deletion.total),
+                                         action: "See which",
+                                         go: showCountdown)
+                    }
                 }
                 .padding(20)
                 .motion(Motion.leave, value: answered)
@@ -107,6 +115,11 @@ struct CleanupReviewView: View {
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .headerBand()
+    }
+
+    // "5 other sessions will be deleted when the countdown ends, without asking."
+    nonisolated static func countdownLink(_ count: Int) -> String {
+        "\(counted(count, "other session")) will be deleted when the countdown ends, without asking."
     }
 
     private var emptyState: some View {
@@ -251,47 +264,6 @@ struct CleanupReviewView: View {
         return costs[id]?.canSelect != true
     }
 
-    // MARK: - Going at the end of the countdown
-
-    @ViewBuilder
-    private var goingSection: some View {
-        let sessions = status.cohort
-            .filter { !answered.contains(.session($0)) }
-            .compactMap(store.session)
-        let worktrees = status.worktreeCohort
-            .filter { !answered.contains(.worktree($0)) }
-            .compactMap { id in orphans.worktrees.first { $0.id == id } }
-        if !sessions.isEmpty || !worktrees.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                familyHeader(title: "Going at the end of the countdown",
-                             detail: "Read, and nothing on disk is lost. Keep one to take it out of this sweep.")
-                ForEach(sessions) { session in
-                    GoingRow(title: session.title,
-                             detail: goingDetail(session),
-                             keep: { keepFromSweep(.session(session.id), title: session.title) })
-                        .transition(.fold)
-                }
-                ForEach(worktrees) { orphan in
-                    GoingRow(title: orphanTitle(orphan),
-                             detail: "\(orphan.projectName) · No changes",
-                             keep: { keepFromSweep(.worktree(orphan.id), title: orphanTitle(orphan)) })
-                        .transition(.fold)
-                }
-            }
-            .padding(.top, 4)
-            .transition(.fadeIn)
-        }
-    }
-
-    // "code-station · Conversation and a clean worktree · Last turn 7 days ago"
-    private func goingDetail(_ session: ChatSession) -> String {
-        let project = store.project(session.projectID)?.name ?? "Unknown project"
-        let hasWorktree = worktreePaths(session).contains { FileManager.default.fileExists(atPath: $0) }
-        var what = hasWorktree ? "Conversation and a clean worktree" : "Conversation only"
-        if store.designCost(for: session) == .implemented { what += ", built design files" }
-        return "\(project) · \(what) · Last turn \(SessionAge.phrase(since: session.lastActivity))"
-    }
-
     // MARK: - Footer
 
     private var pickedItems: [Item] {
@@ -385,13 +357,6 @@ struct CleanupReviewView: View {
             })
         }
         return entries
-    }
-
-    private func keepFromSweep(_ id: OldSessionSweep.Parked.Item, title: String) {
-        let until = Date().addingTimeInterval(OldSessions.deferral)
-        deferCleanup(id, until: until)
-        answer(id)
-        show("Kept “\(title)” out of this sweep. Asked again on \(ProjectSnooze.wakeDay(until)).")
     }
 
     private func deferCleanup(_ id: OldSessionSweep.Parked.Item, until: Date) {
@@ -596,35 +561,6 @@ private struct WaitingRow: View {
             return reason.title
         }
         return "Snoozed until \(ProjectSnooze.wakeDay(deadline))"
-    }
-}
-
-// A session or worktree the countdown will take. One answer only: keep it out.
-private struct GoingRow: View {
-    let title: String
-    let detail: String
-    let keep: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(detail)
-                    .font(.mono(10.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            ActionButton(title: "Keep", tone: .outlined, height: 24, size: 11.5, action: keep)
-                .accessibilityLabel("Keep \(title) out of this sweep")
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .surface(Theme.sunken, cornerRadius: 10, border: Theme.settingsBorder)
     }
 }
 

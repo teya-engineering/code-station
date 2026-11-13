@@ -1,7 +1,7 @@
 import SwiftUI
 
 // One line of a cleanup card: what is piled up, what it is, and either how long is left
-// before the app acts on its own or a chevron that says the line opens the review. The
+// before the app acts on its own or a chevron that says the line opens a review. The
 // whole line is the button, so the card reads as two answers to one question.
 struct CleanupLine: View {
     enum Tone {
@@ -65,17 +65,18 @@ struct CleanupLine: View {
 
 // Counted down on the second, since the number is a promise about when the app will
 // act on its own and a stale one would be a promise it is already breaking.
-private struct CleanupCountdownLabel: View {
+struct CleanupCountdownLabel: View {
     let deadline: Date
+    var size: CGFloat = 10
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let text = CleanupCountdown.text(until: deadline, now: context.date)
-            HStack(spacing: 4) {
+            HStack(spacing: size * 0.4) {
                 Image(systemName: "timer")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: size - 1, weight: .semibold))
                 Text(text)
-                    .font(.mono(10, .semibold))
+                    .font(.mono(size, .semibold))
                     .monospacedDigit()
             }
             .foregroundStyle(CleanupCountdown.isUrgent(until: deadline, now: context.date)
@@ -105,11 +106,11 @@ private struct CleanupCard<Content: View>: View {
 
 // Everything cleanup has to say, in one card. The top line is the promise: what goes when
 // the countdown ends. The bottom line is the standing question: what waits for a yes and
-// why. Hovering a line lights up the sidebar rows it is talking about, so the numbers are
-// never abstract.
+// why. Each line opens the list that answers it. Hovering a line lights up the sidebar
+// rows it is talking about, so the numbers are never abstract.
 struct CleanupStrip: View {
     let status: OldSessionSweep.Status
-    let onReview: () -> Void
+    let onReview: (CleanupHighlight) -> Void
     // The rows a hovered line names, or nil once the pointer leaves.
     var onHighlight: (CleanupHighlight?) -> Void = { _ in }
 
@@ -133,7 +134,7 @@ struct CleanupStrip: View {
                                 countdownAt: deletion.at,
                                 label: "Review what the sweep will delete",
                                 onHover: { onHighlight($0 ? .goes : nil) },
-                                action: onReview)
+                                action: { onReview(.goes) })
                 }
                 if deletion != nil && !parked.isEmpty {
                     Rectangle()
@@ -146,7 +147,7 @@ struct CleanupStrip: View {
                                 tone: .attention,
                                 label: "Review sessions waiting for your OK",
                                 onHover: { onHighlight($0 ? .waits : nil) },
-                                action: onReview)
+                                action: { onReview(.waits) })
                         .background(deletion == nil ? .clear : Theme.attention.opacity(0.10))
                 }
             }
@@ -182,7 +183,8 @@ struct CleanupStrip: View {
     }
 }
 
-// Which rows a hovered strip line is talking about.
+// Which line of the strip is meant: the rows it lights up under the pointer, and the list
+// it opens on a click.
 enum CleanupHighlight: Equatable {
     case goes
     case waits

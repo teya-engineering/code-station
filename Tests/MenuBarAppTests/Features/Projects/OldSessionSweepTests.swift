@@ -627,6 +627,18 @@ struct OldSessionSweepTests {
         #expect(CleanupStrip.waitingDetail(Array(parked.prefix(1))) == "1 holds work")
     }
 
+    // Each list names the other, so the counts and verbs have to agree with how many.
+    @Test func eachListPointsAtTheOther() {
+        #expect(CleanupCountdownView.waitingLink(1)
+            == "1 other session is old too, but it is not in this sweep. It waits for your OK.")
+        #expect(CleanupCountdownView.waitingLink(3)
+            == "3 other sessions are old too, but they are not in this sweep. They wait for your OK.")
+        #expect(CleanupReviewView.countdownLink(5)
+            == "5 other sessions will be deleted when the countdown ends, without asking.")
+        #expect(CleanupReviewView.countdownLink(1)
+            == "1 other session will be deleted when the countdown ends, without asking.")
+    }
+
     // MARK: - What git has to say first
 
     @Test func aSessionWithNoWorktreeCostsOnlyItsHistory() async {

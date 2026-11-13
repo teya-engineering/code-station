@@ -24,7 +24,7 @@ struct CleanupStripSizeTests {
             parked: parked(96, reasons: [.uncommittedChanges])
                 + parked(88, reasons: [.unread]))
 
-        let height = measuredHeight(of: CleanupStrip(status: status, onReview: {}))
+        let height = measuredHeight(of: CleanupStrip(status: status, onReview: { _ in }))
 
         #expect(height > 0)
         #expect(height <= 104, "the card wrapped to \(height)pt in the sidebar column")
@@ -35,9 +35,9 @@ struct CleanupStripSizeTests {
     @Test func eitherLineAloneIsTheSameHeight() {
         let goes = measuredHeight(of: CleanupStrip(
             status: .init(deletion: .init(at: Date().addingTimeInterval(600), sessions: 4)),
-            onReview: {}))
+            onReview: { _ in }))
         let waits = measuredHeight(of: CleanupStrip(
-            status: .init(parked: parked(3, reasons: [.unread])), onReview: {}))
+            status: .init(parked: parked(3, reasons: [.unread])), onReview: { _ in }))
 
         #expect(goes > 0)
         #expect(goes == waits, "the countdown line drew \(goes)pt against \(waits)pt")

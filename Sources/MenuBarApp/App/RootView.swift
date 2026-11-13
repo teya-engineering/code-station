@@ -60,7 +60,7 @@ struct RootView: View {
                            tools: tools,
                            cleanup: cleanup,
                            onReviewOldSessions: { sheet = .oldSessions },
-                           onReviewCleanup: { sheet = .cleanupReview },
+                           onReviewCleanup: { sheet = $0 == .goes ? .cleanupGoing : .cleanupWaiting },
                            paneOwnsFindShortcut: paneOwnsFindShortcut)
                 Divider().overlay(Theme.hairline)
                 detail
@@ -251,7 +251,7 @@ struct RootView: View {
     // place to sit, which is why none of them is a pane of its own.
     enum Sheet: Identifiable {
         case servers, skills, docker, settings, dispatch, shortcuts
-        case oldSessions, cleanupReview, onboarding
+        case oldSessions, cleanupGoing, cleanupWaiting, onboarding
 
         var id: Self { self }
     }
@@ -267,8 +267,12 @@ struct RootView: View {
         case .oldSessions:
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
                                                              store: store, runner: runner))
-        case .cleanupReview:
-            CleanupReviewView(status: cleanup)
+        // Each list links to the other, so splitting them hides nothing. Swapping the
+        // item lets the old sheet go before the new one arrives.
+        case .cleanupGoing:
+            CleanupCountdownView(status: cleanup) { self.sheet = .cleanupWaiting }
+        case .cleanupWaiting:
+            CleanupReviewView(status: cleanup) { self.sheet = .cleanupGoing }
         case .onboarding:
             FirstRunWizard(initialAgent: runner.agent,
                            onSiteConfigurationLoaded: applySiteConfiguration) {

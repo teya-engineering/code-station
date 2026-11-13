@@ -16,6 +16,9 @@ enum ButtonTone {
     // It wears the same colour as the destructive button in a dialog, so the click that
     // opens the dialog and the click that confirms it read as the same action.
     case danger
+    // The deletion red as an outline, for a deletion offered beside a quieter way out
+    // because the app would do it anyway.
+    case dangerOutlined
     // The amber the app uses for things that want a look, for an action that puts a
     // drifted setting right.
     case attention
@@ -113,6 +116,7 @@ struct ActionButton: View {
         // blue itself lightens in dark mode.
         case .plan: Theme.card
         case .attentionOutlined: Theme.attentionText
+        case .dangerOutlined: Theme.deletion
         case .outlined, .sunken: Color.primary
         }
     }
@@ -126,6 +130,7 @@ struct ActionButton: View {
         case .attention: lit ? Theme.secret.opacity(0.86) : Theme.secret
         case .attentionOutlined:
             lit ? Theme.attention.opacity(0.14) : Theme.attention.opacity(0.08)
+        case .dangerOutlined: lit ? Theme.deletion.opacity(0.08) : .clear
         case .outlined: lit ? Theme.field : .clear
         case .sunken: lit ? Theme.border : Theme.field
         }
@@ -135,6 +140,7 @@ struct ActionButton: View {
         switch tone {
         case .dark, .green, .plan, .danger, .attention: .clear
         case .attentionOutlined: Theme.attention.opacity(0.38)
+        case .dangerOutlined: Theme.deletion.opacity(0.45)
         case .outlined, .sunken: Theme.border
         }
     }

@@ -8,7 +8,7 @@ struct AppSidebar: View {
     let tools: ToolsMenuActions
     var cleanup = OldSessionSweep.Status()
     let onReviewOldSessions: () -> Void
-    var onReviewCleanup: () -> Void = {}
+    var onReviewCleanup: (CleanupHighlight) -> Void = { _ in }
     // Set while a file open in the detail pane has taken Command-F for its own find.
     let paneOwnsFindShortcut: Bool
 
