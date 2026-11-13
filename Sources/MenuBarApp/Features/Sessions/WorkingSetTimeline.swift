@@ -159,6 +159,8 @@ struct WorkingSetToolCallVisibility {
         expandedLists.contains(listID) ? items : Array(items.suffix(Self.limit))
     }
 
+    func isExpanded(_ listID: String) -> Bool { expandedLists.contains(listID) }
+
     mutating func showAll(in listID: String = "tools") {
         expandedLists.insert(listID)
     }
@@ -176,7 +178,7 @@ struct WorkingSetToolCallVisibility {
 // open while its agent works and a prompt while it is the newest, so finished work folds
 // itself away without ever hiding what is still moving. Opening or closing one by hand
 // pins it that way for the session.
-struct WorkingSetExpansion {
+struct WorkingSetExpansion: Equatable {
     private var pinned: [String: Bool] = [:]
 
     func isExpanded(_ id: String, byDefault: Bool) -> Bool { pinned[id] ?? byDefault }
@@ -303,6 +305,22 @@ enum WorkingSetSummary {
         if !text.isEmpty { return text }
         let files = (message.attachments ?? []).map { ($0 as NSString).lastPathComponent }
         return files.isEmpty ? "Empty prompt" : files.joined(separator: ", ")
+    }
+
+    static func headline(in entries: [WorkingSetTimelineEntry]) -> WorkingSetRunningItem? {
+        let items = running(in: entries)
+        return items.last { $0.origin == .mainThread } ?? items.last
+    }
+
+    static func previewTurns(in turns: [WorkingSetTurn]) -> [WorkingSetTurn] {
+        let recent = Set(turns.suffix(2).map(\.id))
+        return turns.filter { recent.contains($0.id) || $0.entries.contains { $0.state == .running } }
+    }
+
+    // Keep live parallel work visible even when more recent main-thread events arrive.
+    static func previewEntries(in entries: [WorkingSetTimelineEntry]) -> [WorkingSetTimelineEntry] {
+        let recent = Set(entries.suffix(3).map(\.id))
+        return entries.filter { recent.contains($0.id) || $0.state == .running }
     }
 
     static func running(in entries: [WorkingSetTimelineEntry]) -> [WorkingSetRunningItem] {

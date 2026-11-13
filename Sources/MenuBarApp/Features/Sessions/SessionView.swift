@@ -560,6 +560,18 @@ struct SessionView: View {
                 facts: facts,
                 state: sessionState(tone: tone, conversation: live,
                                     isTroubleshooting: session.isTroubleshooting),
+                session: session,
+                repositoryCount: store.workingDirectories(for: session).count,
+                openWorkingSet: {
+                    tab = .conversation
+                    previews.hide()
+                    setWorkingSetVisible(true)
+                },
+                reviewRequest: {
+                    tab = live.id == session.id ? .conversation : .design
+                    previews.hide()
+                    transcriptPinnedToBottom = true
+                },
                 maxWidth: fit == .whole ? Self.branchRoom : Self.foldedBranchRoom,
                 showsBranch: tab != .changes,
                 openChanges: openChanges,
@@ -1219,15 +1231,20 @@ struct SessionView: View {
     // A worktree session knows its branch from creation, so the branch can draw on the
     // first frame instead of waiting for git and shifting the chip.
     private func facts(_ session: ChatSession, repository: GitSnapshot?) -> SessionFacts {
-        let cost = session.usage?.costUSD ?? 0
+        let cost = session.usage?.costUSD
+        let roots = store.workingDirectories(for: session)
+        let hasSnapshots = !roots.isEmpty && roots.allSatisfy { gitStats.snapshot(at: $0) != nil }
         return SessionFacts(
             branch: repository?.branch
                 ?? session.worktreeBranch
                 ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
-            changes: workingTreeChanges(session),
+            changes: workingTreeChanges(session)
+                ?? (hasSnapshots ? .init(files: 0, added: 0, removed: 0) : nil),
             pullRequests: session.pullRequests,
+            pullRequestStatuses: Dictionary((pullRequestReviews.loaded[session.id] ?? [])
+                .map { ($0.pullRequest.url, $0.status) }, uniquingKeysWith: { first, _ in first }),
             model: session.usage?.model(for: session.agent).map { runner.modelTitle($0) },
-            cost: appSettings.showsCost(for: session.agent) && cost > 0 ? cost : nil,
+            cost: appSettings.showsCost(for: session.agent) ? cost : nil,
             context: session.usage?.contextFraction(for: session.agent),
             agent: session.agent)
     }
@@ -1264,10 +1281,12 @@ struct SessionView: View {
         case .running: runner.turnStarted(conversation.id)
         default: waitingSince ?? conversation.lastActivity
         }
-        return SessionStateReading(tone: tone, since: since,
+        return SessionStateReading(tone: tone,
+                            since: conversation.messages.isEmpty && tone != .running ? nil : since,
                             ticks: tone == .running || waitingSince != nil,
                             diagnosing: isTroubleshooting,
-                            completionActivity: runner.completionActivity(conversation.id))
+                            completionActivity: runner.completionActivity(conversation.id),
+                            isNew: conversation.messages.isEmpty)
     }
 
     private func workspaceRepositories(_ session: ChatSession) -> [ChangesRepository] {

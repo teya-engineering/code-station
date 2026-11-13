@@ -60,4 +60,13 @@ struct PullRequestStatus: Equatable, Sendable {
     var title: String
     var headBranch: String
     var headRepositoryURL: String? = nil
+    var isDraft = false
+
+    var readinessLabel: String {
+        switch state {
+        case .open: isDraft ? "Draft" : "Open"
+        case .merged: "Merged"
+        case .closed: "Closed"
+        }
+    }
 }

@@ -4,6 +4,35 @@ import Testing
 
 @Suite("Session working set")
 struct SessionWorkingSetTests {
+    @Test func glanceKeepsLiveAgentsAndChoosesTheMainThreadHeadline() {
+        let agent = WorkingSetActivity(id: "explore", title: "Explore", kind: .agent,
+                                       state: .running, actions: [])
+        let calls = (1...5).map { index in
+            WorkingSetTimelineEntry(content: .call(WorkingSetToolCall(
+                id: "call-\(index)", title: "Command \(index)",
+                state: index == 5 ? .running : .completed,
+                tool: ToolUse(id: "tool-\(index)", name: "Bash", input: "test"))))
+        }
+        let entries = [WorkingSetTimelineEntry(content: .agent(agent))] + calls
+        #expect(WorkingSetSummary.previewEntries(in: entries).map(\.id)
+            == [entries[0].id] + calls.suffix(3).map(\.id))
+        #expect(WorkingSetSummary.headline(in: entries)?.id == calls.last?.id)
+        #expect(WorkingSetSummary.headline(in: calls + [entries[0]])?.id == calls.last?.id)
+        #expect(WorkingSetSummary.headline(in: [entries[0]])?.origin == .agent)
+        #expect(WorkingSetSummary.headline(in: []) == nil)
+    }
+
+    @Test func glanceKeepsAnOlderPromptWhileItsAgentStillRuns() {
+        let agent = WorkingSetActivity(id: "explore", title: "Explore", kind: .agent,
+                                       state: .running, actions: [])
+        let turns = (0..<5).map { index in
+            WorkingSetTurn(id: "turn-\(index)", prompt: "Prompt \(index)", sentAt: nil,
+                           entries: index == 0 ? [.init(content: .agent(agent))] : [])
+        }
+        #expect(WorkingSetSummary.previewTurns(in: turns).map(\.id)
+            == ["turn-0", "turn-3", "turn-4"])
+    }
+
     @Test func listsRegularToolCallsAcrossMessagesInOrder() {
         let first = ChatMessage(role: .assistant, tools: [
             ToolUse(id: "read", name: "Read",

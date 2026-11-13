@@ -63,17 +63,17 @@ struct SessionFactsTests {
                                         ticks: true)
         let facts = SessionFacts(branch: "code-station/6318e9ff")
         #expect(SessionFactsChip.accessibilityLabel(state: state, facts: facts, showsBranch: true)
-                    == "Running for 5m, branch code-station/6318e9ff, session details")
+                    == "Running for 5m, branch code-station/6318e9ff, working set preview")
         // The Changes tab names the branch itself, so the pill leaves it out there.
         #expect(SessionFactsChip.accessibilityLabel(state: state, facts: facts, showsBranch: false)
-                    == "Running for 5m, session details")
+                    == "Running for 5m, working set preview")
     }
 
     @Test func speaksTheWindowAndASessionWithNoTime() {
         let state = SessionStateReading(tone: .needsYou)
         let facts = SessionFacts(context: 0.42, agent: .claudeCode)
         #expect(SessionFactsChip.accessibilityLabel(state: state, facts: facts, showsBranch: true)
-                    == "Needs you, session details, context 42% full")
+                    == "Needs you, working set preview, context 42% full")
     }
 
     @Test func namesADiagnosisOnlyWhileItRuns() {
@@ -111,4 +111,37 @@ struct SessionFactsTests {
         #expect(SessionStateReading.sinceLine(lastWeek, tone: .idle)
                     == "last active \(RelativeTime.stamp(lastWeek))")
     }
+    @Test func countsOpenPullRequestsIncludingDraftsByRepositoryURL() {
+        let first = PullRequest(number: 3, url: "https://github.com/team/first/pull/3")
+        let second = PullRequest(number: 3, url: "https://github.com/team/second/pull/3")
+        var facts = SessionFacts(pullRequests: [first, second])
+        #expect(facts.pullRequestCountLabel == "2 linked")
+        facts.pullRequestStatuses[first.url] = PullRequestStatus(
+            state: .open, title: "First", headBranch: "topic", isDraft: true)
+        #expect(facts.pullRequestCountLabel == "2 linked")
+        facts.pullRequestStatuses[second.url] = PullRequestStatus(
+            state: .merged, title: "Second", headBranch: "topic")
+        #expect(facts.pullRequestCountLabel == "1 open")
+        #expect(facts.pullRequestStatuses[first.url]?.readinessLabel == "Draft")
+        #expect(facts.pullRequestStatuses[second.url]?.readinessLabel == "Merged")
+        #expect(SessionFactsChip.accessibilityLabel(state: .init(tone: .idle),
+            facts: facts, showsBranch: true).contains("1 open pull requests"))
+    }
+
+    @Test func distinguishesNewSessionsFromFinishedAndRunningOnes() {
+        #expect(SessionStateReading(tone: .idle, isNew: true).spokenWord == "New session")
+        #expect(SessionStateReading(tone: .running, isNew: true).spokenWord == "Running")
+    }
+
+    @Test func constrainsPreviewToTheWindowBelowItsShortcut() {
+        let layout = SessionFactsLayout(anchor: CGRect(x: 700, y: 40, width: 240, height: 36),
+                                        bounds: CGSize(width: 960, height: 640))
+        #expect(layout.width == 430)
+        #expect(layout.height == 549)
+        let narrow = SessionFactsLayout(anchor: CGRect(x: 80, y: 40, width: 240, height: 36),
+                                        bounds: CGSize(width: 340, height: 400))
+        #expect(narrow.width == 312)
+        #expect(narrow.height == 309)
+    }
+
 }

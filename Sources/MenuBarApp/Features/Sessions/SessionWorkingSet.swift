@@ -18,10 +18,6 @@ struct SessionWorkingSet: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var visibility = WorkingSetToolCallVisibility()
-    @State private var spans = WorkingSetExpansion()
-    @State private var turns = WorkingSetExpansion()
-
     let session: ChatSession
     let close: () -> Void
 
@@ -40,7 +36,7 @@ struct SessionWorkingSet: View {
         let running = WorkingSetSummary.running(in: entries)
         // The call the header names. A main-thread call is what the session itself is
         // waiting on, so it wins over an agent working beside it.
-        let headline = running.last { $0.origin == .mainThread } ?? running.last
+        let headline = WorkingSetSummary.headline(in: entries)
         let groups = WorkingSetSummary.turns(in: session.messages, entries: entries)
         VStack(spacing: 0) {
             header(headline: headline, runningCount: running.count)
@@ -48,32 +44,21 @@ struct SessionWorkingSet: View {
                 if groups.isEmpty {
                     emptyState
                 } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(groups.enumerated().reversed()), id: \.element.id) { index, turn in
-                            // An agent stays in the list: its span holds the live call,
-                            // and the header only names the agent.
-                            turnView(turn, isLatest: index == groups.count - 1,
-                                     hiding: headline?.origin == .mainThread
-                                         ? headline?.id : nil)
-                        }
-                        if let started = session.messages.first?.date {
-                            Text("Session started at \(started.formatted(date: .omitted, time: .shortened))")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
-                                .padding(14)
-                                .frame(maxWidth: .infinity)
-                        }
+                    WorkingSetHistory(groups: groups, projectPath: projectPath,
+                                      headline: headline)
+                    if let started = session.messages.first?.date {
+                        Text("Session started at \(started.formatted(date: .omitted, time: .shortened))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .padding(14)
+                            .frame(maxWidth: .infinity)
                     }
                 }
             }
         }
         .frame(width: Self.width)
         .background(Theme.sidebar)
-        .onChange(of: session.id) { _, _ in
-            visibility.reset()
-            spans.reset()
-            turns.reset()
-        }
+        .id(session.id)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Working set")
     }
@@ -220,6 +205,41 @@ struct SessionWorkingSet: View {
         .frame(maxWidth: .infinity)
     }
 
+}
+
+// The full sidebar and the glance card share the same prompt and agent rows.
+struct WorkingSetHistory: View {
+    let groups: [WorkingSetTurn]
+    let projectPath: String
+    let headline: WorkingSetRunningItem?
+    var compact = false
+
+    private static let rowIndent = SessionWorkingSet.rowIndent
+    private static let childIndent = SessionWorkingSet.childIndent
+    private static let railInset = SessionWorkingSet.railInset
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visibility = WorkingSetToolCallVisibility()
+    @State private var spans = WorkingSetExpansion()
+    @State private var turns = WorkingSetExpansion()
+    @FocusState private var focusedAgent: String?
+
+    var body: some View {
+        if compact {
+            VStack(spacing: 0) { promptGroups }
+        } else {
+            LazyVStack(spacing: 0) { promptGroups }
+        }
+    }
+
+    private var promptGroups: some View {
+        ForEach(Array((compact ? WorkingSetSummary.previewTurns(in: groups) : groups).reversed())) { turn in
+            turnView(turn, isLatest: turn.id == groups.last?.id
+                     || (compact && turn.entries.contains { $0.state == .running }),
+                     hiding: headline?.origin == .mainThread ? headline?.id : nil)
+        }
+    }
+
     private func turnView(_ turn: WorkingSetTurn, isLatest: Bool, hiding hiddenID: String?)
         -> some View {
         let key = "turn\u{0}" + turn.id
@@ -227,13 +247,15 @@ struct SessionWorkingSet: View {
         // The running call already has the header to itself.
         let entries = turn.entries.filter { $0.id != hiddenID }
         return VStack(spacing: 0) {
-            WorkingSetTurnHeader(turn: turn, expanded: expanded) {
-                withAnimation(reduceMotion ? nil : expanded ? Motion.leave : Motion.reveal) {
-                    turns.toggle(key, byDefault: isLatest)
-                }
+            WorkingSetTurnHeader(turn: turn, expanded: expanded, compact: compact) {
+                turns.toggle(key, byDefault: isLatest)
             }
-            if expanded { turnRows(entries, key: key) }
+            if expanded {
+                VStack(spacing: 0) { turnRows(entries, key: key) }
+                    .transition(reduceMotion ? .opacity : .fold)
+            }
         }
+        .motion(expanded ? Motion.reveal : Motion.leave, value: turns)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.border).frame(height: 1)
         }
@@ -243,7 +265,10 @@ struct SessionWorkingSet: View {
     private func turnRows(_ entries: [WorkingSetTimelineEntry], key: String) -> some View {
         // Newest first: what just happened is what the sidebar was opened for, and the
         // older work trails off below it.
-        let visible = Array(visibility.visible(entries, in: key).reversed())
+        let selected = compact && !visibility.isExpanded(key)
+            ? WorkingSetSummary.previewEntries(in: entries)
+            : visibility.visible(entries, in: key)
+        let visible = Array(selected.reversed())
         let hidden = entries.count - visible.count
         ForEach(Array(visible.enumerated()), id: \.element.id) { index, entry in
             if index > 0 { Divider().overlay(Theme.hairline) }
@@ -255,7 +280,7 @@ struct SessionWorkingSet: View {
                                       indent: Self.rowIndent)
             }
         }
-        if entries.count > WorkingSetToolCallVisibility.limit {
+        if hidden > 0 || visibility.isExpanded(key) {
             Divider().overlay(Theme.hairline)
             if hidden > 0 {
                 WorkingSetVisibilityRow(
@@ -290,14 +315,16 @@ struct SessionWorkingSet: View {
     private func spanView(_ activity: WorkingSetActivity) -> some View {
         let ink = WorkingSetInk.of(activity)
         let running = activity.state == .running
-        let expanded = spans.isExpanded(activity.id, byDefault: running)
+        let expanded = spans.isExpanded(activity.id, byDefault: !compact && running)
         return VStack(spacing: 0) {
             spanHeader(activity, ink: ink, expanded: expanded, running: running)
             if expanded, !activity.actions.isEmpty {
                 Divider().overlay(Theme.hairline)
                 spanActions(activity)
+                    .transition(reduceMotion ? .opacity : .fold)
             }
         }
+        .motion(expanded ? Motion.reveal : Motion.leave, value: spans)
         // The rail runs the whole height of the span, which is what says where the
         // agent's work starts and stops.
         .overlay(alignment: .leading) {
@@ -309,9 +336,7 @@ struct SessionWorkingSet: View {
     private func spanHeader(_ activity: WorkingSetActivity, ink: WorkingSetInk,
                             expanded: Bool, running: Bool) -> some View {
         Button {
-            withAnimation(reduceMotion ? nil : expanded ? Motion.leave : Motion.reveal) {
-                spans.toggle(activity.id, byDefault: running)
-            }
+            spans.toggle(activity.id, byDefault: !compact && running)
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "chevron.right")
@@ -337,6 +362,9 @@ struct SessionWorkingSet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focused($focusedAgent, equals: activity.id)
+        .focusEffectDisabled()
+        .overlay(FocusRingStroke(focused: focusedAgent == activity.id))
         .hoverFill(cornerRadius: 0)
         .accessibilityLabel("\(activity.title), \(activity.kind.label)")
         .accessibilityValue("\(activity.state.label), \(expanded ? "expanded" : "collapsed")")
@@ -350,6 +378,11 @@ struct SessionWorkingSet: View {
                     .font(.mono(8.5, expanded ? .semibold : .regular))
                     .foregroundStyle(expanded ? ink.ink : Color.secondary)
             }
+            if compact {
+                Text(activity.state.label.capitalized)
+                    .font(.system(size: 9))
+                    .foregroundStyle(activity.state.colour)
+            }
             if !expanded {
                 Image(systemName: activity.state.symbol)
                     .font(.system(size: 7, weight: .bold))
@@ -360,7 +393,8 @@ struct SessionWorkingSet: View {
     }
 
     private func spanActions(_ activity: WorkingSetActivity) -> some View {
-        let visible = visibility.visible(activity.actions, in: activity.id)
+        let selected = visibility.visible(activity.actions, in: activity.id)
+        let visible = compact ? Array(selected.reversed()) : selected
         let hidden = activity.actions.count - visible.count
         return VStack(spacing: 0) {
             if activity.actions.count > WorkingSetToolCallVisibility.limit {
@@ -425,6 +459,7 @@ private struct WorkingSetVisibilityRow: View {
     let action: () -> Void
 
     @State private var hovering = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         Button(action: action) {
@@ -443,6 +478,9 @@ private struct WorkingSetVisibilityRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(FocusRingStroke(focused: focused))
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
         .accessibilityLabel(accessibilityLabel)
@@ -455,9 +493,11 @@ private struct WorkingSetVisibilityRow: View {
 private struct WorkingSetTurnHeader: View {
     let turn: WorkingSetTurn
     let expanded: Bool
+    var compact = false
     let toggle: () -> Void
 
     @State private var hovering = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         let events = WorkingSetSummary.eventCount(in: turn.entries)
@@ -475,26 +515,37 @@ private struct WorkingSetTurnHeader: View {
                         .lineLimit(expanded ? 2 : 1)
                         .truncationMode(.tail)
                         .multilineTextAlignment(.leading)
-                    HStack(spacing: 10) {
-                        if let sentAt = turn.sentAt {
-                            Text(sentAt.formatted(date: .omitted, time: .shortened))
+                    if !compact {
+                        HStack(spacing: 10) {
+                            if let sentAt = turn.sentAt {
+                                Text(sentAt.formatted(date: .omitted, time: .shortened))
+                            }
+                            Text(events == 0 ? "No activity" : counted(events, "event"))
+                            if failures > 0 {
+                                Text("\(failures) failed").foregroundStyle(Theme.deletion)
+                            }
                         }
-                        Text(events == 0 ? "No activity" : counted(events, "event"))
-                        if failures > 0 {
-                            Text("\(failures) failed").foregroundStyle(Theme.deletion)
-                        }
+                        .font(.mono(10))
+                        .foregroundStyle(.tertiary)
                     }
-                    .font(.mono(10))
-                    .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                if compact {
+                    Text(expanded ? turn.sentAt?.formatted(date: .omitted, time: .shortened) ?? ""
+                         : counted(events, "event"))
+                        .font(.mono(9))
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, compact ? 7 : 10)
             .background(background)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(FocusRingStroke(focused: focused))
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
         .appTooltip(turn.prompt)
@@ -519,7 +570,7 @@ private struct WorkingSetTurnHeader: View {
 // One line of activity: a call the main loop made, or one of the actions inside an agent's
 // span. The tool's name is set in the UI font so a column of them can be skimmed, and the
 // command beside it in mono, cut to one line with the whole of it on hover.
-private struct WorkingSetTimelineRow: View {
+struct WorkingSetTimelineRow: View {
     @Environment(ToolCallDetailPresenter.self) private var details
 
     let call: WorkingSetToolCall
@@ -528,6 +579,7 @@ private struct WorkingSetTimelineRow: View {
 
     @State private var anchor = FrameAnchor()
     @State private var hovering = false
+    @FocusState private var focused: Bool
 
     private var running: Bool { call.state == .running }
 
@@ -557,6 +609,9 @@ private struct WorkingSetTimelineRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(FocusRingStroke(focused: focused))
         .background(FrameAnchorView(anchor: anchor))
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)

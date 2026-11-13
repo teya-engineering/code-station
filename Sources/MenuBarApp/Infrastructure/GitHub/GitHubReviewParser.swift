@@ -12,7 +12,8 @@ enum GitHubReviewParser {
             state: merged ? .merged : (state == "open" ? .open : .closed),
             title: object["title"] as? String ?? "",
             headBranch: (object["head"] as? Object)?["ref"] as? String ?? "",
-            headRepositoryURL: ((object["head"] as? Object)?["repo"] as? Object)?["html_url"] as? String)
+            headRepositoryURL: ((object["head"] as? Object)?["repo"] as? Object)?["html_url"] as? String,
+            isDraft: object["draft"] as? Bool ?? false)
     }
 
     // `/pulls/{n}/reviews` lists the submissions; `/pulls/{n}/comments` lists every line

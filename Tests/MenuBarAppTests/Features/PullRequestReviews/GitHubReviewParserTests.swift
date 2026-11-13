@@ -5,6 +5,17 @@ import Testing
 // Reading what GitHub says about a pull request: which submissions count as a review,
 // how line comments fold into threads, and where a lone comment goes.
 struct GitHubReviewParserTests {
+    @Test func keepsDraftReadinessSeparateFromOpenState() throws {
+        let status = try #require(GitHubReviewParser.status(
+            from: Data(#"{"state":"open","draft":true}"#.utf8)))
+        #expect(status.state == .open)
+        #expect(status.isDraft)
+        #expect(status.readinessLabel == "Draft")
+        let merged = try #require(GitHubReviewParser.status(
+            from: Data(#"{"state":"closed","merged":true,"draft":true}"#.utf8)))
+        #expect(merged.readinessLabel == "Merged")
+    }
+
     @Test func readsThreadStatesAndNodeIDsAcrossAllGraphQLPages() throws {
         let pages: [[String: Any]] = stride(from: 1, through: 201, by: 100).map { start in
             let nodes: [[String: Any]] = (start...min(start + 99, 201)).map { id in

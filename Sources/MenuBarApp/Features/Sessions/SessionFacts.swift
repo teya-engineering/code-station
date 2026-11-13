@@ -9,6 +9,7 @@ struct SessionFacts: Equatable {
     var branch: String?
     var changes: Changes?
     var pullRequests: [PullRequest] = []
+    var pullRequestStatuses: [String: PullRequestStatus] = [:]
     var model: String?
     // Left out when the agent reports no cost. Codex reports none, and a $0.00 there reads
     // as free rather than as unknown.
@@ -47,6 +48,18 @@ struct SessionFacts: Equatable {
             && cost == nil && context == nil
     }
 
+    var pullRequestCount: Int {
+        pullRequests.count { pullRequestStatuses[$0.url]?.state == .open }
+    }
+
+    var pullRequestCountKnown: Bool {
+        pullRequests.allSatisfy { pullRequestStatuses[$0.url] != nil }
+    }
+
+    var pullRequestCountLabel: String {
+        return pullRequestCountKnown ? "\(pullRequestCount) open" : "\(pullRequests.count) linked"
+    }
+
     static func percent(_ fraction: Double) -> String {
         "\(Int((fraction * 100).rounded()))%"
     }
@@ -78,8 +91,10 @@ struct SessionStateReading: Equatable {
     // brief landed and the agent is working through it.
     var diagnosing = false
     var completionActivity: SessionCompletionActivity?
+    var isNew = false
 
     var word: String {
+        if isNew && tone == .idle { return "NEW SESSION" }
         if diagnosing && tone == .running && completionActivity == nil { return "DIAGNOSING" }
         return tone.word(completionActivity: completionActivity)
     }
@@ -126,6 +141,10 @@ struct SessionStateReading: Equatable {
 struct SessionFactsChip: View {
     let facts: SessionFacts
     let state: SessionStateReading
+    let session: ChatSession
+    let repositoryCount: Int
+    let openWorkingSet: () -> Void
+    let reviewRequest: () -> Void
     // How wide the branch is allowed to grow before it truncates. A narrow pane hands it
     // less, and a name too long for either cuts from the tail: the end of a branch name
     // is the part that repeats across a project.
@@ -143,17 +162,26 @@ struct SessionFactsChip: View {
     private static let pillHeight: CGFloat = 36
     private static let pillRadius: CGFloat = 9
     private static let cardGap: CGFloat = 7
-    private static let cardWidth: CGFloat = 292
     private static let labelWidth: CGFloat = 62
     // Context and every usage window share one column, so the meters read down the card
     // as one scale rather than as bars that happen to be near each other.
-    private static let meterWidth: CGFloat = 120
+    private static let meterWidth: CGFloat = 240
     private static let radius: CGFloat = 12
     // Strong enough to read on the cream card, still a step under the values.
     private static let labelInk = Color.primary.opacity(0.42)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AccountUsageMonitor.self) private var usageMonitor: AccountUsageMonitor?
+    @Environment(MenuPresenter.self) private var menus
+    @Environment(ToolCallDetailPresenter.self) private var toolDetails
+    @FocusedValue(\.sessionFactsPreview) private var focusedPreview
+    @FocusState private var chipFocused: Bool
+    private enum PreviewControl: Hashable { case pin, close, status, workingSet }
+    @FocusState private var previewControl: PreviewControl?
+    @State private var focusDismissed = false
+    @State private var showsDetails = false
+    @State private var layout = SessionFactsLayout()
+    @State private var cardAnchor = FrameAnchor()
 
     @State private var pointerOnChip = false
     @State private var pointerOnCard = false
@@ -173,7 +201,11 @@ struct SessionFactsChip: View {
     @State private var freed: Int?
     @State private var freedReset: Task<Void, Never>?
 
-    private var isOpen: Bool { pinned || hovering }
+    private var focusInside: Bool {
+        !focusDismissed && (chipFocused || focusedPreview == session.id)
+    }
+
+    private var isOpen: Bool { pinned || hovering || focusInside }
 
     var body: some View {
         Button {
@@ -182,8 +214,23 @@ struct SessionFactsChip: View {
             } else {
                 pinned = true
             }
-        } label: { pill }
-            .buttonStyle(PressDip(scale: 0.97))
+        } label: {
+            pill
+                .offset(y: pointerOnChip && !reduceMotion ? -1 : 0)
+                .motion(Motion.hover, value: pointerOnChip)
+        }
+            .buttonStyle(.plain)
+            .focused($chipFocused)
+            .focusEffectDisabled()
+            .overlay(FocusRingStroke(focused: chipFocused))
+            .onChange(of: chipFocused || focusedPreview == session.id) { _, focused in
+                if !focused { focusDismissed = false }
+                pointerMoved()
+            }
+            .background(SessionFactsBoundary(cardAnchor: cardAnchor, isOpen: isOpen,
+                dismiss: {
+                    if !menus.isOpen && toolDetails.current == nil { closeCard() }
+                }, resized: { layout = $0 }))
             .onPointerHover { pointerOnChip = $0; pointerMoved() }
             .accessibilityLabel(Self.accessibilityLabel(
                 state: state, facts: facts, showsBranch: showsBranch))
@@ -211,12 +258,18 @@ struct SessionFactsChip: View {
             .onChange(of: isOpen) { _, open in
                 if open {
                     escape.start {
+                        if menus.isOpen || toolDetails.current != nil { return false }
                         closeCard()
+                        chipFocused = true
                         return true
                     }
                 } else {
                     escape.stop()
                 }
+            }
+            .onChange(of: session.id) { _, _ in closeCard() }
+            .onChange(of: toolDetails.current != nil) { _, showing in
+                if showing && isOpen { pinned = true }
             }
             .onDisappear {
                 closing?.cancel()
@@ -232,25 +285,28 @@ struct SessionFactsChip: View {
     // to be contradicted.
     private func pointerMoved() {
         closing?.cancel()
-        guard !pointerOnChip, !pointerOnCard else {
+        guard !pointerOnChip, !pointerOnCard, !focusInside else {
             hovering = true
             return
         }
         closing = Task {
             try? await Task.sleep(for: .milliseconds(140))
-            guard !Task.isCancelled, !pointerOnChip, !pointerOnCard else { return }
+            guard !Task.isCancelled, !pointerOnChip, !pointerOnCard, !focusInside else { return }
             hovering = false
         }
     }
 
-    // "Running for 5m, branch main, session details". The state leads, since it is the
+    // "Running for 5m, branch main, working set preview". The state leads, since it is the
     // half that changes while the session is looked at.
     static func accessibilityLabel(state: SessionStateReading, facts: SessionFacts,
                                    showsBranch: Bool) -> String {
         var parts = [state.shortElapsed.map { "\(state.spokenWord) for \($0)" }
                          ?? state.spokenWord]
         if showsBranch, let branch = facts.namedBranch { parts.append("branch \(branch)") }
-        parts.append("session details")
+        parts.append("working set preview")
+        if !facts.pullRequests.isEmpty {
+            parts.append("\(facts.pullRequestCountLabel) pull requests")
+        }
         if let context = facts.context {
             let window = facts.agent.asksPermissions ? "context" : "window"
             parts.append("\(window) \(SessionFacts.percent(context)) full")
@@ -302,6 +358,16 @@ struct SessionFactsChip: View {
                     }
                 }
             }
+            if !facts.pullRequests.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.triangle.pull")
+                    Text("\(facts.pullRequestCountKnown ? facts.pullRequestCount : facts.pullRequests.count)")
+                        .contentTransition(.numericText())
+                }
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            }
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(.tertiary)
@@ -328,32 +394,155 @@ struct SessionFactsChip: View {
             // The gap belongs to the hover area rather than sitting between two of them,
             // so moving down into the card does not cross a strip of nothing and take
             // the card away on the way.
-            Color.clear.frame(width: Self.cardWidth, height: Self.cardGap)
+            Color.clear.frame(width: layout.width, height: Self.cardGap)
             card
         }
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
+        .background(FrameAnchorView(anchor: cardAnchor, identifier: "Working set preview"))
+        .focusedValue(\.sessionFactsPreview, session.id)
+        .contentShape(Rectangle())
         .onPointerHover { pointerOnCard = $0; pointerMoved() }
         .transition(.popover(reduceMotion: reduceMotion))
     }
 
     private var card: some View {
         VStack(spacing: 0) {
-            let rows = self.rows
-            head(hasRows: !rows.isEmpty)
-                .modifier(RowArrival(position: 0))
-            ForEach(Array(rows.enumerated()), id: \.element) { position, fact in
-                row(fact)
-                    .overlay(alignment: .bottom) {
-                        if position < rows.count - 1 { rule }
+            previewHeading.frame(height: 60)
+            MenuContentScrollView(maxHeight: max(0, layout.height - 113)) {
+                VStack(spacing: 0) {
+                    Button { showsDetails.toggle() } label: {
+                        HStack {
+                            Text(state.spokenWord + (facts.namedBranch.map { " · \($0)" } ?? ""))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .rotationEffect(.degrees(showsDetails ? 90 : 0))
+                        }
+                        .font(.system(size: 10))
+                        .foregroundStyle(state.tone.wordColour)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
                     }
-                    .modifier(RowArrival(position: position + 1))
+                    .buttonStyle(.plain)
+                    .focused($previewControl, equals: .status)
+                    .focusEffectDisabled()
+                    .overlay(FocusRingStroke(focused: previewControl == .status))
+                    .hoverFill()
+                    .accessibilityLabel("Session status and branch")
+                    .accessibilityValue(showsDetails ? "Expanded" : "Collapsed")
+                    if showsDetails {
+                        head(hasRows: false)
+                            .transition(reduceMotion ? .opacity : .fold)
+                    }
+                    SessionWorkingSetPreview(session: session, state: state,
+                                             reviewRequest: acting(reviewRequest))
+                    rule
+                    if let changes = facts.changes { changesRow(changes) }
+                    pullRequestsSection
+                    VStack(spacing: 0) {
+                        if let usageMonitor, usageMonitor.supports(facts.agent) {
+                            usageRow(usageMonitor)
+                        }
+                        if let context = facts.context { contextRow(context) }
+                        if let usageMonitor, usageMonitor.supports(facts.agent) {
+                            Text("\(facts.agent.title) account usage")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 13)
+                            if !usageMonitor.refreshing.contains(facts.agent),
+                               usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
+                                usageNote(usageMonitor)
+                            }
+                            ForEach(usageMonitor.usage[facts.agent]?.windows ?? []) { window in
+                                usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
+                            }
+                        }
+                        if let cost = facts.cost { costRow(cost) }
+                    }
+                    .background(Theme.sunken)
+                }
+            }
+            .motion(showsDetails ? Motion.reveal : Motion.leave, value: showsDetails)
+            rule
+            HStack {
+                Text(pinned ? "Pinned. Esc to dismiss" : "Hover to preview")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
+                Spacer(minLength: 4)
+                ActionButton(title: "Open working set", tone: .green, height: 28, size: 11,
+                             icon: "sidebar.right", action: acting(openWorkingSet))
+                    .focused($previewControl, equals: .workingSet)
+                    .focusEffectDisabled()
+                    .overlay(FocusRingStroke(focused: previewControl == .workingSet))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 52)
+        }
+        .frame(width: layout.width, alignment: .leading)
+        .floatingCard(cornerRadius: Self.radius)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Working set preview")
+    }
+
+    private var previewHeading: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Working set").font(.system(size: 14, weight: .semibold))
+                Text([facts.model.map { "\(facts.agent.title) / \($0)" } ?? facts.agent.title,
+                      repositoryCount > 0 ? counted(repositoryCount, "repository", plural: "repositories") : nil]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            GlyphButton(icon: pinned ? "pin.fill" : "pin", side: 24, active: pinned) {
+                if pinned { closeCard() } else { pinned = true }
+            }
+            .focused($previewControl, equals: .pin)
+            .focusEffectDisabled()
+            .overlay(FocusRingStroke(focused: previewControl == .pin))
+            .accessibilityLabel(pinned ? "Unpin working set preview" : "Pin working set preview")
+            GlyphButton(icon: "xmark", side: 24) {
+                closeCard()
+                chipFocused = true
+            }
+            .focused($previewControl, equals: .close)
+            .focusEffectDisabled()
+            .overlay(FocusRingStroke(focused: previewControl == .close))
+            .accessibilityLabel("Close working set preview")
+        }
+        .padding(13)
+        .motion(Motion.control, value: pinned)
+    }
+
+    private var pullRequestsSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("Pull requests").fontWeight(.semibold)
+                Spacer()
+                Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
+            }
+            .font(.system(size: 11))
+            .padding(.horizontal, 13)
+            .padding(.top, 9)
+            if facts.pullRequests.isEmpty {
+                Text("No pull requests yet")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(facts.pullRequests, id: \.url) { pullRequest in
+                    pullRequestRow(pullRequest)
+                }
             }
         }
-        .frame(width: Self.cardWidth, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Self.radius).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: Self.radius).stroke(Theme.border))
-        .clipShape(RoundedRectangle(cornerRadius: Self.radius))
-        .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
+        .padding(.bottom, 6)
+        .overlay(alignment: .top) { rule }
     }
 
     // The card's head answers both halves of the pill at a size that can be read: the
@@ -451,65 +640,9 @@ struct SessionFactsChip: View {
 
     // MARK: - Rows
 
-    // Everything that came off the bar, in the order it is asked about: what changed,
-    // where the change went, what did it, what the work is costing in room and money, and
-    // how much of the account is left for more. A session opens as many pull requests as
-    // it has checkouts to open them in, so that fact is a row each rather than one row,
-    // and carries which of them it stands for. The account's limit windows work the same.
-    private enum Fact: Hashable {
-        case changes, pullRequest(Int), model, context, cost, usage, usageNote, usageWindow(String)
-    }
-
-    private var rows: [Fact] {
-        var rows: [Fact] = []
-        if facts.changes != nil { rows.append(.changes) }
-        rows.append(contentsOf: facts.pullRequests.indices.map(Fact.pullRequest))
-        if facts.model != nil { rows.append(.model) }
-        if facts.context != nil { rows.append(.context) }
-        if facts.cost != nil { rows.append(.cost) }
-        if let usageMonitor, usageMonitor.supports(facts.agent) {
-            rows.append(.usage)
-            let agent = facts.agent
-            let usage = usageMonitor.usage[agent]
-            if !usageMonitor.refreshing.contains(agent),
-               usageMonitor.problems[agent] != nil || usage == nil {
-                rows.append(.usageNote)
-            }
-            rows.append(contentsOf: (usage?.windows ?? []).map { Fact.usageWindow($0.id) })
-        }
-        return rows
-    }
-
-    @ViewBuilder private func row(_ fact: Fact) -> some View {
-        switch fact {
-        case .changes:
-            if let changes = facts.changes { changesRow(changes) }
-        case .pullRequest(let position):
-            if facts.pullRequests.indices.contains(position) {
-                pullRequestRow(facts.pullRequests[position], first: position == 0)
-            }
-        case .model:
-            if let model = facts.model { modelRow(model) }
-        case .context:
-            if let context = facts.context { contextRow(context) }
-        case .cost:
-            if let cost = facts.cost { costRow(cost) }
-        case .usage:
-            if let usageMonitor { usageRow(usageMonitor) }
-        case .usageNote:
-            if let usageMonitor { usageNote(usageMonitor) }
-        case .usageWindow(let id):
-            if let usageMonitor,
-               let window = usageMonitor.usage[facts.agent]?.windows.first(where: { $0.id == id }) {
-                usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
-            }
-        }
-    }
-
     private func label(_ text: String) -> some View {
         Text(text)
-            .font(.mono(9.5, .semibold))
-            .kerning(1.2)
+            .font(.system(size: 10, weight: .medium))
             .foregroundStyle(Self.labelInk)
             .frame(width: Self.labelWidth, alignment: .leading)
     }
@@ -526,72 +659,57 @@ struct SessionFactsChip: View {
     }
 
     private func changesRow(_ changes: SessionFacts.Changes) -> some View {
-        row("CHANGES") {
+        row("Changes") {
             CardLink(action: acting(openChanges)) { _ in
                 HStack(spacing: 7) {
-                    if changes.files > 0 {
-                        Text(counted(changes.files, "file"))
+                    if changes.files == 0 && changes.added == 0 && changes.removed == 0 {
+                        Text("No changes").font(.system(size: 12))
+                    } else if changes.files > 0 {
+                        Text(counted(changes.files, "changed file"))
                             .font(.system(size: 12, weight: .medium))
                     }
-                    DiffPair(added: changes.added, removed: changes.removed, size: 10.5)
+                    if changes.added != 0 || changes.removed != 0 {
+                        DiffPair(added: changes.added, removed: changes.removed, size: 10.5)
+                    }
                 }
                 .lineLimit(1)
             }
+            .disabled(changes.files == 0 && changes.added == 0 && changes.removed == 0)
             .appTooltip("Opens Changes.")
         }
     }
 
     // Pull requests are stacked one to a row and share the label, which is what keeps a
     // list of them reading as one fact about the session.
-    private func pullRequestRow(_ pullRequest: PullRequest, first: Bool) -> some View {
-        row(first ? "PULL REQ" : "") {
-            CardLink(action: acting {
-                guard let url = URL(string: pullRequest.url) else { return }
-                NSWorkspace.shared.open(url)
-                showNote("Opened #\(pullRequest.number) in the browser")
-            }) { hovering in
-                HStack(spacing: 6) {
-                    if namesRepositories, let repository = pullRequest.repository {
-                        Text(repository)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    // Verbatim, or the interpolated number is read as a localised one
-                    // and comes out grouped: PR #2,395.
-                    Text(verbatim: "#\(pullRequest.number)")
-                        .font(.mono(11.5, .semibold))
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 8.5, weight: .semibold))
-                        .offset(x: hovering ? 1.5 : 0, y: hovering ? -1.5 : 0)
-                }
-                .foregroundStyle(Theme.accent)
+    private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
+        let status = facts.pullRequestStatuses[pullRequest.url]
+        return CardLink(action: acting {
+            guard let url = URL(string: pullRequest.url) else { return }
+            NSWorkspace.shared.open(url)
+            showNote("Opened \(pullRequest.repository.map { "\($0) " } ?? "")#\(pullRequest.number) in the browser")
+        }) { _ in
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.triangle.pull").foregroundStyle(Theme.accent)
+                Text(pullRequest.repository ?? "Repository unavailable")
+                    .font(.system(size: 11.5))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(verbatim: "#\(pullRequest.number)").font(.mono(11))
+                Text(status?.readinessLabel ?? "Linked")
+                    .font(.system(size: 9, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.field))
             }
-            .appTooltip {
-                Tooltip(title: "Pull request #\(pullRequest.number)",
-                        subtitle: pullRequest.url,
-                        note: "Opens in the browser.")
-            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
         }
-    }
-
-    // Numbers count up per repository, so two of them in one session can both be #3. The
-    // repository is named only when it is what tells them apart.
-    private var namesRepositories: Bool {
-        Set(facts.pullRequests.compactMap(\.repository)).count > 1
-    }
-
-    private func modelRow(_ model: String) -> some View {
-        row("MODEL") {
-            Text(model)
-                .font(.system(size: 12, weight: .medium))
-                .lineLimit(1)
-        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 5)
     }
 
     private func costRow(_ cost: Double) -> some View {
-        row("COST") {
+        row("Cost") {
             HStack(spacing: 10) {
                 Text(Money.short(cost))
                     .font(.mono(11.5))
@@ -613,7 +731,7 @@ struct SessionFactsChip: View {
         let status = Self.usageStatus(checkedAt: monitor.usage[agent]?.checkedAt,
                                       checking: checking, hasProblem: problem != nil)
         return HStack(spacing: 12) {
-            label("USAGE")
+            label("Usage")
             Spacer(minLength: 0)
             Text(status)
                 .font(.mono(10.5))
@@ -710,7 +828,7 @@ struct SessionFactsChip: View {
                 HStack(spacing: 10) {
                     LedgerMeter(fraction: window.usedFraction, colour: window.colour,
                                 pace: window.elapsedFraction(now: now), shimmering: checking)
-                        .frame(width: Self.meterWidth)
+                        .frame(maxWidth: Self.meterWidth)
                     percent(window.usedPercent, colour: window.colour)
                 }
                 .frame(height: 15)
@@ -730,6 +848,7 @@ struct SessionFactsChip: View {
         .appTooltip { Tooltip(title: window.title) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.windowSpoken(window, pace: pace, resets: resets))
+        .accessibilityValue("\(window.usedPercent) of 100 percent used")
     }
 
     private static func windowCaption(pace: AccountUsageWindow.Pace, resets: String?) -> Text? {
@@ -775,7 +894,7 @@ struct SessionFactsChip: View {
     // conversation to work on and nothing running that still holds it.
     @ViewBuilder private func contextRow(_ fraction: Double) -> some View {
         let actions = contextActions()
-        row(facts.agent.asksPermissions ? "CONTEXT" : "WINDOW") {
+        row(facts.agent.asksPermissions ? "Context" : "Window") {
             HStack(spacing: 8) {
                 if actions.isEmpty {
                     contextReading(fraction, clearable: false)
@@ -806,7 +925,7 @@ struct SessionFactsChip: View {
         let colour = SessionFacts.contextColour(fraction, agent: facts.agent)
         return HStack(spacing: 10) {
             LedgerMeter(fraction: fraction, colour: colour)
-                .frame(width: Self.meterWidth)
+                .frame(maxWidth: Self.meterWidth)
             HStack(spacing: 4) {
                 percent(Int((fraction * 100).rounded()), colour: colour)
                 if clearable {
@@ -818,6 +937,9 @@ struct SessionFactsChip: View {
             .fixedSize()
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(facts.agent.asksPermissions ? "Session context" : "Session window")
+        .accessibilityValue("\(Int((fraction * 100).rounded())) of 100 percent used")
     }
 
     // A row that leads somewhere has done what the card was opened for, so the card
@@ -832,6 +954,7 @@ struct SessionFactsChip: View {
     private func closeCard() {
         closing?.cancel()
         pinned = false
+        focusDismissed = true
         // An explicit close wins over hover until AppKit reports a fresh pointer entry.
         pointerOnCard = false
         pointerOnChip = false
@@ -852,30 +975,6 @@ private struct PressDip: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
             .motion(Motion.hover, value: configuration.isPressed)
-    }
-}
-
-// Rows rise into place one after another as the card opens, so the eye runs down the
-// card in the order it reads. A row that arrives later, like a usage window after its
-// first read, rises the same way.
-private struct RowArrival: ViewModifier {
-    let position: Int
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var arrived = false
-
-    func body(content: Content) -> some View {
-        let shown = arrived || reduceMotion
-        content
-            .opacity(shown ? 1 : 0)
-            .offset(y: shown ? 0 : 4)
-            .onAppear {
-                guard !reduceMotion else { return }
-                let delay = 0.06 + Double(position) * 0.028
-                withAnimation(Motion.reveal.delay(delay)) {
-                    arrived = true
-                }
-            }
     }
 }
 
