@@ -50,11 +50,14 @@ struct SessionRunButton: View {
         }
         .background(FrameAnchorView(anchor: buttonAnchor))
         .overlay(alignment: .topTrailing) {
-            if listOpen {
-                list
-                    .alignmentGuide(.top) { $0[.bottom] + 10 }
-                    .transition(.popover(reduceMotion: reduceMotion))
+            // The guide sits on a stack that is always there. Set on the list inside the
+            // `if`, SwiftUI drops it and the panel hangs down over the composer.
+            ZStack {
+                if listOpen {
+                    list.transition(.popover(reduceMotion: reduceMotion))
+                }
             }
+            .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
         .background(keyShortcuts(current: current))
         .motion(listOpen ? Motion.reveal : Motion.leave, value: listOpen)
