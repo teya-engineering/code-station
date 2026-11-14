@@ -20,6 +20,8 @@ struct DesignView: View {
     @State private var selectionEnabled = false
     @State private var snapshotRequest: DesignSnapshotRequest?
     @State private var preparingHandoff = false
+    @State private var implementationDraft: DesignImplementationDraft?
+    @FocusState private var implementationFocused: Bool
     // When a prompt last left this composer, so the bubble it becomes can lift into place.
     @State private var promptSentAt: Date?
     @State private var designWindow = DesignWindow()
@@ -154,6 +156,7 @@ struct DesignView: View {
                                      icon: preparingHandoff ? "hourglass" : "hammer.fill") {
                             showImplementationDialog()
                         }
+                        .focused($implementationFocused)
                         .contentTransition(.interpolate)
                         .motion(Motion.reveal, value: preparingHandoff)
                         .disabled(preparingHandoff || busy)
@@ -274,7 +277,8 @@ struct DesignView: View {
         case .handoff:
             Task {
                 await prepareHandoff(screenshot: image.flatMap(DesignArtifacts.pngData),
-                                     additionalContext: request.additionalContext)
+                                     additionalContext: request.additionalContext,
+                                     settings: request.implementationSettings)
             }
         }
     }
@@ -329,24 +333,29 @@ struct DesignView: View {
     // MARK: - Implementation
 
     private func showImplementationDialog() {
-        let draft = DesignImplementationDraft()
+        guard let session = store.session(sessionID) else { return }
+        let draft = implementationDraft ?? DesignImplementationDraft(session: session, catalog: runner.catalog)
+        implementationDraft = draft
+        draft.reopen()
         dialogs.show(Dialog(
             title: "Implement this Design?",
-            message: "Add guidance if the canvas shows multiple options, or leave this blank to implement the Design as shown.",
-            content: AnyView(DesignImplementationContextEditor(draft: draft)),
-            actions: [
-                .init(label: "Implement", kind: .primary) {
-                    implement(additionalContext: draft.text)
-                },
-                .init(label: "Cancel", kind: .cancel),
-            ],
-            width: 460))
+            content: AnyView(DesignImplementationDialog(draft: draft) { settings in
+                implement(additionalContext: draft.text, settings: settings)
+            }),
+            actions: [], onCancel: { implementationFocused = true },
+            width: FormMetrics.dialogWidth, isModal: true,
+            framesItself: true, fitsWindow: true, hugsContent: true, maximumHeight: .infinity,
+            canDismiss: { !draft.isStarting }))
     }
 
     // Hands over the canvas as it is now. If an earlier handoff already saved these
     // exact files, that copy is approved again rather than saved a second time.
-    private func implement(additionalContext: String? = nil) {
-        guard canvas.revision != nil, let session = store.session(sessionID) else { return }
+    private func implement(additionalContext: String? = nil,
+                           settings: DesignImplementationSettings? = nil) {
+        guard canvas.revision != nil, let session = store.session(sessionID) else {
+            handoffFailed(.init(title: "Could not prepare the Design", message: "The Design is no longer available."), settings: settings)
+            return
+        }
         preparingHandoff = true
         let directory = store.designDirectory(for: session)
         if let saved = session.designRevisions
@@ -354,20 +363,23 @@ struct DesignView: View {
             .first(where: { DesignArtifacts.matchesLive($0, designDirectory: directory) }) {
             switch store.approveDesignRevision(saved.id, for: sessionID) {
             case .success(let approved):
-                handOver(approved, additionalContext: additionalContext)
+                handOver(approved, additionalContext: additionalContext, settings: settings)
             case .failure(let failure):
                 preparingHandoff = false
-                dialogs.show(.notice("Could not prepare the Design", message: failure.message))
+                handoffFailed(.init(title: "Could not prepare the Design", message: failure.message), settings: settings)
             }
             return
         }
         snapshotRequest = DesignSnapshotRequest(purpose: .handoff,
-                                                additionalContext: additionalContext)
+                                                additionalContext: additionalContext,
+                                                implementationSettings: settings)
     }
 
-    private func prepareHandoff(screenshot: Data?, additionalContext: String?) async {
+    private func prepareHandoff(screenshot: Data?, additionalContext: String?,
+                                settings: DesignImplementationSettings?) async {
         guard let session = store.session(sessionID) else {
             preparingHandoff = false
+            handoffFailed(.init(title: "Could not prepare the Design", message: "The Design session is no longer available."), settings: settings)
             return
         }
         let revisions = await DesignHandoffLifecycle.sourceRevisions(for: session, store: store)
@@ -375,32 +387,49 @@ struct DesignView: View {
                                    sourceRevisions: revisions, promptID: latestPromptID) {
         case .failure(let failure):
             preparingHandoff = false
-            dialogs.show(.notice("Could not prepare the Design", message: failure.message))
+            handoffFailed(.init(title: "Could not prepare the Design", message: failure.message), settings: settings)
         case .success(let revision):
-            handOver(revision, additionalContext: additionalContext)
+            handOver(revision, additionalContext: additionalContext, settings: settings)
         }
     }
 
-    private func handOver(_ revision: DesignRevision, additionalContext: String?) {
+    private func handOver(_ revision: DesignRevision, additionalContext: String?,
+                          settings: DesignImplementationSettings?) {
         preparingHandoff = false
         if let implementation = store.implementationSessions(for: sessionID).last {
+            guard settings == nil else {
+                handoffFailed(.init(title: "Implementation already exists", message: "Open Build to continue the existing implementation."), settings: settings)
+                return
+            }
             switch DesignHandoffLifecycle.sendLatestDesign(
                 to: implementation.id, store: store, runner: runner) {
             case .success:
                 store.append(ChatMessage(role: .system, text: "Sent the design to Build."),
                              to: sessionID)
             case .failure(let failure):
-                dialogs.show(.notice(failure.title, message: failure.message))
+                handoffFailed(failure, settings: settings)
             }
         } else {
             switch DesignHandoffLifecycle.startImplementation(
-                sessionID, revision: revision, additionalContext: additionalContext,
+                sessionID, revision: revision, additionalContext: additionalContext, settings: settings,
                 store: store, runner: runner) {
             case .success:
+                implementationDraft?.finish()
+                if settings != nil { dialogs.dismiss() }
+                implementationDraft = nil
                 onOpenImplementation?()
             case .failure(let failure):
-                dialogs.show(.notice(failure.title, message: failure.message))
+                handoffFailed(failure, settings: settings)
             }
+        }
+    }
+
+    private func handoffFailed(_ failure: DesignHandoffLifecycle.Failure,
+                               settings: DesignImplementationSettings?) {
+        if settings != nil {
+            implementationDraft?.finish(failure)
+        } else {
+            dialogs.show(.notice(failure.title, message: failure.message))
         }
     }
 
@@ -424,29 +453,6 @@ struct DesignView: View {
     }
 }
 
-
-
-@MainActor
-@Observable
-private final class DesignImplementationDraft {
-    var text = ""
-}
-
-private struct DesignImplementationContextEditor: View {
-    @Bindable var draft: DesignImplementationDraft
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            SectionLabel("ADDITIONAL CONTEXT", style: .field)
-            AppTextEditor(
-                text: $draft.text,
-                placeholder: "For example: use the second checkout option and keep the current navigation.",
-                minHeight: 96)
-                .frame(height: 96)
-        }
-        .padding(.top, Space.sm)
-    }
-}
 
 struct DesignReferenceView: View {
     @Environment(ProjectStore.self) private var store
@@ -676,4 +682,5 @@ struct DesignSnapshotRequest: Equatable {
     let purpose: Purpose
     var rect: CGRect?
     var additionalContext: String?
+    var implementationSettings: DesignImplementationSettings?
 }

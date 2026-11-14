@@ -3,11 +3,12 @@ import SwiftUI
 struct CodingAgentPicker: View {
     let title: String
     var enabled = true
+    var fills = false
     let entries: [MenuEntry]
 
     var body: some View {
-        ActionButton(title: title, tone: .outlined, height: ControlHeight.xl, size: Typography.Size.detail, disclosure: true)
-            .appMenu(edge: .top) { entries }
+        ActionButton(title: title, tone: .outlined, height: ControlHeight.xl, size: Typography.Size.detail, disclosure: true, fills: fills)
+            .appMenu(edge: .top, matchWidth: fills) { entries }
             .disabled(!enabled)
             .accessibilityLabel("Choose coding agent, \(title) selected")
     }

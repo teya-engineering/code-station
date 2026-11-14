@@ -233,13 +233,15 @@ struct OptionMenu: View {
     var caption: String? = nil
     let value: String
     var matchWidth = true
+    var height: CGFloat? = nil
     let entries: () -> [MenuEntry]
 
-    init(caption: String? = nil, value: String, matchWidth: Bool = true,
+    init(caption: String? = nil, value: String, matchWidth: Bool = true, height: CGFloat? = nil,
          entries: @escaping () -> [MenuEntry]) {
         self.caption = caption
         self.value = value
         self.matchWidth = matchWidth
+        self.height = height
         self.entries = entries
     }
 
@@ -258,7 +260,7 @@ struct OptionMenu: View {
             if let caption {
                 SectionLabel(caption, style: .field)
             }
-            OptionMenuPill(value: value)
+            OptionMenuPill(value: value, height: height)
                 .appMenu(matchWidth: matchWidth, entries)
         }
     }
@@ -269,6 +271,7 @@ struct OptionMenu: View {
 // below where OptionMenu's body is built.
 private struct OptionMenuPill: View {
     let value: String
+    var height: CGFloat? = nil
 
     @Environment(\.menuIsOpen) private var open
     @State private var hovering = false
@@ -281,7 +284,8 @@ private struct OptionMenuPill: View {
             MenuChevron()
         }
         .padding(.horizontal, Space.lg)
-        .padding(.vertical, Space.md)
+        .padding(.vertical, height == nil ? Space.md : 0)
+        .frame(height: height)
         .surface(open || hovering ? Theme.field : Theme.card, cornerRadius: Radius.card,
                  border: open ? Theme.accent.opacity(0.5) : Theme.border)
         .contentShape(Rectangle())

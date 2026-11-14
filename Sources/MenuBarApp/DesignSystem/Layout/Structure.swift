@@ -235,3 +235,28 @@ struct HuggingHeight: Layout {
                               proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
+
+// Two fields share a row while there is room to read both controls.
+struct FormPair: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? FormMetrics.pairedFieldsWidth
+        let stacked = width < FormMetrics.pairedFieldsWidth
+        let fieldWidth = stacked ? width : (width - Space.lg) / 2
+        let sizes = subviews.map { $0.sizeThatFits(.init(width: fieldWidth, height: nil)) }
+        let height = stacked ? sizes.reduce(0) { $0 + $1.height } + Space.lg
+            : sizes.map(\.height).max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let stacked = bounds.width < FormMetrics.pairedFieldsWidth
+        let width = stacked ? bounds.width : (bounds.width - Space.lg) / 2
+        var point = bounds.origin
+        for subview in subviews {
+            let size = subview.sizeThatFits(.init(width: width, height: nil))
+            subview.place(at: point, proposal: .init(width: width, height: size.height))
+            if stacked { point.y += size.height + Space.lg }
+            else { point.x += width + Space.lg }
+        }
+    }
+}

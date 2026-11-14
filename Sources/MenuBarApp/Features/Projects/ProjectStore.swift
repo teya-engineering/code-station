@@ -1286,7 +1286,8 @@ final class ProjectStore {
         }
     }
 
-    func beginImplementation(_ sessionID: UUID, revisionID: UUID)
+    func beginImplementation(_ sessionID: UUID, revisionID: UUID,
+                             settings: DesignImplementationSettings? = nil)
         -> Result<UUID, PersistenceFailure> {
         guard let i = index(sessionID), sessions[i].ownsDesign,
               let revision = sessions[i].designRevisions.first(where: { $0.id == revisionID }) else {
@@ -1294,7 +1295,7 @@ final class ProjectStore {
         }
 
         if let sourceID = sessions[i].designSourceSessionID, session(sourceID) != nil {
-            return linkImplementation(sourceID, to: sessionID, revisionID: revisionID)
+            return linkImplementation(sourceID, to: sessionID, revisionID: revisionID, settings: settings)
                 .map { sourceID }
         }
 
@@ -1311,6 +1312,10 @@ final class ProjectStore {
         design.approvedDesignRevisionID = revisionID
 
         var implementation = original
+        if let settings {
+            implementation.agent = settings.agent
+            implementation.settings = settings.applying(to: original.settings)
+        }
         implementation.mode = .chat
         implementation.designPhase = .implementing
         implementation.designRevisions = []
@@ -1371,11 +1376,17 @@ final class ProjectStore {
     }
 
     func linkImplementation(_ implementationID: UUID, to designSessionID: UUID,
-                            revisionID: UUID) -> Result<Void, PersistenceFailure> {
+                            revisionID: UUID, settings: DesignImplementationSettings? = nil) -> Result<Void, PersistenceFailure> {
         guard let implementationIndex = index(implementationID),
               let design = session(designSessionID), design.ownsDesign,
               let revision = design.designRevisions.first(where: { $0.id == revisionID }) else {
             return .failure(PersistenceFailure(message: "The approved Design is no longer available."))
+        }
+        let original = sessions[implementationIndex]
+        if let settings, settings.agent != original.agent,
+           original.hasStarted || !original.messages.isEmpty {
+            return .failure(PersistenceFailure(message:
+                "This Design returns to an existing \(original.agent.title) conversation. Choose \(original.agent.title), or start a separate Design session to implement with another agent."))
         }
         let destination = designDirectory(for: sessions[implementationIndex])
             .appendingPathComponent("reference", isDirectory: true)
@@ -1387,12 +1398,15 @@ final class ProjectStore {
         } catch {
             return .failure(PersistenceFailure(message: error.localizedDescription))
         }
+        if let settings {
+            sessions[implementationIndex].agent = settings.agent
+            sessions[implementationIndex].settings = settings.applying(to: original.settings)
+        }
         sessions[implementationIndex].sourceDesignSessionID = designSessionID
         sessions[implementationIndex].handedOffDesignRevisionID = revisionID
         markIndexDirty()
         return saveOrRollBack((), failure: "The implementation handoff could not be saved.") {
-            sessions[implementationIndex].sourceDesignSessionID = nil
-            sessions[implementationIndex].handedOffDesignRevisionID = nil
+            sessions[implementationIndex] = original
             try? FileManager.default.removeItem(at: destination)
         }
     }

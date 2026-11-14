@@ -131,3 +131,10 @@ extension View {
         shadow(color: .black.opacity(elevation.opacity), radius: elevation.radius, y: elevation.y)
     }
 }
+
+// Shared dimensions for compact dialog forms.
+enum FormMetrics {
+    static let dialogWidth: CGFloat = 460
+    static let guidanceHeight: CGFloat = 96
+    static let pairedFieldsWidth: CGFloat = 340
+}

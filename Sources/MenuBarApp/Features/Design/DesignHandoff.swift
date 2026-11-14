@@ -22,11 +22,21 @@ enum DesignHandoffLifecycle {
 
     static func startImplementation(_ designSessionID: UUID, revision: DesignRevision,
                                     additionalContext: String? = nil,
+                                    settings: DesignImplementationSettings? = nil,
                                     store: ProjectStore, runner: SessionRunner)
         -> Result<Void, Failure> {
         let title = "Could not start implementation"
         let implementationID: UUID
-        switch store.beginImplementation(designSessionID, revisionID: revision.id) {
+        if let settings {
+            guard runner.isAvailable(settings.agent) else {
+                return .failure(Failure(title: title, message: "\(settings.agent.title) is unavailable. Choose another agent or install it in Settings."))
+            }
+            if let sourceID = store.session(designSessionID)?.designSourceSessionID,
+               runner.state(sourceID).isBusy {
+                return .failure(Failure(title: title, message: "Wait for the existing coding session to finish before implementing."))
+            }
+        }
+        switch store.beginImplementation(designSessionID, revisionID: revision.id, settings: settings) {
         case .success(let sessionID):
             implementationID = sessionID
         case .failure(let failure):

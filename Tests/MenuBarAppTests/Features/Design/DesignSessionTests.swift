@@ -816,6 +816,136 @@ struct DesignSessionTests {
         #expect(store.sidebarSession(chat.id)?.title == "Add a login page")
     }
 
+    @Test func customImplementationSettingsPreserveDesignAndCheckout() throws {
+        let original = store.newSession(in: project.id, worktreePath: "/tmp/design-worktree",
+                                        worktreeBranch: "design-branch", seed: .init(agent: .codex, mode: .design))
+        let originalSettings = SessionSettings(model: "gpt-5.6-sol", effort: "high", codexSandboxMode: .workspaceWrite,
+                                               mcpServersEnabled: false)
+        store.setSettings(originalSettings, for: original.id)
+        store.setAgentSessionID("design-thread", agent: .codex, for: original.id)
+        store.append(ChatMessage(role: .user, text: "Design context"), to: original.id)
+        _ = try writeDesign(for: original, in: store, html: "<html>Approved</html>")
+        let revision = try store.approveDesign(original.id, screenshot: nil, sourceRevisions: [:]).get()
+        let selection = DesignImplementationSettings(agent: .claudeCode,
+            settings: SessionSettings(model: "opus", effort: "max", permissionMode: .manual))
+
+        let id = try store.beginImplementation(original.id, revisionID: revision.id, settings: selection).get()
+        let build = try #require(store.session(id))
+        let design = try #require(store.designSession(for: id))
+        #expect(build.agent == .claudeCode)
+        #expect(build.settings?.model == "opus")
+        #expect(build.settings?.effort == "max")
+        #expect(build.settings?.permissionMode == .manual)
+        #expect(build.settings?.codexSandboxMode == nil)
+        #expect(build.settings?.mcpServersEnabled == false)
+        #expect(build.worktreePath == original.worktreePath)
+        #expect(build.worktreeBranch == original.worktreeBranch)
+        #expect(!build.hasAgentConversation)
+        #expect(design.agent == .codex)
+        #expect(design.codexSessionID == "design-thread")
+        #expect(design.settings == originalSettings)
+        #expect(design.messages.last?.text == "Design context")
+        #expect(build.handedOffDesignRevisionID == revision.id)
+        let restored = ProjectStore(preferences: testPreferences.store, storeURL: store.storeURL)
+        #expect(restored.session(id)?.agent == .claudeCode)
+        #expect(restored.session(id)?.settings == build.settings)
+    }
+
+    @Test func customHandoffLaunchesTheChosenProviderWithGuidanceAndReference() async throws {
+        let executable = scratch.path("implementation-agent")
+        try FixtureCLI.write("""
+            printf '%s\n' "$@" > "$folder/implementation-arguments"
+            cat > "$folder/implementation-input"
+            printf '%s\n' '{"type":"thread.started","thread_id":"build-thread"}'
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer","item_type":"agent_message","text":"Done"}}'
+            printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+            """, to: executable)
+        let design = store.newSession(in: project.id, seed: .init(agent: .claudeCode, mode: .design))
+        store.setAgentSessionID("design-context", agent: .claudeCode, for: design.id)
+        _ = try writeDesign(for: design, in: store, html: "<html>Approved</html>")
+        let revision = try store.approveDesign(design.id, screenshot: nil, sourceRevisions: [:]).get()
+        let runner = SessionRunner(preferences: testPreferences.store, persistentAgentSessions: false,
+                                   paths: [.codex: executable.path])
+        defer { runner.stopAll() }
+        let settings = DesignImplementationSettings(agent: .codex,
+            settings: SessionSettings(model: "gpt-5.6-terra", effort: "high", codexSandboxMode: .approveForMe))
+        try DesignHandoffLifecycle.startImplementation(design.id, revision: revision,
+            additionalContext: "Keep the current navigation.", settings: settings, store: store, runner: runner).get()
+        #expect(await waitUntil {
+            FileManager.default.fileExists(atPath: scratch.path("implementation-input").path)
+                && runner.state(design.id) == .idle
+        })
+        let arguments = try String(contentsOf: scratch.path("implementation-arguments"), encoding: .utf8)
+        let input = try String(contentsOf: scratch.path("implementation-input"), encoding: .utf8)
+        #expect(arguments.contains("gpt-5.6-terra"))
+        #expect(arguments.contains("model_reasoning_effort=\"high\""))
+        #expect(arguments.contains("--approve-for-me"))
+        #expect(!arguments.contains("design-context"))
+        #expect(input.contains("Keep the current navigation."))
+        #expect(input.contains("handoff.md"))
+        #expect(input.contains("index.html"))
+        #expect(store.session(design.id)?.agent == .codex)
+        #expect(store.designSession(for: design.id)?.claudeSessionID == "design-context")
+    }
+
+    @Test func attachedConversationRejectsAnotherProviderWithoutChangingItsReference() throws {
+        let chat = store.newSession(in: project.id, seed: .init(agent: .codex))
+        store.setAgentSessionID("coding-context", agent: .codex, for: chat.id)
+        let design = try store.startDesign(for: chat.id).get()
+        _ = try writeDesign(for: design, in: store, html: "<html>Design</html>")
+        let revision = try store.approveDesign(design.id, screenshot: nil, sourceRevisions: [:]).get()
+        let selection = DesignImplementationSettings(agent: .copilot,
+            settings: SessionSettings(model: "auto", copilotAccessMode: .workspace))
+        if case .success = store.beginImplementation(design.id, revisionID: revision.id, settings: selection) {
+            Issue.record("An existing conversation must keep its provider")
+        }
+        #expect(store.session(chat.id)?.agent == .codex)
+        #expect(store.session(chat.id)?.codexSessionID == "coding-context")
+        #expect(store.session(chat.id)?.sourceDesignSessionID == nil)
+        #expect(store.session(chat.id)?.settings == chat.settings)
+    }
+
+    @Test func attachedConversationAcceptsSettingsForItsOwnProvider() throws {
+        let chat = store.newSession(in: project.id, seed: .init(agent: .codex))
+        store.setAgentSessionID("coding-context", agent: .codex, for: chat.id)
+        let design = try store.startDesign(for: chat.id).get()
+        _ = try writeDesign(for: design, in: store, html: "<html>Design</html>")
+        let revision = try store.approveDesign(design.id, screenshot: nil, sourceRevisions: [:]).get()
+        let selection = DesignImplementationSettings(agent: .codex,
+            settings: SessionSettings(model: "gpt-5.6-terra", effort: "low", codexSandboxMode: .approveForMe))
+        let id = try store.beginImplementation(design.id, revisionID: revision.id, settings: selection).get()
+        #expect(id == chat.id)
+        #expect(store.session(id)?.settings?.codexSandboxMode == .approveForMe)
+        #expect(store.session(id)?.settings?.model == "gpt-5.6-terra")
+        #expect(store.session(id)?.codexSessionID == "coding-context")
+        #expect(store.session(design.id)?.settings == design.settings)
+    }
+
+    @Test func failedCustomHandoffRestoresTheDesignAndItsSettings() throws {
+        let design = store.newSession(in: project.id, seed: .init(agent: .codex, mode: .design))
+        store.setAgentSessionID("design-context", agent: .codex, for: design.id)
+        let directory = try writeDesign(for: design, in: store, html: "<html>Keep this design</html>")
+        let revision = try store.approveDesign(design.id, screenshot: nil, sourceRevisions: [:]).get()
+        #expect(store.save())
+        let files = PersistentFileClient(readIfPresent: { try PersistentFile.readIfPresent($0) },
+                                        write: { _, _ in throw CocoaError(.fileWriteNoPermission) },
+                                        removeIfPresent: { try PersistentFile.removeIfPresent($0) })
+        let failing = ProjectStore(preferences: testPreferences.store, storeURL: store.storeURL, files: files)
+        let original = try #require(failing.session(design.id))
+        let selection = DesignImplementationSettings(agent: .claudeCode,
+            settings: SessionSettings(model: "opus", permissionMode: .manual))
+        if case .success = failing.beginImplementation(design.id, revisionID: revision.id, settings: selection) {
+            Issue.record("The handoff must fail when it cannot save")
+        }
+        #expect(failing.session(design.id)?.agent == .codex)
+        #expect(failing.session(design.id)?.settings == original.settings)
+        #expect(failing.session(design.id)?.codexSessionID == "design-context")
+        #expect(failing.session(design.id)?.ownsDesign == true)
+        #expect(failing.sessions.count == 1)
+        #expect(try String(contentsOf: directory.appendingPathComponent("index.html"), encoding: .utf8)
+            == "<html>Keep this design</html>")
+    }
+
     private func writeDesign(for session: ChatSession, in store: ProjectStore,
                              html: String) throws -> URL {
         let artifact = try #require(store.designArtifactURL(for: session))

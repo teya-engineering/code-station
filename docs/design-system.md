@@ -132,6 +132,8 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 | `lg` | 32 | The standard: a sheet footer, a form, a text field, a button on its own. `ActionButton` uses this. |
 | `xl` | 36 | The one action an empty pane or a whole form is there to offer. |
 
+`FormMetrics` supplies the width, guidance editor height and stacking breakpoint for compact dialog forms. `FormPair` places two fields side by side and stacks them when the dialog is narrow.
+
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
 ### Depth
@@ -249,6 +251,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Lines added and removed | `DiffPair` |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
+| Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
 | A keyboard key | `Keycap` |

@@ -274,6 +274,7 @@ private struct AppMenuButton: ViewModifier {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onKeyPress(.downArrow) { open(); return .handled }
         .background(FrameAnchorView(anchor: anchor))
         .anchorPreference(key: MenuControlAnchorKey.self, value: .bounds) { bounds in
             guard isOpen, let opened else { return [:] }
@@ -528,6 +529,21 @@ struct ContextMenuHost: View {
                 if case .item(let item) = $0 { return item.handler != nil }
                 return false
             }
+        }
+        .onKeyPress(characters: .alphanumerics) { press in
+            guard presenter.entries.allSatisfy({
+                if case .searchable = $0 { return false }
+                return true
+            }) else { return .ignored }
+            let indices = presenter.entries.indices.filter {
+                if case .item(let item) = presenter.entries[$0] {
+                    return item.handler != nil && item.label.localizedLowercase.hasPrefix(press.characters.localizedLowercase)
+                }
+                return false
+            }
+            guard !indices.isEmpty else { return .ignored }
+            focusedItem = indices.first { $0 > (focusedItem ?? -1) } ?? indices.first
+            return .handled
         }
         .onKeyPress(keys: [.upArrow, .downArrow, .home, .end]) { press in
             let indices = presenter.entries.indices.filter {
