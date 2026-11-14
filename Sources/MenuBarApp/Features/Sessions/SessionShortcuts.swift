@@ -10,6 +10,7 @@ struct SessionRunButton: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.keyBindings) private var keyBindings
 
     let session: ChatSession
     var availableWidth: CGFloat = 340
@@ -79,7 +80,7 @@ struct SessionRunButton: View {
             .appTooltip {
                 Tooltip(title: shortcuts.state(current.run).isActive
                             ? "Show what \(current.shortcut.name) is printing"
-                            : "Run \(current.shortcut.name) (⌘R)",
+                            : keyBindings.tooltip("Run \(current.shortcut.name)", for: .runLastCommand),
                         subtitle: current.shortcut.text)
             }
 
@@ -88,7 +89,7 @@ struct SessionRunButton: View {
                 .frame(width: 1, height: ControlHeight.md)
 
             ListHalf(open: listOpen) { toggleList() }
-                .appTooltip("All shortcuts (⇧⌘R)")
+                .appTooltip(keyBindings.tooltip("All shortcuts", for: .savedCommands))
         }
         .fixedSize()
     }
@@ -329,15 +330,15 @@ struct SessionRunButton: View {
 
     // MARK: - Keys
 
-    // ⌘R runs the last command again and ⇧⌘R opens the list.
+    // One key runs the last command again and another opens the list.
     private func keyShortcuts(current: Entry?) -> some View {
         ZStack {
             if let current {
                 Button("") { activate(current) }
-                    .keyboardShortcut("r", modifiers: .command)
+                    .appShortcut(.runLastCommand)
             }
             Button("") { toggleList() }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .appShortcut(.savedCommands)
         }
         .buttonStyle(.plain)
         .opacity(0)
@@ -485,6 +486,7 @@ private struct RunHalf: View {
     let state: ShortcutStore.State
     let action: () -> Void
 
+    @Environment(\.keyBindings) private var keyBindings
     @State private var hovering = false
 
     private var running: Bool { state.isActive }
@@ -513,7 +515,9 @@ private struct RunHalf: View {
                     }
                     .transition(.opacity)
                 }
-                KeyHint("⌘R", onFill: true)
+                if let keys = keyBindings.keys(for: .runLastCommand) {
+                    KeyHint(keys.compactLabel, onFill: true)
+                }
             }
             .foregroundStyle(Theme.onFill)
             .lineLimit(1)
@@ -1049,7 +1053,7 @@ struct ShortcutOutputDrawer: View {
             .frame(height: 240)
         }
         .background(Theme.card)
-        .interruptOnControlC(isEnabled: shortcuts.state(run).isActive) {
+        .interruptOnStopKey(isEnabled: shortcuts.state(run).isActive) {
             shortcuts.stop(run)
         }
     }
@@ -1153,11 +1157,11 @@ private struct InterruptCatcher: ViewModifier {
     let isEnabled: Bool
     let interrupt: () -> Void
 
-    @State private var monitor = WindowKeyMonitor(.control, "c")
+    @State private var monitor = WindowKeyMonitor(AppCommand.stopCommand.info.keys)
 
     func body(content: Content) -> some View {
         content
-            .background(WindowAnchor(monitor: monitor))
+            .background(WindowAnchor(monitor: monitor).keyMonitor(monitor, follows: .stopCommand))
             .onChange(of: isEnabled, initial: true) { _, enabled in
                 guard enabled else { return monitor.stop() }
                 monitor.start {
@@ -1170,7 +1174,7 @@ private struct InterruptCatcher: ViewModifier {
 }
 
 extension View {
-    func interruptOnControlC(isEnabled: Bool,
+    func interruptOnStopKey(isEnabled: Bool,
                              interrupt: @escaping () -> Void) -> some View {
         modifier(InterruptCatcher(isEnabled: isEnabled, interrupt: interrupt))
     }

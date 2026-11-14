@@ -228,6 +228,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A file or folder | `FilePicker` |
 | A label over a field | `LabeledField` |
 | A key beside its value | `LabeledRow` |
+| A keyboard shortcut the person sets by pressing it | `KeyRecorder` |
 
 **Structure**
 
@@ -255,6 +256,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
 | A keyboard key | `Keycap` |
+| A key the person may have changed | `KeyCombo.label`, `.compactLabel` or `.parts`, read from `keyBindings` |
 | Code or JSON | `CodeTextView`, `RawJSONView` |
 
 **Over the window**
@@ -268,6 +270,16 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A click that did its work outside the window | `HeaderNote` |
 
 The system file chooser (`NSOpenPanel`, `NSSavePanel`) is the only native surface allowed. Never use `NSAlert`, `.alert`, `.confirmationDialog`, `.contextMenu`, `Menu`, `Picker`, the built-in button and toggle styles, or `.textFieldStyle(.roundedBorder)`.
+
+## Keys
+
+Every key the app answers is listed once in `AppCommand` (`Features/Settings/KeyBindings.swift`), with what it does, the key it starts with, and where it works. The Keyboard page in Settings is built from that list, and the person can move any key marked `canChange`.
+
+- Bind a key the person can change with `.appShortcut(.command)` on a hidden button, `.keyMonitor(_:follows:)` on a `WindowKeyMonitor`, or `handler.pressed(.command, event)` inside a `WindowKeyHandler`. Never write that key itself in a view.
+- Write a key in a hint or a tooltip from `keyBindings`: `keys(for:)` for the key, `tooltip(_:for:)` for "Name (⌘K)". A key can be taken away, so the hint must hide when there is none.
+- Give a key the scope it really has. `.window` keys are live everywhere. A `.pane` key is live in one area, and `firstClaim` says it is caught by a monitor or a handler, so it is asked before the window's own keys and may share one. A key bound to a SwiftUI button has no first claim. The Keyboard page uses the scope to refuse a key that would clash.
+- Keys that follow a convention stay fixed: Escape, Return, Tab, the arrows, single letters that only work while nothing is typed, and the standard editing keys. They are still listed, and are still written where they are bound.
+- A new key goes into `AppCommand` first, or nothing on screen will say it exists.
 
 ## States
 

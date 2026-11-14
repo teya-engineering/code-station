@@ -50,7 +50,7 @@ struct Composer<Above: View, Accessory: View>: View {
     // word changes rather than coming back on the next keystroke.
     @State private var dismissedQuery: String?
     @State private var fieldLink = ComposerFieldLink()
-    @State private var dictateShortcut = WindowKeyMonitor([.command, .shift], "d")
+    @State private var dictateShortcut = WindowKeyMonitor(AppCommand.dictate.info.keys)
     @State private var dictationKeys = DictationKeys()
 
     private var attachments: [Attachment] { runner.composer.draft(sessionID).attachments }
@@ -223,7 +223,7 @@ struct Composer<Above: View, Accessory: View>: View {
         }
         .background {
             if dictationHere != nil {
-                WindowAnchor(monitor: dictateShortcut)
+                WindowAnchor(monitor: dictateShortcut).keyMonitor(dictateShortcut, follows: .dictate)
                 DictationKeysAnchor(keys: dictationKeys)
             }
         }

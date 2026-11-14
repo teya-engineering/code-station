@@ -10,14 +10,28 @@ final class WindowKeyMonitor {
     // another's when several are listening for the same chord.
     weak var anchor: NSView?
 
-    private let modifier: NSEvent.ModifierFlags
-    private let key: String
+    // Can change while the monitor runs, when the person picks another key for it. Nil
+    // leaves the monitor listening for nothing.
+    var keys: KeyCombo?
     private var token: Any?
     private var handle: (() -> Bool)?
 
+    init(_ keys: KeyCombo?) {
+        self.keys = keys
+    }
+
     init(_ modifier: NSEvent.ModifierFlags, _ key: String) {
-        self.modifier = modifier
-        self.key = key
+        var modifiers: KeyCombo.Modifiers = []
+        if modifier.contains(.control) { modifiers.insert(.control) }
+        if modifier.contains(.option) { modifiers.insert(.option) }
+        if modifier.contains(.shift) { modifiers.insert(.shift) }
+        if modifier.contains(.command) { modifiers.insert(.command) }
+        let name = switch key {
+        case "\u{1b}": KeyCombo.escape
+        case "\r": KeyCombo.returnKey
+        default: key
+        }
+        self.keys = KeyCombo(name, modifiers)
     }
 
     // The handler returns true when it acted on the stroke, which swallows it. Returning
@@ -27,13 +41,10 @@ final class WindowKeyMonitor {
         // that is made again on every redraw, and the handler is registered once.
         self.handle = handle
         guard token == nil else { return }
-        token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [modifier, key] event in
-            // Nothing about the event itself is carried across: it stays here, and only
-            // the answer to "was this ours" goes to the main actor.
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == modifier,
-                  event.charactersIgnoringModifiers?.lowercased() == key
-            else { return event }
-            return MainActor.assumeIsolated { self.take() } ? nil : event
+        token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Read on the way in, so only the answer to "was this ours" crosses over.
+            let pressed = KeyCombo(event: event)
+            return MainActor.assumeIsolated { self.take(pressed) } ? nil : event
         }
     }
 
@@ -43,8 +54,8 @@ final class WindowKeyMonitor {
         handle = nil
     }
 
-    private func take() -> Bool {
-        guard let handle, let window = anchor?.window else { return false }
+    private func take(_ pressed: KeyCombo?) -> Bool {
+        guard let pressed, pressed == keys, let handle, let window = anchor?.window else { return false }
         return Self.routes(to: window, frontmost: Self.frontmostWindow) ? handle() : false
     }
 
@@ -90,8 +101,17 @@ final class WindowKeyHandler {
     weak var anchor: NSView?
 
     private let handlesTyping: Bool
+    // Kept up to date by the anchor, so a handler registered once still answers to a key
+    // the person changes later.
+    var keyBindings = KeyBindings()
 
     init(handlesTyping: Bool = false) { self.handlesTyping = handlesTyping }
+
+    // Whether the press is the key the person has for the command right now.
+    func pressed(_ command: AppCommand, _ event: NSEvent) -> Bool {
+        guard let keys = keyBindings.keys(for: command) else { return false }
+        return keys.matches(event)
+    }
 
     private var token: Any?
     private var handle: ((NSEvent) -> Bool)?
@@ -128,13 +148,19 @@ final class WindowKeyHandler {
 struct WindowKeyAnchor: NSViewRepresentable {
     let handler: WindowKeyHandler
 
+    @Environment(\.keyBindings) private var keyBindings
+
     func makeNSView(context: Context) -> NSView {
         let view = AnchorView()
         handler.anchor = view
+        handler.keyBindings = keyBindings
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) { handler.anchor = view }
+    func updateNSView(_ view: NSView, context: Context) {
+        handler.anchor = view
+        handler.keyBindings = keyBindings
+    }
 
     private final class AnchorView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }

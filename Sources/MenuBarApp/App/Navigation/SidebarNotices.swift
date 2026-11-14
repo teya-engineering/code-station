@@ -197,6 +197,7 @@ struct SidebarNeedsYouStack: View {
     let waiting: [NoticedSession]
     let open: (ChatSession) -> Void
 
+    @Environment(\.keyBindings) private var keyBindings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var fanned = false
     @State private var intent: Task<Void, Never>?
@@ -249,10 +250,12 @@ struct SidebarNeedsYouStack: View {
                 .contentTransition(.numericText())
                 .animation(reduceMotion ? nil : Motion.pop, value: waiting.count)
             Spacer(minLength: 6)
-            Text("⌘⇧A")
-                .font(Font.mono(Typography.Size.micro))
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
+            if let keys = keyBindings.keys(for: .nextWaiting) {
+                Text(keys.compactLabel)
+                    .font(Font.mono(Typography.Size.micro))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
         }
         .foregroundStyle(Theme.attentionText)
         .padding(.horizontal, Space.xs)

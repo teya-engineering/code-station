@@ -8,6 +8,7 @@ struct BranchBrowserView: View {
     let changed: () async -> Void
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(MenuPresenter.self) private var menus
+    @Environment(\.keyBindings) private var keyBindings
     @State private var catalog: GitBranchCatalog?
     @State private var query = ""
     @State private var selected: GitBranch?
@@ -161,7 +162,9 @@ struct BranchBrowserView: View {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                         TextField("Find a branch…", text: $query).textFieldStyle(.plain)
                             .focused($focus, equals: "search").accessibilityLabel("Find a branch")
-                        Text("⌘ B").foregroundStyle(.secondary).font(Font.system(size: Typography.Size.micro))
+                        if let label = keyBindings.keys(for: .branches)?.label {
+                            Text(label).foregroundStyle(.secondary).font(Font.system(size: Typography.Size.micro))
+                        }
                     }.font(Typography.detail).padding(Space.md)
                         .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
                         .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(focus == "search" ? Theme.accent : Theme.border, lineWidth: focus == "search" ? 2 : 1))
@@ -726,7 +729,7 @@ struct BranchBrowserView: View {
         guard dialogs.current?.id == dialogID, !menus.isOpen else { return false }
         if event.keyCode == 53 { if !busy { dialogs.dismiss() }; return true }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "b" {
+        if keys.pressed(.branches, event) {
             if !busy { page = .branches; focus = "search" }
             return true
         }

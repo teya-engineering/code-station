@@ -110,7 +110,7 @@ struct MarkdownToolbarTests {
             #expect(fixture.host.sizeThatFits(in: CGSize(width: width, height: 700)).width <= width)
             let editor = try #require(fixture.textViews.first?.enclosingScrollView)
             let viewport = editor.convert(editor.bounds, to: fixture.host.view)
-            for label in [name, "Markdown mode", "Find in file (Cmd+F or Ctrl+F)", "File actions"] {
+            for label in [name, "Markdown mode", "Find in file (⌘F)", "File actions"] {
                 let anchor = try #require(fixture.anchor(label))
                 let frame = anchor.convert(anchor.bounds, to: fixture.host.view)
                 #expect(frame.width > 0)
@@ -147,7 +147,7 @@ struct MarkdownToolbarTests {
         try fixture.choose("Preview")
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: scratch.url.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scratch.url.path) }
-        try fixture.click("Save changes (Cmd+S)")
+        try fixture.click("Save changes (⌘S)")
         try await fixture.openMenu("File actions")
         #expect(fixture.items.first { $0.label == "Revert changes" }?.isDisabled == false)
         fixture.menus.dismiss()
@@ -157,7 +157,7 @@ struct MarkdownToolbarTests {
         try fixture.choose("Source")
         #expect(await waitUntil { fixture.textViews.contains { $0.string == draft && $0.isEditable } })
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scratch.url.path)
-        try fixture.click("Save changes (Cmd+S)")
+        try fixture.click("Save changes (⌘S)")
         #expect(await waitUntil { (try? String(contentsOf: url, encoding: .utf8)) == draft })
         try await fixture.openMenu("File actions")
         #expect(fixture.items.first { $0.label == "Revert changes" }?.isDisabled == true)

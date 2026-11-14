@@ -1325,7 +1325,7 @@ struct AppSidebar: View {
     private var keyboardShortcuts: some View {
         ZStack {
             Button("") { startSessionInSelection() }
-                .keyboardShortcut("n", modifiers: .command)
+                .appShortcut(.newSession)
             Button("") {
                 commandPalette.close()
                 filterBox.openField()
@@ -1334,9 +1334,9 @@ struct AppSidebar: View {
                     filterFocused = true
                 }
             }
-                .keyboardShortcut("f", modifiers: .command)
+                .appShortcut(.filterSidebar)
             Button("") { jumpToFirstNeedingAttention() }
-                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .appShortcut(.nextWaiting)
             if picks.isActive {
                 Button("") { picks.clear() }
                     .keyboardShortcut(.escape, modifiers: [])
@@ -1907,6 +1907,7 @@ private struct ProjectHeaderRow: View {
     let onCancelRename: () -> Void
 
     @Environment(ProjectStore.self) private var store
+    @Environment(\.keyBindings) private var keyBindings
     @State private var draft = ""
     @State private var hovering = false
     @FocusState private var focused: Bool
@@ -2024,7 +2025,7 @@ private struct ProjectHeaderRow: View {
                 visible: showsNewSession, icon: "plus", title: "New", tone: .create,
                 width: TrailingRowAction.newWidth, base: fill,
                 accessibilityLabel: "New session in \(project.name)",
-                tooltip: "New session ⌘N",
+                tooltip: "New session" + (keyBindings.keys(for: .newSession).map { " \($0.compactLabel)" } ?? ""),
                 focus: $actionFocused, action: onNewSession)
         }
         .appTooltip { tooltip }

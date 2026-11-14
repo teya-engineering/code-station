@@ -144,6 +144,10 @@ final class AppSettings {
         didSet { Preferences.setTextSize(textSize, in: preferences) }
     }
 
+    var keyBindings: KeyBindings {
+        didSet { Preferences.setKeyBindings(keyBindings, in: preferences) }
+    }
+
     var messageColour: MessageColour {
         didSet { Preferences.setMessageColour(messageColour, in: preferences) }
     }
@@ -220,6 +224,7 @@ final class AppSettings {
         hiddenHeaderButtons = Preferences.hiddenHeaderButtons(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
         textSize = Preferences.textSize(in: preferences)
+        keyBindings = Preferences.keyBindings(in: preferences)
         messageColour = Preferences.messageColour(in: preferences)
         mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)

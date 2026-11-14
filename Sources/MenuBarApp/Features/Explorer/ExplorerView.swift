@@ -8,9 +8,9 @@ import SwiftUI
 // A text file opens straight into an editor: there is no read mode to leave first, and
 // nothing is written until Save. The tree itself can create, copy, paste, rename, drag to
 // move and move items to the Trash.
-// Says that a pane with a find of its own, a file or the chat, has taken Cmd+F. It travels
-// up to the window so the sidebar can stop naming that stroke as the way into its own
-// filter while the pane answers for it.
+// Says that a pane with a find of its own, a file or the chat, has taken the key the
+// sidebar's filter is on. It travels up to the window so the sidebar can stop naming that
+// key as the way into its own filter while the pane answers for it.
 struct PaneFindShortcutKey: PreferenceKey {
     static let defaultValue = false
 
@@ -120,6 +120,7 @@ struct ExplorerView: View {
     @State private var noteIcon = "arrow.up.forward.app"
     @State private var notes = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.keyBindings) private var keyBindings
     @FocusState private var treeFocused: Bool
     // The row being renamed, by path. The name is edited in place, the way Finder does it.
     @State private var renaming: String?
@@ -153,13 +154,13 @@ struct ExplorerView: View {
     // They are caught with monitors because a SwiftUI shortcut is only offered the stroke
     // after the window's own shortcuts have had it, and the sidebar's filter takes Cmd+F.
     @State private var findMonitor = WindowKeyMonitor(.control, "f")
-    @State private var commandFindMonitor = WindowKeyMonitor(.command, "f")
+    @State private var commandFindMonitor = WindowKeyMonitor(AppCommand.findInFile.info.keys)
     @State private var findQuery = ""
     @State private var findResult = FileFindResult()
     @State private var findSelection = 0
     @FocusState private var findFocused: Bool
     // Cmd+H hides the app on a Mac, so find in files takes Ctrl+H, next to Ctrl+F.
-    @State private var findInFilesMonitor = WindowKeyMonitor(.control, "h")
+    @State private var findInFilesMonitor = WindowKeyMonitor(AppCommand.findInFiles.info.keys)
     @State private var escapeMonitor = WindowKeyMonitor([], "\u{1b}")
     // Closes the file in front, the way Cmd+W closes a tab in an editor. With no file
     // open the stroke goes on to close the window as usual.
@@ -247,8 +248,8 @@ struct ExplorerView: View {
             onTrash: trashSelected,
             onRename: renameSelected))
         .background(WindowAnchor(monitor: findMonitor))
-        .background(WindowAnchor(monitor: commandFindMonitor))
-        .background(WindowAnchor(monitor: findInFilesMonitor))
+        .background(WindowAnchor(monitor: commandFindMonitor).keyMonitor(commandFindMonitor, follows: .findInFile))
+        .background(WindowAnchor(monitor: findInFilesMonitor).keyMonitor(findInFilesMonitor, follows: .findInFiles))
         .background(WindowAnchor(monitor: escapeMonitor))
         .background(WindowAnchor(monitor: closeTabMonitor))
         .onAppear {
@@ -268,7 +269,8 @@ struct ExplorerView: View {
                 return false
             }
         }
-        .preference(key: PaneFindShortcutKey.self, value: canFind)
+        .preference(key: PaneFindShortcutKey.self,
+                    value: canFind && keyBindings.takes(.filterSidebar, from: .findInFile))
         .onChange(of: canFind, initial: true) { _, canFind in
             for monitor in findMonitors {
                 guard canFind else { monitor.stop(); continue }
@@ -898,7 +900,7 @@ struct ExplorerView: View {
                 Rectangle().fill(Theme.border).frame(width: 1, height: 20)
                     .padding(.horizontal, compact ? 5 : 8).accessibilityHidden(true)
             }
-            ExplorerIcon(symbol: "magnifyingglass", label: "Find in file (Cmd+F or Ctrl+F)", action: showFind)
+            ExplorerIcon(symbol: "magnifyingglass", label: keyBindings.tooltip("Find in file", for: .findInFile), action: showFind)
                 .disabled(!canFind)
             if !node.supportsMarkdownPreview {
                 if !node.isDirectory {
@@ -973,8 +975,10 @@ struct ExplorerView: View {
                 }
                 if width >= 650 { Text("UTF-8").foregroundStyle(Theme.secondaryText) }
                 if saving { LoopSpinner(size: 10).transition(.fadeIn) }
-                Text(node.supportsMarkdownPreview && markdownMode == .preview ? "Read only" : "⌘ S")
-                    .font(Font.mono(Typography.Size.micro)).accessibilityLabel(markdownMode == .preview ? "Read only preview" : "Save, Command-S")
+                Text(node.supportsMarkdownPreview && markdownMode == .preview ? "Read only" : saveKeys?.label ?? "")
+                    .font(Font.mono(Typography.Size.micro))
+                    .accessibilityLabel(markdownMode == .preview ? "Read only preview"
+                                        : saveKeys.map { "Save, \($0.spokenLabel)" } ?? "Save")
             }
             .font(Font.system(size: Typography.Size.micro)).fixedSize()
         }
@@ -1266,12 +1270,14 @@ struct ExplorerView: View {
         }
     }
 
+    private var saveKeys: KeyCombo? { keyBindings.keys(for: .saveFile) }
+
     private func saveButtons(_ node: FileNode) -> some View {
         HStack(spacing: Space.md) {
             ActionButton(title: "Revert", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) { revert() }
                 .disabled(!dirty || saving)
             ActionButton(title: "Save", tone: .green, height: ControlHeight.sm, size: Typography.Size.detail,
-                         keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) {
+                         keyboardShortcut: saveKeys?.shortcut) {
                 save(node)
             }
             .disabled(!dirty)
@@ -1284,11 +1290,11 @@ struct ExplorerView: View {
         ZStack {
             if dirty || saving {
                 ActionButton(title: saving ? "Saving…" : "Save", tone: .green, height: ControlHeight.md, size: Typography.Size.detail,
-                             shortcut: saving ? nil : "⌘S",
-                             keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) { save(node) }
+                             shortcut: saving ? nil : saveKeys?.compactLabel,
+                             keyboardShortcut: saveKeys?.shortcut) { save(node) }
                     .disabled(!dirty)
                     .accessibilityLabel(saving ? "Saving changes" : "Save changes")
-                    .appTooltip("Save changes (Cmd+S)")
+                    .appTooltip(keyBindings.tooltip("Save changes", for: .saveFile))
                     .transition(.opacity)
             } else {
                 Label("Saved", systemImage: "checkmark")

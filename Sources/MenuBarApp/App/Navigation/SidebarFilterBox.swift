@@ -86,11 +86,12 @@ struct SidebarFilterBar: View {
     @Binding var box: SidebarFilterBox
     @FocusState.Binding var focused: Bool
     let openCommandPalette: () -> Void
-    // False while a file on screen answers for Command-F. Naming a stroke that lands
-    // somewhere else reads as a broken shortcut rather than as one being shared.
+    // False while a pane on screen answers for the filter's key. Naming a stroke that
+    // lands somewhere else reads as a broken shortcut rather than as one being shared.
     let showsShortcutHint: Bool
 
     @Environment(GlobalCommandPaletteController.self) private var commandPalette
+    @Environment(\.keyBindings) private var keyBindings
     @FocusState private var commandFocused: Bool
     @State private var hovering = false
 
@@ -105,6 +106,12 @@ struct SidebarFilterBar: View {
         }
     }
 
+    private var paletteKeys: KeyCombo? { keyBindings.keys(for: .commandPalette) }
+
+    private var filterHintKeys: KeyCombo? {
+        showsShortcutHint ? keyBindings.keys(for: .filterSidebar) : nil
+    }
+
     private var commandPaletteButton: some View {
         Button(action: openCommandPalette) {
             HStack(spacing: Space.md) {
@@ -117,13 +124,15 @@ struct SidebarFilterBar: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
-                Text("⌘ K")
-                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, Space.xs)
-                    .padding(.vertical, Space.xxs)
-                    .surface(Theme.sunken, cornerRadius: Radius.tag)
-                    .accessibilityHidden(true)
+                if let keys = paletteKeys {
+                    Text(keys.label)
+                        .font(Font.system(size: Typography.Size.micro, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Space.xs)
+                        .padding(.vertical, Space.xxs)
+                        .surface(Theme.sunken, cornerRadius: Radius.tag)
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, Space.md)
             .frame(height: 38)
@@ -136,8 +145,9 @@ struct SidebarFilterBar: View {
         .onPointerHover { hovering = $0 }
         .hoverLift()
         .accessibilityLabel("Search Code Station")
-        .accessibilityHint("Search projects, sessions, and actions. Command-K.")
-        .appTooltip("Search Code Station (command-K)")
+        .accessibilityHint("Search projects, sessions, and actions."
+                           + (paletteKeys.map { " \($0.spokenLabel)." } ?? ""))
+        .appTooltip("Search Code Station" + (paletteKeys.map { " (\($0.compactLabel))" } ?? ""))
     }
 
     private var field: some View {
@@ -151,8 +161,8 @@ struct SidebarFilterBar: View {
                 .focused($focused)
                 .accessibilityLabel("Filter projects and sessions")
                 .onExitCommand(perform: closeOrClear)
-            if showsShortcutHint {
-                Text("⌘F")
+            if let keys = filterHintKeys {
+                Text(keys.compactLabel)
                     .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.tertiary)
             }

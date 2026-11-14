@@ -97,7 +97,7 @@ enum SettingsSearchIndex {
         result("Your bots", .appearance, .appearanceDefaultBot,
                "appearance default avatar image personality picture photo add edit remove delete collection crew"),
         result("Keyboard shortcuts", .keyboard, .keyboardShortcuts,
-               "keys key command cmd control ctrl option shift escape reference list bindings"),
+               "keys key command cmd control ctrl option shift escape reference list bindings change rebind customise customize record reset"),
         result("Back and forward", .keyboard, .keyboardShortcuts,
                "previous next session project workspace history navigate bracket retrace"),
         result("Default agent", .agents, .agentDefault,
@@ -213,7 +213,7 @@ enum SettingsTab: CaseIterable, Hashable {
         switch self {
         case .general: "Settings for Teya Code Station."
         case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
-        case .keyboard: "Every key Code Station answers, and what it does."
+        case .keyboard: "Every key Code Station answers. Click a key to change it."
         case .agents: "Choose an agent and set how it runs."
         case .advanced: "Manage shared configuration and other advanced settings."
         case .experimental: "Try features that are still in development."

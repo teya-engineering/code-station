@@ -162,6 +162,7 @@ struct GlobalCommandPalette: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(GlobalCommandPaletteController.self) private var controller
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.keyBindings) private var keyBindings
 
     let openSettings: () -> Void
 
@@ -438,7 +439,9 @@ struct GlobalCommandPalette: View {
             keyHint("↵", "open")
             keyHint("esc", query.isEmpty ? "close" : "clear")
             Spacer(minLength: 0)
-            Text("⌘K from anywhere")
+            if let keys = keyBindings.keys(for: .commandPalette) {
+                Text("\(keys.compactLabel) from anywhere")
+            }
         }
         .font(Font.mono(Typography.Size.micro))
         .foregroundStyle(.tertiary)
@@ -594,7 +597,7 @@ struct GlobalCommandPalette: View {
             title: "New session",
             subtitle: "Start in the selected project or workspace",
             keywords: "add start command n",
-            badge: "⌘N",
+            badge: keyBindings.keys(for: .newSession)?.compactLabel,
             priority: 5))
         found.append(GlobalCommandItem(
             destination: .settings,

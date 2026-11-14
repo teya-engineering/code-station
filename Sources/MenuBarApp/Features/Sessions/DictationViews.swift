@@ -72,6 +72,7 @@ struct DictationMicButton: View {
     let action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.keyBindings) private var keyBindings
     @State private var hovering = false
 
     var body: some View {
@@ -110,7 +111,7 @@ struct DictationMicButton: View {
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
         .motion(Motion.control, value: live)
-        .appTooltip(live ? "" : preparing ? "Getting dictation ready" : "Dictate (⇧⌘D)")
+        .appTooltip(live ? "" : preparing ? "Getting dictation ready" : "Dictate" + (keyBindings.keys(for: .dictate).map { " (\($0.compactLabel))" } ?? ""))
         .accessibilityLabel(live ? "Stop dictating" : "Dictate")
         .accessibilityAddTraits(.isToggle)
         .accessibilityValue(live ? "On" : "Off")
@@ -185,6 +186,8 @@ struct DictationNoticeRow: View {
     let wordMenu: (UnsureWord) -> [MenuEntry]
     let openSettings: (DictationFailure) -> Void
     let undo: () -> Void
+
+    @Environment(\.keyBindings) private var keyBindings
 
     var body: some View {
         HStack(spacing: Space.md) {
@@ -271,7 +274,8 @@ struct DictationNoticeRow: View {
         case .allowed:
             Image(systemName: "checkmark").foregroundStyle(Theme.accent)
             (Text("Microphone allowed. ").fontWeight(.semibold)
-                + Text("Click the mic or press ⇧⌘D to start."))
+                + Text(keyBindings.keys(for: .dictate).map { "Click the mic or press \($0.compactLabel) to start." }
+                       ?? "Click the mic to start."))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .unsure(let count, let seconds):

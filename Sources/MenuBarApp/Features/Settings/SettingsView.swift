@@ -327,7 +327,7 @@ struct SettingsView: View {
                 .id(SettingsSearchTarget.appearanceDefaultBot.id)
             }
         case .keyboard:
-            keyboardShortcuts.id(SettingsSearchTarget.keyboardShortcuts.id)
+            KeyboardSettingsView().id(SettingsSearchTarget.keyboardShortcuts.id)
         case .agents:
             AgentSettingsView(selectedAgent: runner.agent,
                               requestedAgent: searchedAgent)
@@ -337,23 +337,6 @@ struct SettingsView: View {
             }
         case .experimental:
             experimentalFeatures.id(SettingsSearchTarget.experimentalFeatures.id)
-        }
-    }
-
-    // Read only. The keys are bound where their action lives, so this is the one place
-    // that says out loud what the whole set is.
-    private var keyboardShortcuts: some View {
-        VStack(alignment: .leading, spacing: Space.xxl) {
-            ForEach(KeyboardShortcutsReference.groups) { group in
-                ChoiceBlock(group.title.uppercased()) {
-                    SettingsCard {
-                        ForEach(Array(group.shortcuts.enumerated()), id: \.element.id) { index, shortcut in
-                            if index > 0 { SettingsRowDivider() }
-                            KeyboardShortcutRow(shortcut: shortcut)
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -1288,35 +1271,6 @@ private struct SettingsThemePreview: View {
                      border: dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
             .padding(Space.sm)
         }
-    }
-}
-
-// The key stays at the trailing edge so the column can be scanned.
-private struct KeyboardShortcutRow: View {
-    let shortcut: KeyboardShortcutHelp
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Space.lg) {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(shortcut.title)
-                    .font(Typography.body.weight(.semibold))
-                Text(shortcut.detail)
-                    .font(Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(shortcut.keys)
-                .font(Typography.data.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, Space.md)
-                .padding(.vertical, Space.xxs)
-                .fieldSurface(cornerRadius: Radius.inset)
-                .fixedSize()
-        }
-        .padding(.horizontal, Space.lg)
-        .padding(.vertical, Space.lg)
     }
 }
 

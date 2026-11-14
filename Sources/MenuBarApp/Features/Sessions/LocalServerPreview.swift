@@ -298,9 +298,9 @@ struct LocalServerPreviewPage: View {
     @State private var scrolledPageID: UUID?
     @FocusState private var addressFieldFocused: Bool
     // A monitor sees these keys before the page and before the window's Back and Forward.
-    @State private var addressMonitor = WindowKeyMonitor(.command, "l")
-    @State private var backMonitor = WindowKeyMonitor(.command, "[")
-    @State private var forwardMonitor = WindowKeyMonitor(.command, "]")
+    @State private var addressMonitor = WindowKeyMonitor(AppCommand.previewAddress.info.keys)
+    @State private var backMonitor = WindowKeyMonitor(AppCommand.previewBack.info.keys)
+    @State private var forwardMonitor = WindowKeyMonitor(AppCommand.previewForward.info.keys)
 
     private var picking: Bool { selectionEnabled && preview.phase == .showing }
 
@@ -331,9 +331,9 @@ struct LocalServerPreviewPage: View {
             }
         }
         .background(Theme.background)
-        .background(WindowAnchor(monitor: addressMonitor))
-        .background(WindowAnchor(monitor: backMonitor))
-        .background(WindowAnchor(monitor: forwardMonitor))
+        .background(WindowAnchor(monitor: addressMonitor).keyMonitor(addressMonitor, follows: .previewAddress))
+        .background(WindowAnchor(monitor: backMonitor).keyMonitor(backMonitor, follows: .previewBack))
+        .background(WindowAnchor(monitor: forwardMonitor).keyMonitor(forwardMonitor, follows: .previewForward))
         .onChange(of: dialogs.current == nil, initial: true) { _, free in
             if free { startMonitors() } else { stopMonitors() }
         }

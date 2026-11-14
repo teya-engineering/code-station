@@ -61,6 +61,7 @@ struct ChangesView: View {
     // Bumped to scroll the diff to the focused comment again, even when it has not moved.
     @State private var revealSerial = 0
     @State private var reviewKeys = WindowKeyHandler(handlesTyping: true)
+    @Environment(\.keyBindings) private var keyBindings
     @AppStorage("changes.reviewCoachSeen") private var coachSeen = false
     private var focusedComment: UUID? {
         get { navigation.focusedComment }
@@ -428,7 +429,7 @@ struct ChangesView: View {
             .contentShape(Rectangle())
             .hoverLift()
         }.buttonStyle(.plain)
-            .appTooltip("Branches and actions: " + snapshot.branch + " (⌘B)")
+            .appTooltip(keyBindings.tooltip("Branches and actions: " + snapshot.branch, for: .branches))
             .accessibilityLabel("Branches and actions, current branch " + snapshot.branch)
             .disabled(busy)
     }
@@ -1207,7 +1208,7 @@ struct ChangesView: View {
                 .focused($commitFocused)
                 .overlay(RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(commitFocused ? Theme.accent : .clear, lineWidth: 2))
-                .appTooltip(commitBlocker ?? "Commit (⌘↵)")
+                .appTooltip(commitBlocker ?? keyBindings.tooltip("Commit", for: .commitSelected))
                 .layoutPriority(1)
         }
         .padding(Space.lg).background(Theme.card).disabled(busy)
@@ -2220,11 +2221,11 @@ struct ChangesView: View {
     private func handleReviewKey(_ event: NSEvent) -> Bool {
         guard dialogs.current == nil else { return false }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "b" {
+        if reviewKeys.pressed(.branches, event) {
             showBranches()
             return true
         }
-        if flags == .command, event.keyCode == 36, mode == .changes {
+        if reviewKeys.pressed(.commitSelected, event), mode == .changes {
             openCommitDialog()
             return true
         }

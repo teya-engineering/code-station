@@ -88,7 +88,7 @@ struct TroubleshootProblemEditor: View {
 
     @State private var dropTargeted = false
     @State private var fieldLink = ComposerFieldLink()
-    @State private var dictateShortcut = WindowKeyMonitor([.command, .shift], "d")
+    @State private var dictateShortcut = WindowKeyMonitor(AppCommand.dictate.info.keys)
     @State private var dictationKeys = DictationKeys()
 
     private var listening: Bool {
@@ -108,7 +108,7 @@ struct TroubleshootProblemEditor: View {
         }
         .background {
             if feedback != nil {
-                WindowAnchor(monitor: dictateShortcut)
+                WindowAnchor(monitor: dictateShortcut).keyMonitor(dictateShortcut, follows: .dictate)
                 DictationKeysAnchor(keys: dictationKeys)
             }
         }

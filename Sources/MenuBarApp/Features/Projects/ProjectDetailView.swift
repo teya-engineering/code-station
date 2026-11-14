@@ -585,7 +585,7 @@ struct ProjectDetailView: View {
                 terminalFocused.toggle()
             }
         }
-        .keyboardShortcut("`", modifiers: .control)
+        .appShortcut(.terminal)
         .opacity(0)
         .disabled(store.isMissing(project))
     }

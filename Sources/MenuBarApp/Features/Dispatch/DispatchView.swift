@@ -12,6 +12,7 @@ struct DispatchView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(MenuPresenter.self) private var menus
+    @Environment(\.keyBindings) private var keyBindings
     @State private var query = ""
     @State private var searchClosedFolders: Set<UUID> = []
     @State private var showingLibrary = false
@@ -59,7 +60,8 @@ struct DispatchView: View {
                 Text(store.saveError ?? store.loadError
                      ?? (store.hasPendingChanges ? "Saving changes…" : environment.isDangerous
                          ? "Changes saved · Live sends always ask for confirmation."
-                         : "Changes saved locally · ⌘↵ Send · ⌘K Find a request"))
+                         : "Changes saved locally · ⌘↵ Send"
+                            + (keyBindings.keys(for: .findRequest).map { " · \($0.compactLabel) Find a request" } ?? "")))
                     .font(Typography.caption)
                     .foregroundStyle(.secondary)
             }
@@ -75,7 +77,7 @@ struct DispatchView: View {
         .motion(Motion.reveal, value: environment)
         .background {
             ZStack {
-                Button("", action: focusSearch).keyboardShortcut("k", modifiers: .command)
+                Button("", action: focusSearch).appShortcut(.findRequest)
                 Button("", action: focusSearch).keyboardShortcut("k", modifiers: .control)
             }
             .buttonStyle(.plain).opacity(0).accessibilityHidden(true)
@@ -208,7 +210,9 @@ struct DispatchView: View {
                 if !query.isEmpty {
                     GlyphButton(icon: "xmark", side: ControlHeight.xs) { query = "" }
                         .accessibilityLabel("Clear search")
-                } else { Text("⌘K").foregroundStyle(.secondary) }
+                } else if let findKeys = keyBindings.keys(for: .findRequest) {
+                    Text(findKeys.compactLabel).foregroundStyle(.secondary)
+                }
             }
             .font(Typography.caption)
             .padding(Space.md).fieldSurface(cornerRadius: Radius.control)

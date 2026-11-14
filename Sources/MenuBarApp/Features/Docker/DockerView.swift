@@ -8,6 +8,7 @@ struct DockerView: View {
     @Environment(DockerService.self) private var docker
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(MenuPresenter.self) private var menus
+    @Environment(\.keyBindings) private var keyBindings
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -128,8 +129,8 @@ struct DockerView: View {
                 .font(Typography.body)
                 .focused($searchFocused)
                 .onChange(of: query) { selection = []; anchor = nil }
-            if query.isEmpty {
-                Text("⌘F")
+            if query.isEmpty, let searchKeys = keyBindings.keys(for: .searchDocker) {
+                Text(searchKeys.compactLabel)
                     .font(Typography.micro)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, Space.xs)
@@ -986,7 +987,7 @@ struct DockerView: View {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let escape = event.keyCode == 53
-        if flags == .command, key == "f" {
+        if keys.pressed(.searchDocker, event) {
             searchFocused = true
             return true
         }

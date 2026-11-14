@@ -31,6 +31,7 @@ struct SessionView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(MenuPresenter.self) private var menus
     @Environment(AppSettings.self) private var appSettings
+    @Environment(\.keyBindings) private var keyBindings
     @Environment(GitStatsCache.self) private var gitStats
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(GlobalCommandPaletteController.self) private var commandPalette
@@ -62,7 +63,7 @@ struct SessionView: View {
     // the file view's find: a SwiftUI shortcut only gets the stroke after the sidebar's
     // filter has taken it.
     @State private var findMonitor = WindowKeyMonitor(.control, "f")
-    @State private var commandFindMonitor = WindowKeyMonitor(.command, "f")
+    @State private var commandFindMonitor = WindowKeyMonitor(AppCommand.findInConversation.info.keys)
     @FocusState private var findFocused: Bool
     @State private var transcriptScrollRequest = 0
     // When a prompt last left this composer, so the bubble it becomes can lift into place.
@@ -323,8 +324,10 @@ struct SessionView: View {
             .background(recapShortcut)
             .background(stopShortcut)
             .background(WindowAnchor(monitor: findMonitor))
-            .background(WindowAnchor(monitor: commandFindMonitor))
-            .preference(key: PaneFindShortcutKey.self, value: canFindInChat(session))
+            .background(WindowAnchor(monitor: commandFindMonitor)
+                .keyMonitor(commandFindMonitor, follows: .findInConversation))
+            .preference(key: PaneFindShortcutKey.self,
+                        value: canFindInChat(session) && keyBindings.takes(.filterSidebar, from: .findInConversation))
             .onChange(of: canFindInChat(session), initial: true) { _, canFind in
                 for monitor in findMonitors {
                     guard canFind else { monitor.stop(); continue }
@@ -712,7 +715,7 @@ struct SessionView: View {
             word: "Terminal",
             isOpen: terminalOpen,
             showsWord: showsWord,
-            keys: ["⌃", "`"],
+            keys: keyBindings.keys(for: .terminal)?.parts ?? [],
             detail: "A shell under the pane, in this session's folder",
             options: .init(label: "Other ways to open a shell") {
                 terminalOptions(isOpen: terminalOpen, directory: directory)
@@ -793,7 +796,7 @@ struct SessionView: View {
                               word: "Find",
                               isOpen: isOpen,
                               showsWord: showsWord,
-                              keys: ["⌘", "F"],
+                              keys: keyBindings.keys(for: .findInConversation)?.parts ?? [],
                               detail: "Search this conversation") {
             if isOpen {
                 closeFind()
@@ -846,7 +849,7 @@ struct SessionView: View {
                               word: "Working set",
                               isOpen: isOpen,
                               showsWord: showsWord,
-                              keys: ["⌘", "\\"],
+                              keys: keyBindings.keys(for: .workingSet)?.parts ?? [],
                               detail: "What the agent did, prompt by prompt",
                               action: toggleWorkingSet)
     }
@@ -1375,13 +1378,13 @@ struct SessionView: View {
                 if !terminalFocused { composerFocused = true }
             }
         }
-        .keyboardShortcut("`", modifiers: .control)
+        .appShortcut(.terminal)
         .opacity(0)
     }
 
     private var workingSetShortcut: some View {
         Button("", action: toggleWorkingSet)
-            .keyboardShortcut("\\", modifiers: .command)
+            .appShortcut(.workingSet)
             .opacity(0)
     }
 

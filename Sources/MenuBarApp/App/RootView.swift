@@ -47,6 +47,8 @@ struct RootView: View {
             .sheet(item: $sheet) { sheet in
                 sheetContent(sheet).background(QuitConfirmation()).appOverlays()
             }
+            // Outermost, so the sheets see the person's keys as well.
+            .environment(\.keyBindings, settings.keyBindings)
     }
 
     private var cursorEffectSessionID: UUID? {
@@ -206,16 +208,16 @@ struct RootView: View {
                 guard sheet == nil else { return }
                 commandPalette.open()
             }
-            .keyboardShortcut("k", modifiers: .command)
-            // Cmd+[ and Cmd+] are Back and Forward on the rest of the Mac, so they retrace
+            .appShortcut(.commandPalette)
+            // Back and Forward start on Cmd+[ and Cmd+], as on the rest of the Mac, and retrace
             // the projects, workspaces and sessions already looked at. They are disabled
             // when the trail has no more to give, which leaves the key to anything that has
             // a better use for it.
             Button("") { store.goBack() }
-                .keyboardShortcut("[", modifiers: .command)
+                .appShortcut(.goBack)
                 .disabled(!canNavigateHistory || !store.canGoBack)
             Button("") { store.goForward() }
-                .keyboardShortcut("]", modifiers: .command)
+                .appShortcut(.goForward)
                 .disabled(!canNavigateHistory || !store.canGoForward)
             // Growing the text is Cmd+ in the View menu, which AppKit only matches on a
             // shifted key. The unshifted key most people actually press is the same command,

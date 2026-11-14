@@ -11,10 +11,10 @@ enum ExplorerSearchMode: CaseIterable {
     }
 
     // The stroke that opens the dialog straight in this mode.
-    var keys: String {
+    func keys(in bindings: KeyBindings) -> String {
         switch self {
         case .names: "⇧⇧"
-        case .contents: "⌃H"
+        case .contents: bindings.keys(for: .findInFiles)?.compactLabel ?? ""
         }
     }
 }
@@ -131,6 +131,7 @@ struct ExplorerFindDialog: View {
     @FocusState private var fieldFocused: Bool
     @Namespace private var thumb
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.keyBindings) private var keyBindings
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
@@ -148,7 +149,7 @@ struct ExplorerFindDialog: View {
 
             HStack(spacing: Space.xs) {
                 ForEach(ExplorerSearchMode.allCases, id: \.self) { mode in
-                    ChoicePill(title: "\(mode.title)  \(mode.keys)", selected: model.mode == mode, thumb: thumb) {
+                    ChoicePill(title: "\(mode.title)  \(mode.keys(in: keyBindings))", selected: model.mode == mode, thumb: thumb) {
                         model.show(mode)
                         fieldFocused = true
                     }

@@ -64,7 +64,7 @@ struct ExplorerHeaderTests {
             #expect(titleFrame.width > 0)
             #expect(titleFrame.minY >= breadcrumbs.maxY + padding)
             #expect(titleFrame.maxY <= viewport.minY - padding)
-            for label in ["Find in file (Cmd+F or Ctrl+F)", "Pin file", "File details", "File actions"] {
+            for label in ["Find in file (⌘F)", "Pin file", "File details", "File actions"] {
                 let action = try #require(views(in: hosting.view).first { $0.identifier?.rawValue == label })
                 let frame = action.convert(action.bounds, to: hosting.view)
                 #expect(frame.minX >= viewport.minX + inset)
