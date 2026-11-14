@@ -18,6 +18,7 @@ struct NewWorkspaceView: View {
     @State private var removesWhenEmpty = false
     // Nil until the stepper is touched, so the count follows the old session setting.
     @State private var removalDays: Int?
+    @State private var showsWhy = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -33,29 +34,23 @@ struct NewWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text("New workspace")
-                    .font(Typography.display)
-                Text("Pick the projects that get worked on together. Every session starts with all of them.")
-                    .font(Typography.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            header
+                .zIndex(1)
+            readings
 
-                HStack(spacing: Space.lg) {
-                    SectionLabel("NAME", style: .field)
-                    TextField("Workspace name", text: $name)
-                        .textFieldStyle(.plain)
-                        .font(Typography.body.weight(.semibold))
-                }
-                .padding(.horizontal, Space.lg)
-                .frame(height: 44)
-                .fieldSurface(cornerRadius: Radius.card)
-                .padding(.top, Space.md)
+            HStack(spacing: Space.lg) {
+                SectionLabel("NAME", style: .field)
+                TextField("Workspace name", text: $name)
+                    .textFieldStyle(.plain)
+                    .font(Typography.body.weight(.semibold))
             }
-            .padding(Space.xxl)
+            .padding(.horizontal, Space.lg)
+            .frame(height: 44)
+            .fieldSurface(cornerRadius: Radius.card)
+            .padding(Space.pane)
 
             projectFilterField
-                .padding(.horizontal, Space.xxl)
+                .padding(.horizontal, Space.pane)
                 .padding(.bottom, Space.lg)
 
             ScrollView {
@@ -77,8 +72,8 @@ struct NewWorkspaceView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, Space.xs)
                 }
-                .padding(.horizontal, Space.xxl)
-                .padding(.bottom, Space.xxl)
+                .padding(.horizontal, Space.pane)
+                .padding(.bottom, Space.pane)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                     // The first height is taken as it is, so the sheet opens at its
                     // final size instead of growing into it.
@@ -99,10 +94,52 @@ struct NewWorkspaceView: View {
             SheetFooter(title: "Projects can belong to several workspaces.",
                         primary: SheetAction(title: "Create", enabled: canCreate,
                                              shortcut: .defaultAction, action: create),
-                        dismiss: { dismiss() })
+                        dismiss: closeOrDismiss)
         }
         .frame(width: 650)
         .background(Theme.background)
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
+    }
+
+    private var header: some View {
+        SheetTitle(name: "New workspace", icon: "square.stack.3d.up") {
+            WhyButton(label: "What a workspace is", isOpen: $showsWhy) {
+                Text("A group of projects that get worked on together. Every session starts with all of them, and the lead project is where the agent works.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
+    }
+
+    // How many projects are picked, and which one leads. A workspace needs two.
+    private var readings: some View {
+        let lead = leadProjectID.flatMap(store.project)?.name
+        return HStack(spacing: Space.md) {
+            StatusCaps(text: selected.count < 2 ? "PICK AT LEAST 2 PROJECTS" : "\(selected.count) PROJECTS")
+                .contentTransition(.numericText())
+            if let lead {
+                StatusRule()
+                StatusCaps(text: "LEAD")
+                StatusValue(text: lead, tint: Theme.accent)
+                    .contentTransition(.opacity)
+            }
+            Spacer(minLength: 0)
+        }
+        .motion(Motion.control, value: selected.count)
+        .motion(Motion.control, value: leadProjectID)
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
     }
 
     private var projectFilterField: some View {
@@ -279,7 +316,7 @@ private struct RemoveWhenEmptyBand: View {
                 .allowsHitTesting(isOn)
                 .accessibilityHidden(!isOn)
         }
-        .padding(.horizontal, Space.xxl)
+        .padding(.horizontal, Space.pane)
         .padding(.vertical, Space.lg)
         .background(Theme.statusBand)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }

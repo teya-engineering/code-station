@@ -152,9 +152,12 @@ private struct BadgedAvatar: View {
 
 // MARK: - Shared frame
 
-// The header, body and footer every second opinion dialog is drawn in.
+// The header, body and footer every second opinion dialog is drawn in. The message
+// changes with what is asked and how far it has got, so it stays on screen under the
+// band rather than behind a question mark.
 private struct DialogFrame<Trailing: View, Content: View, Footer: View>: View {
     let title: String
+    let icon: String
     let message: String
     // Escape closes the dialog unless something inside it, such as an edit, wants the key.
     var escapeCloses = true
@@ -166,21 +169,18 @@ private struct DialogFrame<Trailing: View, Content: View, Footer: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: Space.lg) {
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text(title).font(Typography.display)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.isHeader)
-                    Text(message).font(Typography.body).foregroundStyle(Theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+            SheetTitle(name: title, icon: icon) {
                 trailing()
             }
-            .padding(.horizontal, Space.xxl).padding(.top, Space.xxl)
+            .padding(.horizontal, Space.pane)
+            .headerBand()
+            Text(message).font(Typography.body).foregroundStyle(Theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .padding(.horizontal, Space.pane).padding(.top, Space.lg)
             content()
             HStack(spacing: Space.md) { footer() }
-                .padding(.leading, Space.xxl).padding(.trailing, Space.lg).padding(.vertical, Space.lg)
+                .padding(.leading, Space.pane).padding(.trailing, Space.lg).padding(.vertical, Space.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.field)
                 .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
@@ -239,7 +239,7 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
     }
 
     var body: some View {
-        DialogFrame(title: "Ask for a second opinion", message: message) {
+        DialogFrame(title: "Ask for a second opinion", icon: "person.2", message: message) {
             EmptyView()
         } content: {
             VStack(alignment: .leading, spacing: Space.xl) {
@@ -599,7 +599,7 @@ struct SecondOpinionProgressView: View {
         let running = runs.filter(\.isRunning)
         let findings = review.reviews.findings(review.sessionID)
         let pending = review.reviews.pending(review.sessionID).count { $0.reviewer != nil }
-        DialogFrame(title: running.isEmpty ? "Second opinion finished" : "Second opinion in progress",
+        DialogFrame(title: "Second opinion", icon: running.isEmpty ? "checkmark" : "hourglass",
                     message: !running.isEmpty ? "Findings wait for you as each reviewer finishes."
                         : pending > 0 ? "\(counted(pending, "finding")) came back. Look at them before anything reaches \(review.agent.title)."
                         : "Nothing is waiting to be looked at.") {
@@ -754,6 +754,7 @@ struct SecondOpinionFindingsView: View {
         let voices = Set(list.flatMap(\.reviewers))
         let running = unique(store.runs(review.sessionID).filter(\.isRunning).map(\.agent))
         DialogFrame(title: voices.isEmpty ? "Findings" : "Findings from " + names(AgentKind.allCases.filter(voices.contains)),
+                    icon: "text.bubble",
                     message: "Keep what you agree with. Kept findings join your review, and nothing reaches \(review.agent.title) until you send it.",
                     escapeCloses: false) {
             if !list.isEmpty { progress(list, dismissed: dismissed, decided: kept + gone) }
@@ -828,7 +829,6 @@ struct SecondOpinionFindingsView: View {
                 .accessibilityHidden(true)
             }
         }
-        .padding(.top, Space.sm)
         .fixedSize()
         .motion(Motion.control, value: decided)
     }

@@ -506,6 +506,7 @@ private struct SiteConfigurationEditorView: View {
     @State private var draft: SiteDefaults
     @State private var saved: SiteDefaults
     @State private var failure: String?
+    @State private var showsWhy = false
 
     init(aspect: SiteConfigurationAspect,
          defaults: SiteDefaults,
@@ -519,25 +520,28 @@ private struct SiteConfigurationEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(editorTitle).font(Typography.title)
-                Text(editorNote)
-                    .font(Typography.detail)
-                    .foregroundStyle(.secondary)
+            SheetTitle(name: editorTitle, icon: aspect.icon) {
+                WhyButton(label: "What this sets", isOpen: $showsWhy) {
+                    Text(editorNote)
+                        .font(Typography.detail)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(.horizontal, Space.xxl)
+            .padding(.horizontal, Space.pane)
             .headerBand()
+            .zIndex(1)
 
             ScrollView {
                 editor
-                    .padding(Space.xxl)
+                    .padding(Space.pane)
             }
             .frame(maxHeight: 560)
 
             SheetFooter(primary: SheetAction(title: "Save", enabled: draft != saved,
                                              shortcut: KeyboardShortcut("s", modifiers: .command),
                                              action: save),
-                        dismiss: { dismiss() }) {
+                        dismiss: closeOrDismiss) {
                 if let failure {
                     Text(failure)
                         .font(Typography.caption)
@@ -554,6 +558,15 @@ private struct SiteConfigurationEditorView: View {
         }
         .frame(width: 660)
         .background(Theme.background)
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
     }
 
     private var editorTitle: String {
@@ -1132,20 +1145,33 @@ private struct SiteConfigurationJSONView: View {
     let defaults: SiteDefaults
 
     @State private var failure: String?
+    @State private var showsWhy = false
 
     private var data: Data? { try? SiteConfigurationImporter.configurationData(for: defaults) }
     private var text: String { data.map { String(decoding: $0, as: UTF8.self) } ?? "{}\n" }
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text("Current configuration JSON").font(Typography.title)
-                Text("This read-only view is generated from the current settings and is safe to export as a reset file.")
-                    .font(Typography.detail)
-                    .foregroundStyle(.secondary)
+            SheetTitle(name: "Current configuration", icon: "curlybraces") {
+                WhyButton(label: "Where this comes from", isOpen: $showsWhy) {
+                    Text("This read-only view is generated from the current settings and is safe to export as a reset file.")
+                        .font(Typography.detail)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(.horizontal, Space.xxl)
+            .padding(.horizontal, Space.pane)
             .headerBand()
+            .zIndex(1)
+
+            HStack(spacing: Space.md) {
+                StatusCaps(text: "JSON")
+                StatusRule()
+                StatusCaps(text: "READ ONLY")
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .statusBand(padding: Space.pane)
 
             VStack(alignment: .leading, spacing: Space.md) {
                 ScrollView {
@@ -1165,10 +1191,10 @@ private struct SiteConfigurationJSONView: View {
                         .transition(.fadeIn)
                 }
             }
-            .padding(Space.xxl)
+            .padding(Space.pane)
             .smoothlyResizes(when: failure)
 
-            SheetFooter(dismiss: { dismiss() }) {
+            SheetFooter(dismiss: closeOrDismiss) {
                 HStack(spacing: Space.lg) {
                     CopyButton("Copy JSON", size: Typography.Size.detail) { text }
                     InlineLink(title: "Export…", action: export)
@@ -1177,6 +1203,15 @@ private struct SiteConfigurationJSONView: View {
         }
         .frame(width: 700)
         .background(Theme.background)
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
     }
 
     private func export() {

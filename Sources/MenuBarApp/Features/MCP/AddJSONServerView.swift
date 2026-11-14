@@ -16,6 +16,7 @@ struct AddJSONServerView: View {
     // Bumped by Format, which lays out text typed by hand. Shown only while the text
     // reads as JSON and is not laid out yet, so it never does nothing.
     @State private var formatRequest = 0
+    @State private var showsWhy = false
 
 
     // When the paste wraps its servers, as setup guides do in "mcpServers", says which
@@ -58,13 +59,10 @@ struct AddJSONServerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.xl) {
-                Text("Add MCP server").font(Typography.display)
-                Text("Paste a server as JSON, for stdio or remote (url) servers. Accepts a bare \"name\": { … } map, or the setup snippet for Claude, Cursor or VS Code.")
-                    .font(Typography.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            header
+                .zIndex(1)
 
+            VStack(alignment: .leading, spacing: Space.xl) {
                 VStack(alignment: .leading, spacing: Space.md) {
                     SectionLabel("ENVIRONMENT")
                     ServerEnvironmentPills(tag: $environment)
@@ -139,11 +137,11 @@ struct AddJSONServerView: View {
                 }
             }
             .motion(Motion.reveal, value: error)
-            .padding(Space.xxxl)
+            .padding(Space.pane)
 
             SheetFooter(primary: SheetAction(title: "Add", enabled: !text.isBlank,
                                              shortcut: .defaultAction, action: add),
-                        dismiss: { dismiss() }) {
+                        dismiss: closeOrDismiss) {
                 InlineLink(title: "Paste", size: Typography.Size.body) { pasteRequest += 1 }
             }
         }
@@ -152,6 +150,28 @@ struct AddJSONServerView: View {
         .onChange(of: text) {
             // Whatever went wrong was about the text before this change.
             error = nil
+        }
+    }
+
+    private var header: some View {
+        SheetTitle(name: "Add MCP server", icon: "curlybraces") {
+            WhyButton(label: "What you can paste", isOpen: $showsWhy) {
+                Text("A server as JSON, for stdio or remote (url) servers. A bare \"name\": { … } map works, and so does the setup snippet for Claude, Cursor or VS Code.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
         }
     }
 

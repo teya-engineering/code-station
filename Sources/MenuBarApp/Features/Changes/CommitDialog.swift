@@ -46,7 +46,9 @@ final class CommitDialogModel {
 
     var summaryTooLong: Bool { summaryLength > Self.summaryLimit }
 
-    var title: String { amend ? "Amend last commit" : "Commit \(counted(files.count, "file"))" }
+    // The count is left to the button and the file list, so the name holds still while
+    // the message is typed.
+    var title: String { amend ? "Amend last commit" : "Commit changes" }
 
     var actionTitle: String {
         if isCommitting { return amend ? "Amending…" : "Committing…" }
@@ -97,20 +99,31 @@ struct CommitDialogView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SheetTitle(model.title, icon: model.amend ? "arrow.uturn.backward" : "checkmark",
+                       tint: model.amend ? Theme.attention : nil,
+                       ink: model.amend ? Theme.attentionText : nil)
+                .motion(Motion.control, value: model.amend)
+                .padding(.horizontal, Space.pane)
+                .headerBand()
+            HStack(spacing: Space.md) {
+                StatusCaps(text: "TO")
+                StatusValue(text: branch, tint: .primary, truncation: .middle)
+                StatusRule()
+                ProjectTileView(name: repository, tint: Theme.projectTint(for: repository), side: 16)
+                    .accessibilityHidden(true)
+                StatusValue(text: repository)
+                    .fixedSize()
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .statusBand(padding: Space.pane)
             VStack(alignment: .leading, spacing: Space.xl) {
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text(model.title).font(Typography.display)
-                        .accessibilityAddTraits(.isHeader)
-                    Text("To \(Text(branch).font(Typography.code.weight(.medium)).foregroundStyle(.primary)) in \(repository)")
-                        .font(Typography.body).foregroundStyle(Theme.secondaryText)
-                        .lineLimit(1).truncationMode(.middle)
-                }
                 messageField
                 includedFiles
                 if model.canAmend { amendOption }
                 if let error = model.error { failure(error) }
             }
-            .padding(.horizontal, Space.xxl).padding(.top, Space.xxl).padding(.bottom, Space.xl)
+            .padding(.horizontal, Space.pane).padding(.top, Space.xl).padding(.bottom, Space.xl)
             footer
         }
         .background(Theme.card)

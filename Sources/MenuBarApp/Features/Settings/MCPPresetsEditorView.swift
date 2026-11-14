@@ -21,6 +21,7 @@ struct MCPPresetsEditorView: View {
     @State private var note: String?
     @State private var notes = 0
     @State private var fileActOuts = 0
+    @State private var showsWhy = false
     @FocusState private var focus: PresetFocus?
     @Namespace private var transportTrack
 
@@ -36,6 +37,7 @@ struct MCPPresetsEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)
             HStack(spacing: 0) {
                 sidebar
                     .frame(width: 300)
@@ -50,7 +52,7 @@ struct MCPPresetsEditorView: View {
                                              shortcut: KeyboardShortcut("s", modifiers: .command),
                                              action: save),
                         dismissTone: .outlined,
-                        dismiss: { dismiss() }) {
+                        dismiss: closeOrDismiss) {
                 status
             }
         }
@@ -60,7 +62,7 @@ struct MCPPresetsEditorView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: "folder", text: note)
-                        .padding(.top, Theme.headerHeight + 2).padding(.trailing, Space.xxl)
+                        .padding(.top, Theme.headerHeight + Space.xxs).padding(.trailing, Space.pane)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -71,18 +73,28 @@ struct MCPPresetsEditorView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: Space.lg) {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text("MCP presets").font(Typography.title)
-                Text("Ready-made servers people add with one click. Values set to *Ask* are filled in at that moment.")
-                    .font(Typography.detail)
-                    .foregroundStyle(.secondary)
+        SheetTitle(name: "MCP presets", icon: SiteConfigurationAspect.mcp.icon, count: drafts.count) {
+            HStack(spacing: Space.md) {
+                fileChip
+                WhyButton(label: "What presets are", isOpen: $showsWhy) {
+                    Text("Ready-made servers people add with one click. Values set to *Ask* are filled in at that moment.")
+                        .font(Typography.detail)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            Spacer(minLength: 0)
-            fileChip
         }
-        .padding(.horizontal, Space.xxl)
+        .padding(.horizontal, Space.pane)
         .headerBand()
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
     }
 
     private var fileChip: some View {

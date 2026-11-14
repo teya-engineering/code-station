@@ -79,20 +79,29 @@ struct BranchBrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: Space.md) {
-                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                    .foregroundStyle(Theme.accent).padding(Space.md).background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.card))
-                VStack(alignment: .leading, spacing: Space.xxs) {
-                    Text(title).font(Typography.display).accessibilityAddTraits(.isHeader)
-                    Text(repository).font(Typography.detail).foregroundStyle(.secondary)
-                }
-                Spacer()
+            SheetTitle(name: title, icon: "point.topleft.down.to.point.bottomright.curvepath",
+                       tint: page == .recovery ? Theme.warningText : nil) {
                 if busy || previewing || loading { ChangesProgressLabel(title: busy ? "Working…" : "Reading repository…") }
                 GlyphButton(icon: "xmark") { dialogs.dismiss() }
                     .disabled(busy).focused($focus, equals: "close")
                     .accessibilityLabel("Close branches").branchFocus(focus == "close")
-            }.padding(Space.xxl)
-            Divider()
+            }
+            .padding(.horizontal, Space.pane)
+            .headerBand()
+            HStack(spacing: Space.md) {
+                ProjectTileView(name: repository, tint: Theme.projectTint(for: repository), side: 16)
+                    .accessibilityHidden(true)
+                StatusValue(text: repository)
+                    .fixedSize()
+                if !current.isEmpty {
+                    StatusRule()
+                    StatusCaps(text: "ON")
+                    StatusValue(text: current, tint: .primary, truncation: .middle)
+                }
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .statusBand(padding: Space.pane)
             if !message.isEmpty {
                 ScrollView {
                     HStack(alignment: .top, spacing: Space.md) {

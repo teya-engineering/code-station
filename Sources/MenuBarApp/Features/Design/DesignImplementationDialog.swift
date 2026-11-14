@@ -44,9 +44,7 @@ struct DesignImplementationDialog: View {
     private var form: some View {
         VStack(alignment: .leading, spacing: Space.xxl) {
             VStack(alignment: .leading, spacing: Space.md) {
-                Text("Implement this Design?")
-                    .font(Typography.title)
-                    .accessibilityAddTraits(.isHeader)
+                SheetTitle("Implement this Design?", icon: "hammer")
                 Text("The design and handoff notes are included.")
                     .font(Typography.body).foregroundStyle(.secondary)
             }

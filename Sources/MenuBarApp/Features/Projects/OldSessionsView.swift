@@ -21,6 +21,7 @@ struct OldSessionsView: View {
     // another one to be chosen in its place.
     @State private var autoTicked = 0
     @State private var deletionProgress: DeletionProgress?
+    @State private var showsWhy = false
 
     // A tick is a promise the user has read the row. Past a certain length nobody reads the
     // whole list, so the ticking stops and anything beyond it has to be asked for by hand.
@@ -72,6 +73,8 @@ struct OldSessionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)
+            readings
             ScrollView {
                 VStack(spacing: Space.lg) {
                     ForEach(groups) { group in
@@ -104,7 +107,7 @@ struct OldSessionsView: View {
                             .padding(.horizontal, Space.lg)
                     }
                 }
-                .padding(Space.xxl)
+                .padding(Space.pane)
             }
             .frame(maxHeight: 420)
 
@@ -112,7 +115,7 @@ struct OldSessionsView: View {
                         primary: SheetAction(title: deleteLabel,
                                              enabled: !tickedRows.isEmpty && !isDeleting,
                                              tone: .danger, action: confirmDelete),
-                        dismiss: { if !isDeleting { dismiss() } })
+                        dismiss: closeOrDismiss)
                 .disabled(isDeleting)
         }
         .frame(width: 620)
@@ -121,16 +124,46 @@ struct OldSessionsView: View {
         .task { await load() }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            Text("Sessions older than \(counted(days, "day"))")
-                .font(Typography.title)
-            Text("Ticked sessions are removed from the app. Change the \(counted(days, "day")) in Settings.")
-                .font(Typography.detail)
-                .foregroundStyle(.secondary)
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else if !isDeleting {
+            dismiss()
         }
-        .padding(.horizontal, Space.xxl)
+    }
+
+    private var header: some View {
+        SheetTitle(name: "Old sessions", icon: "clock.arrow.circlepath", count: awakeRows.count) {
+            WhyButton(label: "Why these are here", isOpen: $showsWhy) {
+                Text("These have gone quiet for more than \(counted(days, "day")). Ticked sessions are removed from the app. Change the \(counted(days, "day")) in Settings.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
         .headerBand()
+    }
+
+    // The threshold, then how much of the list is chosen and how much is set aside.
+    private var readings: some View {
+        HStack(spacing: Space.md) {
+            StatusCaps(text: "OLDER THAN \(counted(days, "day"))".uppercased())
+            StatusRule()
+            StatusValue(text: "\(tickedRows.count) ticked")
+                .contentTransition(.numericText(value: Double(tickedRows.count)))
+            if snoozedProjects > 0 {
+                StatusDot()
+                StatusValue(text: "\(counted(snoozedProjects, "project")) snoozed")
+                    .contentTransition(.numericText(value: Double(snoozedProjects)))
+            }
+            Spacer(minLength: 0)
+        }
+        .motion(Motion.pop, value: tickedRows.count)
+        .motion(Motion.reveal, value: snoozedProjects)
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
     }
 
     // MARK: - Groups

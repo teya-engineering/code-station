@@ -58,6 +58,7 @@ struct NewSessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            readings
             // The middle scrolls so the sheet can be squeezed into a short window. A
             // sheet that asks for more height than the window has is not shrunk but
             // clipped, and since it is clipped from the middle out, the footer and its
@@ -85,8 +86,7 @@ struct NewSessionView: View {
                         .font(Typography.detail)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, Space.xxl)
-                .padding(.bottom, Space.xxl)
+                .padding(Space.pane)
             }
             .frame(maxHeight: 470)
 
@@ -122,19 +122,22 @@ struct NewSessionView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            Text("New session in \(project.name)")
-                .font(Typography.display)
-                .lineLimit(2)
-            Text(project.isGitRepository
-                 ? "\(project.name) is a git repository, so this session can have a checkout of its own."
-                 : "This folder is not a git repository, so the session works in it directly.")
-                .font(Typography.body)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        SheetTitle("New session", icon: "plus.bubble")
+            .padding(.horizontal, Space.pane)
+            .headerBand()
+    }
+
+    // Where the session goes, and whether it can have a checkout of its own.
+    private var readings: some View {
+        HStack(spacing: Space.md) {
+            StatusCaps(text: "IN")
+            StatusValue(text: project.name, tint: Theme.projectTint(for: project.name).ink)
+            StatusRule()
+            StatusCaps(text: project.isGitRepository ? "GIT REPOSITORY" : "NOT A GIT REPOSITORY")
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Space.xxl)
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
     }
 
     private var footerNote: String {
