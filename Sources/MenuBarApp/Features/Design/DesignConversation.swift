@@ -250,12 +250,15 @@ struct DesignConversation: View {
         .opacity(conversationMinimized ? 0 : 1)
         .allowsHitTesting(!conversationMinimized)
         .accessibilityHidden(conversationMinimized)
+        // The tab is laid over the framed panel, not the hidden panel inside it. The hidden
+        // composer can be wider than the tab, and an overlay on it would be centred on that
+        // wider box, pushing the bot past the tab's leading edge.
+        .frame(width: panelSize.width, height: panelSize.height)
         .overlay {
             if conversationMinimized {
                 minimizedConversation(session, needsYou: needsYou)
             }
         }
-        .frame(width: panelSize.width, height: panelSize.height)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: 17))
         .overlay {
@@ -355,15 +358,16 @@ struct DesignConversation: View {
         let tone = conversationTone(needsYou: needsYou)
         let personality = AgentAvatarSelection.avatar(named: session.agentAvatarName,
                                                       from: appSettings.agentAvatars).personality
+        let botSize: CGFloat = 30
         return Button {
             conversationMinimized = false
         } label: {
             HStack(spacing: Space.lg) {
-                conversationBot(session, needsYou: needsYou, size: 30)
+                conversationBot(session, needsYou: needsYou, size: botSize)
                 MinimizedConversationLine(tone: tone, personality: personality,
                                           waitingSince: runner.waitingSince(sessionID)) { lineWidth in
                     // The tab hugs its line: the bot, the gap and the padding around them.
-                    minimizedWidth = 14 + 30 + 11 + lineWidth + 18
+                    minimizedWidth = Space.lg + botSize + Space.lg + lineWidth + Space.xl
                 }
             }
             .padding(.leading, Space.lg)
