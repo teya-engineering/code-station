@@ -32,34 +32,25 @@ struct NewTaskView: View {
     @State private var when: When = .manual
     @State private var timeText = "09:00"
     @State private var repeatRule: Repeat = .weekdays
+    @State private var showsWhy = false
     @FocusState private var nameFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text("New task")
-                        .font(Typography.display)
-                    Text("A prompt you can run again and again. Each run starts a fresh session in the task's own folder.")
-                        .font(Typography.body)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            header
+                .zIndex(1)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    nameField
+                    promptBox
+                        .padding(.top, Space.lg)
+                    whenSection
+                        .padding(.top, Space.xl)
                 }
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        nameField
-                            .padding(.top, Space.xl)
-                        promptBox
-                            .padding(.top, Space.lg)
-                        whenSection
-                            .padding(.top, Space.xl)
-                    }
-                }
-                .frame(maxHeight: 470)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Space.pane)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Space.xxl)
+            .frame(maxHeight: 510)
 
             SheetFooter(title: "More schedule options, inputs and run choices are on the task page.",
                         primary: SheetAction(title: "Create and run", icon: "play.fill",
@@ -69,12 +60,34 @@ struct NewTaskView: View {
                         secondary: SheetAction(title: "Create", enabled: canCreate) {
                             create(runNow: false)
                         },
-                        dismiss: { dismiss() })
+                        dismiss: closeOrDismiss)
         }
         .frame(width: 560)
         .background(Theme.background)
         .smoothlyResizes(when: when == .schedule)
         .task { nameFocused = true }
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
+    }
+
+    private var header: some View {
+        SheetTitle(name: "New task", icon: "checklist") {
+            WhyButton(label: "What a task is", isOpen: $showsWhy) {
+                Text("A prompt you can run again and again. Each run starts a fresh session in the task's own folder.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
     }
 
     private var nameField: some View {

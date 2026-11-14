@@ -44,6 +44,12 @@ struct PushReviewView: View {
 
     private var remoteName: String { remote.prefix + remote.name }
 
+    // The mark says what pressing the main button will do: send up, bring down first, or
+    // overwrite something on origin.
+    private var warns: Bool { model.phase == .failed || replaces }
+    private var markIcon: String { warns ? "exclamationmark.triangle" : model.behind > 0 ? "arrow.down" : "arrow.up" }
+    private var markTint: Color { warns ? Theme.warningText : Theme.accent }
+
     private var actionTitle: String {
         switch model.phase {
         case .pulling: "Pulling…"
@@ -58,31 +64,25 @@ struct PushReviewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: Space.lg) {
-                Image(systemName: model.phase == .failed || replaces ? "exclamationmark.triangle"
-                      : model.behind > 0 ? "arrow.down" : "arrow.up")
-                    .font(Typography.body.weight(.semibold))
-                    .foregroundStyle(model.phase == .failed || replaces ? Theme.warningText : Theme.accent)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.card))
-                    .padding(.top, Space.xxs)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: Space.md) {
-                    HStack(spacing: Space.sm) {
-                        ProjectTileView(name: repository, tint: Theme.projectTint(for: repository), side: 18)
-                            .accessibilityHidden(true)
-                        Text(repository).font(Typography.caption.weight(.semibold))
-                            .foregroundStyle(Theme.secondaryText).lineLimit(1)
-                    }
-                    Text(title).font(Typography.display).accessibilityAddTraits(.isHeader)
-                    route
-                }.frame(maxWidth: .infinity, alignment: .leading)
+            SheetTitle(name: "Push to origin", icon: markIcon, tint: markTint) {
                 GlyphButton(icon: "xmark") { dialogs.dismiss() }
                     .disabled(model.isWorking).focused($focus, equals: "close")
                     .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(focus == "close" ? Theme.accent : .clear, lineWidth: 2))
                     .accessibilityLabel("Close push review")
-            }.padding(.top, Space.xl).padding(.leading, Space.xxl).padding(.trailing, Space.xl).padding(.bottom, Space.xl)
-            Divider().overlay(Theme.border)
+            }
+            .motion(Motion.control, value: markIcon)
+            .padding(.horizontal, Space.pane)
+            .headerBand()
+            HStack(spacing: Space.md) {
+                ProjectTileView(name: repository, tint: Theme.projectTint(for: repository), side: 16)
+                    .accessibilityHidden(true)
+                StatusValue(text: repository)
+                    .fixedSize()
+                StatusRule()
+                route
+                Spacer(minLength: 0)
+            }
+            .statusBand(padding: Space.pane)
             HuggingHeight {
                 ScrollView { reviewBody }.scrollBounceBehavior(.basedOnSize)
             }
@@ -138,7 +138,7 @@ struct PushReviewView: View {
                     .font(Typography.detail).foregroundStyle(Theme.warningText)
                     .padding(Space.lg).background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: Radius.control))
             }
-        }.padding(.top, Space.lg).padding(.horizontal, Space.xxl).padding(.bottom, Space.xl)
+        }.padding(.top, Space.lg).padding(.horizontal, Space.pane).padding(.bottom, Space.xl)
     }
 
     // Always one line. When both names do not fit, each chip gives up room and cuts its
@@ -161,6 +161,7 @@ struct PushReviewView: View {
             PushReviewSkeleton().transition(.opacity)
         case .failed:
             VStack(alignment: .leading, spacing: Space.md) {
+                Text(model.errorTitle).font(Typography.body.weight(.semibold))
                 Text(model.error).font(Typography.data).textSelection(.enabled)
                     .accessibilityFocused($errorFocused)
                 Text("Your commits are safe on this computer. Check the error, then try again.")

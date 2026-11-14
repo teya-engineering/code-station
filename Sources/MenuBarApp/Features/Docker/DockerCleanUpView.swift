@@ -45,7 +45,6 @@ struct DockerCleanUpView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Theme.border)
             HuggingHeight {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -57,7 +56,7 @@ struct DockerCleanUpView: View {
                         if run.phase == .choosing { notes }
                         if !run.failures.isEmpty { failures }
                     }
-                    .padding(Space.xxl)
+                    .padding(Space.pane)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
@@ -73,29 +72,23 @@ struct DockerCleanUpView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: Space.lg) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 36, height: 36)
-                .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.card))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text("Clean up Docker").font(Typography.display).accessibilityAddTraits(.isHeader)
-                Text("Pick what to remove. Anything a running container uses is left alone.")
-                    .font(Typography.body)
-                    .foregroundStyle(Theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: 0) {
+            SheetTitle(name: "Clean up Docker", icon: "sparkles", tint: Theme.deletion) {
+                GlyphButton(icon: "xmark") {
+                    dialogs.dismiss()
+                    if run.phase == .done { finished(run.freed) }
+                }
+                    .disabled(run.isWorking)
+                    .accessibilityLabel("Close clean up")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            GlyphButton(icon: "xmark") {
-                dialogs.dismiss()
-                if run.phase == .done { finished(run.freed) }
+            .padding(.horizontal, Space.pane)
+            .headerBand()
+            HStack(spacing: Space.md) {
+                StatusCaps(text: "RUNNING CONTAINERS ARE LEFT ALONE")
+                Spacer(minLength: 0)
             }
-                .disabled(run.isWorking)
-                .accessibilityLabel("Close clean up")
+            .statusBand(padding: Space.pane)
         }
-        .padding(.top, Space.xl).padding(.leading, Space.xxl).padding(.trailing, Space.xl).padding(.bottom, Space.xl)
     }
 
     private func choiceRow(_ choice: DockerCleanUp.Choice) -> some View {

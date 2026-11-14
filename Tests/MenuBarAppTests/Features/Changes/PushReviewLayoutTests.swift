@@ -125,7 +125,7 @@ struct PushReviewLayoutTests {
 
         for (upstream, preview) in [("origin/main", GitPushPreview.commits(Array(commits.prefix(5)))),
                                     (nil, .commits(Array(commits.prefix(3)))),
-                                    ("origin/main", .behindUpstream(incoming: Array(commits.prefix(2)),
+                                    ("origin/main", .behindUpstream(incoming: Array(commits.prefix(5)),
                                                                     outgoing: Array(commits.prefix(5)))),
                                     (nil, .nameOnOrigin(outgoing: Array(commits.prefix(2)),
                                                         unrelated: Array(commits.prefix(3)), tip: "0ld71p"))] {

@@ -9,6 +9,7 @@ struct ShortcutsView: View {
     @State private var query = ""
     @State private var saveStatus = ""
     @State private var kind: ShortcutKind?
+    @State private var showsWhy = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var filterTrack
 
@@ -34,6 +35,7 @@ struct ShortcutsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)
             if let error = store.loadError ?? store.saveError {
                 WarningStrip(error, icon: "externaldrive.badge.exclamationmark")
             }
@@ -61,15 +63,25 @@ struct ShortcutsView: View {
 
     // The footer is the only way out, so the header carries no close button.
     private var header: some View {
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            Text("Shortcuts").font(Typography.title)
-            Text("Commands and prompts you can use in every project.")
-                .font(Typography.detail)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        SheetTitle(name: "Shortcuts", icon: "command", count: store.libraryShortcuts().count) {
+            WhyButton(label: "What shortcuts are", isOpen: $showsWhy) {
+                Text("Commands and prompts you can use in every project.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(.horizontal, Space.xxl)
+        .padding(.horizontal, Space.pane)
         .headerBand()
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            guardChanges { dismiss() }
+        }
     }
 
     private var library: some View {
@@ -194,7 +206,7 @@ struct ShortcutsView: View {
                                          enabled: draft.canSave && !store.isRunningAnywhere(draft.value.id),
                                          shortcut: KeyboardShortcut("s"), hint: "⌘S",
                                          action: { _ = save() }),
-                    dismiss: { guardChanges { dismiss() } }) {
+                    dismiss: closeOrDismiss) {
             ZStack(alignment: .leading) {
                 if draft.isDirty {
                     HStack(spacing: Space.sm) {

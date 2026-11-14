@@ -23,6 +23,7 @@ struct CleanupCountdownView: View {
     @State private var answered: Set<OldSessionSweep.Parked.Item> = []
     @State private var kept = 0
     @State private var isDeleting = false
+    @State private var showsWhy = false
     @State private var note: String?
     @State private var notes = 0
 
@@ -35,6 +36,8 @@ struct CleanupCountdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)
+            readings
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.xl) {
                     if items.isEmpty {
@@ -52,26 +55,20 @@ struct CleanupCountdownView: View {
                             }
                         }
                     }
-                    if !status.parked.isEmpty {
-                        CleanupCrossLink(icon: "exclamationmark.circle",
-                                         tint: Theme.attentionText,
-                                         text: Self.waitingLink(status.parked.count),
-                                         action: "Review",
-                                         go: showWaiting)
-                    }
                 }
-                .padding(Space.xxl)
+                .padding(Space.pane)
                 .motion(Motion.leave, value: answered)
             }
             .frame(minHeight: 220, maxHeight: 480)
 
-            SheetFooter(title: "Kept sessions are asked about again in a week.",
-                        secondary: SheetAction(title: deleteLabel,
+            SheetFooter(secondary: SheetAction(title: deleteLabel,
                                                enabled: !items.isEmpty && !isDeleting,
                                                tone: .dangerOutlined,
                                                action: confirmDelete),
                         dismissTitle: "Done",
-                        dismiss: { if !isDeleting { dismiss() } })
+                        dismiss: closeOrDismiss) {
+                waitingLink
+            }
         }
         .frame(width: 660)
         .background(Theme.background)
@@ -88,36 +85,78 @@ struct CleanupCountdownView: View {
         }
     }
 
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else if !isDeleting {
+            dismiss()
+        }
+    }
+
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: Space.xl) {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(items.isEmpty ? "Nothing will be deleted" : "\(items.count) will be deleted")
-                    .font(Typography.title)
-                    .contentTransition(.numericText(value: Double(items.count)))
-                    .motion(Motion.pop, value: items.count)
-                Text("These are older than \(counted(appSettings.oldSessionDays, "day")), you have read them, and nothing on disk would be lost. Keep any you still want and it is left out of this sweep.")
+        SheetTitle(name: "Deleted at the countdown", icon: "timer", count: items.count) {
+            WhyButton(label: "Why these go", isOpen: $showsWhy) {
+                Text("These are older than \(counted(appSettings.oldSessionDays, "day")), you have read them, and nothing on disk would be lost, so they go without asking. Keep any you still want and it is left out of this sweep. Kept sessions are asked about again in a week.")
                     .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if let deadline = status.deletion?.at {
-                VStack(alignment: .trailing, spacing: Space.xxs) {
-                    CleanupCountdownLabel(deadline: deadline, size: 15)
-                    Text("left before they go")
-                        .font(Typography.caption)
-                        .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
+    }
+
+    // Why these qualify, then how long is left before they go.
+    private var readings: some View {
+        HStack(spacing: Space.md) {
+            if items.isEmpty {
+                StatusCaps(text: "NOTHING IN THIS COUNTDOWN")
+            } else {
+                StatusCaps(text: "OLDER THAN \(counted(appSettings.oldSessionDays, "day"))".uppercased())
+                StatusRule()
+                StatusCaps(text: "READ")
+                StatusDot()
+                StatusCaps(text: "NOTHING ON DISK LOST")
+            }
+            Spacer(minLength: Space.md)
+            if let deadline = status.deletion?.at, !items.isEmpty {
+                HStack(spacing: Space.sm) {
+                    StatusCaps(text: "GOES IN")
+                    CleanupCountdownLabel(deadline: deadline, size: Typography.Size.caption)
                 }
-                .opacity(items.isEmpty ? 0 : 1)
-                .motion(Motion.leave, value: items.isEmpty)
-                .accessibilityHidden(items.isEmpty)
+                .transition(.fadeIn)
             }
         }
-        .padding(.horizontal, Space.xxl)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .headerBand()
+        .motion(Motion.leave, value: items.isEmpty)
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
+    }
+
+    // "1 other waits for your OK"
+    nonisolated static func waitingLink(_ count: Int) -> String {
+        "\(counted(count, "other")) \(count == 1 ? "waits" : "wait") for your OK"
+    }
+
+    @ViewBuilder
+    private var waitingLink: some View {
+        if !status.parked.isEmpty {
+            HStack(spacing: Space.sm) {
+                Image(systemName: "hourglass")
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.attentionText)
+                Text(Self.waitingLink(status.parked.count))
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .contentTransition(.numericText())
+                InlineLink(title: "Review", action: showWaiting)
+            }
+            .accessibilityElement(children: .contain)
+            .transition(.fadeIn)
+        }
     }
 
     private var emptyState: some View {
@@ -127,7 +166,7 @@ struct CleanupCountdownView: View {
                 .font(.system(size: 20))
                 .foregroundStyle(Theme.dotOnText)
             Text(kept > 0 && kept == answered.count ? "You kept them all" : "Nothing left in this countdown")
-                .font(Typography.body.weight(.semibold))
+                .font(Typography.title)
             Text(kept > 0
                  ? "Nothing goes at the end of this countdown. Kept sessions come back on \(day) if they are still old by then."
                  : "Read sessions older than \(counted(appSettings.oldSessionDays, "day")) with nothing to lose show up here an hour before they go.")
@@ -139,12 +178,6 @@ struct CleanupCountdownView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, Space.xxxl)
         .transition(.fadeIn)
-    }
-
-    // "1 other session is old too, but it is not in this sweep. It waits for your OK."
-    nonisolated static func waitingLink(_ count: Int) -> String {
-        let one = count == 1
-        return "\(counted(count, "other session")) \(one ? "is" : "are") old too, but \(one ? "it is" : "they are") not in this sweep. \(one ? "It waits" : "They wait") for your OK."
     }
 
     // MARK: - Rows
@@ -313,36 +346,5 @@ private struct GoingRow: View {
         .padding(.vertical, Space.md)
         .surface(Theme.sunken, cornerRadius: Radius.card, border: Theme.settingsBorder)
         .accessibilityElement(children: .contain)
-    }
-}
-
-// The line at the foot of each cleanup list that names the other list and swaps to it,
-// so the two stay one click apart.
-struct CleanupCrossLink: View {
-    let icon: String
-    let tint: Color
-    let text: String
-    let action: String
-    let go: () -> Void
-
-    var body: some View {
-        HStack(spacing: Space.md) {
-            Image(systemName: icon)
-                .font(Typography.body)
-                .foregroundStyle(tint)
-            Text(text)
-                .font(Typography.detail)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .contentTransition(.numericText())
-                .frame(maxWidth: .infinity, alignment: .leading)
-            InlineLink(title: action, size: Typography.Size.detail, action: go)
-        }
-        .padding(.horizontal, Space.lg)
-        .padding(.vertical, Space.md)
-        .surface(Theme.field, cornerRadius: Radius.card)
-        .padding(.top, Space.xs)
-        .accessibilityElement(children: .contain)
-        .transition(.fadeIn)
     }
 }
