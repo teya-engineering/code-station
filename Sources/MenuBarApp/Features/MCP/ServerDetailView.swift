@@ -22,7 +22,7 @@ struct ServerDetailView: View {
             VStack(spacing: 0) {
                 header(server)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 28) {
+                    VStack(alignment: .leading, spacing: Space.xxxl) {
                         credentialSection(server)
                         registeredSection(server)
                         connectionSection(server)
@@ -30,7 +30,7 @@ struct ServerDetailView: View {
                         Divider().overlay(Theme.hairline)
                         footer(server)
                     }
-                    .padding(28)
+                    .padding(Space.xxxl)
                     .frame(maxWidth: 820, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -44,22 +44,22 @@ struct ServerDetailView: View {
 
     private func header(_ server: Server) -> some View {
         let state = processes.state(serverID)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
+        return VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.lg) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(server.name)
-                        .font(.serif(24, .semibold))
+                        .font(Typography.display)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    HStack(spacing: 8) {
+                    HStack(spacing: Space.md) {
                         Text(server.transport)
-                            .font(.mono(12))
+                            .font(Typography.code)
                             .foregroundStyle(.secondary)
                         Text("·")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.tertiary)
                         Text(server.description)
-                            .font(.system(size: 12.5))
+                            .font(Typography.body)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                         environmentPill(server)
@@ -71,7 +71,7 @@ struct ServerDetailView: View {
                 if !server.isRemote {
                     StatePill(state: state)
                     ActionButton(title: state.isActive ? "Stop" : "Start",
-                                 tone: state.isActive ? .danger : .green, size: 13,
+                                 tone: state.isActive ? .danger : .green, size: Typography.Size.body,
                                  icon: state.isActive ? "stop.fill" : "play.fill") {
                         processes.toggle(server)
                     }
@@ -86,13 +86,13 @@ struct ServerDetailView: View {
             }
             if case let .failed(message) = state {
                 Text(message)
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
                     .foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Space.xxxl)
+        .padding(.vertical, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card)
         .overlay(alignment: .bottom) {
@@ -105,15 +105,15 @@ struct ServerDetailView: View {
     // the page since the header does not scroll away.
     private func environmentPill(_ server: Server) -> some View {
         let title = ServerEnvironmentChoice.title(for: server.environmentTag)
-        return HStack(spacing: 4) {
-            Text(title).font(.mono(11))
+        return HStack(spacing: Space.xs) {
+            Text(title).font(Typography.data)
             Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
         }
         .foregroundStyle(.secondary)
         .fixedSize()
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Color.black.opacity(0.05)))
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.xxs)
+        .background(Capsule().fill(Theme.field))
         .contentShape(Capsule())
         .appMenu {
             ServerEnvironmentChoice.menu(selected: server.environmentTag) { tag in
@@ -132,7 +132,7 @@ struct ServerDetailView: View {
     @ViewBuilder private func credentialSection(_ server: Server) -> some View {
         let secrets = secrets(server)
         if !secrets.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 SectionLabel(secrets.count == 1 ? "CREDENTIAL" : "CREDENTIALS")
                 ForEach(secrets) { secret in
                     // Headers on a remote server are read-only here, like the rest of
@@ -156,20 +156,20 @@ struct ServerDetailView: View {
     // MARK: - Registered with
 
     private func registeredSection(_ server: Server) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             HStack {
                 SectionLabel("REGISTERED WITH")
                 Spacer()
                 if [claudeNeedsSync(server), codexNeedsSync(server), copilotNeedsSync(server)]
                     .filter({ $0 }).count > 1 {
-                    InlineLink(title: "Sync all", size: 13) {
+                    InlineLink(title: "Sync all", size: Typography.Size.body) {
                         syncAll(server)
                     }
                 }
             }
             // Stacked rather than side by side: three cards in a row leave each too
             // narrow for its buttons, which then push the whole sheet wider than it is.
-            VStack(spacing: 10) {
+            VStack(spacing: Space.md) {
                 AgentCard(standing: claudeStanding(server))
                 AgentCard(standing: codexStanding(server))
                 AgentCard(standing: copilotStanding(server))
@@ -278,26 +278,26 @@ struct ServerDetailView: View {
 
     private func connectionSection(_ server: Server) -> some View {
         let plain = (server.isRemote ? server.headers : server.env).filter { !$0.isSecret }
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: Space.lg) {
             HStack {
                 SectionLabel("CONNECTION")
                 Spacer()
                 if !server.isRemote {
-                    InlineLink(title: editingConnection ? "Done" : "Edit", size: 13) {
+                    InlineLink(title: editingConnection ? "Done" : "Edit", size: Typography.Size.body) {
                         editingConnection.toggle()
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 connectionRow(server.isRemote ? "URL" : "COMMAND") {
                     if let command = server.command {
-                        HStack(spacing: 6) {
-                            MonoChip(text: command, size: 13, bordered: true)
-                            ForEach(server.args, id: \.self) { MonoChip(text: $0, size: 13, bordered: true) }
+                        HStack(spacing: Space.sm) {
+                            MonoChip(text: command, size: Typography.Size.body, bordered: true)
+                            ForEach(server.args, id: \.self) { MonoChip(text: $0, size: Typography.Size.body, bordered: true) }
                         }
                     } else if let url = server.url {
                         Text(url)
-                            .font(.mono(13))
+                            .font(Font.mono(Typography.Size.body))
                             .textSelection(.enabled)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -309,7 +309,7 @@ struct ServerDetailView: View {
                     } else {
                         connectionRow(variable.key.isEmpty ? "KEY" : variable.key) {
                             Text(variable.value)
-                                .font(.mono(13))
+                                .font(Font.mono(Typography.Size.body))
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                                 .lineLimit(1)
@@ -320,52 +320,52 @@ struct ServerDetailView: View {
                 if let endpoint = processes.endpoint(for: serverID) {
                     connectionRow("SERVING AT") {
                         Text(endpoint)
-                            .font(.mono(13))
+                            .font(Font.mono(Typography.Size.body))
                             .foregroundStyle(Theme.accent)
                             .textSelection(.enabled)
                     }
                 }
                 if editingConnection && !server.isRemote {
-                    InlineLink(title: "+ Add variable", size: 12.5) {
+                    InlineLink(title: "+ Add variable", size: Typography.Size.body) {
                         store.addBlankVar(to: serverID)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Space.xl)
+                    .padding(.vertical, Space.md)
                 }
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .cardSurface(cornerRadius: 12)
+            .cardSurface(cornerRadius: Radius.floating)
         }
     }
 
     private func connectionRow(_ label: String,
                                @ViewBuilder content: () -> some View) -> some View {
         LabeledRow(label, width: 180, content: content)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Space.xl)
+            .padding(.vertical, Space.md)
     }
 
     private func editableVarRow(_ variable: EnvVar) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xl) {
             TextField("KEY", text: store.keyBinding(variable.id, in: serverID))
                 .textFieldStyle(.plain)
-                .font(.mono(11, .semibold))
+                .font(Typography.data.weight(.semibold))
                 .frame(width: 180, alignment: .leading)
             TextField("value", text: store.valueBinding(variable.id, in: serverID))
                 .textFieldStyle(.plain)
-                .font(.mono(13))
+                .font(Font.mono(Typography.Size.body))
             Button {
                 store.removeVar(variable.id, from: serverID)
             } label: {
-                Image(systemName: "trash").font(.system(size: 12))
+                Image(systemName: "trash").font(Typography.detail)
             }
             .buttonStyle(.plain)
             .hoverLift(amount: Motion.smallLift)
             .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.md)
     }
 
     // MARK: - Output
@@ -373,22 +373,22 @@ struct ServerDetailView: View {
     @ViewBuilder private var outputSection: some View {
         let log = processes.logs[serverID] ?? ""
         if !log.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 HStack {
                     SectionLabel("OUTPUT")
                     Spacer()
-                    InlineLink(title: "Clear", size: 13) { processes.clearLog(serverID) }
+                    InlineLink(title: "Clear", size: Typography.Size.body) { processes.clearLog(serverID) }
                 }
                 ScrollView {
                     Text(log)
-                        .font(.mono(11))
-                        .foregroundStyle(Color(white: 0.85))
+                        .font(Typography.data)
+                        .foregroundStyle(Theme.terminalText)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
+                        .padding(Space.lg)
                 }
                 .frame(height: 160)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.12)))
+                .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.terminal))
             }
         }
     }
@@ -403,15 +403,15 @@ struct ServerDetailView: View {
     }
 
     private func footer(_ server: Server) -> some View {
-        HStack(spacing: 20) {
-            InlineLink(title: "View raw JSON", size: 13) { showingRawJSON = true }
-            InlineLink(title: "Delete server", size: 13, tint: .red.opacity(0.85)) {
+        HStack(spacing: Space.xxl) {
+            InlineLink(title: "View raw JSON", size: Typography.Size.body) { showingRawJSON = true }
+            InlineLink(title: "Delete server", size: Typography.Size.body, tint: .red.opacity(0.85)) {
                 confirmDelete(server)
             }
             Spacer()
             if let modified = store.lastModified {
                 Text("Last modified \(modified.formatted(.relative(presentation: .named)))")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
             }
         }
     }
@@ -429,63 +429,63 @@ private struct CredentialCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 if editable {
                     TextField("KEY", text: $key)
                         .textFieldStyle(.plain)
-                        .font(.mono(13.5, .semibold))
+                        .font(Font.mono(Typography.Size.body, .semibold))
                         .fixedSize()
                 } else {
-                    Text(key).font(.mono(13.5, .semibold))
+                    Text(key).font(Font.mono(Typography.Size.body, .semibold))
                 }
-                MonoChip(text: "SECRET", size: 10, tint: Theme.secret, mono: false)
+                MonoChip(text: "SECRET", size: Typography.Size.micro, tint: Theme.secret, mono: false)
                 Spacer(minLength: 16)
                 if let onDelete {
                     Button(action: onDelete) {
-                        Image(systemName: "trash").font(.system(size: 12))
+                        Image(systemName: "trash").font(Typography.detail)
                     }
                     .buttonStyle(.plain)
                     .hoverLift(amount: Motion.smallLift)
                     .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Space.xl)
+            .padding(.vertical, Space.lg)
 
             Divider().overlay(Theme.hairline)
 
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 if revealed {
                     if editable {
                         TextField("value", text: $value)
                             .textFieldStyle(.plain)
-                            .font(.mono(13))
+                            .font(Font.mono(Typography.Size.body))
                     } else {
                         Text(value)
-                            .font(.mono(13))
+                            .font(Font.mono(Typography.Size.body))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
                     }
-                    InlineLink(title: "Hide", size: 12.5) { revealed = false }
+                    InlineLink(title: "Hide", size: Typography.Size.body) { revealed = false }
                 } else {
                     Text(String(repeating: "•", count: 18))
-                        .font(.mono(13))
+                        .font(Font.mono(Typography.Size.body))
                         .foregroundStyle(.secondary)
-                    InlineLink(title: "Reveal", size: 12.5) { revealed = true }
+                    InlineLink(title: "Reveal", size: Typography.Size.body) { revealed = true }
                 }
                 Spacer(minLength: 16)
                 Text("Stored in the config file - treat it like a password.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Space.xl)
+            .padding(.vertical, Space.lg)
         }
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(Theme.secret.opacity(0.4), lineWidth: 1.2))
     }
 }
@@ -582,29 +582,29 @@ private struct AgentCard: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: Space.xl) {
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack(spacing: Space.md) {
                     if let reachStatus {
                         AgentStatusDot(status: reachStatus)
                     } else {
                         Circle().fill(dot).frame(width: 8, height: 8)
                     }
-                    Text(standing.title).font(.system(size: 14, weight: .semibold))
+                    Text(standing.title).font(Typography.body.weight(.semibold))
                     Text(reachStatus?.word ?? stateText)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                         .foregroundStyle(reachStatus?.tint ?? stateTint)
                     if standing.busy { LoopSpinner(size: 14) }
                 }
 
                 Text(caption)
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 ForEach(notes) { note in
                     Text(note.text)
-                        .font(note.mono ? .mono(11) : .system(size: 11.5))
+                        .font(note.mono ? Typography.data : Typography.detail)
                         .foregroundStyle(note.tint ?? Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -612,28 +612,28 @@ private struct AgentCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if tone != .unsupported {
-                HStack(spacing: 10) {
+                HStack(spacing: Space.md) {
                     reachAction
                     if let command = standing.command() {
-                        CopyButton("Copy", size: 12.5) { command }
+                        CopyButton("Copy", size: Typography.Size.body) { command }
                             .appTooltip("Copy the \(standing.title) command for this server")
                     }
                     if tone == .outOfSync {
-                        ActionButton(title: "Update", tone: .attention, height: 28, size: 12,
+                        ActionButton(title: "Update", tone: .attention, height: ControlHeight.md, size: Typography.Size.detail,
                                      action: standing.update)
                     }
                     ActionButton(title: standing.registered ? "Remove" : "Add",
                                  tone: standing.registered ? .danger : .green,
-                                 height: 28, size: 12, action: standing.toggle)
+                                 height: ControlHeight.md, size: Typography.Size.detail, action: standing.toggle)
                 }
                 .fixedSize()
                 .disabled(!enabled)
                 .opacity(enabled ? 1 : 0.4)
             }
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 12)
+        .cardSurface(cornerRadius: Radius.floating)
     }
 
     @ViewBuilder private var reachAction: some View {
@@ -641,10 +641,10 @@ private struct AgentCard: View {
         case .working(.signingIn):
             InlineLink(title: "Cancel", action: standing.cancelSignIn)
         case .needsSignIn where standing.reach?.offersSignIn == true:
-            ActionButton(title: "Sign in", tone: .green, height: 28, size: 12,
+            ActionButton(title: "Sign in", tone: .green, height: ControlHeight.md, size: Typography.Size.detail,
                          action: standing.signIn)
         case .cantConnect:
-            ActionButton(title: "Check again", tone: .outlined, height: 28, size: 12,
+            ActionButton(title: "Check again", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
                          action: standing.checkAgain)
         default:
             EmptyView()
@@ -699,13 +699,13 @@ private struct StatePill: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(label)
-                .font(.system(size: 13, weight: .medium))
+                .font(Typography.body.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(Capsule().fill(Color.black.opacity(0.04)))
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
+        .background(Capsule().fill(Theme.sunken))
     }
 }

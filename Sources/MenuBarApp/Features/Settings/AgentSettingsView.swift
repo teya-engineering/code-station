@@ -340,7 +340,7 @@ struct AgentSettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: Space.xxl) {
             defaultAgent.id(SettingsSearchTarget.agentDefault.id)
             agentTabs.id(SettingsSearchTarget.agentConfigure.id)
             agentSection(for: selectedAgent)
@@ -369,12 +369,12 @@ struct AgentSettingsView: View {
     private var defaultAgent: some View {
         ChoiceBlock("AGENT") {
             SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .top, spacing: Space.lg) {
+                    VStack(alignment: .leading, spacing: Space.xxs) {
                         Text("Default agent")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Typography.body.weight(.semibold))
                         Text("New sessions use this agent unless you choose a different one when creating them.")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -390,8 +390,8 @@ struct AgentSettingsView: View {
                     }
                     .fixedSize(horizontal: true, vertical: false)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -399,7 +399,7 @@ struct AgentSettingsView: View {
     private var agentTabs: some View {
         ChoiceBlock("CONFIGURE", note: "Choose which agent's account and settings to view. This does not change the default agent.") {
             SettingsCard {
-                HStack(spacing: 4) {
+                HStack(spacing: Space.xs) {
                     ForEach(AgentKind.allCases) { kind in
                         ChoicePill(title: kind.title, selected: selectedAgent == kind) {
                             selectedAgent = kind
@@ -407,8 +407,8 @@ struct AgentSettingsView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -516,14 +516,14 @@ struct AgentSettingsView: View {
 
     private func agentSection(for agent: AgentKind) -> some View {
         let profile = profile(for: agent)
-        return VStack(alignment: .leading, spacing: 20) {
+        return VStack(alignment: .leading, spacing: Space.xxl) {
             ChoiceBlock(profile.heading) {
                 SettingsCard {
                     statusRow(installed: profile.path != nil,
                               signedIn: profile.signedIn,
                               refresh: profile.refresh)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.vertical, Space.lg)
                     SettingsRowDivider()
                     if profile.path == nil {
                         missingCard(agent)
@@ -558,8 +558,8 @@ struct AgentSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .warningCard()
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.bottom, Space.md)
             }
             SettingsRowDivider()
             detailRow("Account", profile.account ?? "Signed out.")
@@ -601,7 +601,7 @@ struct AgentSettingsView: View {
     private func effort(for agent: AgentKind) -> some View {
         ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time. Default uses \(agent.title)'s own effort settings for the selected model.") {
             SettingsCard {
-                HStack(spacing: 4) {
+                HStack(spacing: Space.xs) {
                     ForEach(runner.effortOptions(for: agent, model: defaults.model),
                             id: \.title) { choice in
                         ChoicePill(
@@ -613,8 +613,8 @@ struct AgentSettingsView: View {
                         .frame(maxWidth: .infinity)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -690,8 +690,8 @@ struct AgentSettingsView: View {
                     detail: "The dollar figure on the session bar, and the Spent line in the hints.",
                     isOn: Binding(get: { appSettings.showsCost(for: agent) },
                                   set: { appSettings.setShowsCost($0, for: agent) }))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
         }
     }
@@ -715,10 +715,10 @@ struct AgentSettingsView: View {
                     }
                     if let checkedAt = profile.usageCheckedAt {
                         Text("Updated \(checkedAt.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                            .padding(.horizontal, Space.lg)
+                            .padding(.vertical, Space.md)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
@@ -728,42 +728,42 @@ struct AgentSettingsView: View {
 
     private func usageMessage(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func usageRow(_ window: AccountUsageWindow) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.lg) {
                 Text(window.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Spacer(minLength: 0)
                 Text("\(window.usedPercent)% used")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
                     .foregroundStyle(.secondary)
             }
             Meter(fraction: window.usedFraction, colour: window.colour, height: 5)
             if let resetsAt = window.resetsAt {
                 Text("Resets \(resetsAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func statusRow(installed: Bool, signedIn: Bool, refresh: @escaping () -> Void) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Circle()
                 .fill(!installed ? Theme.dotOff : !signedIn ? Theme.attention : Theme.dotOn)
                 .frame(width: 7, height: 7)
             Text(!installed ? "Not installed" : !signedIn ? "Not signed in" : "Connected")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Spacer(minLength: 0)
             InlineLink(title: "Refresh", action: refresh)
         }
@@ -771,18 +771,18 @@ struct AgentSettingsView: View {
 
     private func missingCard(_ agent: AgentKind) -> some View {
         Text("Could not find the \"\(agent.command)\" command. Install \(agent.title) (\(agent.installHint)) and it will show up here; nothing in the app can run a session on it without that.")
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func signInRow(_ agent: AgentKind) -> some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: Space.lg) {
             Text("Sessions run whichever \"\(agent.command)\" is first on PATH. Signing in or out happens in the CLI itself; the button opens it right here, and Refresh picks the change up.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -790,36 +790,36 @@ struct AgentSettingsView: View {
                 loggingIn = agent
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
     }
 
     private func detailRow(_ label: String, _ value: String, mono: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.lg) {
             Text(label)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .frame(width: 92, alignment: .leading)
             Text(value)
-                .font(mono ? .mono(12) : .system(size: 13))
+                .font(mono ? Typography.code : Typography.body)
                 .textSelection(.enabled)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
     }
 
     private func files(title: String, note: String, path: String) -> some View {
         ChoiceBlock("FILES") {
             SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .top, spacing: Space.lg) {
+                    VStack(alignment: .leading, spacing: Space.xxs) {
                         Text(title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Typography.body.weight(.semibold))
                         Text(note)
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -829,8 +829,8 @@ struct AgentSettingsView: View {
                         settingsNote("Revealed \(title) in Finder", "folder")
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -850,13 +850,13 @@ struct AgentCommandSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.serif(16))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(title).font(Typography.title)
                 Text(note)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Space.xxl)
             .headerBand()
             if let terminal {
                 TerminalScreen(terminal: terminal, isFocused: $focused)

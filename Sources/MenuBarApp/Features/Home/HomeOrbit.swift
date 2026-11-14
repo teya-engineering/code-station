@@ -587,7 +587,7 @@ private struct OrbitTileName: View {
 
     var body: some View {
         Text(name)
-            .font(.system(size: 11.5, weight: .semibold))
+            .font(Typography.label)
             .multilineTextAlignment(.center)
             .lineLimit(lines)
             .frame(width: width, height: CGFloat(lines) * Self.lineHeight, alignment: .top)
@@ -606,10 +606,10 @@ private struct OrbitMoreChip: View {
         let name = more.group.identity.containerName
         Button(action: action) {
             Text("+\(more.count) more in \(name)")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(Typography.detail.weight(.medium))
                 .foregroundStyle(hovering ? .primary : .secondary)
                 .lineLimit(1)
-                .padding(.horizontal, 13)
+                .padding(.horizontal, Space.lg)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .cardSurface(cornerRadius: OrbitLayout.pillHeight / 2)
                 .contentShape(Capsule())
@@ -816,18 +816,18 @@ struct OrbitHub: View {
                             style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
                     .frame(width: radius * 2, height: radius * 2)
             }
-            VStack(spacing: 2) {
+            VStack(spacing: Space.xxs) {
                 Text("\(map.inProgressCount)")
                     .font(.serif(numberSize, .medium))
                     .monospacedDigit()
                     .foregroundStyle(Theme.accent)
                 if side >= 120 {
                     Text(caption)
-                        .font(.system(size: 10.5))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                 }
                 if side >= 100 {
-                    chip.padding(.top, 3)
+                    chip.padding(.top, Space.xxs)
                 }
             }
             .frame(width: core, height: core)
@@ -855,14 +855,14 @@ struct OrbitHub: View {
     @ViewBuilder private var chip: some View {
         if map.waiting.isEmpty {
             Text(chipText)
-                .font(.system(size: 10))
+                .font(Font.system(size: Typography.Size.micro))
                 .foregroundStyle(.secondary)
         } else {
             Text(chipText)
-                .font(.system(size: 10, weight: .semibold))
+                .font(Typography.micro)
                 .foregroundStyle(Theme.attentionText)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
+                .padding(.horizontal, Space.sm)
+                .padding(.vertical, Space.xxs)
                 .background(Capsule().fill(Theme.attention.opacity(0.16)))
         }
     }
@@ -989,18 +989,18 @@ private struct OrbitSessionPill: View {
         let needs = live.needsAttention
         let shape = RoundedRectangle(cornerRadius: Self.cornerRadius)
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.md) {
                     MapLight(tone: live.tone)
                     Text(live.session.title)
-                        .font(.system(size: 12, weight: needs ? .semibold : .medium))
+                        .font(Typography.detail.weight(needs ? .semibold : .medium))
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if onPhone {
                         OnPhoneTag().transition(.opacity)
                     } else {
                         Text(live.session.agent.title)
-                            .font(.mono(10.5))
+                            .font(Typography.data)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .fixedSize()
@@ -1008,13 +1008,13 @@ private struct OrbitSessionPill: View {
                 }
                 if needs {
                     request
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(Theme.attentionText)
                         .lineLimit(1)
-                        .padding(.leading, 16)
+                        .padding(.leading, Space.xl)
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Space.lg)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 shape.fill(Theme.card)
@@ -1060,15 +1060,15 @@ private struct OrbitSessionPill: View {
                     Text(permission.title)
                 } else {
                     Text("\(permission.title) ")
-                        + Text(subject).font(.mono(10.5)).foregroundStyle(Color.primary)
+                        + Text(subject).font(Typography.data).foregroundStyle(Color.primary)
                 }
             }
         } else if live.finished {
             let summary = live.session.summary
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Text("Ready to review")
                 if summary.added > 0 || summary.removed > 0 {
-                    DiffPair(added: summary.added, removed: summary.removed, size: 10.5, spacing: 4)
+                    DiffPair(added: summary.added, removed: summary.removed, size: Typography.Size.caption, spacing: Space.xs)
                 }
             }
         } else {
@@ -1089,14 +1089,14 @@ private struct OrbitSessionPill: View {
 // Takes the place of the agent's name on a session a phone has open.
 private struct OnPhoneTag: View {
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             Image(systemName: "iphone")
                 .font(.system(size: 9, weight: .semibold))
             Text("On phone")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
         }
         .foregroundStyle(Theme.addition)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, Space.sm)
         .frame(height: 18)
         .background(Capsule().fill(PhoneLink.connected.fill ?? .clear))
         .fixedSize()

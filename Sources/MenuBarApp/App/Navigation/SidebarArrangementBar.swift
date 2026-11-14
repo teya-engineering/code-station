@@ -5,7 +5,7 @@ struct SidebarArrangementBar: View {
     @Binding var grouping: ProjectGrouping
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             SidebarArrangementLabel(title: sort.label, icon: sort.icon)
                 .appMenu(showsFocusRing: true) {
                     [ProjectSort.lastUsed, .name].map { option in
@@ -33,7 +33,7 @@ struct SidebarArrangementBar: View {
         }
         .frame(height: 43)
         .overlay(alignment: .bottom) { Theme.hairline.frame(height: 1) }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Space.lg)
     }
 }
 
@@ -45,20 +45,20 @@ private struct SidebarArrangementLabel: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             Image(systemName: icon)
-                .font(.system(size: 12))
+                .font(Typography.detail)
             Text(title)
-                .font(.system(size: 10, weight: .medium))
+                .font(Font.system(size: Typography.Size.micro, weight: .medium))
                 .lineLimit(1)
             MenuChevron(size: 8)
         }
         .foregroundStyle(isOpen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
-        .padding(.horizontal, 3)
-        .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 6)
+        .padding(.horizontal, Space.xxs)
+        .padding(.vertical, Space.sm)
+        .background(RoundedRectangle(cornerRadius: Radius.inset)
             .fill(isOpen || hovering ? Theme.field : .clear))
-        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.inset))
         .motion(Motion.hover, value: hovering)
         .hoverLift(hovering)
         .onPointerHover { hovering = $0 }

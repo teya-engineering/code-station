@@ -53,7 +53,7 @@ struct ExplorerHeaderTests {
             let compact = viewport.width < 530
             let inset: CGFloat = compact ? 16 : 20
             let padding: CGFloat = compact ? 5 : 4
-            let toolbarHeight: CGFloat = compact ? 65 : 36
+            let toolbarHeight: CGFloat = compact ? 64 : 36
             let breadcrumbs = try #require(views(in: hosting.view).compactMap { $0 as? NSScrollView }
                 .map { $0.convert($0.bounds, to: hosting.view) }
                 .filter { $0.minX == viewport.minX && $0.width == viewport.width && $0.maxY < viewport.minY }

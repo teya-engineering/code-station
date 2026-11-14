@@ -24,15 +24,15 @@ struct DisclosureHeader<Label: View>: View {
 
     var body: some View {
         Button { isExpanded.toggle() } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     .frame(width: 10)
                 label
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 3)
+            .padding(.horizontal, Space.xs)
+            .padding(.vertical, Space.xxs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -40,7 +40,7 @@ struct DisclosureHeader<Label: View>: View {
         // and a row that swells pushes against the lines around it. The wash gets a
         // little room past the text, then the row gives that room back so it lines up
         // with its neighbours as before.
-        .hoverFill(cornerRadius: 6)
+        .hoverFill(cornerRadius: Radius.inset)
         .padding(.horizontal, -5)
         .padding(.vertical, -3)
         .motion(Motion.control, value: isExpanded)
@@ -68,9 +68,9 @@ struct LabeledRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xl) {
             Text(label)
-                .font(.mono(11, .semibold))
+                .font(Typography.data.weight(.semibold))
                 .kerning(0.5)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -96,12 +96,12 @@ struct LabeledField<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             SectionLabel(label, style: .field)
             content
             if let note {
                 Text(note)
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -176,7 +176,7 @@ struct HomeWorkMapView: View {
 
     var body: some View {
         let layout = map.layout(width: width)
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             heading
             // Only the work or the window's width changes the layout, never a click, so a
             // new layout takes its place without any motion.
@@ -195,7 +195,7 @@ struct HomeWorkMapView: View {
             }
             .id(layout)
         }
-        .padding(20)
+        .padding(Space.xxl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             Canvas { context, size in
@@ -208,29 +208,29 @@ struct HomeWorkMapView: View {
             }
             .accessibilityHidden(true)
         }
-        .cardSurface(cornerRadius: 16)
+        .cardSurface(cornerRadius: Radius.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Work map")
     }
 
     private var heading: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.lg) {
             Spacer(minLength: 12)
             if map.active.isEmpty {
                 Text("Nothing running")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             } else {
                 let needs = map.waiting.count
                 if needs > 0 {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         MapLight(tone: .needsYou)
                         Text("\(needs) need\(needs == 1 ? "s" : "") you")
                     }
                 }
                 let waits = map.backgroundWaitCount
                 if waits > 0 {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         MapLight(tone: .waiting)
                         Text("\(waits) waiting")
                     }
@@ -238,7 +238,7 @@ struct HomeWorkMapView: View {
                 Text("\(counted(map.active.count, "session")) across \(map.containerSummary)")
             }
         }
-        .font(.system(size: 12))
+        .font(Typography.detail)
         .foregroundStyle(.secondary)
         .lineLimit(1)
     }
@@ -249,7 +249,7 @@ struct HomeWorkMapView: View {
 
     private var quiet: some View {
         let scale = Self.quietScale
-        return VStack(spacing: 12) {
+        return VStack(spacing: Space.lg) {
             ZStack {
                 Circle()
                     .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
@@ -263,22 +263,22 @@ struct HomeWorkMapView: View {
                     .stroke(Theme.border, style: StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
                     .frame(width: 2 * OrbitLayout.projectRingRadius * scale,
                            height: 2 * OrbitLayout.projectRingRadius * scale)
-                VStack(spacing: 2) {
+                VStack(spacing: Space.xxs) {
                     Text("0")
                         .font(.serif(36, .medium))
                         .foregroundStyle(.tertiary)
                     Text("working")
-                        .font(.system(size: 10.5))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .frame(width: OrbitLayout.hubSide * scale, height: OrbitLayout.hubSide * scale)
             .accessibilityHidden(true)
 
-            VStack(spacing: 4) {
-                Text("Room for your next idea").font(.serif(15, .semibold))
+            VStack(spacing: Space.xs) {
+                Text("Room for your next idea").font(Typography.title)
                 Text("Nothing is running.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -305,10 +305,10 @@ private struct HomeBoard: View {
         // Listed here and again in their project's card, so each card's count stays true.
         let needsYou = groups.flatMap(\.sessions).filter(\.needsAttention)
         let columns = map.boardColumns(width: width)
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             band
             if !needsYou.isEmpty {
-                VStack(spacing: 6) {
+                VStack(spacing: Space.sm) {
                     ForEach(needsYou) { live in
                         HomeMapActionRow(live: live, hasChanges: hasChanges(live), showsProject: true,
                                          open: { open(live, $0) }, answer: { answer(live, $0) })
@@ -328,12 +328,12 @@ private struct HomeBoard: View {
     }
 
     private var band: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: Space.xl) {
             OrbitHub(map: map, side: 64, ringWidth: 5, numberSize: 22)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text("\(counted(map.inProgressCount, "session")) in progress")
-                    .font(.serif(18, .semibold))
-                HStack(spacing: 14) {
+                    .font(Typography.title)
+                HStack(spacing: Space.lg) {
                     let needs = map.waiting.count
                     if needs > 0 {
                         Label { Text("\(needs) need\(needs == 1 ? "s" : "") you") } icon: {
@@ -346,7 +346,7 @@ private struct HomeBoard: View {
                     }
                 }
                 .labelStyle(BandTallyStyle())
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
             }
         }
@@ -358,19 +358,19 @@ private struct HomeBoard: View {
         let shown = group.sessions.prefix(HomeWorkMap.boardShownPerProject)
         let hidden = group.sessions.count - shown.count
         return VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 SidebarIdentityTile(avatar: identity.avatar, name: identity.containerName,
                                     tint: identity.tint,
                                     stacked: identity.session.workspaceID != nil, side: 22)
                     .accessibilityHidden(true)
                 Text(identity.containerName)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(Typography.label)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text("\(group.sessions.count)").font(.mono(10)).foregroundStyle(.secondary)
+                Text("\(group.sessions.count)").font(Font.mono(Typography.Size.micro)).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.md)
             Rectangle().fill(Theme.hairline).frame(height: 1)
             ForEach(shown) { live in
                 BoardSessionItem(live: live) {
@@ -381,8 +381,8 @@ private struct HomeBoard: View {
                 BoardMoreItem(count: hidden, name: identity.containerName) { reveal(group) }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .cardSurface(cornerRadius: 12)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .cardSurface(cornerRadius: Radius.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(identity.containerName)
     }
@@ -390,7 +390,7 @@ private struct HomeBoard: View {
 
 private struct BandTallyStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             configuration.icon
             configuration.title
         }
@@ -403,17 +403,17 @@ private struct BoardSessionItem: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 MapLight(tone: live.tone)
                 Text(live.session.title)
-                    .font(.system(size: 11.5, weight: live.needsAttention ? .semibold : .regular))
+                    .font(Typography.detail.weight(live.needsAttention ? .semibold : .regular))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(RelativeTime.short(live.session.lastActivity))
-                    .font(.mono(10))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 11)
+            .padding(.horizontal, Space.lg)
             .frame(height: 30)
             .contentShape(Rectangle())
         }
@@ -434,9 +434,9 @@ private struct BoardMoreItem: View {
     var body: some View {
         Button(action: action) {
             Text("+\(count) more")
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(hovering ? .primary : .secondary)
-                .padding(.horizontal, 11)
+                .padding(.horizontal, Space.lg)
                 .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
                 .contentShape(Rectangle())
         }
@@ -504,41 +504,41 @@ struct HomeMapActionRow: View {
 
     var body: some View {
         let needs = live.needsAttention
-        let shape = RoundedRectangle(cornerRadius: 12)
-        HStack(spacing: 12) {
+        let shape = RoundedRectangle(cornerRadius: Radius.floating)
+        HStack(spacing: Space.lg) {
             if showsProject {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     SidebarIdentityTile(avatar: live.avatar, name: live.containerName, tint: live.tint,
                                         stacked: live.session.workspaceID != nil, side: 18)
                         .accessibilityHidden(true)
                     Text(live.containerName)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(Typography.label)
                         .lineLimit(1)
                 }
                 .frame(width: 150, alignment: .leading)
             }
             MapLight(tone: live.tone)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(live.session.title)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                 if let request {
                     request
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(needs ? Theme.attentionText : .secondary)
                         .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(showsProject ? age : "\(live.session.agent.title) · \(age)")
-                .font(.mono(10.5))
+                .font(Typography.data)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .fixedSize()
             actions
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 10)
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             shape.fill(Theme.card)
@@ -562,27 +562,27 @@ struct HomeMapActionRow: View {
         let subject = permission.subject.components(separatedBy: .newlines).first ?? ""
         guard !permission.subjectIsMarkdown, !subject.isEmpty else { return Text(permission.title) }
         return Text("\(permission.title) ")
-            + Text(subject).font(.mono(11)).foregroundStyle(Color.primary)
+            + Text(subject).font(Typography.data).foregroundStyle(Color.primary)
     }
 
     @ViewBuilder private var actions: some View {
         let quick = live.quickAnswers
         let primary = live.primaryAction(hasChanges: hasChanges)
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if !quick.isEmpty {
                 if !showsProject {
-                    ActionButton(title: "Open session", tone: .outlined, height: 26, size: 12) {
+                    ActionButton(title: "Open session", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) {
                         open(live.destination)
                     }
                 }
                 ForEach(quick.indices, id: \.self) { index in
                     ActionButton(title: quick[index].title, tone: index == 0 ? .green : .outlined,
-                                 height: 26, size: 12) { answer(quick[index].answer) }
+                                 height: ControlHeight.sm, size: Typography.Size.detail) { answer(quick[index].answer) }
                 }
             } else {
                 let title = showsProject && live.permission?.isQuestion == true ? "Answer" : primary.title
                 ActionButton(title: title, tone: live.needsAttention ? .green : .outlined,
-                             height: 26, size: 12) { open(primary.destination) }
+                             height: ControlHeight.sm, size: Typography.Size.detail) { open(primary.destination) }
             }
         }
     }

@@ -10,34 +10,34 @@ struct RemoteCommitList: View {
     var body: some View {
         if commits.isEmpty {
             Text(emptyMessage)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(Theme.secondaryText)
         } else {
             HuggingHeight(limit: 222) {
                 ScrollView { rows }.scrollBounceBehavior(.basedOnSize)
             }
             .background(incoming ? Theme.sunken : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.settingsBorder))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(Theme.settingsBorder))
         }
     }
 
     private var rows: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(commits.enumerated()), id: \.element.id) { index, commit in
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.lg) {
                     Text(commit.shortID)
-                        .font(.mono(11, .medium))
+                        .font(Typography.data.weight(.medium))
                         .foregroundStyle(Theme.secondaryText)
                         .textSelection(.enabled)
                     Text(commit.subject)
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(alignment: .top) {
                     if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }

@@ -35,8 +35,8 @@ enum ButtonTone {
 struct ActionButton: View {
     let title: String
     var tone: ButtonTone = .dark
-    var height: CGFloat = 32
-    var size: CGFloat = 12.5
+    var height: CGFloat = ControlHeight.lg
+    var size: CGFloat = Typography.Size.detail
     var icon: String? = nil
     var trailingIcon: String? = nil
     // The key that does the same thing, drawn as a cap on the button that names it. Only
@@ -71,7 +71,7 @@ struct ActionButton: View {
     private var lit: Bool { hovering && isEnabled }
 
     private var shape: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: size - 1, weight: .semibold))
@@ -91,9 +91,9 @@ struct ActionButton: View {
                 Text(shortcut)
                     .font(.system(size: size - 1.5, weight: .semibold))
                     .fixedSize()
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Space.xs)
                     .padding(.vertical, 1.5)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(label.opacity(0.32)))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.tag).stroke(label.opacity(0.32)))
                     .opacity(0.75)
             }
             if disclosure {
@@ -111,7 +111,7 @@ struct ActionButton: View {
 
     private var label: Color {
         switch tone {
-        case .dark, .green, .danger, .attention: Color.white
+        case .dark, .green, .danger, .attention: Theme.onFill
         // The card colour keeps the words clear on the blue in both appearances, since the
         // blue itself lightens in dark mode.
         case .plan: Theme.card
@@ -150,7 +150,7 @@ struct ActionButton: View {
 // the one link a section header or a footer strip carries.
 struct InlineLink: View {
     let title: String
-    var size: CGFloat = 12
+    var size: CGFloat = Typography.Size.detail
     var tint: Color = Theme.accent
     var icon: String? = nil
     let action: () -> Void
@@ -159,7 +159,7 @@ struct InlineLink: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 if let icon { Image(systemName: icon).font(.system(size: size - 1.5)) }
                 Text(title).font(.system(size: size, weight: .semibold))
             }
@@ -179,7 +179,7 @@ struct InlineLink: View {
 // this is the only icon-only button the layouts use.
 struct GlyphButton: View {
     let icon: String
-    var side: CGFloat = 30
+    var side: CGFloat = ControlHeight.md
     // A toggle that is on wears the accent fill, the way a pressed tool does.
     var active = false
     var tint: Color? = nil
@@ -254,7 +254,7 @@ struct OptionMenu: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             if let caption {
                 SectionLabel(caption, style: .field)
             }
@@ -274,15 +274,15 @@ private struct OptionMenuPill: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Text(value)
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
             Spacer()
             MenuChevron()
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .surface(open || hovering ? Theme.field : Theme.card, cornerRadius: 9,
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .surface(open || hovering ? Theme.field : Theme.card, cornerRadius: Radius.card,
                  border: open ? Theme.accent.opacity(0.5) : Theme.border)
         .contentShape(Rectangle())
         .hoverLift(hovering)
@@ -308,11 +308,11 @@ struct GlyphLink: View {
             actOuts += 1
             action()
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .actOut(icon, trigger: actOuts)
-                Text(title).font(.system(size: 12.5, weight: .semibold))
+                Text(title).font(Typography.body.weight(.semibold))
             }
             .foregroundStyle(tint)
             .opacity(hovering ? 0.75 : 1)
@@ -341,18 +341,18 @@ struct NewItemButton: View {
             actOuts += 1
             action()
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .actOut("plus", trigger: actOuts)
-                Text(title).font(.system(size: 12.5, weight: .semibold))
+                Text(title).font(Typography.body.weight(.semibold))
             }
             .foregroundStyle(filled ? Color.white : Color.primary)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
             .frame(maxWidth: filled ? nil : .infinity)
-            .frame(height: 32)
-            .surface(fill, cornerRadius: 8, border: filled ? .clear : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .frame(height: ControlHeight.lg)
+            .surface(fill, cornerRadius: Radius.control, border: filled ? .clear : Theme.border)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .hoverLift(hovering)

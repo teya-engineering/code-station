@@ -7,14 +7,14 @@ struct EditorSaveError: View {
     let retry: () -> Void
     let export: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Label("Could not save. Your edits are still here.", systemImage: "exclamationmark.triangle")
-            Text(message).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+            Text(message).font(Typography.caption).fixedSize(horizontal: false, vertical: true)
             HStack {
                 InlineLink(title: "Retry", action: retry)
                 InlineLink(title: "Export a copy", action: export)
             }
-        }.font(.system(size: 12)).foregroundStyle(Theme.deletion).padding(14)
+        }.font(Typography.detail).foregroundStyle(Theme.deletion).padding(Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading).background(Theme.deletion.opacity(0.06))
     }
 }

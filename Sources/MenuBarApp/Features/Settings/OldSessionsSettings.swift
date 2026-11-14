@@ -14,14 +14,14 @@ struct OldSessionsSettings: View {
         @Bindable var settings = settings
         return ChoiceBlock("OLD SESSIONS") {
             SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: Space.lg) {
                     copy(title: "Count a session as old after",
                          detail: "Counted from its last turn. Pinned, open and running sessions never count.")
                     Spacer(minLength: 0)
                     DayField(days: $settings.oldSessionDays)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
 
                 SettingsRowDivider()
 
@@ -29,8 +29,8 @@ struct OldSessionsSettings: View {
                     "Delete old sessions on their own",
                     detail: "Old sessions go after a one-hour countdown in the sidebar, unless the list below asks first. Turn this off to only ever delete from the review screen.",
                     isOn: $settings.oldSessionsDeleteOnTheirOwn)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
 
                 SettingsRowDivider()
 
@@ -45,10 +45,10 @@ struct OldSessionsSettings: View {
     }
 
     private var askList: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             copy(title: "Ask me first when a session has",
                  detail: "These are never deleted on their own. Once old, they wait in the sidebar until you say yes.")
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 ForEach(CleanupReason.allCases) { reason in
                     AskReasonRow(reason: reason,
                                  isOn: Binding(
@@ -57,8 +57,8 @@ struct OldSessionsSettings: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -80,8 +80,8 @@ struct OldSessionsSettings: View {
                     .disabled(nothingOld)
                     .opacity(nothingOld ? 0.4 : 1)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.md)
         }
     }
 
@@ -96,11 +96,11 @@ struct OldSessionsSettings: View {
     }
 
     private func copy(title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text(detail)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -116,17 +116,17 @@ private struct AskReasonRow: View {
         Toggle(isOn: $isOn) { label }
             .toggleStyle(.appCheckbox)
             .accessibilityLabel(reason.title)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
+        .padding(.horizontal, Space.sm)
+        .padding(.vertical, Space.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var label: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(reason.title)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text(reason.detail)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -141,12 +141,12 @@ struct CleanupReasonChip: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .foregroundStyle(foreground)
             .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(background, in: RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.xxs)
+            .background(background, in: RoundedRectangle(cornerRadius: Radius.inset))
             .fixedSize()
     }
 

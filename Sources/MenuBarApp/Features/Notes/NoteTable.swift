@@ -461,8 +461,8 @@ struct NoteTableControlsView: View {
         }
         .frame(width: model.width, height: model.height, alignment: .topLeading)
         .motion(Motion.hover, value: marked)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.accent.opacity(0.45)))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Theme.accent.opacity(0.45)))
         .allowsHitTesting(false)
     }
 
@@ -488,7 +488,7 @@ struct NoteTableControlsView: View {
         return Button { model.apply(edit) } label: {
             Image(systemName: "plus")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.onFill)
                 .frame(width: frame.width, height: frame.height)
                 .background(Circle().fill(Theme.accent))
                 .contentShape(Circle())
@@ -536,14 +536,14 @@ private struct NoteTableGrip: View {
 
     var body: some View {
         let lit = hovered || open
-        let dots = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        let dots = vertical ? AnyLayout(VStackLayout(spacing: Space.xxs)) : AnyLayout(HStackLayout(spacing: Space.xxs))
         dots {
             ForEach(0..<3, id: \.self) { _ in Circle().frame(width: 2.5, height: 2.5) }
         }
-        .foregroundStyle(lit ? Color.white : Color.secondary)
+        .foregroundStyle(lit ? Theme.onFill : Color.secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 4).fill(lit ? Theme.accent : Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(lit ? Theme.accent : Theme.border))
+        .background(RoundedRectangle(cornerRadius: Radius.tag).fill(lit ? Theme.accent : Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.tag).strokeBorder(lit ? Theme.accent : Theme.border))
         .contentShape(Rectangle())
         .hoverLift(lit, amount: Motion.smallLift)
         .motion(Motion.hover, value: lit)

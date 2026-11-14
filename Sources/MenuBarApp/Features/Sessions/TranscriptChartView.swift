@@ -21,17 +21,17 @@ struct TranscriptChartView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if spec.title != nil || spec.caption != nil {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     if let title = spec.title {
                         Text(title)
-                            .scaledText(12.5, .semibold)
+                            .scaledText(Typography.Size.body, .semibold)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let caption = spec.caption {
                         Text(caption)
-                            .scaledText(11)
+                            .scaledText(Typography.Size.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -56,10 +56,10 @@ struct TranscriptChartView: View {
             footer
         }
         .smoothlyResizes(when: showsSummary)
-        .padding(14)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border))
     }
 
     // MARK: - Lines and areas
@@ -95,9 +95,9 @@ struct TranscriptChartView: View {
                               y: .value(spec.unit ?? "value", last.y))
                         .symbolSize(64)
                         .foregroundStyle(TranscriptChartPalette.colour(index))
-                        .annotation(position: .trailing, spacing: 6) {
+                        .annotation(position: .trailing, spacing: Space.sm) {
                             Text(series.label)
-                                .scaledText(10, .medium)
+                                .scaledText(Typography.Size.micro, .medium)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -109,14 +109,14 @@ struct TranscriptChartView: View {
                     RuleMark(y: .value("", rule.value))
                         .foregroundStyle(Theme.attentionText)
                         .lineStyle(StrokeStyle(lineWidth: 1))
-                        .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                        .annotation(position: .top, alignment: .trailing, spacing: Space.xxs) {
                             ruleLabel(rule)
                         }
                 } else {
                     RuleMark(x: .value("", rule.value))
                         .foregroundStyle(Theme.attentionText)
                         .lineStyle(StrokeStyle(lineWidth: 1))
-                        .annotation(position: .top, alignment: .leading, spacing: 2) {
+                        .annotation(position: .top, alignment: .leading, spacing: Space.xxs) {
                             ruleLabel(rule)
                         }
                 }
@@ -138,7 +138,7 @@ struct TranscriptChartView: View {
                 AxisValueLabel {
                     if let raw = value.as(Double.self) {
                         Text(TranscriptChartFormat.axis(raw, isTime: spec.isTime))
-                            .scaledText(10)
+                            .scaledText(Typography.Size.micro)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -151,7 +151,7 @@ struct TranscriptChartView: View {
                 AxisValueLabel {
                     if let raw = value.as(Double.self) {
                         Text(TranscriptChartFormat.compact(raw))
-                            .scaledText(10)
+                            .scaledText(Typography.Size.micro)
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
@@ -208,7 +208,7 @@ struct TranscriptChartView: View {
 
     private func ruleLabel(_ rule: TranscriptChartSpec.Rule) -> some View {
         Text(rule.label ?? TranscriptChartFormat.compact(rule.value))
-            .scaledText(10, .medium)
+            .scaledText(Typography.Size.micro, .medium)
             .foregroundStyle(Theme.attentionText)
             .lineLimit(1)
     }
@@ -268,11 +268,11 @@ struct TranscriptChartView: View {
                             height: .fixed(spec.series.count > 1 ? 14 : 22))
                         .foregroundStyle(TranscriptChartPalette.colour(index))
                         .position(by: .value("series", series.label))
-                        .cornerRadius(4)
-                        .annotation(position: .trailing, spacing: 6) {
+                        .cornerRadius(Radius.tag)
+                        .annotation(position: .trailing, spacing: Space.sm) {
                             if spec.series.count == 1 {
                                 Text(TranscriptChartFormat.value(point.y, unit: spec.unit))
-                                    .scaledText(10, .medium)
+                                    .scaledText(Typography.Size.micro, .medium)
                                     .monospacedDigit()
                                     .foregroundStyle(.secondary)
                             }
@@ -284,7 +284,7 @@ struct TranscriptChartView: View {
                 RuleMark(x: .value("", rule.value))
                     .foregroundStyle(Theme.attentionText)
                     .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                    .annotation(position: .top, alignment: .trailing, spacing: Space.xxs) {
                         ruleLabel(rule)
                     }
             }
@@ -297,7 +297,7 @@ struct TranscriptChartView: View {
                 AxisValueLabel {
                     if let raw = value.as(Double.self) {
                         Text(TranscriptChartFormat.compact(raw))
-                            .scaledText(10)
+                            .scaledText(Typography.Size.micro)
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
@@ -306,10 +306,10 @@ struct TranscriptChartView: View {
         }
         .chartYAxis {
             AxisMarks(preset: .aligned, position: .leading) { value in
-                AxisValueLabel(horizontalSpacing: 8) {
+                AxisValueLabel(horizontalSpacing: Space.md) {
                     if let name = value.as(String.self) {
                         Text(name)
-                            .scaledText(10)
+                            .scaledText(Typography.Size.micro)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -330,17 +330,17 @@ struct TranscriptChartView: View {
 
     @ViewBuilder private var footer: some View {
         let omitted = spec.omittedSeriesCount
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             if omitted > 0 {
                 Text("\(counted(omitted, "more series")) not shown.")
-                    .scaledText(10.5)
+                    .scaledText(Typography.Size.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             if spec.kind != .stat {
                 Button { showsSummary.toggle() } label: {
                     Text(showsSummary ? "Hide values" : "Values")
-                        .scaledText(10.5, .medium)
+                        .scaledText(Typography.Size.caption, .medium)
                         .foregroundStyle(Theme.accent)
                         .contentTransition(.opacity)
                         .contentShape(Rectangle())
@@ -373,9 +373,9 @@ struct TranscriptChartLegend: View {
     let spec: TranscriptChartSpec
 
     var body: some View {
-        FlowRow(spacing: 12) {
+        FlowRow(spacing: Space.lg) {
             ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     if spec.kind == .line {
                         Capsule()
                             .fill(TranscriptChartPalette.colour(index))
@@ -386,7 +386,7 @@ struct TranscriptChartLegend: View {
                             .frame(width: 9, height: 9)
                     }
                     Text(series.label)
-                        .scaledText(10.5)
+                        .scaledText(Typography.Size.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -469,31 +469,31 @@ struct TranscriptChartReadout: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text(TranscriptChartFormat.axis(x, isTime: spec.isTime, long: true))
-                .scaledText(10)
+                .scaledText(Typography.Size.micro)
                 .foregroundStyle(.secondary)
             ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
                 if let point = nearest(in: series) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         Capsule()
                             .fill(TranscriptChartPalette.colour(index))
                             .frame(width: 10, height: 2)
                         Text(TranscriptChartFormat.value(point.y, unit: spec.unit))
-                            .scaledText(11, .semibold)
+                            .scaledText(Typography.Size.caption, .semibold)
                             .monospacedDigit()
                         Text(series.label)
-                            .scaledText(10)
+                            .scaledText(Typography.Size.micro)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                 }
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.background))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.border))
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.sm)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.background))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
     }
 
     private func nearest(in series: TranscriptChartSpec.Series) -> TranscriptChartSpec.Point? {
@@ -514,33 +514,33 @@ struct TranscriptChartSummary: View {
         VStack(spacing: 0) {
             ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
                 if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }
-                HStack(spacing: 10) {
+                HStack(spacing: Space.md) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(TranscriptChartPalette.colour(index))
                         .frame(width: 7, height: 7)
                     Text(series.label)
-                        .scaledText(10.5)
+                        .scaledText(Typography.Size.caption)
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     ForEach(columns(of: series), id: \.name) { column in
                         VStack(alignment: .trailing, spacing: 1) {
                             Text(column.name)
-                                .scaledText(9)
+                                .scaledText(Typography.Size.micro)
                                 .foregroundStyle(.tertiary)
                             Text(column.value)
-                                .scaledText(10.5, .medium)
+                                .scaledText(Typography.Size.caption, .medium)
                                 .monospacedDigit()
                         }
                         .frame(minWidth: 52, alignment: .trailing)
                     }
                 }
-                .padding(.vertical, 7)
-                .padding(.horizontal, 10)
+                .padding(.vertical, Space.sm)
+                .padding(.horizontal, Space.md)
             }
         }
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.sunken))
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.sunken))
     }
 
     private func columns(of series: TranscriptChartSpec.Series) -> [(name: String, value: String)] {
@@ -560,20 +560,20 @@ struct TranscriptStatTile: View {
     let spec: TranscriptChartSpec
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: Space.xl) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(TranscriptChartFormat.value(spec.value ?? 0, unit: spec.unit))
                     .scaledText(30, .semibold)
                 if let delta = spec.delta {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xs) {
                         Image(systemName: delta.value >= 0 ? "arrow.up.right" : "arrow.down.right")
                             .font(.system(size: 9, weight: .bold))
                         Text(TranscriptChartFormat.value(abs(delta.value), unit: spec.unit))
-                            .scaledText(11, .semibold)
+                            .scaledText(Typography.Size.caption, .semibold)
                             .monospacedDigit()
                         if let label = delta.label {
                             Text(label)
-                                .scaledText(10.5)
+                                .scaledText(Typography.Size.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }

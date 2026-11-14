@@ -35,7 +35,7 @@ struct LogView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: "folder", text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, 20)
+                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -57,30 +57,30 @@ struct LogView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Session log").font(.serif(16))
+        HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("Session log").font(Typography.title)
                 Text("Every line Claude Code sent, and what the app did with it. The newest is at the bottom.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             Toggle("Follow", isOn: $follow)
                 .toggleStyle(.appSwitch)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .appTooltip("Stay at the newest line as it is written")
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
     @ViewBuilder private var content: some View {
         if lines.isEmpty {
-            VStack(spacing: 6) {
+            VStack(spacing: Space.sm) {
                 Text("Nothing logged yet")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text("The log fills up as soon as a session runs.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -96,8 +96,8 @@ struct LogView: View {
                         // edge; this is what the view is actually pinned to.
                         Color.clear.frame(height: 1).id(Self.bottom)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, Space.xl)
+                    .padding(.vertical, Space.lg)
                     .textSelection(.enabled)
                 }
                 .onChange(of: lines.count) { _, _ in
@@ -168,17 +168,17 @@ private struct LogRow: View {
     let line: LogLine
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             Text(line.time)
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(.tertiary)
                 .frame(width: 78, alignment: .leading)
             Text(line.session)
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(Theme.monogram(for: line.session))
                 .frame(width: 62, alignment: .leading)
             Text(line.message)
-                .font(.mono(11.5))
+                .font(Typography.code)
                 .foregroundStyle(tint)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)

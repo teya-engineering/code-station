@@ -4,7 +4,7 @@ import SwiftUI
 // read their widths from here, so the two can never drift apart.
 enum DockerColumns {
     static let check: CGFloat = 30
-    static let inset: CGFloat = 14
+    static let inset: CGFloat = Space.lg
 
     static func widths(_ kind: DockerKind) -> [CGFloat] {
         switch kind {
@@ -86,7 +86,7 @@ struct DockerTableRow<Main: View, Cells: View, Actions: View>: View {
                     .accessibilityAddTraits(selected ? .isSelected : [])
                 } else {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(.tertiary)
                         .frame(width: 26, height: 26)
                         .appTooltip("Built in to Docker")
@@ -97,7 +97,7 @@ struct DockerTableRow<Main: View, Cells: View, Actions: View>: View {
 
             main
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 12)
+                .padding(.trailing, Space.lg)
             cells
             actions
                 .frame(width: DockerColumns.widths(kind).last ?? 64, alignment: .trailing)
@@ -148,10 +148,10 @@ struct DockerNameCell<Badges: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            HStack(spacing: Space.sm) {
                 Text(title)
-                    .font(.system(size: 12.5, weight: untagged ? .regular : .semibold))
+                    .font(Typography.body.weight(untagged ? .regular : .semibold))
                     .italic(untagged)
                     .foregroundStyle(untagged ? Theme.secondaryText : .primary)
                     .lineLimit(1)
@@ -159,17 +159,17 @@ struct DockerNameCell<Badges: View>: View {
                     .appTooltip(fullName ?? title)
                 if let tag {
                     Text(tag)
-                        .font(.mono(10.5, .medium))
+                        .font(Typography.data.weight(.medium))
                         .foregroundStyle(Theme.secondaryText)
                         .lineLimit(1)
-                        .padding(.horizontal, 5)
+                        .padding(.horizontal, Space.xs)
                         .padding(.vertical, 1.5)
-                        .background(Theme.field, in: RoundedRectangle(cornerRadius: 4))
+                        .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.tag))
                 }
                 badges
             }
             Text(subtitle)
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -190,7 +190,7 @@ struct DockerStatusCell: View {
     let working: DockerVerb?
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             if let working {
                 LoopSpinner()
                 Text(working.progress)
@@ -230,7 +230,7 @@ struct DockerStatusCell: View {
                 }
             }
         }
-        .font(.system(size: 12))
+        .font(Typography.detail)
         .accessibilityElement(children: .combine)
     }
 }
@@ -242,16 +242,16 @@ struct DockerPortsCell: View {
     let open: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             if ports.isEmpty {
-                Text("None").font(.system(size: 12)).foregroundStyle(.tertiary)
+                Text("None").font(Typography.detail).foregroundStyle(.tertiary)
             } else {
                 ForEach(ports.prefix(2), id: \.self) { port in
                     DockerPortButton(port: port) { open(port) }
                 }
                 if ports.count > 2 {
                     Text("+\(ports.count - 2)")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(Typography.caption.weight(.medium))
                         .foregroundStyle(Theme.secondaryText)
                         .appTooltip(ports.dropFirst(2).joined(separator: ", "))
                 }
@@ -268,8 +268,8 @@ private struct DockerPortButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 3) {
-                Text(port).font(.mono(11, .medium))
+            HStack(spacing: Space.xxs) {
+                Text(port).font(Typography.data.weight(.medium))
                 if hovering {
                     Image(systemName: "arrow.up.forward")
                         .font(.system(size: 8, weight: .bold))
@@ -277,11 +277,11 @@ private struct DockerPortButton: View {
                 }
             }
             .foregroundStyle(hovering ? Theme.accent : .primary)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, Space.sm)
             .frame(height: 20)
             .background(hovering ? Theme.accent.opacity(0.1) : Theme.field,
-                        in: RoundedRectangle(cornerRadius: 5))
-            .contentShape(RoundedRectangle(cornerRadius: 5))
+                        in: RoundedRectangle(cornerRadius: Radius.inset))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.inset))
         }
         .buttonStyle(.plain)
         .hoverLift(hovering)
@@ -299,19 +299,19 @@ struct DockerUsersCell: View {
 
     var body: some View {
         if let first = users.first {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Circle()
                     .fill(users.contains(where: \.isRunning) ? Theme.dotOn : Theme.dotOff)
                     .frame(width: 6, height: 6)
                 Text(Self.name(first) + (users.count > 1 ? " +\(users.count - 1)" : ""))
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             .appTooltip(users.map(\.name).joined(separator: ", "))
             .accessibilityElement(children: .combine)
         } else {
-            Text(noneText).font(.system(size: 12)).foregroundStyle(.tertiary)
+            Text(noneText).font(Typography.detail).foregroundStyle(.tertiary)
         }
     }
 
@@ -328,7 +328,7 @@ struct DockerSizeCell: View {
 
     var body: some View {
         Text(bytes.map(DockerSize.text) ?? "-")
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .monospacedDigit()
             .foregroundStyle((bytes ?? 0) < 1_000_000 ? Theme.secondaryText : .primary)
             .lineLimit(1)
@@ -344,13 +344,13 @@ struct DockerBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
+            .font(Typography.micro)
             .foregroundStyle(ink)
             .lineLimit(1)
             .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(fill, in: RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.xxs)
+            .background(fill, in: RoundedRectangle(cornerRadius: Radius.inset))
     }
 
     private var ink: Color {
@@ -404,7 +404,7 @@ struct DockerGroupHeader: View {
             .accessibilityLabel("Select every container in \(project ?? "Standalone containers")")
 
             Button(action: collapse) {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Image(systemName: collapsed ? "chevron.right" : "chevron.down")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Theme.secondaryText)
@@ -416,10 +416,10 @@ struct DockerGroupHeader: View {
                             .frame(width: 9, height: 9)
                     }
                     Text(project ?? "Standalone containers")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                     Text(state)
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(Theme.secondaryText)
                         .contentTransition(.opacity)
                     if project != nil { DockerBadge(text: "Compose") }
@@ -433,14 +433,14 @@ struct DockerGroupHeader: View {
             .accessibilityHint(collapsed ? "Expand" : "Collapse")
 
             if project != nil {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     if running > 0 {
-                        ActionButton(title: "Stop all", tone: .outlined, height: 24, size: 11,
+                        ActionButton(title: "Stop all", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption,
                                      icon: "stop.fill") { act(.stop) }
                             .disabled(busy)
                     }
                     if running < containers.count {
-                        ActionButton(title: "Start all", tone: .outlined, height: 24, size: 11,
+                        ActionButton(title: "Start all", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption,
                                      icon: "play.fill") { act(.start) }
                             .disabled(busy)
                     }
@@ -467,8 +467,8 @@ struct DockerSelectionBar: View {
     let clear: () -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
-            HStack(spacing: 5) {
+        HStack(spacing: Space.xs) {
+            HStack(spacing: Space.xs) {
                 Text("\(count)")
                     .contentTransition(.numericText())
                     .motion(Motion.pop, value: count)
@@ -476,15 +476,15 @@ struct DockerSelectionBar: View {
                 if bytes >= 1_000_000 {
                     Text(DockerSize.text(bytes))
                         .foregroundStyle(Theme.terminalDim)
-                        .padding(.leading, 4)
+                        .padding(.leading, Space.xs)
                         .contentTransition(.numericText())
                 }
             }
-            .font(.system(size: 12.5, weight: .semibold))
+            .font(Typography.body.weight(.semibold))
             .foregroundStyle(Theme.terminalText)
             .monospacedDigit()
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
+            .padding(.leading, Space.sm)
+            .padding(.trailing, Space.md)
             .accessibilityElement(children: .combine)
 
             if kind == .containers {
@@ -495,18 +495,18 @@ struct DockerSelectionBar: View {
                 DockerBarButton(title: "Restart", icon: "arrow.clockwise") { act(.restart) }
                     .disabled(running == 0)
                 Rectangle().fill(Theme.terminalDim.opacity(0.4)).frame(width: 1, height: 20)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Space.xs)
             }
-            ActionButton(title: "Delete", tone: .danger, height: 30, size: 12.5, icon: "trash",
+            ActionButton(title: "Delete", tone: .danger, height: ControlHeight.md, size: Typography.Size.body, icon: "trash",
                          action: delete)
                 .appTooltip("Delete the selection (⌫)")
             DockerBarButton(title: nil, icon: "xmark", action: clear)
                 .appTooltip("Clear the selection (Esc)")
                 .accessibilityLabel("Clear the selection")
         }
-        .padding(6)
-        .background(Theme.terminal, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
+        .padding(Space.sm)
+        .background(Theme.terminal, in: RoundedRectangle(cornerRadius: Radius.floating))
+        .elevation(.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Selection actions")
     }
@@ -522,17 +522,17 @@ private struct DockerBarButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 10.5, weight: .semibold))
-                if let title { Text(title).font(.system(size: 12.5, weight: .semibold)) }
+            HStack(spacing: Space.sm) {
+                Image(systemName: icon).font(Typography.caption.weight(.semibold))
+                if let title { Text(title).font(Typography.body.weight(.semibold)) }
             }
             .foregroundStyle(Theme.terminalText)
             .padding(.horizontal, title == nil ? 0 : 10)
-            .frame(minWidth: 30)
-            .frame(height: 30)
+            .frame(minWidth: ControlHeight.md)
+            .frame(height: ControlHeight.md)
             .background(Color.white.opacity(hovering && isEnabled ? 0.1 : 0),
-                        in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+                        in: RoundedRectangle(cornerRadius: Radius.control))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .opacity(isEnabled ? 1 : 0.4)
@@ -549,18 +549,18 @@ struct DockerSkeletonRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 4).fill(Theme.field).frame(width: 16, height: 16)
+            RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: 16, height: 16)
                 .frame(width: DockerColumns.check, alignment: .leading)
-            VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 3).fill(Theme.field).frame(width: width, height: 10)
-                RoundedRectangle(cornerRadius: 3).fill(Theme.sunken).frame(width: width * 1.6, height: 8)
+            VStack(alignment: .leading, spacing: Space.sm) {
+                RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: width, height: 10)
+                RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.sunken).frame(width: width * 1.6, height: 8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            RoundedRectangle(cornerRadius: 3).fill(Theme.field).frame(width: 90, height: 10)
+            RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: 90, height: 10)
                 .frame(width: 214, alignment: .leading)
-            RoundedRectangle(cornerRadius: 3).fill(Theme.field).frame(width: 40, height: 10)
+            RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: 40, height: 10)
                 .frame(width: 100, alignment: .leading)
-            RoundedRectangle(cornerRadius: 3).fill(Theme.field).frame(width: 40, height: 10)
+            RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: 40, height: 10)
                 .frame(width: 60 + 88, alignment: .leading)
         }
         .padding(.horizontal, DockerColumns.inset)

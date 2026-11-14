@@ -463,15 +463,15 @@ struct SessionBotPicker: View {
 
     @ViewBuilder private var label: some View {
         if showsName {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 selectedImage
-                Text(title).font(.system(size: 12))
+                Text(title).font(Typography.detail)
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Space.md)
             .frame(height: 38)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
         } else {
             selectedImage
                 .overlay(alignment: .bottomTrailing) {

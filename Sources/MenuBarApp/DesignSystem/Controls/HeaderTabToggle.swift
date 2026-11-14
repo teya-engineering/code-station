@@ -12,13 +12,13 @@ struct HeaderTabToggle<Selection: Hashable>: View {
     @Namespace private var pill
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Space.xxs) {
             ForEach(options.indices, id: \.self) { index in
                 segment(options[index])
             }
         }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+        .padding(Space.xxs)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.field))
         // A header row hands out its width between its children, so without this the
         // control is offered less than its labels need and every one of them wraps onto
         // two lines. It is a fixed set of short words: it should hold its size and let
@@ -45,22 +45,22 @@ private struct HeaderTabSegment: View {
     var body: some View {
         Button(action: choose) {
             Text(label)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .lineLimit(1)
                 .fixedSize()
                 .foregroundStyle(active || hovering ? Color.primary : Color.secondary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 5)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.xs)
                 .background {
                     if active {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: Radius.control)
                             .fill(Theme.card)
-                            .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
+                            .elevation(.raised)
                             .matchedGeometryEffect(id: "selected", in: pill)
                     } else if hovering {
                         // The seat the chosen segment wears, at a fraction of its weight,
                         // so pointing at one reads as a preview of picking it.
-                        RoundedRectangle(cornerRadius: 8).fill(Theme.card.opacity(0.5))
+                        RoundedRectangle(cornerRadius: Radius.control).fill(Theme.card.opacity(0.5))
                     }
                 }
                 .contentShape(Rectangle())

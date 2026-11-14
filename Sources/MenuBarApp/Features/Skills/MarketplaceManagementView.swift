@@ -12,9 +12,9 @@ struct MarketplaceManagementView: View {
     @State private var checking: String?
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Your marketplaces").scaledSerif(22)
-                Text("Sources you trust, available across your projects.").scaledText(12).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Space.lg) {
+                Text("Your marketplaces").scaledSerif(Typography.Size.display)
+                Text("Sources you trust, available across your projects.").scaledText(Typography.Size.detail).foregroundStyle(.secondary)
                 if let notice = manager.catalogueNotice { SourceFailure(notice, lineLimit: nil) }
                 ForEach(manager.marketplaceConfigurations, id: \.marketplace) { source in
                     sourceCard(source)
@@ -26,14 +26,14 @@ struct MarketplaceManagementView: View {
                     }
                 }
                 Text("Removing a source keeps its installed packages and agent settings. Add the source again to manage those packages here.")
-                    .scaledText(12).foregroundStyle(.secondary).padding(.vertical, 12)
+                    .scaledText(Typography.Size.detail).foregroundStyle(.secondary).padding(.vertical, Space.lg)
                 if let removalFailure { SourceFailure(removalFailure, lineLimit: nil) }
-                if let status { Text(status).scaledText(12).foregroundStyle(Theme.accent) }
+                if let status { Text(status).scaledText(Typography.Size.detail).foregroundStyle(Theme.accent) }
                 Divider().overlay(Theme.border)
                 HStack {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Check for skill updates").scaledText(13, .semibold)
-                        Text("Refresh marketplace versions automatically.").scaledText(12).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: Space.xs) {
+                        Text("Check for skill updates").scaledText(Typography.Size.body, .semibold)
+                        Text("Refresh marketplace versions automatically.").scaledText(Typography.Size.detail).foregroundStyle(.secondary)
                     }
                     Spacer()
                     ForEach(SkillsRefreshInterval.allCases) { interval in
@@ -42,55 +42,55 @@ struct MarketplaceManagementView: View {
                             settings.skillsRefreshInterval = interval
                         }
                     }
-                }.padding(.vertical, 12)
+                }.padding(.vertical, Space.lg)
             }
-            .padding(24)
+            .padding(Space.xxxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func sourceCard(_ source: SkillMarketplaceConfiguration) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: Space.xl) {
             Image(systemName: source.isLocalFile ? "doc.text" : "arrow.triangle.branch")
                 .font(.system(size: 21)).foregroundStyle(Theme.accent)
                 .frame(width: 42, height: 42)
-                .surface(Theme.field, cornerRadius: 11)
+                .surface(Theme.field, cornerRadius: Radius.floating)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 HStack {
-                    Text(source.label).scaledText(14, .semibold)
+                    Text(source.label).scaledText(Typography.Size.body, .semibold)
                     Text(source.isLocalFile ? "Local file" : "Git repository")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                        .padding(4).background(Theme.field, in: RoundedRectangle(cornerRadius: 5))
+                        .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
+                        .padding(Space.xs).background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.inset))
                 }
-                Text(source.source).font(.mono(11))
+                Text(source.source).font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
                     .help(source.source)
                     .textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text("\(manager.plugins.count { $0.marketplace == source.marketplace }) packages")
                 Text(manager.installedPackageCount(for: source.marketplace).map { "\($0) installed" }
                      ?? "Status unavailable").foregroundStyle(.secondary)
-            }.font(.system(size: 11))
-            ActionButton(title: "Browse packages", tone: .outlined, height: 32, size: 12) { browse(source) }
+            }.font(Typography.caption)
+            ActionButton(title: "Browse packages", tone: .outlined, height: ControlHeight.lg, size: Typography.Size.detail) { browse(source) }
             Button { confirmRemoval(source) } label: {
                 Text(checking == source.marketplace ? "Checking…" : "Remove…")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Theme.deletion)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, Space.lg)
                     .frame(height: 32)
-                    .surface(Theme.card, cornerRadius: 8, border: Theme.deletion.opacity(0.3))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .surface(Theme.card, cornerRadius: Radius.control, border: Theme.deletion.opacity(0.3))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             }
             .buttonStyle(.plain)
                 .disabled(manager.isBusy || checking != nil)
                 .accessibilityLabel("Remove \(source.label)")
         }
-        .padding(18)
-        .surface(Theme.card, cornerRadius: 12, border: Theme.border)
+        .padding(Space.xl)
+        .surface(Theme.card, cornerRadius: Radius.floating, border: Theme.border)
     }
 
     private func confirmRemoval(_ source: SkillMarketplaceConfiguration) {

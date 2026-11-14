@@ -45,25 +45,25 @@ struct EnvironmentsView: View {
                                    options: auth.environments.map { env in
                                        (env.label, env == shown, { selected = env })
                                    })
-                            .padding(.bottom, 12)
-                        sendEnvironmentNote.padding(.bottom, 16)
+                            .padding(.bottom, Space.lg)
+                        sendEnvironmentNote.padding(.bottom, Space.xl)
                     }
                     if !compact {
                         contentHeading
-                        sectionTabs.padding(.top, 20)
+                        sectionTabs.padding(.top, Space.xxl)
                     }
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             if compact {
                                 contentHeading
-                                sectionTabs.padding(.top, 20)
+                                sectionTabs.padding(.top, Space.xxl)
                             }
                             settingsPanel
                         }
                     }
                 }
                 .padding(.horizontal, compact ? 20 : 28)
-                .padding(.top, 24)
+                .padding(.top, Space.xxxl)
             }
 
             SheetFooter(primary: SheetAction(title: "Save changes", enabled: hasChanges && validation == nil,
@@ -71,18 +71,18 @@ struct EnvironmentsView: View {
                                              action: save),
                         dismissTitle: hasChanges ? "Cancel" : "Close",
                         dismiss: { dismiss() }) {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     if let validation { Text(validation).foregroundStyle(Theme.deletion) }
                     if let error = auth.saveError { Text(error).foregroundStyle(Theme.deletion) }
                     if hasChanges {
-                        InlineLink(title: "Discard changes", size: 11) { drafts = [:]; propertyDrafts = [:] }
+                        InlineLink(title: "Discard changes", size: Typography.Size.caption) { drafts = [:]; propertyDrafts = [:] }
                     }
                     Text(hasChanges
                          ? "Unsaved changes. Cancel leaves without keeping them."
                          : "Secrets are stored in the Keychain, never in the request file.")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
-                }.font(.system(size: 11))
+                }.font(Typography.caption)
             }
             .motion(Motion.control, value: hasChanges)
         }
@@ -92,7 +92,7 @@ struct EnvironmentsView: View {
     }
 
     private var settingsPanel: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             if propertiesSelected {
                 Group {
                     propertiesEditor
@@ -106,7 +106,7 @@ struct EnvironmentsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 20)
+        .padding(.vertical, Space.xxl)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(shown.label) \(propertiesSelected ? "Properties" : "Authentication")")
         .accessibilityLabeledPair(role: .content, id: propertiesSelected, in: tabPanels)
@@ -172,42 +172,42 @@ struct EnvironmentsView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Environments").font(.serif(16))
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text("Environments").font(Typography.title)
             Text("Manage properties and credentials for your requests.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Space.xxl)
+        .padding(.vertical, Space.lg)
         .background(Theme.card)
     }
 
     private var compact: Bool { sheetSize.width < 700 }
 
     private var environmentSidebar: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Environments").font(.system(size: 12)).foregroundStyle(.secondary)
-                .padding(.horizontal, 11)
+        VStack(alignment: .leading, spacing: Space.xl) {
+            Text("Environments").font(Typography.detail).foregroundStyle(.secondary)
+                .padding(.horizontal, Space.lg)
             ScrollView {
-                VStack(spacing: 3) {
+                VStack(spacing: Space.xxs) {
                     ForEach(auth.environments) { env in
                         Button { selected = env } label: {
-                            HStack(spacing: 9) {
+                            HStack(spacing: Space.md) {
                                 Circle().fill(env.brightAccent).frame(width: 6, height: 6)
                                 Text(env.label)
-                                    .font(.system(size: 13, weight: env == shown ? .semibold : .medium))
+                                    .font(Typography.body.weight(env == shown ? .semibold : .medium))
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
                             .foregroundStyle(env == shown ? env.accent : Color.primary)
-                            .padding(.horizontal, 11)
+                            .padding(.horizontal, Space.lg)
                             .frame(height: 34)
                             .background(env == shown ? env.accent.opacity(0.09)
                                         : hoveredEnvironment == env.name ? Theme.field : .clear,
-                                        in: RoundedRectangle(cornerRadius: 6))
+                                        in: RoundedRectangle(cornerRadius: Radius.inset))
                             .contentShape(Rectangle())
                             .motion(Motion.hover, value: hoveredEnvironment == env.name)
                             .motion(Motion.control, value: env == shown)
@@ -216,7 +216,7 @@ struct EnvironmentsView: View {
                         .focusable()
                         .focused($focusedEnvironment, equals: env.name)
                         .focusEffectDisabled()
-                        .overlay(RoundedRectangle(cornerRadius: 6)
+                        .overlay(RoundedRectangle(cornerRadius: Radius.inset)
                             .stroke(focusedEnvironment == env.name ? Theme.accent : .clear, lineWidth: 2))
                         .onKeyPress(keys: [.space, .return]) { _ in selected = env; return .handled }
                         .accessibilityAddTraits(env == shown ? [.isSelected] : [])
@@ -224,37 +224,37 @@ struct EnvironmentsView: View {
                         .onPointerHover { hoveredEnvironment = $0 ? env.name : nil }
                         .help(env.label)
                     }
-                }.padding(2)
+                }.padding(Space.xxs)
             }
             Divider().overlay(Theme.hairline)
-            sendEnvironmentNote.padding(.horizontal, 11)
+            sendEnvironmentNote.padding(.horizontal, Space.lg)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 24)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.xxxl)
         .frame(width: sheetSize.width < 850 ? 150 : 190)
         .background(Theme.sidebar)
     }
 
     private var sendEnvironmentNote: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text("Dispatch sends to \(auth.active.label)")
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
             Text("Choosing an environment here only changes what you edit.")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .font(Typography.detail).foregroundStyle(.secondary)
         }
         .fixedSize(horizontal: false, vertical: true)
     }
 
     private var contentHeading: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 12) {
-                Text(shown.label).font(.serif(27))
-                Text(shown.name).font(.mono(12)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 5))
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.lg) {
+                Text(shown.label).font(Typography.display)
+                Text(shown.name).font(Typography.code).foregroundStyle(.secondary)
+                    .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.inset))
             }
             Text("Properties and credentials used by requests sent to \(shown.label).")
-                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .font(Typography.body).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -262,12 +262,12 @@ struct EnvironmentsView: View {
     // Each label's side padding hangs into the gutter, so the first label still lines up
     // with the heading above it.
     private var sectionTabs: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             sectionTab("Properties", properties: true)
             sectionTab("Authentication", properties: false)
             Spacer(minLength: 0)
         }
-        .background(alignment: .bottom) { Theme.border.frame(height: 1).padding(.leading, 10) }
+        .background(alignment: .bottom) { Theme.border.frame(height: 1).padding(.leading, Space.md) }
         .padding(.leading, -10)
         .motion(Motion.control, value: propertiesSelected)
         .accessibilityElement(children: .contain)
@@ -278,7 +278,7 @@ struct EnvironmentsView: View {
         let selected = propertiesSelected == properties
         return Button { propertiesSelected = properties } label: {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .foregroundStyle(selected ? Theme.accent : hoveredTab == properties ? Color.primary : Color.secondary)
                 .frame(height: 46)
                 .overlay(alignment: .bottom) {
@@ -289,7 +289,7 @@ struct EnvironmentsView: View {
                             .matchedGeometryEffect(id: "underline", in: tabPanels)
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Space.md)
                 .contentShape(Rectangle())
         }
         .buttonStyle(SectionTabStyle(selected: selected, hovered: hoveredTab == properties,
@@ -312,7 +312,7 @@ struct EnvironmentsView: View {
     }
 
     private var previewSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             Divider().overlay(Theme.hairline)
             Button { previewExpanded.toggle() } label: {
                 HStack {
@@ -323,16 +323,16 @@ struct EnvironmentsView: View {
                     Spacer()
                     Text("Nothing is sent").foregroundStyle(.secondary)
                 }
-                .font(.system(size: 12))
-                .padding(.vertical, 8)
+                .font(Typography.detail)
+                .padding(.vertical, Space.md)
                 .contentShape(Rectangle())
-                .hoverFill(cornerRadius: 4)
+                .hoverFill(cornerRadius: Radius.tag)
             }
             .buttonStyle(.plain)
             .focusable()
             .focused($previewFocused)
             .focusEffectDisabled()
-            .overlay(RoundedRectangle(cornerRadius: 4)
+            .overlay(RoundedRectangle(cornerRadius: Radius.tag)
                 .stroke(previewFocused ? Theme.accent : .clear, lineWidth: 2))
             .onKeyPress(keys: [.space, .return]) { _ in previewExpanded.toggle(); return .handled }
             .accessibilityValue(previewExpanded ? "Expanded" : "Collapsed")
@@ -345,7 +345,7 @@ struct EnvironmentsView: View {
     }
 
     private var authenticationEditor: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             grantRow
 
             if config.wrappedValue.grant.usesBrowser {
@@ -354,15 +354,15 @@ struct EnvironmentsView: View {
                 Text(config.wrappedValue.usesLoopback
                      ? "The browser is sent back here when you sign in, so the identity provider has to allow this exact URL for the client. If it refuses, put the callback it does allow here instead and paste the code back by hand."
                      : "This callback is not on your machine, so the browser cannot hand the code back on its own. Sign in, then paste the address the browser ends on.")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             field("ACCESS TOKEN URL", "https://id.example/oauth/token", config.tokenURL)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 17),
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.xl),
                                      count: sheetSize.width >= 850 ? 2 : 1),
-                      alignment: .leading, spacing: 17) {
+                      alignment: .leading, spacing: Space.xl) {
                 field("CLIENT ID", "client id", config.clientID)
                 LabeledField("CLIENT SECRET") {
                     SecretField(placeholder: "kept in the Keychain, empty for a public client",
@@ -384,7 +384,7 @@ struct EnvironmentsView: View {
                             { config.wrappedValue.clientAuth = choice })
                        })
             Text("How the app proves which OAuth client it is on the token call. This is not about your requests; they always send the token with the prefix above.")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -396,30 +396,30 @@ struct EnvironmentsView: View {
             })
 
             Text("Every environment holds the same fields; only the values differ. Choose the send environment in Dispatch to use its saved setup and property values.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var envRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             Text("{{env}}")
-                .font(.mono(12, .bold))
+                .font(Typography.code.weight(.semibold))
                 .foregroundStyle(shown.accent)
             Text("resolves to")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
             Text(shown.name)
-                .font(.mono(12, .bold))
+                .font(Typography.code.weight(.semibold))
                 .foregroundStyle(shown.accent)
             Spacer()
             Text("Built-in · read only")
-                .font(.system(size: 12))
+                .font(Typography.detail)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .surface(shown.brightAccent.opacity(0.10), cornerRadius: 9, border: shown.accent.opacity(0.22))
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .surface(shown.brightAccent.opacity(0.10), cornerRadius: Radius.card, border: shown.accent.opacity(0.22))
     }
 
     private var rows: Binding<[EnvironmentProperty]> {
@@ -438,10 +438,10 @@ struct EnvironmentsView: View {
     }
 
     private var propertiesEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             HStack {
                 Text("Use a property as {{property_name}}.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
                 Spacer()
                 InlineLink(title: "+ Add property") {
                     let property = EnvironmentProperty()
@@ -451,10 +451,10 @@ struct EnvironmentsView: View {
             }
             if rows.wrappedValue.isEmpty {
                 Text("No properties yet. Add a value for this environment to reuse in your requests.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
             }
             ForEach(rows) { row in
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: Space.md) {
                     LabeledField("NAME") {
                         TextField("property_name", text: row.name).appTextField(size: 11)
                             .accessibilityLabel("Property name")
@@ -471,16 +471,16 @@ struct EnvironmentsView: View {
                     }
                     Toggle("Secret", isOn: row.isSecret).toggleStyle(.appCheckbox)
                         .accessibilityLabel("Secret storage for \(row.wrappedValue.name)")
-                        .padding(.top, 23)
+                        .padding(.top, Space.xxxl)
                     InlineLink(title: "×", tint: Theme.deletion) {
                         rows.wrappedValue.removeAll { $0.id == row.wrappedValue.id }
                     }
                     .accessibilityLabel("Remove \(row.wrappedValue.name)")
-                    .padding(.top, 23)
+                    .padding(.top, Space.xxxl)
                 }
             }
             Text("Values stay on this Mac; secrets use the Keychain. Empty values are missing, with no fallback to another environment.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(Typography.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -488,24 +488,24 @@ struct EnvironmentsView: View {
         let request = previewRequest ?? SavedRequest(name: "Example", url: "{{base_url}}/merchants/{{merchant_id}}")
         let resolved = DispatchRunner.resolve(request, environment: shown, authorization: nil,
                                               properties: rows.wrappedValue, masked: true)
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("Preview uses your draft values. Nothing is sent.").font(.system(size: 11)).foregroundStyle(.secondary)
-            Text("\(request.method.rawValue) \(request.name)").font(.mono(11, .bold))
-            Text(request.url).font(.mono(11)).foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: Space.md) {
+            Text("Preview uses your draft values. Nothing is sent.").font(Typography.caption).foregroundStyle(.secondary)
+            Text("\(request.method.rawValue) \(request.name)").font(Typography.data.weight(.semibold))
+            Text(request.url).font(Typography.data).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10).fieldSurface(cornerRadius: 8)
-            Text("RESOLVED URL").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-            Text(resolved.url).font(.mono(11)).textSelection(.enabled)
+                .padding(Space.md).fieldSurface(cornerRadius: Radius.control)
+            Text("RESOLVED URL").font(Typography.micro).foregroundStyle(.secondary)
+            Text(resolved.url).font(Typography.data).textSelection(.enabled)
             ForEach(resolved.headers) { header in
-                Text("\(header.key): \(header.value)").font(.mono(11))
+                Text("\(header.key): \(header.value)").font(Typography.data)
             }
-            if let body = resolved.body { Text(body).font(.mono(11)).textSelection(.enabled) }
+            if let body = resolved.body { Text(body).font(Typography.data).textSelection(.enabled) }
             Text(resolved.problems.isEmpty ? "All properties resolve in \(shown.label)." : resolved.problems.joined(separator: "\n"))
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(resolved.problems.isEmpty ? shown.accent : Theme.deletion)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16).cardSurface(cornerRadius: 12)
+        .padding(Space.xl).cardSurface(cornerRadius: Radius.floating)
     }
 
     private var grantRow: some View {
@@ -533,13 +533,13 @@ struct EnvironmentTokenControls: View {
     @State private var revealed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             tokenRow
             if revealed, let token = auth.tokens[env] { revealedToken(token.accessToken).transition(.fold) }
             if auth.awaitingPaste.contains(env) { paste }
             if let failure = auth.failures[env] {
                 Text(failure)
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -552,20 +552,20 @@ struct EnvironmentTokenControls: View {
     }
 
     private var tokenRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Circle()
                 .fill(auth.isAuthenticated(for: env) ? env.brightAccent : Theme.dotOff)
                 .frame(width: 7, height: 7)
             Text(auth.tokenStatus(for: env))
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
                 .contentTransition(.interpolate)
                 .motion(Motion.reveal, value: auth.tokenStatus(for: env))
 
             if auth.tokens[env] != nil, !auth.busy.contains(env) {
-                InlineLink(title: revealed ? "Hide" : "Reveal", size: 11, tint: env.accent) {
+                InlineLink(title: revealed ? "Hide" : "Reveal", size: Typography.Size.caption, tint: env.accent) {
                     revealed.toggle()
                 }
-                InlineLink(title: "Clear", size: 11, tint: .secondary) { auth.clearToken(for: env) }
+                InlineLink(title: "Clear", size: Typography.Size.caption, tint: .secondary) { auth.clearToken(for: env) }
             }
 
             Spacer()
@@ -573,34 +573,34 @@ struct EnvironmentTokenControls: View {
             if auth.busy.contains(env) || auth.awaitingPaste.contains(env) {
                 // Nothing tells the app that the browser tab was closed or that the
                 // provider showed an error page, so calling it off has to be a button.
-                InlineLink(title: "Cancel", size: 11, tint: Theme.deletion) {
+                InlineLink(title: "Cancel", size: Typography.Size.caption, tint: Theme.deletion) {
                     auth.cancelAuthentication(env)
                 }
             } else {
-                ActionButton(title: buttonLabel, tone: env.buttonTone, height: 28, size: 11) {
+                ActionButton(title: buttonLabel, tone: env.buttonTone, height: ControlHeight.md, size: Typography.Size.caption) {
                     guard beforeAuthenticate?() ?? true else { return }
                     auth.authenticate(env)
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .cardSurface(cornerRadius: 9)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .cardSurface(cornerRadius: Radius.card)
     }
 
     private func revealedToken(_ token: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Space.md) {
             Text(token)
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             CopyButton("Copy") { token }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .fieldSurface(cornerRadius: 8)
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.md)
+        .fieldSurface(cornerRadius: Radius.control)
     }
 
     private var buttonLabel: String {
@@ -611,19 +611,19 @@ struct EnvironmentTokenControls: View {
     }
 
     private var paste: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text("Sign in in the browser, then paste the address it ends on. The code is in that URL, and the page itself can look like an error.")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 TextField("https://…/callback?code=…", text: $pasted)
                     .lineLimit(1)
                     .appTextField(size: 11)
                     .onSubmit(finish)
 
-                ActionButton(title: "Finish", tone: env.buttonTone, height: 30, size: 12, action: finish)
+                ActionButton(title: "Finish", tone: env.buttonTone, height: ControlHeight.md, size: Typography.Size.detail, action: finish)
                     .disabled(pasted.isEmpty || auth.busy.contains(env))
             }
         }
@@ -645,7 +645,7 @@ struct SecretField: View {
     @State private var revealed = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Group {
                 if revealed {
                     TextField(placeholder, text: $text)
@@ -654,16 +654,16 @@ struct SecretField: View {
                 }
             }
             .textFieldStyle(.plain)
-            .font(.system(size: 11))
+            .font(Typography.caption)
             .lineLimit(1)
 
-            InlineLink(title: revealed ? "Hide" : "Reveal", size: 11, tint: accent) {
+            InlineLink(title: revealed ? "Hide" : "Reveal", size: Typography.Size.caption, tint: accent) {
                 revealed.toggle()
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .fieldSurface(cornerRadius: 8)
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.md)
+        .fieldSurface(cornerRadius: Radius.control)
     }
 }
 
@@ -675,21 +675,21 @@ private struct SectionTabStyle: ButtonStyle {
     let showsFocus: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        let surface = RoundedRectangle(cornerRadius: 7)
+        let surface = RoundedRectangle(cornerRadius: Radius.control)
         configuration.label
             .background {
                 ZStack {
                     surface.fill(configuration.isPressed || (hovered && !selected) ? Theme.field : .clear)
                     if configuration.isPressed { surface.fill(Theme.field.opacity(0.7)) }
                     if showsFocus {
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: Radius.card)
                             .strokeBorder(Color(nsColor: Theme.focusRing), lineWidth: 3)
                             .padding(-3)
                         surface.strokeBorder(Theme.accent, lineWidth: 1)
                     }
                 }
-                .padding(.top, 6)
-                .padding(.bottom, 7)
+                .padding(.top, Space.sm)
+                .padding(.bottom, Space.sm)
             }
             .motion(Motion.hover, value: configuration.isPressed)
             .motion(Motion.hover, value: showsFocus)

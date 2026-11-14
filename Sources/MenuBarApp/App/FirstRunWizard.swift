@@ -124,7 +124,7 @@ struct FirstRunWizardContent: View {
             stepIndicator
             ScrollViewReader { scroll in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: Space.xxl) {
                         Color.clear.frame(height: 0).id("top")
                         Group {
                             switch setup.step {
@@ -137,8 +137,8 @@ struct FirstRunWizardContent: View {
                         .transition(.headerPage(reduceMotion: reduceMotion))
                     }
                     .padding(.horizontal, 40)
-                    .padding(.top, 9)
-                    .padding(.bottom, 28)
+                    .padding(.top, Space.md)
+                    .padding(.bottom, Space.xxxl)
                 }
                 .onChange(of: setup.step) { _, _ in
                     scroll.scrollTo("top", anchor: .top)
@@ -193,29 +193,29 @@ struct FirstRunWizardContent: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             AppMark().frame(width: 37, height: 37).accessibilityHidden(true)
             Text("Teya Code Station").font(.logo(14, weight: 650))
             Spacer()
             Text("Step \(setup.step.rawValue + 1) of 3")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 26)
+        .padding(.horizontal, Space.xxxl)
         .headerBand()
     }
 
     private var stepIndicator: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: Space.xxxl) {
             ForEach(FirstRunSetup.Step.allCases, id: \.rawValue) { step in
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     Text(step.rawValue < setup.step.rawValue ? "✓" : "\(step.rawValue + 1)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(step == setup.step ? Color.white : Theme.accent)
+                        .font(Typography.micro)
+                        .foregroundStyle(step == setup.step ? Theme.onFill : Theme.accent)
                         .frame(width: 19, height: 19)
                         .background(Circle().fill(step == setup.step ? Theme.accentFill : Theme.field))
                     Text(step.title)
-                        .font(.system(size: 11, weight: step == setup.step ? .semibold : .regular))
+                        .font(Typography.caption.weight(step == setup.step ? .semibold : .regular))
                         .foregroundStyle(step == setup.step ? Theme.accent : Color.secondary)
                 }
             }
@@ -223,14 +223,14 @@ struct FirstRunWizardContent: View {
         }
         .motion(Motion.control, value: setup.step)
         .padding(.horizontal, 40)
-        .padding(.top, 20)
-        .padding(.bottom, 10)
+        .padding(.top, Space.xxl)
+        .padding(.bottom, Space.md)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Step \(setup.step.rawValue + 1) of 3: \(setup.step.title)")
     }
 
     private func heading(_ title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text(title)
                 .font(.serif(31 * scale, .semibold))
                 .accessibilityAddTraits(.isHeader)
@@ -243,10 +243,10 @@ struct FirstRunWizardContent: View {
     }
 
     private var agentSetup: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             heading("Connect your coding agent",
                     detail: "Use Claude Code, Codex, or Copilot with your local projects. Code Station uses the agent's own CLI and account.")
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 ForEach(AgentKind.allCases) { agent in agentChoice(agent) }
             }
             .accessibilityElement(children: .contain)
@@ -257,7 +257,7 @@ struct FirstRunWizardContent: View {
                     .font(.system(size: 11 * scale)).foregroundStyle(.secondary)
                 Spacer()
                 InlineLink(title: "Check all agents again") { refresh(nil) }
-                    .padding(.vertical, 5)
+                    .padding(.vertical, Space.xs)
             }
             notice("Keep the conversation, files, Git changes, and terminal together in one workspace.")
         }
@@ -267,14 +267,14 @@ struct FirstRunWizardContent: View {
         let selected = setup.selectedAgent == agent
         let status = readiness[agent] ?? .checking
         return Button { setup.selectedAgent = agent } label: {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: Space.xl) {
+                HStack(spacing: Space.md) {
                     Image(systemName: agent.symbol)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Theme.accent)
                         .frame(width: 30, height: 30)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                    VStack(alignment: .leading, spacing: 3) {
+                        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
+                    VStack(alignment: .leading, spacing: Space.xxs) {
                         Text(agent.title).font(.system(size: 13 * scale, weight: .semibold))
                         Text(agent.vendor).font(.system(size: 11 * scale)).foregroundStyle(.secondary)
                     }
@@ -284,9 +284,9 @@ struct FirstRunWizardContent: View {
                         .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                         .accessibilityHidden(true)
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     if status == .connected {
-                        Image(systemName: "checkmark").font(.system(size: 10))
+                        Image(systemName: "checkmark").font(Font.system(size: Typography.Size.micro))
                     } else {
                         Circle().frame(width: 5, height: 5)
                     }
@@ -294,11 +294,11 @@ struct FirstRunWizardContent: View {
                 }
                 .foregroundStyle(colour(for: status))
             }
-            .padding(14)
+            .padding(Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(Theme.card, cornerRadius: 10, border: selected ? Theme.accent : Theme.border)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Theme.accent : .clear))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .surface(Theme.card, cornerRadius: Radius.card, border: selected ? Theme.accent : Theme.border)
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(selected ? Theme.accent : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
             .motion(Motion.control, value: selected)
         }
         .buttonStyle(.plain)
@@ -309,15 +309,15 @@ struct FirstRunWizardContent: View {
     }
 
     private var setupCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 13) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.lg) {
                 Image(systemName: statusIcon)
                     .font(.system(size: 18))
                     .foregroundStyle(colour(for: state))
                     .frame(width: 34, height: 34)
                     .background(Circle().fill(colour(for: state).opacity(0.08)))
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     Text(statusTitle).font(.system(size: 13 * scale, weight: .semibold))
                     Text(statusDetail)
                         .font(.system(size: 12 * scale)).foregroundStyle(.secondary)
@@ -327,20 +327,20 @@ struct FirstRunWizardContent: View {
                 setupAction
             }
             if state == .notInstalled {
-                HStack(spacing: 9) {
+                HStack(spacing: Space.md) {
                     Text(setup.selectedAgent.installHint)
                         .font(.mono(11.5 * scale)).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
-                    CopyButton("Copy", size: 12) { setup.selectedAgent.installHint }
+                    CopyButton("Copy", size: Typography.Size.detail) { setup.selectedAgent.installHint }
                 }
-                .padding(10)
+                .padding(Space.md)
                 .fieldSurface()
             }
         }
-        .padding(20)
+        .padding(Space.xxl)
         .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
-        .surface(Theme.card, cornerRadius: 11,
+        .surface(Theme.card, cornerRadius: Radius.floating,
                  border: state == .connected ? Theme.addition.opacity(0.35) : Theme.border)
     }
 
@@ -357,7 +357,7 @@ struct FirstRunWizardContent: View {
             }
             .focused($focused, equals: .terminal)
         case .connected, .failed:
-            VStack(spacing: 8) {
+            VStack(spacing: Space.md) {
                 ActionButton(title: state == .failed ? "Try again" : "Check again", tone: .outlined,
                              icon: "arrow.clockwise") { refresh(setup.selectedAgent) }
                     .focused($focused, equals: .terminal)
@@ -366,7 +366,7 @@ struct FirstRunWizardContent: View {
                 }
             }
         case .checking:
-            Text("Checking…").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("Checking…").font(Typography.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -412,7 +412,7 @@ struct FirstRunWizardContent: View {
 
     private var configurationSetup: some View {
         @Bindable var loader = setup.loader
-        return VStack(alignment: .leading, spacing: 18) {
+        return VStack(alignment: .leading, spacing: Space.xl) {
             heading("Do you have team settings?",
                     detail: "Bring in your team's tools and shortcuts, or start with your own setup.")
             SettingsCard {
@@ -459,15 +459,15 @@ struct FirstRunWizardContent: View {
     }
 
     private var projectSetup: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             heading("Open your first project",
                     detail: "Choose a local folder. Your conversations, files, and changes will stay together here.")
             if let url = setup.projectURL {
                 let project = Project(url: url)
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 13) {
+                    HStack(spacing: Space.lg) {
                         Image(systemName: "folder").font(.system(size: 27)).foregroundStyle(Theme.accent)
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: Space.xs) {
                             Text(project.name).font(.system(size: 14 * scale, weight: .semibold))
                             Text(project.collapsedPath)
                                 .font(.system(size: 11 * scale)).foregroundStyle(.secondary)
@@ -478,19 +478,19 @@ struct FirstRunWizardContent: View {
                         InlineLink(title: "Change folder", action: chooseProject)
                             .focused($focused, equals: .folder)
                     }
-                    .padding(20)
-                    HStack(spacing: 22) {
+                    .padding(Space.xxl)
+                    HStack(spacing: Space.xxl) {
                         Text(project.isGitRepository ? "Git repository" : "Local folder")
                         if let branch = GitHead.branch(at: project.path) { Text("Branch: \(branch)") }
                         Text("No changes to your files")
                     }
                     .font(.system(size: 11 * scale)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 20).padding(.vertical, 12)
+                    .padding(.horizontal, Space.xxl).padding(.vertical, Space.lg)
                     .frame(maxWidth: .infinity, alignment: .leading).background(Theme.field)
                 }
-                .cardSurface(cornerRadius: 12)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                HStack(spacing: 20) {
+                .cardSurface(cornerRadius: Radius.floating)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+                HStack(spacing: Space.xxl) {
                     Label(setup.agentWasDeferred ? "Agent setup deferred" : "\(setup.selectedAgent.title) selected",
                           systemImage: setup.agentWasDeferred ? "clock" : "checkmark")
                     Label(setup.appliedConfiguration == nil ? "Personal setup" : "Team settings applied",
@@ -499,18 +499,18 @@ struct FirstRunWizardContent: View {
                 .font(.system(size: 11 * scale)).foregroundStyle(.secondary)
                 notice("Your project opens next. Create a session when you are ready to ask for your first change.")
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: Space.lg) {
                     Image(systemName: "folder").font(.system(size: 34)).foregroundStyle(Theme.accent)
                     Text("Start with a folder on this Mac").font(.serif(21 * scale))
                     Text("Use an existing repository or any project folder.")
                         .font(.system(size: 12 * scale)).foregroundStyle(.secondary)
-                    ActionButton(title: "Choose project folder", tone: .green, height: 36, action: chooseProject)
+                    ActionButton(title: "Choose project folder", tone: .green, height: ControlHeight.xl, action: chooseProject)
                         .focused($focused, equals: .folder)
                 }
-                .padding(28)
+                .padding(Space.xxxl)
                 .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.4),
+                .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.accent.opacity(0.4),
                                                                  style: StrokeStyle(dash: [5, 4])))
                 Text("You can add more projects and group related repositories into a workspace later.")
                     .font(.system(size: 11 * scale)).foregroundStyle(.secondary)
@@ -524,13 +524,13 @@ struct FirstRunWizardContent: View {
     private func notice(_ text: String) -> some View {
         Text(text).font(.system(size: 11 * scale)).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 14).padding(.vertical, 12)
+            .padding(.horizontal, Space.lg).padding(.vertical, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             if setup.step == .agent {
                 InlineLink(title: "See how it works", action: showTour)
                     .focused($focused, equals: .tour)
@@ -544,31 +544,31 @@ struct FirstRunWizardContent: View {
                         setup.continueFromAgent(readiness: state, deferSetup: true)
                     }
                 }
-                ActionButton(title: "Continue with \(setup.selectedAgent.title)", tone: .green, height: 36) {
+                ActionButton(title: "Continue with \(setup.selectedAgent.title)", tone: .green, height: ControlHeight.xl) {
                     setup.continueFromAgent(readiness: state)
                 }
                 .disabled(state != .connected)
                 .focused($focused, equals: .primary)
             } else {
-                ActionButton(title: "Back", tone: .outlined, height: 36) {
+                ActionButton(title: "Back", tone: .outlined, height: ControlHeight.xl) {
                     setup.step = setup.step == .project ? .configuration : .agent
                 }
                 .disabled(setup.loader.isLoading)
                 if setup.step == .configuration {
-                    ActionButton(title: "Continue", tone: .green, height: 36) {
+                    ActionButton(title: "Continue", tone: .green, height: ControlHeight.xl) {
                         setup.continueFromConfiguration(didInstall: applyConfiguration)
                     }
                     .disabled(!setup.canContinueConfiguration)
                     .focused($focused, equals: .primary)
                 } else {
-                    ActionButton(title: "Open project", tone: .green, height: 36) { finish(true) }
+                    ActionButton(title: "Open project", tone: .green, height: ControlHeight.xl) { finish(true) }
                         .disabled(setup.projectURL == nil)
                         .focused($focused, equals: .primary)
                 }
             }
         }
-        .padding(.horizontal, 26)
-        .padding(.vertical, 15)
+        .padding(.horizontal, Space.xxxl)
+        .padding(.vertical, Space.xl)
         .background(Theme.card)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }

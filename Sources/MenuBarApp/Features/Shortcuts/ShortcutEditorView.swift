@@ -36,7 +36,7 @@ struct ShortcutEditorView: View {
             }
             ScrollView {
                 ShortcutEditorForm(draft: draft, locked: store.isRunningAnywhere(draft.value.id))
-                    .padding(28)
+                    .padding(Space.xxxl)
             }
             SheetFooter(primary: SheetAction(title: draft.isNew ? "Add shortcut" : "Save shortcut",
                                              enabled: draft.canSave && !store.isRunningAnywhere(draft.value.id),
@@ -84,11 +84,11 @@ struct ShortcutEditorForm<CommandContent: View>: View {
     @ViewBuilder var commandContent: CommandContent
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: Space.xxl) {
             heading
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 fieldLabel("Type")
-                HStack(spacing: 2) {
+                HStack(spacing: Space.xxs) {
                     ForEach(ShortcutKind.allCases, id: \.self) { kind in
                         ChoicePill(title: kind.title, selected: draft.value.kind == kind, thumb: typeTrack,
                                    icon: kind.icon) {
@@ -96,57 +96,57 @@ struct ShortcutEditorForm<CommandContent: View>: View {
                             textFocused = true
                         }
                         .focused($focusedKind, equals: kind)
-                        .overlay(RoundedRectangle(cornerRadius: 8)
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control)
                             .stroke(focusedKind == kind ? Theme.accent : .clear, lineWidth: 2))
                     }
                 }
-                .padding(3)
-                .fieldSurface(cornerRadius: 10)
+                .padding(Space.xxs)
+                .fieldSurface(cornerRadius: Radius.card)
                 .fixedSize()
                 .motion(Motion.control, value: draft.value.kind)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Shortcut type")
             }
             .disabled(locked)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 fieldLabel("Name")
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     ShortcutIconMenu(symbol: $draft.value.icon)
                     TextField(draft.value.kind == .prompt ? "Review changes" : "Run tests",
                               text: $draft.value.name)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 14))
-                        .padding(.horizontal, 10)
+                        .font(Typography.body)
+                        .padding(.horizontal, Space.md)
                         .frame(height: 36)
-                        .fieldSurface(cornerRadius: 8)
+                        .fieldSurface(cornerRadius: Radius.control)
                         .accessibilityLabel("Shortcut name")
                 }
             }
             .disabled(locked)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 HStack {
                     fieldLabel(draft.value.kind.title)
                     Spacer()
                     if draft.value.kind == .prompt {
                         Text("\(draft.value.text.count) characters")
-                            .font(.system(size: 10.5).monospacedDigit())
+                            .font(Typography.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .contentTransition(.numericText())
                     }
                 }
                 TextEditor(text: $draft.value.text)
-                    .font(draft.value.kind == .command ? .mono(12) : .system(size: 13))
+                    .font(draft.value.kind == .command ? Typography.code : Typography.body)
                     .scrollContentBackground(.hidden)
-                    .padding(9)
+                    .padding(Space.md)
                     .frame(height: draft.value.kind == .prompt ? 180 : 80)
-                    .fieldSurface(cornerRadius: 8)
+                    .fieldSurface(cornerRadius: Radius.control)
                     .focused($textFocused)
-                    .overlay(RoundedRectangle(cornerRadius: 8)
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(textFocused ? Theme.accent : .clear, lineWidth: 2))
                     .accessibilityLabel(draft.value.kind.title)
                 if locked {
                     Text("Stop the command to edit it.")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                         .transition(.fadeIn)
                 }
@@ -158,7 +158,7 @@ struct ShortcutEditorForm<CommandContent: View>: View {
             if draft.projectIDWhenPrivate == nil {
                 Label("Every project and session can use this shortcut. For one that only a single project needs, add it from that project.",
                       systemImage: "globe")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -174,15 +174,15 @@ struct ShortcutEditorForm<CommandContent: View>: View {
 
     // The shortcut's own name, so the pane says which one is open while it is renamed.
     private var heading: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(draft.value.name.isBlank ? "New shortcut" : draft.value.name)
-                    .font(.serif(19))
+                    .font(Typography.title)
                     .foregroundStyle(draft.value.name.isBlank ? Theme.secondaryText : Color.primary)
                     .lineLimit(2)
                     .accessibilityAddTraits(.isHeader)
                 Text(detail)
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
                     .foregroundStyle(Theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
@@ -208,7 +208,7 @@ struct ShortcutEditorForm<CommandContent: View>: View {
     }
 
     private func fieldLabel(_ title: String) -> some View {
-        Text(title).font(.system(size: 12, weight: .semibold))
+        Text(title).font(Typography.label)
     }
 }
 
@@ -225,14 +225,14 @@ private struct ShortcutIconMenu: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: symbol ?? "slash.circle").font(.system(size: 15))
             Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
                 .opacity(0.6)
         }
         .foregroundStyle(Theme.accent)
         .frame(width: 52, height: 36)
-        .surface(hovering ? Theme.border : Theme.field, cornerRadius: 8)
+        .surface(hovering ? Theme.border : Theme.field, cornerRadius: Radius.control)
         .contentShape(Rectangle())
         .hoverLift(hovering)
         .onPointerHover { hovering = $0 }
@@ -277,22 +277,22 @@ struct ShortcutScopePicker: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Show it in").font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text("Show it in").font(Typography.label)
                 .accessibilityHidden(true)
-            HStack(spacing: 2) {
+            HStack(spacing: Space.xxs) {
                 pill("All projects", selected: availableInAllProjects) { availableInAllProjects = true }
                 pill(Self.narrowTitle(projectName: projectName), selected: !availableInAllProjects) {
                     availableInAllProjects = false
                 }
             }
-            .padding(3)
-            .fieldSurface(cornerRadius: 10)
+            .padding(Space.xxs)
+            .fieldSurface(cornerRadius: Radius.card)
             .fixedSize()
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Show it in")
             Text(Self.help(availableInAllProjects: availableInAllProjects, projectName: projectName))
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

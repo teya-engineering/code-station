@@ -478,8 +478,8 @@ struct SessionView: View {
         let container = workspace?.name ?? project.name
         let context = session.usage?.contextFraction(for: session.agent)
         let tone = SessionTone(sessionID, store: store, runner: runner)
-        return HStack(spacing: 8) {
-            HStack(spacing: 9) {
+        return HStack(spacing: Space.md) {
+            HStack(spacing: Space.md) {
                 // These are only labels, so a click on them reaches the band under them,
                 // which acts as the window's title bar.
                 Group {
@@ -500,15 +500,15 @@ struct SessionView: View {
                     // else on the deck. It holds its width while there is any title left to
                     // give up, and is only cut short once the title is gone.
                     Text(container)
-                        .font(.system(size: 13.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .layoutPriority(1)
                     Text("/")
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(.tertiary)
                     if session.isTroubleshooting {
-                        MonoChip(text: "TROUBLESHOOT", size: 9, tint: Theme.secret)
+                        MonoChip(text: "TROUBLESHOOT", size: Typography.Size.micro, tint: Theme.secret)
                     }
                 }
                 .allowsHitTesting(false)
@@ -526,7 +526,7 @@ struct SessionView: View {
             readings(session: session, fit: fit)
                 .layoutPriority(1)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         // The window reading closes the band the same way the rule does, so it is drawn
         // with it and stays behind anything the band opens.
         .headerBand(height: Self.identityDeckHeight) {
@@ -548,7 +548,7 @@ struct SessionView: View {
         // The deck stands for both of a session's conversations, so a Design turn is what
         // it counts while Design is the side running.
         let live = LiveConversation.of(sessionID, store: store, runner: runner) ?? session
-        return HStack(spacing: 9) {
+        return HStack(spacing: Space.md) {
             SessionAgentIndicator(session: session) { target in
                 tab = .conversation
                 previews.hide()
@@ -616,7 +616,7 @@ struct SessionView: View {
     private func destinationRow(session: ChatSession, project: Project,
                                 recap: SessionRecap?, fit: RailFit,
                                 scrollsTabs: Bool = false) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             HeaderTabDeck(tabs: headerTabs(for: session),
                           height: Self.destinationDeckHeight,
                           scrollable: scrollsTabs)
@@ -625,8 +625,8 @@ struct SessionView: View {
         }
         // The deck's own tabs carry the inset that lines their words up with the name on
         // the band above; the rail's buttons carry theirs inside the glyph's seat.
-        .padding(.leading, 9)
-        .padding(.trailing, 14)
+        .padding(.leading, Space.md)
+        .padding(.trailing, Space.lg)
         .headerBand(Theme.statusBand, height: Self.destinationDeckHeight)
     }
 
@@ -635,7 +635,7 @@ struct SessionView: View {
     // words, so the two groups read as different kinds of thing without a hover.
     private func rail(session: ChatSession, project: Project, recap: SessionRecap?,
                       fit: RailFit) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             switch tab {
             case .changes where workingTreeChanges(session) != nil:
                 askWholeChangeButton
@@ -748,7 +748,7 @@ struct SessionView: View {
     // Find stays one click away. Everything else done to the tree sits behind the menu,
     // which is the only place those actions live.
     private var explorerActions: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Space.xxs) {
             HeaderRailButton(icon: "magnifyingglass", label: "Find files or text",
                              hint: "Shift twice for files, Ctrl+H for text") {
                 explorerCommand = .find(nil)
@@ -863,7 +863,7 @@ struct SessionView: View {
     // Actions for the session as a whole stay together at the end of the rail.
     private func utilities(session: ChatSession, project: Project,
                            recap: SessionRecap?, showsWords: Bool) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if let worktreePath = session.worktreePath, let app = WorktreeOpener.current {
                 openInButton(path: worktreePath, app: app, showsWord: showsWords)
             }
@@ -992,7 +992,7 @@ struct SessionView: View {
                 regenerating: runner.isRecapping(visibleConversationID),
                 regenerate: generateRecap,
                 close: closeRecap)
-                .padding(.trailing, 20)
+                .padding(.trailing, Space.xxl)
                 .offset(y: Self.destinationDeckHeight + 7)
                 .transition(recapArrivesUnasked ? .identity : .popover(reduceMotion: reduceMotion))
                 // Once it is in place, closing it fades out like any other.
@@ -1160,13 +1160,13 @@ struct SessionView: View {
     }
 
     private func designUpdateStrip(_ session: ChatSession) -> some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Space.md) {
             Image(systemName: "paintbrush.pointed.fill")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
             Text("A newer approved Design is available.")
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
             Spacer(minLength: 10)
-            ActionButton(title: "Send update", tone: .outlined, height: 27, size: 11) {
+            ActionButton(title: "Send update", tone: .outlined, height: ControlHeight.md, size: Typography.Size.caption) {
                 switch DesignHandoffLifecycle.sendLatestDesign(
                     to: session.id, store: store, runner: runner) {
                 case .success:
@@ -1177,7 +1177,7 @@ struct SessionView: View {
             }
         }
         .foregroundStyle(Theme.accent)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .frame(height: 36)
         .background(Theme.accent.opacity(0.08))
         .overlay(alignment: .bottom) {
@@ -1518,7 +1518,7 @@ struct SessionView: View {
             // of each.
             if let rebuildable = rebuildableCheckouts.first {
                 WarningStrip("\(name) not found at \(rebuildable.path.abbreviatedPath). It was removed outside the app.") {
-                    ActionButton(title: "Rebuild", tone: .outlined, height: 26, size: 11.5) {
+                    ActionButton(title: "Rebuild", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) {
                         confirmRebuild()
                     }
                 }
@@ -1709,8 +1709,8 @@ struct SessionView: View {
                     .environment(\.transcriptFind, transcriptFind)
                     .environment(\.transcriptReply, replyAction)
                     .environment(\.explorerRoots, explorerRoots(for: session))
-                    .padding(.horizontal, 26)
-                    .padding(.vertical, 22)
+                    .padding(.horizontal, Space.xxxl)
+                    .padding(.vertical, Space.xxl)
                     // Capped so prose keeps a readable line length, and centered so a
                     // wide window pads both sides instead of piling space on the right.
                     // Wider than a chat app's usual measure: diffs and tool output make
@@ -1740,8 +1740,7 @@ struct SessionView: View {
                     // rows above it glide up rather than jumping. Keyed on the shape of
                     // the transcript, not its text, so it plays once per whole arrival
                     // and never while a line is still being typed into.
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.2),
-                               value: shape.settled)
+                    .motion(Motion.reveal, value: shape.settled)
             }
             // Opening a transcript starts at the end, where the conversation is.
             .defaultScrollAnchor(.bottom)
@@ -1838,14 +1837,14 @@ struct SessionView: View {
         let reviewRounds = sentReviews(in: session)
         let lineup = SecondOpinionLineup.reviewers(installed: AgentKind.allCases.filter { runner.executable(for: $0) != nil },
                                                    author: session.agent)
-        return VStack(alignment: .leading, spacing: 18) {
+        return VStack(alignment: .leading, spacing: Space.xl) {
             // Only for a session that has nothing to say yet, never for one whose
             // conversation is still being read in.
             if session.messages.isEmpty, !store.isTranscriptLoading(sessionID) {
                 Text("Ask for a change. \(session.agent.title) runs in the project folder, so what it edits is your working tree.")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
-                    .padding(.top, 8)
+                    .padding(.top, Space.md)
             }
 
             let hiddenCount = transcriptWindow.hiddenCount(totalCount: session.messages.count)
@@ -1941,9 +1940,9 @@ struct SessionView: View {
             }
 
             if case .reconnecting(let message) = state {
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: Space.md) {
                     Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: Space.xxs) {
                         Text("Codex is reconnecting")
                             .fontWeight(.semibold)
                         Text(message)
@@ -1956,10 +1955,10 @@ struct SessionView: View {
             }
 
             if state == .stalled {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    HStack(alignment: .top, spacing: Space.md) {
                         Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: Space.xxs) {
                             Text("Codex has stopped responding")
                                 .fontWeight(.semibold)
                             Text("There has been no output for five minutes, with no command, question, or background task in progress. "
@@ -1968,14 +1967,14 @@ struct SessionView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    HStack(spacing: 8) {
+                    HStack(spacing: Space.md) {
                         Spacer(minLength: 0)
                         ActionButton(title: "Stop", tone: .outlined,
-                                     height: 28, size: 11.5) {
+                                     height: ControlHeight.md, size: Typography.Size.detail) {
                             runner.stop(sessionID)
                         }
                         if runner.canRetryStalled(sessionID, store: store) {
-                            ActionButton(title: "Retry turn", height: 28, size: 11.5) {
+                            ActionButton(title: "Retry turn", height: ControlHeight.md, size: Typography.Size.detail) {
                                 runner.retryStalled(sessionID, store: store)
                             }
                         }
@@ -2002,7 +2001,7 @@ struct SessionView: View {
                 .contains { !$0.files.isEmpty }
         } ?? false
         if hasChanges, !state.isBusy, runner.question(sessionID) == nil {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 ActionButton(title: "Review changes") {
                     openChanges()
                 }
@@ -2526,7 +2525,7 @@ struct SessionView: View {
         // Animating every streamed token makes the transcript jitter, so only whole
         // arrivals - a message, a tool row, a finished line - are worth animating.
         if animated, !reduceMotion {
-            withAnimation(.easeOut(duration: 0.18), completionCriteria: .removed) {
+            withAnimation(Motion.reveal, completionCriteria: .removed) {
                 proxy.scrollTo(bottomAnchor, anchor: .bottom)
             } completion: {
                 // The composer and rows can change size while the scroll is moving.
@@ -2637,9 +2636,9 @@ struct SessionView: View {
     // reason. Running the tests for what was just written is the next thing that happens
     // as much as sending another prompt is.
     @ViewBuilder private func runChoices(_ session: ChatSession, project: Project) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             if session.settings?.mcpServersEnabled == false {
-                MonoChip(text: "MCP off", size: 10.5, bordered: true)
+                MonoChip(text: "MCP off", size: Typography.Size.caption, bordered: true)
             }
             SessionRunSettingsControls(sessionID: sessionID)
             Spacer(minLength: 12)
@@ -2744,27 +2743,27 @@ struct SessionView: View {
         if session.agent == .claudeCode,
            fraction >= SessionRunner.nearlyFullContext, !actions.isEmpty,
            !runner.isNudgeDismissed(sessionID) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                 Text("CONTEXT IS NEARLY FULL · \(Int((fraction * 100).rounded()))%")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .kerning(1.2)
                 Spacer(minLength: 8)
                 if runner.canCompactContext(sessionID, store: store) {
-                    ActionButton(title: "Compact", tone: .green, height: 26, size: 12,
+                    ActionButton(title: "Compact", tone: .green, height: ControlHeight.sm, size: Typography.Size.detail,
                                  action: confirmCompact)
                         .appTooltip("Summarises the conversation so far and carries on from it.")
                 }
-                InlineLink(title: "Clear", size: 12) {
+                InlineLink(title: "Clear", size: Typography.Size.detail) {
                     runner.clearContext(sessionID, store: store)
                 }
                 .appTooltip("Starts the next turn on a fresh conversation in the same folder.")
                 Button { runner.dismissNudge(sessionID) } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(Typography.caption.weight(.medium))
                         .foregroundStyle(.secondary)
-                        .padding(2)
+                        .padding(Space.xxs)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2772,10 +2771,10 @@ struct SessionView: View {
                 .appTooltip("Hide this until the window is dealt with")
             }
             .foregroundStyle(Theme.attention)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(Theme.field, cornerRadius: 8, border: Theme.attention.opacity(0.4))
+            .surface(Theme.field, cornerRadius: Radius.control, border: Theme.attention.opacity(0.4))
             .transition(dismissal)
         }
     }

@@ -28,22 +28,22 @@ struct TurnSeal: View {
         Tweened(progress: arrival) { progress in
             let look = TurnSealArrival(progress: reduceMotion ? 1 : progress)
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
+                HStack(spacing: Space.lg) {
                     metadata(look)
                     reviewButton
                 }
-                VStack(alignment: .leading, spacing: 9) {
-                    FlowRow(spacing: 9) { metadata(look) }
+                VStack(alignment: .leading, spacing: Space.md) {
+                    FlowRow(spacing: Space.md) { metadata(look) }
                     if receipt.hasChanges, review != nil {
                         HStack { Spacer(minLength: 0); reviewButton }
                     }
                 }
             }
-            .padding(.leading, 11)
-            .padding(.trailing, 7)
-            .padding(.vertical, 7)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8)
+            .padding(.leading, Space.lg)
+            .padding(.trailing, Space.sm)
+            .padding(.vertical, Space.sm)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.control))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(tint.opacity(0.3), lineWidth: 1))
             .opacity(look.opacity)
             .offset(y: look.offset)
@@ -69,7 +69,7 @@ struct TurnSeal: View {
     private var tint: Color { ending.outcome == .finished ? Theme.addition : Theme.attentionText }
 
     @ViewBuilder private func metadata(_ look: TurnSealArrival) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             ZStack {
                 Circle().fill(tint.opacity(0.12))
                 if ending.outcome == .finished {
@@ -79,7 +79,7 @@ struct TurnSeal: View {
                         .frame(width: 12, height: 12)
                 } else {
                     Image(systemName: ending.outcome == .stopped ? "pause.fill" : "exclamationmark")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(Typography.micro)
                         .foregroundStyle(tint)
                 }
             }
@@ -87,9 +87,9 @@ struct TurnSeal: View {
             .scaleEffect(ending.outcome == .finished ? look.markScale : 1)
             .accessibilityHidden(true)
             Text(ending.outcome == .finished ? (reviewed ? "Reviewed" : "Finished") : "Stopped")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
             Text("\(ending.outcome == .finished ? "in" : "after") \(TurnReceipt.clock(ending.duration))")
-                .font(.system(size: 10))
+                .font(Font.system(size: Typography.Size.micro))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -98,10 +98,10 @@ struct TurnSeal: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel((reviewed ? "Changes reviewed. " : "") + receipt.spokenSummary(ending))
 
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             if receipt.hasChanges {
                 Text(receipt.filePhrase)
-                HStack(spacing: 5) {
+                HStack(spacing: Space.xs) {
                     Text("+\(receipt.added)").foregroundStyle(Theme.addition)
                     Text("\u{2212}\(receipt.removed)").foregroundStyle(Theme.deletion)
                 }
@@ -110,8 +110,8 @@ struct TurnSeal: View {
                 Text("No files changed").foregroundStyle(.secondary)
             }
         }
-        .font(.system(size: 11))
-        .padding(.leading, 12)
+        .font(Typography.caption)
+        .padding(.leading, Space.lg)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 1, height: 14) }
         .frame(height: 30)
         .fixedSize()
@@ -121,11 +121,11 @@ struct TurnSeal: View {
     @ViewBuilder private var reviewButton: some View {
         if receipt.hasChanges, let review {
             ActionButton(title: reviewed ? "View changes" : "Review changes", tone: .green,
-                         height: 30, size: 10, trailingIcon: "arrow.right", action: review)
+                         height: ControlHeight.md, size: Typography.Size.micro, trailingIcon: "arrow.right", action: review)
                 .focusable()
                 .focused($reviewFocused)
                 .focusEffectDisabled()
-                .overlay(RoundedRectangle(cornerRadius: 7.5)
+                .overlay(RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(reviewFocused ? Theme.accent : .clear, lineWidth: 2).padding(-3))
                 .onKeyPress(keys: [.space, .return]) { _ in review(); return .handled }
                 .accessibilityHint("Opens the uncommitted changes, including edits made before this turn, or the commits this turn made when nothing is left uncommitted")
@@ -139,27 +139,27 @@ struct TurnReviewFooter: View {
     @FocusState private var focused: Int?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             ActionButton(title: "Back to conversation", tone: .outlined,
-                         height: 30, size: 11, icon: "arrow.left", action: back)
+                         height: ControlHeight.md, size: Typography.Size.caption, icon: "arrow.left", action: back)
                 .focusable()
                 .focused($focused, equals: 0)
                 .focusEffectDisabled()
-                .overlay(RoundedRectangle(cornerRadius: 7.5)
+                .overlay(RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(focused == 0 ? Theme.accent : .clear, lineWidth: 2).padding(-3))
                 .onKeyPress(keys: [.space, .return]) { _ in back(); return .handled }
             Spacer(minLength: 0)
-            ActionButton(title: "Mark reviewed", tone: .green, height: 30, size: 11,
+            ActionButton(title: "Mark reviewed", tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
                          icon: "checkmark", action: markReviewed)
                 .focusable()
                 .focused($focused, equals: 1)
                 .focusEffectDisabled()
-                .overlay(RoundedRectangle(cornerRadius: 7.5)
+                .overlay(RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(focused == 1 ? Theme.accent : .clear, lineWidth: 2).padding(-3))
                 .onKeyPress(keys: [.space, .return]) { _ in markReviewed(); return .handled }
                 .accessibilityHint("Marks this turn reviewed without committing changes")
         }
-        .padding(12)
+        .padding(Space.lg)
         .background(Theme.card)
         .overlay(alignment: .top) { Divider().overlay(Theme.hairline) }
         .onAppear { focused = 0 }

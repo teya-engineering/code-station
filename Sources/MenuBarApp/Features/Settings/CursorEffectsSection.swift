@@ -8,23 +8,23 @@ struct CursorEffectsSection: View {
 
     var body: some View {
         SettingsCard {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xl) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text("Cursor effects")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                     Text("A little extra life around the pointer.")
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: Space.md), GridItem(.flexible(), spacing: Space.md)], spacing: Space.md) {
                     ForEach(CursorEffect.allCases) { choice($0) }
                 }
             }
-            .padding(14)
+            .padding(Space.lg)
 
             SettingsRowDivider()
-            schedule.padding(14)
+            schedule.padding(Space.lg)
         }
         .transaction { if reduced { $0.animation = nil; $0.disablesAnimations = true } }
         .onChange(of: settings.cursorEffects.effect) { _, effect in
@@ -37,18 +37,18 @@ struct CursorEffectsSection: View {
 
     private var schedule: some View {
         let off = settings.cursorEffects.effect == .none
-        return HStack(alignment: .center, spacing: 20) {
-            VStack(alignment: .leading, spacing: 2) {
+        return HStack(alignment: .center, spacing: Space.xxl) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Show")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(off ? "Pick an effect first." : settings.cursorEffects.schedule.detail)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 ForEach(CursorEffectSchedule.allCases) { choice in
                     let selected = settings.cursorEffects.schedule == choice
                     ChoicePill(title: choice.title, selected: selected, enabled: !off, thumb: scheduleThumb) {
@@ -85,14 +85,14 @@ private struct CursorEffectChoice: View {
 
     var body: some View {
         Button(action: choose) {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 CursorEffectThumbnail(effect: effect).frame(width: 30, height: 42).accessibilityHidden(true)
                 copy
             }
-            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-            .surface(selected ? Theme.accent.opacity(0.08) : Theme.field, cornerRadius: 9,
+            .padding(Space.md).frame(maxWidth: .infinity, alignment: .leading)
+            .surface(selected ? Theme.accent.opacity(0.08) : Theme.field, cornerRadius: Radius.card,
                      border: selected || focused ? Theme.accent : Theme.settingsBorder)
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).hoverLift(amount: reduceMotion ? 1 : Motion.lift).focused($focused)
@@ -104,15 +104,15 @@ private struct CursorEffectChoice: View {
     }
 
     private var copy: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 3) {
-                Text(effect.title).font(.system(size: 11, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(spacing: Space.xxs) {
+                Text(effect.title).font(Typography.caption.weight(.semibold))
                 Spacer(minLength: 0)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 10)).foregroundStyle(selected ? Theme.accent : Color.secondary)
+                    .font(Font.system(size: Typography.Size.micro)).foregroundStyle(selected ? Theme.accent : Color.secondary)
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
             }
-            Text(effect.subtitle).font(.system(size: 9)).foregroundStyle(.secondary)
+            Text(effect.subtitle).font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -184,10 +184,10 @@ struct CursorEffectThumbnail: View {
             }
             GeometryReader { geometry in
                 Image(systemName: "cursorarrow").font(.system(size: 14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.onFill)
                     .position(x: geometry.size.width * 0.56, y: geometry.size.height * 0.48)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.inset))
     }
 }

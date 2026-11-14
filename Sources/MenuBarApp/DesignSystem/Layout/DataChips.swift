@@ -8,8 +8,8 @@ import SwiftUI
 struct DiffPair: View {
     let added: Int
     let removed: Int
-    var size: CGFloat = 11
-    var spacing: CGFloat = 5
+    var size: CGFloat = Typography.Size.caption
+    var spacing: CGFloat = Space.xs
     var weight: Font.Weight = .semibold
 
     var body: some View {
@@ -29,7 +29,7 @@ struct DiffPair: View {
 // one reads as a value rather than a state, which is what a command or an argument is.
 struct MonoChip: View {
     let text: String
-    var size: CGFloat = 10
+    var size: CGFloat = Typography.Size.micro
     var tint: Color? = nil
     var bordered = false
     var mono = true

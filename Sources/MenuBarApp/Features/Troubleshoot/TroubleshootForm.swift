@@ -102,7 +102,7 @@ struct TroubleshootProblemEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             feedback
             editor
         }
@@ -161,15 +161,15 @@ struct TroubleshootProblemEditor: View {
                          accessibilityLabel: "Problem description",
                          animatesKeyword: false,
                          onHeightChange: { _ in })
-                    .padding(.horizontal, 5)
-                    .padding(10)
+                    .padding(.horizontal, Space.xs)
+                    .padding(Space.md)
                     .frame(height: isBrief ? 174 : 120)
                 if problem.isEmpty {
                     Text("Describe what is failing, what you expected, and anything you already checked. Paste a traceId or a Grafana trace link and the agent starts from that trace.")
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 15)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, Space.xl)
+                        .padding(.vertical, Space.md)
                         .allowsHitTesting(false)
                 }
             }
@@ -178,17 +178,17 @@ struct TroubleshootProblemEditor: View {
 
             Divider().overlay(Theme.hairline)
 
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 if attachments.isEmpty {
                     Image(systemName: "arrow.down.doc")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(dropTargeted ? "Drop files here" : "Drag or paste files here, or add them from Finder")
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
+                        HStack(spacing: Space.sm) {
                             ForEach(attachments) { attachment in
                                 AttachmentChip(url: attachment.url) {
                                     attachments.removeAll { $0.id == attachment.id }
@@ -210,33 +210,33 @@ struct TroubleshootProblemEditor: View {
                                        action: toggleDictation)
                 }
                 Button(action: chooseFiles) {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xs) {
                         Image(systemName: "paperclip")
                         Text(isBrief ? "Add evidence" : "Add files")
                     }
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .fieldSurface(cornerRadius: 7)
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.sm)
+                    .fieldSurface(cornerRadius: Radius.control)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .hoverLift()
             }
             .motion(Motion.reveal, value: attachments.map(\.id))
-            .padding(10)
+            .padding(Space.md)
 
             if let footer {
                 Divider().overlay(Theme.hairline)
                 footer
-                    .background(UnevenRoundedRectangle(bottomLeadingRadius: 11,
-                                                       bottomTrailingRadius: 11)
+                    .background(UnevenRoundedRectangle(bottomLeadingRadius: Radius.floating,
+                                                       bottomTrailingRadius: Radius.floating)
                         .fill(Theme.sunken))
             }
         }
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(listening ? Theme.listenEdge : dropTargeted || focused ? Theme.accent : Theme.border,
                     lineWidth: dropTargeted ? 2 : 1))
         .dropDestination(for: URL.self) { urls, _ in
@@ -264,29 +264,29 @@ struct TroubleshootProblemEditor: View {
     // off the text on every keystroke, so a pasted trace id lands as a chip at once.
     private var recognisedRow: some View {
         let details = TroubleshootRecognised.details(in: problem, projects: projects)
-        return HStack(spacing: 6) {
+        return HStack(spacing: Space.sm) {
             if details.isEmpty {
                 Text("Paste a trace id, a Grafana link or a time and it shows up here.")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.tertiary)
             } else {
                 Text("The agent starts from")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.tertiary)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         ForEach(details) { detail in
-                            HStack(spacing: 5) {
+                            HStack(spacing: Space.xs) {
                                 Image(systemName: detail.icon)
                                     .font(.system(size: 9.5, weight: .semibold))
                                 Text(detail.label)
-                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .font(Typography.label)
                                     .lineLimit(1)
                             }
                             .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 8)
+                            .padding(.horizontal, Space.md)
                             .frame(height: 22)
-                            .surface(Theme.accent.opacity(0.09), cornerRadius: 7,
+                            .surface(Theme.accent.opacity(0.09), cornerRadius: Radius.control,
                                      border: Theme.accent.opacity(0.22))
                         }
                     }
@@ -296,8 +296,8 @@ struct TroubleshootProblemEditor: View {
             Spacer(minLength: 0)
         }
         .frame(minHeight: 24)
-        .padding(.horizontal, 15)
-        .padding(.bottom, 10)
+        .padding(.horizontal, Space.xl)
+        .padding(.bottom, Space.md)
         .motion(Motion.reveal, value: details)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(details.isEmpty

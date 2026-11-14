@@ -63,7 +63,7 @@ struct NewSessionView: View {
             // clipped, and since it is clipped from the middle out, the footer and its
             // Create button are the first things to go.
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     SessionProjectCard(project: project, usesWorktree: useWorktree,
                                        report: freshness, startPoint: $startPoint,
                                        carryChanges: $carryChanges,
@@ -82,11 +82,11 @@ struct NewSessionView: View {
                               path: useWorktree ? planned.path.abbreviatedPath : project.collapsedPath)
                     ])
                     Text(footerNote)
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.horizontal, Space.xxl)
+                .padding(.bottom, Space.xxl)
             }
             .frame(maxHeight: 470)
 
@@ -122,19 +122,19 @@ struct NewSessionView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text("New session in \(project.name)")
-                .font(.serif(22, .semibold))
+                .font(Typography.display)
                 .lineLimit(2)
             Text(project.isGitRepository
                  ? "\(project.name) is a git repository, so this session can have a checkout of its own."
                  : "This folder is not a git repository, so the session works in it directly.")
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
+        .padding(Space.xxl)
     }
 
     private var footerNote: String {
@@ -304,44 +304,44 @@ struct FreshnessNotice: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(Theme.attentionText)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     if let concern {
                         Text(concern)
                             .foregroundStyle(Theme.attentionText)
-                            .font(.system(size: 12.5))
+                            .font(Typography.body)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if report.fetchFailed && retry == nil {
                         if let advice = report.fetchAdvice {
                             Text(advice)
-                                .font(.system(size: 12))
+                                .font(Typography.detail)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         if let failure = report.fetchFailure {
                             Text(failure)
-                                .font(.mono(11.5))
+                                .font(Typography.code)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(6)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 7)
+                                .padding(.horizontal, Space.md)
+                                .padding(.vertical, Space.sm)
                                 .frame(maxWidth: 520, alignment: .leading)
-                                .background(Theme.sunken, in: RoundedRectangle(cornerRadius: 6))
-                                .padding(.top, 3)
+                                .background(Theme.sunken, in: RoundedRectangle(cornerRadius: Radius.inset))
+                                .padding(.top, Space.xxs)
                         }
                     }
                     if report.dirty {
                         Text(forWorktree
                              ? "The project folder has uncommitted changes. A worktree starts from the last commit, so they stay behind unless you bring them along."
                              : "The project folder has uncommitted changes. This session edits them directly.")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -358,11 +358,11 @@ struct FreshnessNotice: View {
                     }
                 }
                 .frame(minHeight: 30)
-                .padding(.leading, 19)
-                .padding(.vertical, 2)
+                .padding(.leading, Space.xxl)
+                .padding(.vertical, Space.xxs)
             }
             if report.isStale {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     if forWorktree, let remote = report.remoteRef {
                         choice(.remote,
                                title: "Start from \(remote)",
@@ -384,7 +384,7 @@ struct FreshnessNotice: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(Space.lg)
         .motion(Motion.reveal, value: retry)
         .motion(Motion.reveal, value: report)
         .background(Theme.attention.opacity(0.10))
@@ -412,17 +412,17 @@ struct FreshnessNotice: View {
             retryActOuts += 1
             retryFetch()
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .actOut("arrow.clockwise", trigger: retryActOuts)
                 Text(retryTitle)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .fixedSize()
             }
             .foregroundStyle(Color.primary)
-            .padding(.horizontal, 13)
-            .frame(height: 30)
+            .padding(.horizontal, Space.lg)
+            .frame(height: ControlHeight.md)
             .background(Theme.card, in: Capsule())
             .overlay(Capsule().stroke(Theme.border))
             .contentShape(Capsule())
@@ -433,44 +433,44 @@ struct FreshnessNotice: View {
     }
 
     private var carryToggle: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Toggle(isOn: $carryChanges) {
                 Text("Bring the uncommitted changes into the worktree")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .toggleStyle(.appCheckbox)
             if carryChanges, let status = carryStatus {
                 Text(status.text)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(status.warns ? AnyShapeStyle(Theme.attentionText)
                                                   : AnyShapeStyle(.secondary))
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 24)
+                    .padding(.leading, Space.xxxl)
                     .contentTransition(.opacity)
                     .motion(Motion.control, value: status.text)
                     .transition(reduceMotion ? .opacity : .fadeIn)
             }
         }
         .motion(Motion.reveal, value: carryChanges)
-        .padding(.leading, 19)
-        .padding(.top, 2)
+        .padding(.leading, Space.xxl)
+        .padding(.top, Space.xxs)
     }
 
     private var fastForwardToggle: some View {
         let branch = report.defaultBranch ?? "the default branch"
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: Space.xs) {
             Toggle(isOn: $updateDefaultBranch) {
                 Text("Also update \(branch) to \(report.remoteRef ?? "the remote branch")")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .toggleStyle(.appCheckbox)
             Text("Moves \(branch) forward \(counted(report.defaultBranchBehind, "commit")) in the project folder. The uncommitted changes stay in place.")
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 24)
+                .padding(.leading, Space.xxxl)
         }
         .padding(.leading, 39)
     }
@@ -502,19 +502,19 @@ struct FreshnessNotice: View {
             startPoint = value
             onChoose()
         } label: {
-            HStack(alignment: .top, spacing: 7) {
+            HStack(alignment: .top, spacing: Space.sm) {
                 Image(systemName: startPoint == value ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(startPoint == value ? AnyShapeStyle(Theme.accent)
                                                          : AnyShapeStyle(.secondary))
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                     .motion(Motion.control, value: startPoint == value)
                     .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                     Text(detail)
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                 }
                 .multilineTextAlignment(.leading)
@@ -523,9 +523,9 @@ struct FreshnessNotice: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 6)
+        .hoverFill(cornerRadius: Radius.inset)
         .accessibilityAddTraits(startPoint == value ? .isSelected : [])
-        .padding(.leading, 19)
+        .padding(.leading, Space.xxl)
     }
 
     private var updateTitle: String? {
@@ -596,9 +596,9 @@ private struct FetchRetryProgress: View {
     private var wait: Int { Int(attempt.wait) }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             LoopSpinner(colour: Theme.accent, size: 14)
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 Text("Fetching from origin")
                 Text("\(elapsed) of \(wait) s")
                     .foregroundStyle(.secondary)
@@ -606,7 +606,7 @@ private struct FetchRetryProgress: View {
                     .contentTransition(.numericText())
                     .motion(Motion.control, value: elapsed)
             }
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .fixedSize()
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -619,7 +619,7 @@ private struct FetchRetryProgress: View {
             .frame(maxWidth: 180)
             .frame(height: 3)
             InlineLink(title: "Stop", action: stop)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, Space.sm)
                 .accessibilityLabel("Stop fetching")
         }
         .accessibilityElement(children: .contain)
@@ -667,11 +667,11 @@ struct CheckoutModePicker: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 14) {
+            HStack(spacing: Space.lg) {
                 choices
                 helper
             }
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 choices
                 helper
             }
@@ -680,13 +680,13 @@ struct CheckoutModePicker: View {
 
     private var helper: some View {
         Text(detail)
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private var choices: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             ChoicePill(title: "Worktree", selected: usesWorktree,
                        enabled: supportsWorktree, choose: selectWorktree)
                 .appTooltip { worktreeTooltip }

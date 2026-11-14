@@ -218,7 +218,7 @@ struct ChangesView: View {
                         .id(toast.id)
                 }
             }
-            .padding(.bottom, 16)
+            .padding(.bottom, Space.xl)
         }
         .overlay { wholeChangeCard }
         .motion(Motion.reveal, value: navigation.askingWholeChange)
@@ -280,19 +280,19 @@ struct ChangesView: View {
     }
 
     private var cleanContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Space.xl) {
             PaneMessage(icon: "checkmark.seal", title: "No uncommitted changes",
                         detail: "\(repositoryName) has no pending changes.\n" + syncStatus) {
                 ActionButton(title: "View commit history") { mode = .history }
             }
             .frame(maxHeight: 260)
             if let subject = snapshot?.lastCommitSubject {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Latest commit").font(.system(size: 12, weight: .semibold))
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    Text("Latest commit").font(Typography.label)
                     Button { openLatestCommit = true; mode = .history } label: {
                         HStack {
                             Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                            Text(subject).font(.system(size: 13, weight: .medium))
+                            Text(subject).font(Typography.body.weight(.medium))
                             Spacer()
                             Image(systemName: "chevron.right")
                         }.contentShape(Rectangle())
@@ -300,19 +300,19 @@ struct ChangesView: View {
                     .hoverFill()
                     if let latestCommit {
                         Text("\(latestCommit.shortHash) · \(latestCommit.author) · \(latestCommit.relativeDate)")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .font(Typography.caption).foregroundStyle(.secondary)
                     } else if let date = snapshot?.lastCommitDate {
-                        Text(date, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(date, style: .relative).font(Typography.caption).foregroundStyle(.secondary)
                     }
                     Text(snapshot?.upstream.map { "Tracking " + $0 } ?? "No upstream branch")
-                        .font(.mono(11)).foregroundStyle(.secondary)
+                        .font(Typography.data).foregroundStyle(.secondary)
                 }
-                .padding(20).background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+                .padding(Space.xxl).background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.floating))
+                .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.border))
                 .frame(maxWidth: 660)
             }
             Spacer()
-        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.padding(Space.xxxl).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func announce(_ text: String) {
@@ -322,7 +322,7 @@ struct ChangesView: View {
 
     private func versionHeader(_ title: String, version: GitInspector.CopyVersion, file: GitChange) -> some View {
         HStack {
-            Text(title).font(.system(size: 12))
+            Text(title).font(Typography.detail)
             Spacer()
             copyButton(version, file: file, label: "Copy")
         }.frame(maxWidth: .infinity)
@@ -339,9 +339,9 @@ struct ChangesView: View {
                 Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
             }
-            .font(.system(size: 12)).padding(8)
+            .font(Typography.detail).padding(Space.md)
             .foregroundStyle(isCopied ? Theme.addition : Color.primary)
-            .background(Theme.field, in: RoundedRectangle(cornerRadius: 7)).contentShape(Rectangle())
+            .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control)).contentShape(Rectangle())
         }.buttonStyle(.plain)
         .hoverLift()
         .motion(Motion.pop, value: isCopied)
@@ -378,34 +378,34 @@ struct ChangesView: View {
 
     private var workspaceBand: some View {
         HStack {
-            Text("Workspace").font(.system(size: 13, weight: .semibold))
+            Text("Workspace").font(Typography.body.weight(.semibold))
             Spacer()
             Text(counted(repositories.count, "project"))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(Typography.caption).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
     // The header names the project only while the navigator is hidden, so the name is
     // never shown twice.
     private func header(compact: Bool, namesProject: Bool) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: Space.sm) {
             if let snapshot, snapshot.state == .ready {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     if namesProject && !compact { projectLabel }
                     branchControl(snapshot)
                     if !compact {
                         Spacer(minLength: 0)
                         ViewThatFits(in: .horizontal) {
-                            Text(syncStatus).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize()
+                            Text(syncStatus).font(Typography.caption).foregroundStyle(.secondary).fixedSize()
                             Color.clear.frame(width: 0, height: 0)
                         }.layoutPriority(-1)
                         remoteControls(snapshot, compact: false)
                     }
                 }
                 if compact {
-                    HStack(spacing: 8) {
+                    HStack(spacing: Space.md) {
                         if namesProject { projectLabel }
                         Spacer(minLength: 0)
                         remoteControls(snapshot, compact: true)
@@ -419,12 +419,12 @@ struct ChangesView: View {
 
     private func branchControl(_ snapshot: GitSnapshot) -> some View {
         Button { showBranches() } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                Text(snapshot.branch).font(.mono(12, .medium)).lineLimit(1).truncationMode(.middle)
+                Text(snapshot.branch).font(Typography.code.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
             }
-            .padding(8).background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
+            .padding(Space.md).background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
             .contentShape(Rectangle())
             .hoverLift()
         }.buttonStyle(.plain)
@@ -434,11 +434,11 @@ struct ChangesView: View {
     }
 
     private func remoteControls(_ snapshot: GitSnapshot, compact: Bool) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if commitSucceeded {
-                HStack(spacing: 5) {
+                HStack(spacing: Space.xs) {
                     ChangesSuccessMark()
-                    if !compact { Text("Committed locally").font(.system(size: 11)) }
+                    if !compact { Text("Committed locally").font(Typography.caption) }
                 }
                 .foregroundStyle(Theme.accent)
                 .accessibilityElement(children: .ignore)
@@ -456,11 +456,11 @@ struct ChangesView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .actOut("arrow.clockwise", trigger: fetches)
-                    .padding(8).contentShape(Rectangle())
+                    .padding(Space.md).contentShape(Rectangle())
                     .hoverLift(amount: Motion.smallLift)
             }.buttonStyle(.plain).disabled(busy)
                 .appTooltip("Fetch from origin").accessibilityLabel("Fetch from origin")
-            Image(systemName: "ellipsis").padding(8).contentShape(Rectangle())
+            Image(systemName: "ellipsis").padding(Space.md).contentShape(Rectangle())
                 .hoverLift(amount: Motion.smallLift)
                 .appMenu { repositoryMenu(snapshot) }
                 .accessibilityLabel("Repository actions for " + repositoryName).disabled(busy)
@@ -469,13 +469,13 @@ struct ChangesView: View {
 
     // A menu when there is a choice to make, a plain name when there is not.
     @ViewBuilder private var projectLabel: some View {
-        let label = HStack(spacing: 7) {
+        let label = HStack(spacing: Space.sm) {
             ProjectDot(tint: Theme.projectTint(for: repositoryName), size: 8)
-            Text(repositoryName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            if repositories.count > 1 { Image(systemName: "chevron.down").font(.system(size: 10)) }
+            Text(repositoryName).font(Typography.body.weight(.semibold)).lineLimit(1)
+            if repositories.count > 1 { Image(systemName: "chevron.down").font(Font.system(size: Typography.Size.micro)) }
         }
         if repositories.count > 1 {
-            label.padding(7).surface(Theme.field, cornerRadius: 7).contentShape(Rectangle())
+            label.padding(Space.sm).surface(Theme.field, cornerRadius: Radius.control).contentShape(Rectangle())
                 .hoverLift()
                 .appMenu {
                     repositories.map { repository in
@@ -504,12 +504,12 @@ struct ChangesView: View {
             else { title = "Up to date" }
         }
         return ActionButton(title: title, tone: .outlined,
-                            height: 30, size: 12, icon: action == nil ? "checkmark" : "arrow.up") {
+                            height: ControlHeight.md, size: Typography.Size.detail, icon: action == nil ? "checkmark" : "arrow.up") {
             pushFocused = true
             confirmPush(snapshot)
         }
         .focused($pushFocused)
-        .overlay(RoundedRectangle(cornerRadius: 8)
+        .overlay(RoundedRectangle(cornerRadius: Radius.control)
             .stroke(pushFocused ? Theme.accent : .clear, lineWidth: 2))
         .accessibilityLabel(title)
         .accessibilityHint("\(repositoryName). \(syncStatus)")
@@ -587,11 +587,11 @@ struct ChangesView: View {
     }
 
     private var modeChoices: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             ChoicePill(title: "Changes \(navigatorFileCount)", selected: mode == .changes) { mode = .changes }
             ChoicePill(title: "History", selected: mode == .history) { mode = .history }
             Spacer(minLength: 0)
-        }.padding(12)
+        }.padding(Space.lg)
     }
 
     private var workspaceNavigator: some View {
@@ -661,24 +661,24 @@ struct ChangesView: View {
     }
 
     private var changesFilterRow: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             TextField("Filter files", text: Binding(get: { navigation.fileFilter }, set: { navigation.fileFilter = $0 }))
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .accessibilityLabel("Filter changed files by name")
                 .onMoveCommand { direction in
                     if direction == .up || direction == .down { moveNavigator(direction) }
                 }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-        .padding(.horizontal, 12).padding(.bottom, 2)
+        .padding(.horizontal, Space.md)
+        .frame(height: ControlHeight.md)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
+        .padding(.horizontal, Space.lg).padding(.bottom, Space.xxs)
     }
 
     @ViewBuilder private func fileNotes(_ file: GitChange, in repositoryRoot: String) -> some View {
@@ -686,23 +686,23 @@ struct ChangesView: View {
         let all = notes(file, in: repositoryRoot)
         if review != nil, !all.isEmpty, !navigation.foldedNotes.contains(key) {
             let showingResolved = navigation.resolvedShown.contains(key)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 ForEach(all.shown(includingResolved: showingResolved)) { note in
                     noteRow(note, file: file, in: repositoryRoot)
                 }
                 if all.resolvedCount > 0 {
                     InlineLink(title: showingResolved ? "Hide resolved" : "\(all.resolvedCount) resolved",
-                               size: 11.5, tint: Color.secondary) {
+                               size: Typography.Size.detail, tint: Color.secondary) {
                         if !navigation.resolvedShown.insert(key).inserted { navigation.resolvedShown.remove(key) }
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .padding(.horizontal, Space.md).padding(.vertical, Space.xxs)
                 }
             }
-            .padding(.leading, 10)
+            .padding(.leading, Space.md)
             .overlay(alignment: .leading) {
                 Rectangle().fill(Theme.hairline).frame(width: 1.5)
             }
-            .padding(.leading, 30).padding(.top, 1).padding(.bottom, 5)
+            .padding(.leading, 30).padding(.top, 1).padding(.bottom, Space.xs)
             .transition(.fold)
         }
     }
@@ -775,8 +775,8 @@ struct ChangesView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.secondary)
-            .padding(.horizontal, 6).padding(.top, 12).padding(.bottom, 2)
+            .font(Typography.label).foregroundStyle(.secondary)
+            .padding(.horizontal, Space.sm).padding(.top, Space.lg).padding(.bottom, Space.xxs)
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -789,16 +789,16 @@ struct ChangesView: View {
         let pending = all.count - kept.count
         let unread = review.reviews.unreadCount(review.sessionID)
         if !kept.isEmpty || unread > 0 {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 if !kept.isEmpty {
-                    Image(systemName: "text.bubble").font(.system(size: 11.5)).foregroundStyle(Theme.plan)
+                    Image(systemName: "text.bubble").font(Typography.detail).foregroundStyle(Theme.plan)
                         .accessibilityHidden(true)
                     Text("\(counted(kept.count, "comment")) not sent yet")
-                        .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.plan)
+                        .font(Typography.detail.weight(.medium)).foregroundStyle(Theme.plan)
                         .lineLimit(1).truncationMode(.tail)
                         .contentTransition(.numericText())
-                    Image(systemName: "ellipsis").font(.system(size: 11)).foregroundStyle(.secondary)
-                        .padding(.horizontal, 4).frame(height: 22).contentShape(Rectangle())
+                    Image(systemName: "ellipsis").font(Typography.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, Space.xs).frame(height: 22).contentShape(Rectangle())
                         .hoverLift(amount: Motion.smallLift)
                         .appMenu {
                             var entries: [MenuEntry] = [
@@ -817,7 +817,7 @@ struct ChangesView: View {
                 if unread > 0 {
                     Button(action: nextUnread) {
                         Text(unread == 1 ? "1 reply" : "\(unread) replies")
-                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.plan)
+                            .font(Typography.label).foregroundStyle(Theme.plan)
                             .lineLimit(1).fixedSize()
                             .contentTransition(.numericText())
                             .contentShape(Rectangle())
@@ -829,12 +829,12 @@ struct ChangesView: View {
                 }
                 Spacer(minLength: 4)
                 if !kept.isEmpty {
-                    ActionButton(title: "Send to \(review.agent.title)", tone: .green, height: 28, size: 12,
+                    ActionButton(title: "Send to \(review.agent.title)", tone: .green, height: ControlHeight.md, size: Typography.Size.detail,
                                  icon: "paperplane.fill") { previewSend(review) }
                         .layoutPriority(1)
                 }
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
             .background(Theme.card)
             .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
             .transition(.fadeIn)
@@ -852,19 +852,19 @@ struct ChangesView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 3) {
+                    LazyVStack(alignment: .leading, spacing: Space.xxs) {
                         ForEach(repositories) { repository in
                             if mode == .history { historyProject(repository) } else { changesProject(repository) }
                         }
                         if mode == .changes {
                             if isFilteringFiles && repositories.allSatisfy({ shownChanges($0.root).isEmpty }) {
                                 Text("No matching files")
-                                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity).padding(.vertical, 16)
+                                    .font(Typography.detail).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity).padding(.vertical, Space.xl)
                             }
                             settledNotes
                         }
-                    }.padding(10)
+                    }.padding(Space.md)
                     .smoothlyResizes(when: mode == .history ? collapsedHistories : collapsedRepositories)
                     .smoothlyResizes(when: navigation.foldedNotes)
                 }
@@ -965,9 +965,9 @@ struct ChangesView: View {
                 .overlay {
                     // Lit while a reference to this file in an answer is under the pointer.
                     let cited = navigation.citeHover?.sameFile(root: repository.root, path: file.path) == true
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .fill(Theme.plan.opacity(cited ? 0.08 : 0))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.plan.opacity(cited ? 0.45 : 0)))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.plan.opacity(cited ? 0.45 : 0)))
                         .motion(Motion.hover, value: cited)
                         .allowsHitTesting(false)
                 }
@@ -990,46 +990,46 @@ struct ChangesView: View {
         } label: {
             // Same spacing as the selected project's rows, so picking another project
             // does not shift the list.
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 StatusChip(kind: file.kind)
                 fileName(file)
                 notesBadge(file, in: repositoryRoot)
                 counts(file)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 8)
+        .hoverFill(cornerRadius: Radius.control)
     }
 
     // MARK: - History navigator
 
     private var historyFilterField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             TextField("Filter commits by title or hash",
                       text: Binding(get: { historyFilter }, set: { historyFilter = $0 }))
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .accessibilityLabel("Filter commits by title or hash")
                 .onMoveCommand { direction in
                     if direction == .up || direction == .down { moveNavigator(direction) }
                 }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(height: 32)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
+        .padding(.horizontal, Space.lg).padding(.top, Space.lg).padding(.bottom, Space.xxs)
     }
 
     private func projectCommits(_ repositoryRoot: String) -> [GitCommitSummary]? {
@@ -1074,13 +1074,13 @@ struct ChangesView: View {
             VStack(alignment: .leading, spacing: 1) {
                 if shown.isEmpty {
                     Text("No matching commits")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                        .padding(.leading, 36).padding(.vertical, 6)
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                        .padding(.leading, 36).padding(.vertical, Space.sm)
                 }
                 ForEach(CommitDay.groups(shown)) { group in
                     Text(group.title)
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
-                        .padding(.leading, 36).padding(.top, 8).padding(.bottom, 2)
+                        .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.tertiary)
+                        .padding(.leading, 36).padding(.top, Space.md).padding(.bottom, Space.xxs)
                         .accessibilityAddTraits(.isHeader)
                     ForEach(group.commits) { commit in
                         commitRow(commit, in: repository.root)
@@ -1100,34 +1100,34 @@ struct ChangesView: View {
             navigatorFocused = true
             openCommit(commit, in: repositoryRoot)
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Circle()
                     .fill(isSelected ? Theme.accent : Color.secondary.opacity(0.45))
                     .frame(width: 6, height: 6)
                 Text(commit.subject)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(commit.date.map(RelativeTime.short) ?? commit.relativeDate)
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                     .fixedSize()
             }
-            .padding(.leading, 22).padding(.trailing, 8)
+            .padding(.leading, Space.xxl).padding(.trailing, Space.md)
             .frame(height: 28)
-            .background(isSelected ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isSelected ? Theme.accent.opacity(0.3) : .clear))
+            .background(isSelected ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: Radius.inset))
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset).stroke(isSelected ? Theme.accent.opacity(0.3) : .clear))
             .overlay(alignment: .leading) {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3).padding(.vertical, 6)
+                    RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3).padding(.vertical, Space.sm)
                 }
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 6).stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
+                RoundedRectangle(cornerRadius: Radius.inset).stroke(showsCursor(item) ? Theme.accent : .clear, lineWidth: 2)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 6)
+        .hoverFill(cornerRadius: Radius.inset)
         .id(item)
         .appTooltip(commit.subject)
         .accessibilityLabel("\(commit.subject), \(commit.relativeDate)")
@@ -1160,12 +1160,12 @@ struct ChangesView: View {
     }
 
     private func fileName(_ file: GitChange) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(file.fileName).font(.system(size: 12, weight: .medium)).lineLimit(1)
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            Text(file.fileName).font(Typography.detail.weight(.medium)).lineLimit(1)
             Text((file.path as NSString).deletingLastPathComponent)
-                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
             if let original = file.originalPath {
-                Text("was \(original)").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                Text("was \(original)").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
         .appTooltip(file.path)
@@ -1188,7 +1188,7 @@ struct ChangesView: View {
     }
 
     private var commitBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Toggle(isOn: Binding(
                 get: { selectedFiles.count == files.count },
                 set: { on in excluded = on ? [] : Set(files.map(\.id)) }
@@ -1196,21 +1196,21 @@ struct ChangesView: View {
                 Text(selectedFiles.count == files.count
                      ? "All \(counted(files.count, "file"))"
                      : "\(selectedFiles.count) of \(files.count) files")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
             }.toggleStyle(.appCheckbox)
             Spacer(minLength: 0)
             let conflicted = files.contains { $0.kind == .conflicted }
             ActionButton(title: conflicted ? "Resolve conflicts to commit"
                             : selectedFiles.isEmpty ? "Commit…" : "Commit \(counted(selectedFiles.count, "file"))…",
-                         tone: .green, height: 34) { openCommitDialog() }
+                         tone: .green, height: ControlHeight.lg) { openCommitDialog() }
                 .disabled(busy || commitBlocker != nil)
                 .focused($commitFocused)
-                .overlay(RoundedRectangle(cornerRadius: 8)
+                .overlay(RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(commitFocused ? Theme.accent : .clear, lineWidth: 2))
                 .appTooltip(commitBlocker ?? "Commit (⌘↵)")
                 .layoutPriority(1)
         }
-        .padding(14).background(Theme.card).disabled(busy)
+        .padding(Space.lg).background(Theme.card).disabled(busy)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
 
@@ -1276,7 +1276,7 @@ struct ChangesView: View {
                                 counts(file)
                                 if fileSelection.ids.count > 1 {
                                     Text("\(fileSelection.ids.count) files selected")
-                                        .font(.system(size: 11))
+                                        .font(Typography.caption)
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -1318,7 +1318,7 @@ struct ChangesView: View {
             mode = .changes
             select(file)
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 if mode == .changes {
                     Toggle(isOn: Binding(
                         get: { !excluded.contains(file.id) },
@@ -1337,25 +1337,25 @@ struct ChangesView: View {
                 fileName(file)
 
                 if file.isStaged && file.isUnstaged {
-                    Text("partly staged").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text("partly staged").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                 }
 
                 notesBadge(file, in: root)
 
                 counts(file)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .surface(isSelected ? Theme.accent.opacity(0.06) : .clear, cornerRadius: 8,
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
+            .surface(isSelected ? Theme.accent.opacity(0.06) : .clear, cornerRadius: Radius.control,
                      border: isSelected ? Theme.accent.opacity(0.25) : .clear)
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(showsCursor(ChangesNavigatorItem(root: root, path: file.id)) ? Theme.accent : .clear, lineWidth: 2)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 8)
+        .hoverFill(cornerRadius: Radius.control)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .appContextMenu {
             let targets = fileSelection.contextMenuFiles(for: file, in: files)
@@ -1379,15 +1379,15 @@ struct ChangesView: View {
 
     @ViewBuilder private func counts(_ file: GitChange) -> some View {
         if file.isBinary {
-            Text("binary").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("binary").font(Typography.caption).foregroundStyle(.secondary)
         } else {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Text(file.added.map { "+\($0)" } ?? "")
                     .foregroundStyle(Theme.addition)
                 Text(file.removed.map { "-\($0)" } ?? "")
                     .foregroundStyle(Theme.deletion)
             }
-            .font(.mono(11, .medium))
+            .font(Typography.data.weight(.medium))
         }
     }
 
@@ -1397,7 +1397,7 @@ struct ChangesView: View {
     private func diffPane<Title: View>(truncationHint: String, reveal: (() -> Void)? = nil,
                                        @ViewBuilder title: () -> Title) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 title()
                 // Beside the title rather than among the controls, so the buttons do not
                 // shift under the pointer while comments are stepped through.
@@ -1405,7 +1405,7 @@ struct ChangesView: View {
                 Spacer()
                 if mode == .changes, review != nil, !orderedComments.isEmpty { commentNavigation }
                 if mode == .changes, let file = shownFile {
-                    Image(systemName: "ellipsis").padding(8).contentShape(Rectangle())
+                    Image(systemName: "ellipsis").padding(Space.md).contentShape(Rectangle())
                         .hoverLift(amount: Motion.smallLift)
                         .appMenu {
                             var entries: [MenuEntry] = []
@@ -1427,22 +1427,22 @@ struct ChangesView: View {
                 Button {
                     closeDiff()
                 } label: {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "xmark").font(Typography.caption.weight(.semibold))
                 }
                 .buttonStyle(.plain)
                 .hoverLift(amount: Motion.smallLift)
                 .accessibilityLabel("Close diff")
                 .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Space.xxl)
+            .padding(.vertical, Space.md)
 
             if mode == .changes, let file = shownFile, !file.isBinary, diff?.images == nil {
                 if appSettings.changesDiffLayout == .sideBySide {
                     HStack {
                         versionHeader("Last commit", version: .before, file: file)
                         versionHeader("Working tree", version: .after, file: file)
-                    }.padding(.horizontal, 20).padding(.vertical, 8)
+                    }.padding(.horizontal, Space.xxl).padding(.vertical, Space.md)
                 }
             }
             if mode == .changes, let review {
@@ -1478,7 +1478,7 @@ struct ChangesView: View {
             ImageDiffView(images: images)
         } else if let note = diff?.note {
             Text(note)
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if mode == .changes, diff?.lines.isEmpty == true, !loadingDiff {
@@ -1518,10 +1518,10 @@ struct ChangesView: View {
 
         if let diff, diff.truncated {
             Text("Showing the first \(diff.lines.count - diff.revealed) lines of \(diff.totalLines). \(truncationHint)")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
+                .padding(.horizontal, Space.xxl)
+                .padding(.vertical, Space.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.field)
         }
@@ -1544,7 +1544,7 @@ struct ChangesView: View {
                                   back: narrow ? { historySelection.showingDetail = false } : nil)
             }
         } else {
-            ChangesLoadingPlaceholder(title: "Loading history…").padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            ChangesLoadingPlaceholder(title: "Loading history…").padding(Space.xxxl).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -1941,7 +1941,7 @@ struct ChangesView: View {
                               path: shownFile?.path) {
             let comments = placement.below[id] ?? []
             let threads = (sent.below[id] ?? []).compactMap { comment in rounds[comment.id].map { ($0, comment) } }
-            views[id] = AnyView(VStack(alignment: .leading, spacing: 8) {
+            views[id] = AnyView(VStack(alignment: .leading, spacing: Space.md) {
                 ForEach(asked[id] ?? []) { question in
                     questionThread(question, review: review)
                 }
@@ -1986,10 +1986,10 @@ struct ChangesView: View {
                 announce("Resolved")
             },
             reopen: { review.reviews.reopen(comment.id, round: round.id, in: review.sessionID) })
-            .padding(.bottom, 2)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(focused ? Theme.accent : Theme.border, lineWidth: focused ? 2 : 1))
+            .padding(.bottom, Space.xxs)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(focused ? Theme.accent : Theme.border, lineWidth: focused ? 2 : 1))
             .onTapGesture {
                 focusedComment = comment.id
                 review.reviews.markRead(comment.id, in: review.sessionID)
@@ -2282,28 +2282,28 @@ struct ChangesView: View {
     }
 
     private func unplacedComments(_ comments: [ReviewComment], review: ReviewTarget) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             ForEach(comments) { comment in
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: Space.md) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attentionText)
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.md) {
                         (Text("This comment's code is no longer in the diff.").fontWeight(.semibold)
                          + Text(" It was on \(comment.anchor.label.lowercased()). It still goes with your review."))
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .fixedSize(horizontal: false, vertical: true)
                         card(comment, review: review)
                         if !comment.excerpt.isBlank {
-                            Text(comment.excerpt).font(.mono(11)).foregroundStyle(.secondary).lineLimit(3)
+                            Text(comment.excerpt).font(Typography.data).foregroundStyle(.secondary).lineLimit(3)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(8).background(RoundedRectangle(cornerRadius: 6).fill(Theme.sunken))
+                                .padding(Space.md).background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.sunken))
                         }
-                        HStack(spacing: 12) {
+                        HStack(spacing: Space.lg) {
                             if reattaching == comment.id {
                                 Text("Click a line number to move the comment there.")
-                                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
+                                    .font(Typography.label).foregroundStyle(Theme.accent)
                                 InlineLink(title: "Cancel", tint: Color.secondary) { reattaching = nil }
                             } else {
-                                ActionButton(title: "Move to a line", tone: .outlined, height: 26, size: 11.5,
+                                ActionButton(title: "Move to a line", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail,
                                              icon: "scope") {
                                     reattaching = comment.id
                                     announce("Click a line number to move the comment there")
@@ -2317,16 +2317,16 @@ struct ChangesView: View {
                         }
                     }
                 }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.attention.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.attention.opacity(0.3)))
+                .padding(Space.lg)
+                .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.attention.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.attention.opacity(0.3)))
             }
         }
-        .padding(.horizontal, 20).padding(.bottom, 8)
+        .padding(.horizontal, Space.xxl).padding(.bottom, Space.md)
     }
 
     private func fileComments(_ comments: [ReviewComment], review: ReviewTarget) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             ForEach(comments) { comment in
                 if commentDraft?.editing == comment.id {
                     composer(review)
@@ -2335,24 +2335,24 @@ struct ChangesView: View {
                 }
             }
         }
-        .padding(.horizontal, 20).padding(.bottom, 8)
+        .padding(.horizontal, Space.xxl).padding(.bottom, Space.md)
     }
 
     // The first time the diff takes comments, a note says how.
     private var coachMark: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Ask or comment on any line").font(.system(size: 12.5, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Text("Ask or comment on any line").font(Typography.body.weight(.semibold))
             Text("Click a line number to ask a question or request a change. Drag down the numbers to cover several lines. Questions are answered here; changes wait until you send them to \(review?.agent.title ?? "the agent").")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .font(Typography.detail).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 InlineLink(title: "Got it") { coachSeen = true }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.lg)
         .frame(width: 300)
-        .floatingCard(cornerRadius: 10)
+        .floatingCard(cornerRadius: Radius.card)
         .accessibilityElement(children: .contain)
     }
 
@@ -2639,9 +2639,9 @@ struct ChangesView: View {
             hoverReference: { navigation.citeHover = $0 })
             // In the card a thread sits flat on it, since a card inside a card is only
             // another edge to read past.
-            .background(RoundedRectangle(cornerRadius: 10).fill(inCard ? .clear : Theme.card))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(inCard ? .clear : Theme.card))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(inCard ? .clear : focused ? Theme.plan : Theme.border, lineWidth: focused && !inCard ? 2 : 1))
             .onTapGesture { focusedComment = question.id }
     }
@@ -2732,7 +2732,7 @@ struct ChangesView: View {
                         .environment(\.linkHovered, LinkHoverAction { url in
                             navigation.citeHover = url.flatMap(resolveCitation)
                         })
-                        .padding(.trailing, 20).padding(.top, 7)
+                        .padding(.trailing, Space.xxl).padding(.top, Space.sm)
                         .transition(.popover(reduceMotion: reduceMotion))
                 }
             }
@@ -2860,8 +2860,8 @@ struct ChangesView: View {
                 : question.resolved ? ("Resolved", Color.secondary) : ("Answered", Theme.plan)
         }
         return Text(text)
-            .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(ink)
-            .padding(.horizontal, 6).padding(.vertical, 2)
+            .font(Typography.caption.weight(.semibold)).foregroundStyle(ink)
+            .padding(.horizontal, Space.sm).padding(.vertical, Space.xxs)
             .background(Capsule().fill(ink.opacity(0.12)))
             .lineLimit(1).fixedSize()
     }
@@ -2873,14 +2873,14 @@ struct ChangesView: View {
         let list = orderedComments
         let index = list.firstIndex { $0.id == focusedComment }
         let here = openFileComments.count
-        return HStack(spacing: 4) {
+        return HStack(spacing: Space.xs) {
             Text(index.map { "Comment \($0 + 1) of \(list.count)" }
                  ?? counted(list.count, "comment") + (here > 0 ? ", \(here) here" : ""))
-                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-            GlyphButton(icon: "chevron.up", side: 24) { step(-1) }
+                .font(Typography.caption).foregroundStyle(.secondary).lineLimit(1)
+            GlyphButton(icon: "chevron.up", side: ControlHeight.sm) { step(-1) }
                 .appTooltip("Previous comment  ⌥↑")
                 .accessibilityLabel("Previous comment")
-            GlyphButton(icon: "chevron.down", side: 24) { step(1) }
+            GlyphButton(icon: "chevron.down", side: ControlHeight.sm) { step(1) }
                 .appTooltip("Next comment  ⌥↓")
                 .accessibilityLabel("Next comment")
         }
@@ -2909,11 +2909,11 @@ struct ChangesView: View {
 private struct ProjectRule: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .padding(.leading, 9)
+            .padding(.leading, Space.md)
             .overlay(alignment: .leading) {
                 Rectangle().fill(Theme.border).frame(width: 1).padding(.vertical, -1.5)
             }
-            .padding(.leading, 21)
+            .padding(.leading, Space.xxl)
     }
 }
 

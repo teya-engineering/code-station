@@ -98,7 +98,7 @@ struct SidebarFilterBar: View {
         Group {
             if box.showsField { field } else { commandPaletteButton }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Space.lg)
         .onChange(of: commandPalette.sidebarFocusRequest) { _, _ in
             if box.showsField { focused = true }
             else { commandFocused = true }
@@ -107,29 +107,29 @@ struct SidebarFilterBar: View {
 
     private var commandPaletteButton: some View {
         Button(action: openCommandPalette) {
-            HStack(spacing: 9) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.accent)
                 Text("Search Code Station")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
                 Text("⌘ K")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 3)
-                    .surface(Theme.sunken, cornerRadius: 4)
+                    .padding(.horizontal, Space.xs)
+                    .padding(.vertical, Space.xxs)
+                    .surface(Theme.sunken, cornerRadius: Radius.tag)
                     .accessibilityHidden(true)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Space.md)
             .frame(height: 38)
-            .surface(Theme.card, cornerRadius: 9,
+            .surface(Theme.card, cornerRadius: Radius.card,
                      border: hovering ? Theme.accent.opacity(0.45) : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
         .sidebarFocusRing($commandFocused)
@@ -141,24 +141,24 @@ struct SidebarFilterBar: View {
     }
 
     private var field: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
             TextField("Filter projects and sessions", text: $box.text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .focused($focused)
                 .accessibilityLabel("Filter projects and sessions")
                 .onExitCommand(perform: closeOrClear)
             if showsShortcutHint {
                 Text("⌘F")
-                    .font(.mono(9.5))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.tertiary)
             }
             Button(action: closeOrClear) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.tertiary)
                     .contentShape(Rectangle())
             }
@@ -168,10 +168,10 @@ struct SidebarFilterBar: View {
             .accessibilityLabel(box.text.isEmpty ? "Close sidebar filter" : "Clear sidebar filter")
             .appTooltip(box.text.isEmpty ? "Close project filter" : "Clear filter")
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(height: 38)
-        .fieldSurface(cornerRadius: 9)
-        .overlay(RoundedRectangle(cornerRadius: 9)
+        .fieldSurface(cornerRadius: Radius.card)
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
             .stroke(focused ? Theme.accent : .clear, lineWidth: 2)
             .allowsHitTesting(false))
         .onChange(of: box.text) { _, _ in box.typed() }

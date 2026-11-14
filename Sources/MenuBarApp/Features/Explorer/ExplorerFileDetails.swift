@@ -13,13 +13,13 @@ struct ExplorerFileDetails: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: Space.xl) {
                 HStack {
-                    Text("File details").font(.system(size: 13, weight: .semibold))
+                    Text("File details").font(Typography.body.weight(.semibold))
                     Spacer()
                     ExplorerIcon(symbol: "xmark", label: "Close file details", action: close)
                 }
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
+                Grid(alignment: .leading, horizontalSpacing: Space.xl, verticalSpacing: Space.lg) {
                     row("Type", node.isDirectory ? "Folder" : node.kind.isEmpty ? "File" : node.kind.uppercased())
                     row("Size", node.size.formatted(.byteCount(style: .file)))
                     if let text { row("Lines", String(LineIndex(text as NSString).count)) }
@@ -28,18 +28,18 @@ struct ExplorerFileDetails: View {
                     if let modified = node.modified { row("Modified", modified.formatted(date: .abbreviated, time: .shortened)) }
                 }
                 Rectangle().fill(Theme.border).frame(height: 1)
-                Text("Location").font(.system(size: 11, weight: .semibold))
-                Text(path).font(.mono(11)).foregroundStyle(.secondary).textSelection(.enabled)
+                Text("Location").font(Typography.caption.weight(.semibold))
+                Text(path).font(Typography.data).foregroundStyle(.secondary).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 InlineLink(title: "Copy path", action: copyPath)
                 if let destination = node.linkDestination {
-                    Text("Links to \(destination)").font(.mono(11)).foregroundStyle(.secondary)
+                    Text("Links to \(destination)").font(Typography.data).foregroundStyle(.secondary)
                 }
                 Rectangle().fill(Theme.border).frame(height: 1)
-                ActionButton(title: "Open externally", tone: .outlined, height: 30, size: 12, action: openExternally)
+                ActionButton(title: "Open externally", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail, action: openExternally)
                 InlineLink(title: "Reveal in Finder", action: revealInFinder)
             }
-            .padding(16)
+            .padding(Space.xl)
         }
         .background(Theme.background)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 1) }
@@ -49,7 +49,7 @@ struct ExplorerFileDetails: View {
         GridRow(alignment: .top) {
             Text(title).foregroundStyle(.secondary)
             Text(value).fixedSize(horizontal: false, vertical: true)
-        }.font(.system(size: 11))
+        }.font(Typography.caption)
     }
 }
 
@@ -68,28 +68,28 @@ struct ExplorerCreateDialog: View {
     private var validation: String? { name.isEmpty ? nil : FileTree.nameError(name) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Create in \(directory.path)").font(.system(size: 12)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Space.lg) {
+            Text("Create in \(directory.path)").font(Typography.detail).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(folder ? "Folder name" : "File name").font(.system(size: 12, weight: .semibold))
+            Text(folder ? "Folder name" : "File name").font(Typography.label)
             TextField(folder ? "Folder name" : "Untitled.swift", text: $name)
-                .textFieldStyle(.plain).padding(10).fieldSurface(cornerRadius: 8)
+                .textFieldStyle(.plain).padding(Space.md).fieldSurface(cornerRadius: Radius.control)
                 .focused($focused, equals: .name).onSubmit(create)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(focused == .name ? Theme.accent : .clear))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(focused == .name ? Theme.accent : .clear))
                 .disabled(creating)
                 .onChange(of: name) { failure = nil }
             if let error = failure ?? validation {
-                Text(error).font(.system(size: 12)).foregroundStyle(Theme.deletion)
+                Text(error).font(Typography.detail).foregroundStyle(Theme.deletion)
                     .accessibilityLabel("Error: \(error)")
             }
             HStack {
                 Spacer()
-                ActionButton(title: "Cancel", tone: .outlined, height: 32, size: 12) { dialogs.dismiss() }
+                ActionButton(title: "Cancel", tone: .outlined, height: ControlHeight.lg, size: Typography.Size.detail) { dialogs.dismiss() }
                     .disabled(creating)
                     .focused($focused, equals: .cancel)
                     .overlay(Capsule().stroke(focused == .cancel ? Theme.accent : .clear, lineWidth: 2))
                 ActionButton(title: creating ? "Creating…" : folder ? "Create folder" : "Create file",
-                             tone: .green, height: 32, size: 12) { create() }
+                             tone: .green, height: ControlHeight.lg, size: Typography.Size.detail) { create() }
                     .disabled(creating || FileTree.nameError(name) != nil)
                     .focused($focused, equals: .create)
                     .overlay(Capsule().stroke(focused == .create ? Theme.accent : .clear, lineWidth: 2))

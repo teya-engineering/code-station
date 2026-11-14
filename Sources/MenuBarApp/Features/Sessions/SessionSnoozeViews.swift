@@ -77,14 +77,14 @@ private struct SnoozeDialogContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 subject.arrives(after: 0.05, rising: 4)
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     Text(SessionSnoozeDialog.title)
-                        .font(.serif(26, .regular))
+                        .font(Typography.display.weight(.regular))
                         .accessibilityAddTraits(.isHeader)
                     Text("The agent keeps working, but its notifications stay quiet until the time you pick.")
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -102,23 +102,23 @@ private struct SnoozeDialogContent: View {
                 .accessibilityLabel("Snooze until")
                 Label("If the agent asks you something, the session wakes up straight away.",
                       systemImage: "info.circle")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .arrives(after: rowStart(choices.count) + 0.06)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(28)
-            HStack(spacing: 9) {
+            .padding(Space.xxxl)
+            HStack(spacing: Space.md) {
                 Spacer(minLength: 0)
-                ActionButton(title: "Cancel", tone: .sunken, height: 36, size: 12,
+                ActionButton(title: "Cancel", tone: .sunken, height: ControlHeight.xl, size: Typography.Size.detail,
                              keyboardShortcut: .cancelAction) {
                     dialogs.dismiss()
                 }
                 .focused($focused, equals: .cancel)
                 .focusEffectDisabled()
                 .overlay(FocusRingStroke(focused: focused == .cancel))
-                ActionButton(title: confirm.label, tone: .dark, height: 36, size: 12,
+                ActionButton(title: confirm.label, tone: .dark, height: ControlHeight.xl, size: Typography.Size.detail,
                              keyboardShortcut: .defaultAction) {
                     dialogs.run(confirm)
                 }
@@ -126,7 +126,7 @@ private struct SnoozeDialogContent: View {
                 .focusEffectDisabled()
                 .overlay(FocusRingStroke(focused: focused == .confirm))
             }
-            .padding(20)
+            .padding(Space.xxl)
             .background(Theme.field)
             .arrives(after: 0.06)
         }
@@ -146,16 +146,16 @@ private struct SnoozeDialogContent: View {
     // The session's title stays on one line, so a long prompt pasted as the title does
     // not push the question down the card.
     private var subject: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Image(systemName: "moon")
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.snoozeText)
                 .frame(width: 29, height: 29)
-                .background(Theme.snoozeSurface, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.snoozeEdge, lineWidth: 0.7))
+                .background(Theme.snoozeSurface, in: RoundedRectangle(cornerRadius: Radius.control))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.snoozeEdge, lineWidth: 0.7))
                 .accessibilityHidden(true)
             Text(title)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -168,7 +168,7 @@ private struct SnoozeDialogContent: View {
             picked.choice = choice
             focused = .choice(choice)
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: Space.lg) {
                 Image(systemName: choice.icon)
                     .font(.system(size: 15))
                     .foregroundStyle(selected ? Theme.snoozeText : Theme.secondaryText)
@@ -176,10 +176,10 @@ private struct SnoozeDialogContent: View {
                     .background(selected ? Theme.snoozeSurface : Theme.field, in: Circle())
                     .motion(Motion.control, value: selected)
                     .arrives(after: start + 0.04)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(choice.title(now: picked.now)).font(.system(size: 13, weight: .medium))
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text(choice.title(now: picked.now)).font(Typography.body.weight(.medium))
                     Text(choice.note(now: picked.now))
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -188,12 +188,12 @@ private struct SnoozeDialogContent: View {
                 SnoozeRadio(selected: selected)
                     .arrives(after: start + 0.06)
             }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 10)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.vertical, Space.lg)
+            .padding(.horizontal, Space.md)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 10)
+        .hoverFill(cornerRadius: Radius.card)
         .padding(.horizontal, -10)
         .focused($focused, equals: .choice(choice))
         .focusEffectDisabled()
@@ -283,14 +283,14 @@ struct SessionSnoozePocket: View {
     let wake: () -> Void
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "moon")
                 .font(.system(size: 14))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Snoozed").font(.system(size: 10.5, weight: .semibold))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("Snoozed").font(Typography.caption.weight(.semibold))
                 Text(snooze.phrase().prefix(1).uppercased() + snooze.phrase().dropFirst())
-                    .font(.system(size: 10))
+                    .font(Font.system(size: Typography.Size.micro))
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
             }
@@ -300,8 +300,8 @@ struct SessionSnoozePocket: View {
                 .accessibilityHint("Restores notifications. The agent keeps working.")
         }
         .foregroundStyle(Theme.snoozeText)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.md)
         .frame(maxWidth: .infinity, minHeight: 49)
         .background(Theme.snoozeSurface)
         .overlay(alignment: .top) { Theme.snoozeEdge.frame(height: 0.7) }
@@ -314,16 +314,16 @@ struct SessionSnoozeStrip: View {
     let wake: () -> Void
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Space.md) {
             Image(systemName: "moon")
                 .font(.system(size: 14))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Snoozed \(snooze.phrase())")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .contentTransition(.opacity)
                 Text("The agent keeps working.")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
             }
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .combine)
@@ -331,9 +331,9 @@ struct SessionSnoozeStrip: View {
             SnoozeWakeButton(wake: wake)
         }
         .foregroundStyle(Theme.snoozeText)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .surface(Theme.snoozeSurface, cornerRadius: 8, border: Theme.snoozeEdge)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .surface(Theme.snoozeSurface, cornerRadius: Radius.control, border: Theme.snoozeEdge)
         .motion(Motion.control, value: snooze)
     }
 }
@@ -350,7 +350,7 @@ private struct SnoozeWakeButton: View {
                 .foregroundStyle(Theme.snoozeText)
                 .fixedSize()
                 .padding(.horizontal, compact ? 5 : 10)
-                .padding(.vertical, 6)
+                .padding(.vertical, Space.sm)
                 .background(hovering ? Theme.snoozeText.opacity(0.08) : .clear, in: Capsule())
                 .overlay(Capsule().stroke(compact ? .clear : Theme.snoozeEdge, lineWidth: 0.7))
                 .contentShape(Capsule())

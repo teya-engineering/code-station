@@ -46,7 +46,7 @@ struct AppSlider: View {
                     .fill(Theme.card)
                     .overlay(Circle().stroke(focused || dragging ? Theme.accent : Theme.settingsBorder,
                                              lineWidth: focused ? 2 : 1))
-                    .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
+                    .elevation(.raised)
                     .frame(width: grown ? Self.grownThumb : Self.thumb,
                            height: grown ? Self.grownThumb : Self.thumb)
                     .frame(width: Self.thumb, height: Self.thumb)

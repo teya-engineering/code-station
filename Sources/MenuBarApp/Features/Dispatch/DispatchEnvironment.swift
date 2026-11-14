@@ -61,15 +61,15 @@ struct EnvironmentPills: View {
     var body: some View {
         Group {
             if wraps {
-                FlowRow(spacing: 4) { pills }
+                FlowRow(spacing: Space.xs) { pills }
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) { pills }
+                    HStack(spacing: Space.xxs) { pills }
                 }
             }
         }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.05)))
+        .padding(Space.xxs)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.field))
     }
 
     private var pills: some View {
@@ -93,12 +93,12 @@ private struct EnvironmentPill: View {
             action()
         } label: {
             Text(env.label)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .fixedSize()
-            .foregroundStyle(selected ? Color.white : Color.secondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8)
+            .foregroundStyle(selected ? Theme.onFill : Color.secondary)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.sm)
+            .background(RoundedRectangle(cornerRadius: Radius.control)
                 .fill(selected ? env.accentFill : (hovering ? Theme.field : .clear)))
             .contentShape(Rectangle())
         }
@@ -106,7 +106,7 @@ private struct EnvironmentPill: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
         .onKeyPress(keys: [.space, .return]) { _ in action(); return .handled }
         .help("Environment key: \(env.name)")
         .accessibilityLabel("\(env.label), environment key: \(env.name)" + (env.isDangerous ? ", live environment" : ""))

@@ -78,18 +78,18 @@ struct ShortcutIconPicker: View {
 
     // Adaptive rather than a fixed count, because the same grid is shown in the shortcut
     // sheet and in the narrower site configuration form.
-    private static let columns = [GridItem(.adaptive(minimum: 30), spacing: 6)]
+    private static let columns = [GridItem(.adaptive(minimum: 30), spacing: Space.sm)]
 
     var body: some View {
-        LazyVGrid(columns: Self.columns, spacing: 6) {
+        LazyVGrid(columns: Self.columns, spacing: Space.sm) {
             IconTile(symbol: nil, label: "No icon", selected: symbol == nil) { symbol = nil }
             ForEach(ShortcutIcon.catalogue) { icon in
                 IconTile(symbol: icon.symbol, label: icon.label,
                          selected: symbol == icon.symbol) { symbol = icon.symbol }
             }
         }
-        .padding(8)
-        .cardSurface(cornerRadius: 9)
+        .padding(Space.md)
+        .cardSurface(cornerRadius: Radius.card)
     }
 }
 
@@ -108,14 +108,14 @@ private struct IconTile: View {
     var body: some View {
         Button(action: choose) {
             Image(systemName: symbol ?? "slash.circle")
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .foregroundStyle(foreground)
                 .frame(maxWidth: .infinity)
                 .frame(height: 26)
-                .surface(background, cornerRadius: 7, border: border)
+                .surface(background, cornerRadius: Radius.control, border: border)
                 .shadow(color: Theme.accent.opacity(hovering ? 0.35 : 0),
                         radius: hovering ? 5 : 0)
-                .contentShape(RoundedRectangle(cornerRadius: 7))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .hoverLift(hovering, amount: Motion.smallLift)

@@ -6,7 +6,7 @@ struct ChangesProgressLabel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             if reduceMotion {
                 Image(systemName: "hourglass").frame(width: 11, height: 11).accessibilityHidden(true)
             }
@@ -17,7 +17,7 @@ struct ChangesProgressLabel: View {
             }
             if !compact { Text(title) }
         }
-        .font(.system(size: 11))
+        .font(Typography.caption)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
     }
@@ -31,13 +31,13 @@ struct ChangesLoadingPlaceholder: View {
     @State private var visible = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             ChangesProgressLabel(title: title)
             ForEach(0..<rows, id: \.self) { index in
-                VStack(alignment: .leading, spacing: 9) {
-                    RoundedRectangle(cornerRadius: 4).fill(Theme.border)
+                VStack(alignment: .leading, spacing: Space.md) {
+                    RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.border)
                         .frame(maxWidth: index.isMultiple(of: 2) ? .infinity : 240).frame(height: 11)
-                    RoundedRectangle(cornerRadius: 3).fill(Theme.field).frame(width: 110, height: 8)
+                    RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: 110, height: 8)
                 }.accessibilityHidden(true)
             }
         }

@@ -11,32 +11,32 @@ struct TaskInputsCard: View {
     @State private var expanded: Set<String> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text("Inputs")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
 
             if inputs.isEmpty {
-                Text("None yet. Write \(Text(verbatim: "{{ticket}}").font(.mono(11.5)).foregroundStyle(Theme.accent)) in the prompt and every run asks for a ticket first.")
-                    .font(.system(size: 12))
+                Text("None yet. Write \(Text(verbatim: "{{ticket}}").font(Typography.code).foregroundStyle(Theme.accent)) in the prompt and every run asks for a ticket first.")
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("Asked for before each run, in the order they appear.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                VStack(spacing: 6) {
+                VStack(spacing: Space.sm) {
                     ForEach(inputs, id: \.name) { input in
                         row(input)
                     }
                 }
-                .padding(.top, 4)
+                .padding(.top, Space.xs)
             }
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 12)
+        .cardSurface(cornerRadius: Radius.floating)
         .smoothlyResizes(when: inputs.map(\.name))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Inputs")
@@ -49,21 +49,21 @@ struct TaskInputsCard: View {
             Button {
                 if open { expanded.remove(key) } else { expanded.insert(key) }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Text("{{\(input.name)}}")
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(Theme.accent)
                         .lineLimit(1)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Theme.field))
+                        .padding(.horizontal, Space.xs)
+                        .padding(.vertical, Space.xxs)
+                        .background(RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field))
                         .layoutPriority(1)
                     Text(input.title)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(Typography.body.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 6)
                     Text(input.kind.title.lowercased() + (input.required ? "" : ", optional"))
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .fixedSize()
@@ -72,29 +72,29 @@ struct TaskInputsCard: View {
                         .foregroundStyle(.tertiary)
                         .accessibilityHidden(true)
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Space.md)
                 .frame(height: 36)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverFill(cornerRadius: 9)
+            .hoverFill(cornerRadius: Radius.card)
             .accessibilityValue(open ? "Expanded" : "Collapsed")
 
             if open {
                 editor(input)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 2)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, Space.md)
+                    .padding(.top, Space.xxs)
+                    .padding(.bottom, Space.md)
                     .transition(.fadeIn)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.sunken))
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.sunken))
         .smoothlyResizes(when: "\(open):\(input.kind.rawValue)")
     }
 
     // One column, since the side card is too narrow to put two fields side by side.
     private func editor(_ input: TaskInput) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             field("LABEL", placeholder: input.title, text: binding(input, \.label))
             OptionMenu(caption: "KIND", value: input.kind.title) {
                 TaskInput.Kind.allCases.map { kind in
@@ -132,7 +132,7 @@ struct TaskInputsCard: View {
                                          onChange(updated)
                                      })) {
                     Text("Required")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Typography.detail.weight(.medium))
                 }
                 .toggleStyle(.appSwitch)
                 .transition(.fadeIn)

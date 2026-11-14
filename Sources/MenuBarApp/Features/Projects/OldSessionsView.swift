@@ -73,7 +73,7 @@ struct OldSessionsView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(spacing: Space.lg) {
                     ForEach(groups) { group in
                         groupView(group)
                     }
@@ -96,15 +96,15 @@ struct OldSessionsView: View {
                     }
                     if everythingIsSnoozed {
                         Text("Every project is snoozed. Nothing is cleared until they come back.")
-                            .font(.system(size: 12.5))
+                            .font(Typography.body)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 28)
-                            .padding(.horizontal, 14)
+                            .padding(.vertical, Space.xxxl)
+                            .padding(.horizontal, Space.lg)
                     }
                 }
-                .padding(20)
+                .padding(Space.xxl)
             }
             .frame(maxHeight: 420)
 
@@ -122,14 +122,14 @@ struct OldSessionsView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text("Sessions older than \(counted(days, "day"))")
-                .font(.serif(16))
+                .font(Typography.title)
             Text("Ticked sessions are removed from the app. Change the \(counted(days, "day")) in Settings.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
@@ -159,7 +159,7 @@ struct OldSessionsView: View {
 
     @ViewBuilder
     private func groupView(_ group: ProjectGroup) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             groupHeader(group)
             // The group stays in place rather than disappearing, so what was snoozed is
             // still on screen and still reversible.
@@ -183,59 +183,59 @@ struct OldSessionsView: View {
     }
 
     private func groupHeader(_ group: ProjectGroup) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Circle()
                 .fill(Theme.monogram(for: group.name))
                 .frame(width: 6, height: 6)
             Text(group.name)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(counted(group.rows.count, "session"))
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 8)
             if !group.isSnoozed { snoozeButton(group) }
         }
-        .padding(.horizontal, 2)
+        .padding(.horizontal, Space.xxs)
         .accessibilityElement(children: .contain)
     }
 
     // The rows folded into one line: when they come back, and the way out. Sunken and
     // quiet, since nothing here is up for deletion while the snooze runs.
     private func snoozedCard(_ group: ProjectGroup, until deadline: Date) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Image(systemName: "clock")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(ProjectSnooze.title(group.name, until: deadline))
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                 Text(ProjectSnooze.detail(sessions: group.rows.count, until: deadline))
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
             snoozeButton(group)
             // Nothing was destroyed, so putting it back costs one press and no dialog.
-            ActionButton(title: "Wake now", tone: .sunken, height: 24, size: 11.5) {
+            ActionButton(title: "Wake now", tone: .sunken, height: ControlHeight.sm, size: Typography.Size.detail) {
                 store.wakeCleanup(forProject: group.projectID)
             }
             .disabled(isDeleting)
             .accessibilityLabel("Wake \(group.name) now")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .surface(Theme.sunken, cornerRadius: 10, border: Theme.settingsBorder)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
+        .surface(Theme.sunken, cornerRadius: Radius.card, border: Theme.settingsBorder)
     }
 
     // The name stays the same in the sheet and in the project's menu, because it does the
     // same thing in both: one more day, however many times it is pressed.
     private func snoozeButton(_ group: ProjectGroup) -> some View {
-        ActionButton(title: "Snooze 1 day", tone: .outlined, height: 24, size: 11.5,
+        ActionButton(title: "Snooze 1 day", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail,
                      icon: "clock") {
             store.snoozeCleanup(forProject: group.projectID)
         }
@@ -252,17 +252,17 @@ struct OldSessionsView: View {
     // A card under the list saying something about the list as a whole. Tinted when it
     // warns, plain when it only explains.
     private func notice(icon: String, tint: Color? = nil, _ message: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(tint ?? Color.secondary)
             Text(message)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .surface(tint?.opacity(0.07) ?? Theme.card, cornerRadius: 10,
+        .padding(Space.lg)
+        .surface(tint?.opacity(0.07) ?? Theme.card, cornerRadius: Radius.card,
                  border: tint?.opacity(0.25) ?? Theme.border)
     }
 
@@ -523,16 +523,16 @@ private struct SessionChoiceRow: View {
     let toggle: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Toggle(isOn: Binding(get: { ticked }, set: { _ in toggle() })) {
                 EmptyView()
             }
             .toggleStyle(.appCheckbox)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.md) {
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if hasWorktree {
@@ -541,7 +541,7 @@ private struct SessionChoiceRow: View {
                     Spacer(minLength: 0)
                 }
                 Text(detail)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(tint)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -549,16 +549,16 @@ private struct SessionChoiceRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(cost.label)
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(tint)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .surface(Theme.card, cornerRadius: 10, border: border)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
+        .surface(Theme.card, cornerRadius: Radius.card, border: border)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggle)
-        .hoverFill(cornerRadius: 10)
+        .hoverFill(cornerRadius: Radius.card)
         .motion(Motion.control, value: ticked)
         .allowsHitTesting(canToggle)
     }

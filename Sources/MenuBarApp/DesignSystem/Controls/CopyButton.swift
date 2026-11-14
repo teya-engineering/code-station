@@ -7,12 +7,12 @@ import SwiftUI
 // click, so the button can sit beside a value that is still being edited.
 struct CopyButton: View {
     let title: String?
-    var size: CGFloat = 11
+    var size: CGFloat = Typography.Size.caption
     // For a caller that marks the copy on what was copied, as well as on the button.
     var onCopy: (() -> Void)? = nil
     let text: () -> String
 
-    init(_ title: String? = nil, size: CGFloat = 11, onCopy: (() -> Void)? = nil,
+    init(_ title: String? = nil, size: CGFloat = Typography.Size.caption, onCopy: (() -> Void)? = nil,
          text: @escaping () -> String) {
         self.title = title
         self.size = size
@@ -40,7 +40,7 @@ struct CopyButton: View {
                 copied = false
             }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: size, weight: .semibold))
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))

@@ -323,16 +323,16 @@ struct SessionFactsChip: View {
 
     private var pill: some View {
         let shape = RoundedRectangle(cornerRadius: Self.pillRadius)
-        return HStack(spacing: 8) {
+        return HStack(spacing: Space.md) {
             StateRail(tone: state.tone)
             CappedWidth(limit: maxWidth) {
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        StatusCaps(text: state.word, tint: state.tone.wordColour, size: 9.5)
+                    HStack(spacing: Space.xs) {
+                        StatusCaps(text: state.word, tint: state.tone.wordColour, size: Typography.Size.micro)
                             .contentTransition(.opacity)
                             .motion(Motion.control, value: state.word)
                         if let since = state.since {
-                            StatusDot(size: 9.5)
+                            StatusDot(size: Typography.Size.micro)
                             if state.ticks {
                                 TickingReading(since: since, reading: RelativeTime.duration(since:now:)) {
                                     elapsedLabel($0)
@@ -343,14 +343,14 @@ struct SessionFactsChip: View {
                         }
                     }
                     if let subject {
-                        HStack(spacing: 5) {
+                        HStack(spacing: Space.xs) {
                             if subject.isBranch {
                                 Image(systemName: "arrow.triangle.branch")
                                     .font(.system(size: 9, weight: .semibold))
                                     .foregroundStyle(.tertiary)
                             }
                             Text(subject.text)
-                                .font(.mono(11))
+                                .font(Typography.data)
                                 .foregroundStyle(subject.isBranch ? .primary : .secondary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -359,12 +359,12 @@ struct SessionFactsChip: View {
                 }
             }
             if !facts.pullRequests.isEmpty {
-                HStack(spacing: 3) {
+                HStack(spacing: Space.xxs) {
                     Image(systemName: "arrow.triangle.pull")
                     Text("\(facts.pullRequestCountKnown ? facts.pullRequestCount : facts.pullRequests.count)")
                         .contentTransition(.numericText())
                 }
-                .font(.system(size: 9, weight: .medium))
+                .font(Font.system(size: Typography.Size.micro, weight: .medium))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             }
@@ -373,8 +373,8 @@ struct SessionFactsChip: View {
                 .foregroundStyle(.tertiary)
                 .rotationEffect(.degrees(isOpen ? 180 : 0))
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 10)
+        .padding(.leading, Space.md)
+        .padding(.trailing, Space.md)
         .frame(height: Self.pillHeight)
         // At rest the block is only its words and its rail, which is what lets it sit at
         // the end of the deck without a second shape. The surface arrives with the card.
@@ -384,7 +384,7 @@ struct SessionFactsChip: View {
     }
 
     private func elapsedLabel(_ text: String) -> some View {
-        StatusValue(text: text, size: 9.5)
+        StatusValue(text: text, size: Typography.Size.micro)
             .monospacedDigit()
             .fixedSize()
     }
@@ -418,10 +418,10 @@ struct SessionFactsChip: View {
                             Image(systemName: "chevron.right")
                                 .rotationEffect(.degrees(showsDetails ? 90 : 0))
                         }
-                        .font(.system(size: 10))
+                        .font(Font.system(size: Typography.Size.micro))
                         .foregroundStyle(state.tone.wordColour)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.vertical, Space.xs)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -447,10 +447,10 @@ struct SessionFactsChip: View {
                         if let context = facts.context { contextRow(context) }
                         if let usageMonitor, usageMonitor.supports(facts.agent) {
                             Text("\(facts.agent.title) account usage")
-                                .font(.system(size: 10))
+                                .font(Font.system(size: Typography.Size.micro))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 13)
+                                .padding(.horizontal, Space.lg)
                             if !usageMonitor.refreshing.contains(facts.agent),
                                usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
                                 usageNote(usageMonitor)
@@ -468,17 +468,17 @@ struct SessionFactsChip: View {
             rule
             HStack {
                 Text(pinned ? "Pinned. Esc to dismiss" : "Hover to preview")
-                    .font(.system(size: 10))
+                    .font(Font.system(size: Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .contentTransition(.opacity)
                 Spacer(minLength: 4)
-                ActionButton(title: "Open working set", tone: .green, height: 28, size: 11,
+                ActionButton(title: "Open working set", tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
                              icon: "sidebar.right", action: acting(openWorkingSet))
                     .focused($previewControl, equals: .workingSet)
                     .focusEffectDisabled()
                     .overlay(FocusRingStroke(focused: previewControl == .workingSet))
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Space.lg)
             .frame(height: 52)
         }
         .frame(width: layout.width, alignment: .leading)
@@ -488,25 +488,25 @@ struct SessionFactsChip: View {
     }
 
     private var previewHeading: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Working set").font(.system(size: 14, weight: .semibold))
+        HStack(spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text("Working set").font(Typography.body.weight(.semibold))
                 Text([facts.model.map { "\(facts.agent.title) / \($0)" } ?? facts.agent.title,
                       repositoryCount > 0 ? counted(repositoryCount, "repository", plural: "repositories") : nil]
                     .compactMap { $0 }.joined(separator: " · "))
-                    .font(.system(size: 10))
+                    .font(Font.system(size: Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
-            GlyphButton(icon: pinned ? "pin.fill" : "pin", side: 24, active: pinned) {
+            GlyphButton(icon: pinned ? "pin.fill" : "pin", side: ControlHeight.sm, active: pinned) {
                 if pinned { closeCard() } else { pinned = true }
             }
             .focused($previewControl, equals: .pin)
             .focusEffectDisabled()
             .overlay(FocusRingStroke(focused: previewControl == .pin))
             .accessibilityLabel(pinned ? "Unpin working set preview" : "Pin working set preview")
-            GlyphButton(icon: "xmark", side: 24) {
+            GlyphButton(icon: "xmark", side: ControlHeight.sm) {
                 closeCard()
                 chipFocused = true
             }
@@ -515,33 +515,33 @@ struct SessionFactsChip: View {
             .overlay(FocusRingStroke(focused: previewControl == .close))
             .accessibilityLabel("Close working set preview")
         }
-        .padding(13)
+        .padding(Space.lg)
         .motion(Motion.control, value: pinned)
     }
 
     private var pullRequestsSection: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             HStack {
                 Text("Pull requests").fontWeight(.semibold)
                 Spacer()
                 Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
             }
-            .font(.system(size: 11))
-            .padding(.horizontal, 13)
-            .padding(.top, 9)
+            .font(Typography.caption)
+            .padding(.horizontal, Space.lg)
+            .padding(.top, Space.md)
             if facts.pullRequests.isEmpty {
                 Text("No pull requests yet")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.md)
             } else {
                 ForEach(facts.pullRequests, id: \.url) { pullRequest in
                     pullRequestRow(pullRequest)
                 }
             }
         }
-        .padding(.bottom, 6)
+        .padding(.bottom, Space.sm)
         .overlay(alignment: .top) { rule }
     }
 
@@ -549,8 +549,8 @@ struct SessionFactsChip: View {
     // state with its precise time and the clock time it began, then the name the pill
     // truncated, with the one action that takes it out of the app beside it.
     private func head(hasRows: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.sm) {
                 if state.tone == .running {
                     PulsingDot(size: 7)
                 } else {
@@ -569,34 +569,34 @@ struct SessionFactsChip: View {
                     }
                     Spacer(minLength: 6)
                     Text(SessionStateReading.sinceLine(since, tone: state.tone))
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }
             if let branch = facts.namedBranch {
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(.tertiary)
                     Text(branch)
-                        .font(.mono(11.5, .semibold))
+                        .font(Typography.code.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .background { if !reduceMotion { BrandSweep(trigger: copies) } }
                     Spacer(minLength: 6)
-                    CopyButton(size: 10, onCopy: branchCopied) { branch }
+                    CopyButton(size: Typography.Size.micro, onCopy: branchCopied) { branch }
                         .appTooltip("Copy the branch name.")
                         .overlay { if !reduceMotion { CopyBurst(trigger: copies) } }
                         .overlay(alignment: .trailing) {
                             if showsCopied {
                                 Text("Copied")
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(Typography.micro)
                                     .foregroundStyle(Theme.dotOnText)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2)
-                                    .background(RoundedRectangle(cornerRadius: 5).fill(Theme.card))
-                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.border))
+                                    .padding(.horizontal, Space.sm)
+                                    .padding(.vertical, Space.xxs)
+                                    .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.card))
+                                    .overlay(RoundedRectangle(cornerRadius: Radius.inset).strokeBorder(Theme.border))
                                     .fixedSize()
                                     .offset(x: -24)
                                     .allowsHitTesting(false)
@@ -608,9 +608,9 @@ struct SessionFactsChip: View {
                 }
             }
         }
-        .padding(.horizontal, 13)
-        .padding(.top, 10)
-        .padding(.bottom, 11)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.md)
+        .padding(.bottom, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.sunken)
         .overlay(alignment: .bottom) { if hasRows { rule } }
@@ -642,34 +642,34 @@ struct SessionFactsChip: View {
 
     private func label(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium))
+            .font(Font.system(size: Typography.Size.micro, weight: .medium))
             .foregroundStyle(Self.labelInk)
             .frame(width: Self.labelWidth, alignment: .leading)
     }
 
     private func row<Content: View>(_ label: String,
                                     @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: Space.lg) {
             self.label(label)
             content()
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 13)
+        .padding(.horizontal, Space.lg)
         .frame(height: 34)
     }
 
     private func changesRow(_ changes: SessionFacts.Changes) -> some View {
         row("Changes") {
             CardLink(action: acting(openChanges)) { _ in
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     if changes.files == 0 && changes.added == 0 && changes.removed == 0 {
-                        Text("No changes").font(.system(size: 12))
+                        Text("No changes").font(Typography.detail)
                     } else if changes.files > 0 {
                         Text(counted(changes.files, "changed file"))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(Typography.detail.weight(.medium))
                     }
                     if changes.added != 0 || changes.removed != 0 {
-                        DiffPair(added: changes.added, removed: changes.removed, size: 10.5)
+                        DiffPair(added: changes.added, removed: changes.removed, size: Typography.Size.caption)
                     }
                 }
                 .lineLimit(1)
@@ -688,33 +688,33 @@ struct SessionFactsChip: View {
             NSWorkspace.shared.open(url)
             showNote("Opened \(pullRequest.repository.map { "\($0) " } ?? "")#\(pullRequest.number) in the browser")
         }) { _ in
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "arrow.triangle.pull").foregroundStyle(Theme.accent)
                 Text(pullRequest.repository ?? "Repository unavailable")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                Text(verbatim: "#\(pullRequest.number)").font(.mono(11))
+                Text(verbatim: "#\(pullRequest.number)").font(Typography.data)
                 Text(status?.readinessLabel ?? "Linked")
-                    .font(.system(size: 9, weight: .medium))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.field))
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
+                    .padding(.horizontal, Space.xs)
+                    .padding(.vertical, Space.xxs)
+                    .background(RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field))
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 5)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.xs)
     }
 
     private func costRow(_ cost: Double) -> some View {
         row("Cost") {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Text(Money.short(cost))
-                    .font(.mono(11.5))
+                    .font(Typography.code)
                 Text("spent this session")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -730,11 +730,11 @@ struct SessionFactsChip: View {
         let problem = monitor.problems[agent]
         let status = Self.usageStatus(checkedAt: monitor.usage[agent]?.checkedAt,
                                       checking: checking, hasProblem: problem != nil)
-        return HStack(spacing: 12) {
+        return HStack(spacing: Space.lg) {
             label("Usage")
             Spacer(minLength: 0)
             Text(status)
-                .font(.mono(10.5))
+                .font(Typography.data)
                 .foregroundStyle(problem == nil || checking
                                  ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Theme.attentionText))
                 .lineLimit(1)
@@ -743,7 +743,7 @@ struct SessionFactsChip: View {
             .appTooltip("Check \(agent.title)'s account limits now.")
             .accessibilityLabel("Check \(agent.title) usage")
         }
-        .padding(.horizontal, 13)
+        .padding(.horizontal, Space.lg)
         .frame(height: 34)
         .background(Theme.sunken)
     }
@@ -765,31 +765,31 @@ struct SessionFactsChip: View {
         let agent = facts.agent
         let refresh = { checkUsage(monitor) }
         if let problem = monitor.problems[agent] {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text(Self.problemLine(problem, lastReading: monitor.usage[agent]?.checkedAt))
                     .fixedSize(horizontal: false, vertical: true)
-                InlineLink(title: "Try again", size: 11.5) { refresh() }
+                InlineLink(title: "Try again", size: Typography.Size.detail) { refresh() }
             }
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(Theme.warningText)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.warningBackground))
-            .padding(.horizontal, 13)
-            .padding(.top, 9)
-            .padding(.bottom, 11)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.warningBackground))
+            .padding(.horizontal, Space.lg)
+            .padding(.top, Space.md)
+            .padding(.bottom, Space.lg)
         } else {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 Text("Your plan's limits load only when you ask.")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
-                ActionButton(title: "Check usage", tone: .outlined, height: 24, size: 11,
+                ActionButton(title: "Check usage", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption,
                              icon: "arrow.clockwise") { refresh() }
             }
-            .padding(.horizontal, 13)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
+            .padding(.horizontal, Space.lg)
+            .padding(.top, Space.md)
+            .padding(.bottom, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -817,15 +817,15 @@ struct SessionFactsChip: View {
         let now = Date()
         let pace = window.pace(now: now)
         let resets = window.resetsLine(now: now)
-        return HStack(alignment: .top, spacing: 12) {
+        return HStack(alignment: .top, spacing: Space.lg) {
             Text(window.shortTitle ?? window.title)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: Self.labelWidth, height: 15, alignment: .leading)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.md) {
                     LedgerMeter(fraction: window.usedFraction, colour: window.colour,
                                 pace: window.elapsedFraction(now: now), shimmering: checking)
                         .frame(maxWidth: Self.meterWidth)
@@ -834,16 +834,16 @@ struct SessionFactsChip: View {
                 .frame(height: 15)
                 if let caption = Self.windowCaption(pace: pace, resets: resets) {
                     caption
-                        .font(.mono(9.5))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 13)
-        .padding(.top, 8)
-        .padding(.bottom, 7)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.md)
+        .padding(.bottom, Space.sm)
         .contentShape(Rectangle())
         .appTooltip { Tooltip(title: window.title) }
         .accessibilityElement(children: .ignore)
@@ -882,7 +882,7 @@ struct SessionFactsChip: View {
     // moving rather than swapped.
     private func percent(_ value: Int, colour: Color) -> some View {
         Text("\(value)%")
-            .font(.mono(11, .semibold))
+            .font(Typography.data.weight(.semibold))
             .foregroundStyle(colour)
             .contentTransition(reduceMotion ? .identity : .numericText(value: Double(value)))
             .motion(LedgerMeter.fill, value: value)
@@ -895,7 +895,7 @@ struct SessionFactsChip: View {
     @ViewBuilder private func contextRow(_ fraction: Double) -> some View {
         let actions = contextActions()
         row(facts.agent.asksPermissions ? "Context" : "Window") {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 if actions.isEmpty {
                     contextReading(fraction, clearable: false)
                         .appTooltip(usageTooltip)
@@ -911,7 +911,7 @@ struct SessionFactsChip: View {
                 }
                 if let freed {
                     Text("freed \(freed)%")
-                        .font(.system(size: 10))
+                        .font(Font.system(size: Typography.Size.micro))
                         .foregroundStyle(.secondary)
                         .fixedSize()
                         .transition(.opacity.combined(with: .offset(y: 3)))
@@ -923,10 +923,10 @@ struct SessionFactsChip: View {
 
     private func contextReading(_ fraction: Double, clearable: Bool) -> some View {
         let colour = SessionFacts.contextColour(fraction, agent: facts.agent)
-        return HStack(spacing: 10) {
+        return HStack(spacing: Space.md) {
             LedgerMeter(fraction: fraction, colour: colour)
                 .frame(maxWidth: Self.meterWidth)
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 percent(Int((fraction * 100).rounded()), colour: colour)
                 if clearable {
                     Image(systemName: "chevron.down")
@@ -993,9 +993,9 @@ private struct CardLink<Content: View>: View {
         let moving = hovering && !reduceMotion
         Button(action: action) {
             content(moving)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? Theme.field : .clear))
+                .padding(.horizontal, Space.xs)
+                .padding(.vertical, Space.xxs)
+                .background(RoundedRectangle(cornerRadius: Radius.inset).fill(hovering ? Theme.field : .clear))
                 .offset(y: moving ? -1 : 0)
                 .contentShape(Rectangle())
         }
@@ -1110,7 +1110,7 @@ private struct UsageRefreshButton: View {
     private static let side: CGFloat = 22
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6)
+        let shape = RoundedRectangle(cornerRadius: Radius.inset)
         Button(action: action) {
             Group {
                 if checking && !reduceMotion {
@@ -1161,7 +1161,7 @@ private struct BrandSweep: View {
                     CubicKeyframe(1, duration: 0.6)
                 }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -1173,7 +1173,7 @@ private struct CopyBurst: View {
     let trigger: Int
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 8)
+        RoundedRectangle(cornerRadius: Radius.control)
             .strokeBorder(Theme.dotOn, lineWidth: 1.5)
             .padding(-4)
             .keyframeAnimator(initialValue: 1.0, trigger: trigger) { ring, phase in

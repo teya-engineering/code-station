@@ -26,11 +26,11 @@ struct TroubleshootDiagnosisStrip: View {
     private func readings(tally: TroubleshootEvidenceTally,
                           environment: TroubleshootEnvironment?,
                           showsAgent: Bool, showsWindow: Bool) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             stateReading
             if let environment {
                 StatusRule()
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     if environment.isDangerous {
                         Circle().fill(Theme.attention).frame(width: 6, height: 6)
                     }
@@ -45,7 +45,7 @@ struct TroubleshootDiagnosisStrip: View {
             }
             if showsWindow, let window = session.troubleshootTimeWindow {
                 StatusRule()
-                HStack(spacing: 5) {
+                HStack(spacing: Space.xs) {
                     Image(systemName: "clock")
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -67,7 +67,7 @@ struct TroubleshootDiagnosisStrip: View {
     // The state word and its count, the same reading the header pill carries, so the two
     // never say different things about one session.
     private var stateReading: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Breathing(active: state.tone == .running) {
                 Circle().fill(state.tone.colour).frame(width: 6, height: 6)
             }
@@ -92,22 +92,22 @@ struct TroubleshootDiagnosisStrip: View {
     }
 
     private func evidence(_ tally: TroubleshootEvidenceTally) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if tally.isEmpty {
                 StatusValue(text: "No evidence yet")
             } else {
                 ForEach(tally.readings, id: \.self) { reading in
                     Text(reading)
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7)
+                        .padding(.horizontal, Space.sm)
                         .frame(height: 20)
-                        .fieldSurface(cornerRadius: 6)
+                        .fieldSurface(cornerRadius: Radius.inset)
                         .fixedSize()
                 }
             }
             InlineAskButton(title: "Open Evidence", action: openEvidence)
-                .padding(.leading, 4)
+                .padding(.leading, Space.xs)
                 .accessibilityLabel("Open Evidence")
         }
         .layoutPriority(1)

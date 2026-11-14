@@ -45,21 +45,21 @@ struct PermissionCard: View {
                     .equatable()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .padding(Space.lg)
         }
         .frame(maxHeight: 340 * textScale)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.card, cornerRadius: 8, border: Theme.border)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .surface(Theme.card, cornerRadius: Radius.control, border: Theme.border)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
     }
 
     private var approval: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                 Text("\(request.title) needs permission")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(Theme.warningText)
@@ -68,7 +68,7 @@ struct PermissionCard: View {
             // Both are worth having, but only one of them can be checked.
             if !request.detail.isEmpty {
                 Text(request.detail)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -77,13 +77,13 @@ struct PermissionCard: View {
                 document
             } else if !request.subject.isEmpty {
                 Text(request.subject)
-                    .font(.mono(12))
+                    .font(Typography.code)
                     .textSelection(.enabled)
                     .lineLimit(12)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(10)
+                    .padding(Space.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                    .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
             }
 
             // Nearly every repeat of the same question comes from a call reaching outside
@@ -92,12 +92,12 @@ struct PermissionCard: View {
             // obvious answer, and the answer is the next button along.
             if let outside {
                 Text("Reaches \(outside.abbreviatedPath), outside this session's folders.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 CardButton(title: "Allow", prominent: true) { onAnswer(.allowOnce) }
                 // The folder takes the place of "always allow" rather than sitting beside
                 // it, because when the folder is the reason it is also the better answer:
@@ -119,9 +119,9 @@ struct PermissionCard: View {
                 CardButton(title: "Deny") { onAnswer(.deny) }
             }
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.warningBackground, cornerRadius: 12,
+        .surface(Theme.warningBackground, cornerRadius: Radius.floating,
                  border: Theme.warningText.opacity(0.25))
     }
 }
@@ -139,14 +139,14 @@ private struct QuestionCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             if request.questions.count > 1 {
                 questionTabs
             }
 
             question(request.questions[currentQuestionIndex])
 
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 CardButton(title: "Skip", tint: Theme.accent) { onAnswer(.deny) }
                 Spacer(minLength: 0)
                 if currentQuestionIndex > 0 {
@@ -169,48 +169,48 @@ private struct QuestionCard: View {
                 }
             }
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.accent.opacity(0.06), cornerRadius: 12,
+        .surface(Theme.accent.opacity(0.06), cornerRadius: Radius.floating,
                  border: Theme.accent.opacity(0.25))
     }
 
     private var questionTabs: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             ForEach(Array(request.questions.enumerated()), id: \.element.id) { index, question in
                 questionTab(question, at: index)
             }
         }
-        .padding(3)
+        .padding(Space.xxs)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.field))
     }
 
     private func questionTab(_ question: AgentQuestion, at index: Int) -> some View {
         let active = index == currentQuestionIndex
         let complete = !answer(for: question).isEmpty
         return Button { showQuestion(at: index) } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 if complete {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                         .foregroundStyle(Theme.accent)
                 } else {
                     Text("\(index + 1)")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(active ? Color.primary : Color.secondary)
                 }
                 Text(tabTitle(for: question, at: index))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(active ? Color.primary : Color.secondary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
             .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 8)
+            .background(RoundedRectangle(cornerRadius: Radius.control)
                 .fill(active ? Theme.card : .clear)
-                .shadow(color: .black.opacity(active ? 0.08 : 0), radius: 1, y: 0.5))
+                .elevation(active ? .raised : .none))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -220,15 +220,15 @@ private struct QuestionCard: View {
     }
 
     private func question(_ question: AgentQuestion) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if !question.header.isEmpty {
                 Text(question.header.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                     .kerning(0.6)
                     .foregroundStyle(Theme.accent)
             }
             Text(question.text)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
 
             ForEach(question.options) { option in
@@ -257,32 +257,32 @@ private struct QuestionCard: View {
         return Button {
             choose(option.label, in: question)
         } label: {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Space.md) {
                 Image(systemName: marker(question: question, chosen: chosen))
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(chosen ? Theme.accent : Color.secondary)
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(option.label)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                     if !option.description.isEmpty {
                         Text(option.description)
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 0)
             }
-            .padding(10)
+            .padding(Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(chosen ? Theme.accent.opacity(0.10) : Theme.card, cornerRadius: 8,
+            .surface(chosen ? Theme.accent.opacity(0.10) : Theme.card, cornerRadius: Radius.control,
                      border: chosen ? Theme.accent.opacity(0.45) : Theme.border)
             .motion(Motion.control, value: chosen)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 8)
+        .hoverFill(cornerRadius: Radius.control)
     }
 
     private func marker(question: AgentQuestion, chosen: Bool) -> String {
@@ -358,11 +358,11 @@ private struct CardButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(prominent ? Theme.card : Color.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .surface(prominent ? tint : tint.opacity(0.18), cornerRadius: 8,
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.sm)
+                .surface(prominent ? tint : tint.opacity(0.18), cornerRadius: Radius.control,
                          border: prominent ? .clear : tint.opacity(0.6))
                 .contentShape(Rectangle())
         }

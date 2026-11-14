@@ -6,24 +6,24 @@ struct RawJSONView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Space.xl) {
                 Text("config.json")
-                    .font(.serif(22, .semibold))
+                    .font(Typography.display)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 ScrollView {
                     Text(store.rawJSON)
-                        .font(.mono(12))
+                        .font(Typography.code)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
+                        .padding(Space.lg)
                 }
-                .fieldSurface(cornerRadius: 10)
+                .fieldSurface(cornerRadius: Radius.card)
             }
-            .padding(24)
+            .padding(Space.xxxl)
 
             SheetFooter { dismiss() } leading: {
-                CopyButton("Copy", size: 12) { store.rawJSON }
+                CopyButton("Copy", size: Typography.Size.detail) { store.rawJSON }
             }
         }
         .frame(width: 620, height: 520)

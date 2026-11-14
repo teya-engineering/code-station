@@ -194,11 +194,11 @@ struct ThreadNode: View {
 
             ThreadMark.tick
                 .trim(from: 0, to: look.tick)
-                .stroke(.white, style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
+                .stroke(Theme.onFill, style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
                                                    lineJoin: .round))
             ThreadMark.bang
                 .trim(from: 0, to: look.bang)
-                .stroke(.white, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .stroke(Theme.onFill, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
 
             Tweened(progress: drop) { progress in
                 ThreadBead(colour: colour, progress: TurnMotion.stage(progress))
@@ -512,7 +512,7 @@ struct ThreadRowEffects: ViewModifier {
                 .overlay {
                     Tweened(progress: wash) { progress in
                         let stage = TurnMotion.stage(progress)
-                        RoundedRectangle(cornerRadius: 9)
+                        RoundedRectangle(cornerRadius: Radius.card)
                             .fill(Theme.dotOn.opacity(0.16))
                             .opacity(stage < 0.14 ? stage / 0.14 : 1 - (stage - 0.14) / 0.86)
                             .opacity(stage > 0 ? 1 : 0)

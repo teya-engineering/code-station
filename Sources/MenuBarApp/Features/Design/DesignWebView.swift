@@ -37,7 +37,7 @@ struct DesignWebView: View {
                 fitBottomInset: fitBottomInset,
                 pins: pins, hotPin: hotPin, onPin: onPin, onPinHover: onPinHover)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Text("Scroll to zoom · Drag to pan")
                     .lineLimit(1)
                     .foregroundStyle(.secondary)
@@ -53,7 +53,7 @@ struct DesignWebView: View {
                 Button { fitGeneration += 1 } label: {
                     Text("Fit")
                         .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, Space.sm)
                         .frame(height: 26)
                         .contentShape(Rectangle())
                 }
@@ -61,8 +61,8 @@ struct DesignWebView: View {
                 .hoverLift()
                 .accessibilityLabel("Fit design to canvas")
             }
-            .font(.system(size: 10.5, weight: .medium))
-            .padding(.horizontal, 12)
+            .font(Typography.caption.weight(.medium))
+            .padding(.horizontal, Space.lg)
             .frame(height: Self.toolbarHeight)
             .background(Theme.card)
             .overlay(alignment: .top) {

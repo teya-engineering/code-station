@@ -36,11 +36,11 @@ struct CleanupCountdownView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: Space.xl) {
                     if items.isEmpty {
                         emptyState
                     } else {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: Space.md) {
                             ForEach(items) { item in
                                 GoingRow(title: title(item),
                                          detail: detail(item),
@@ -60,7 +60,7 @@ struct CleanupCountdownView: View {
                                          go: showWaiting)
                     }
                 }
-                .padding(20)
+                .padding(Space.xxl)
                 .motion(Motion.leave, value: answered)
             }
             .frame(minHeight: 220, maxHeight: 480)
@@ -80,7 +80,7 @@ struct CleanupCountdownView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: "checkmark", text: note)
-                        .padding(.top, 10)
+                        .padding(.top, Space.md)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -91,23 +91,23 @@ struct CleanupCountdownView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .center, spacing: Space.xl) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(items.isEmpty ? "Nothing will be deleted" : "\(items.count) will be deleted")
-                    .font(.serif(16))
+                    .font(Typography.title)
                     .contentTransition(.numericText(value: Double(items.count)))
                     .motion(Motion.pop, value: items.count)
                 Text("These are older than \(counted(appSettings.oldSessionDays, "day")), you have read them, and nothing on disk would be lost. Keep any you still want and it is left out of this sweep.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let deadline = status.deletion?.at {
-                VStack(alignment: .trailing, spacing: 2) {
+                VStack(alignment: .trailing, spacing: Space.xxs) {
                     CleanupCountdownLabel(deadline: deadline, size: 15)
                     Text("left before they go")
-                        .font(.system(size: 10.5))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                 }
                 .opacity(items.isEmpty ? 0 : 1)
@@ -115,29 +115,29 @@ struct CleanupCountdownView: View {
                 .accessibilityHidden(items.isEmpty)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .headerBand()
     }
 
     private var emptyState: some View {
         let day = ProjectSnooze.wakeDay(Date().addingTimeInterval(OldSessions.deferral))
-        return VStack(spacing: 6) {
+        return VStack(spacing: Space.sm) {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 20))
                 .foregroundStyle(Theme.dotOnText)
             Text(kept > 0 && kept == answered.count ? "You kept them all" : "Nothing left in this countdown")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text(kept > 0
                  ? "Nothing goes at the end of this countdown. Kept sessions come back on \(day) if they are still old by then."
                  : "Read sessions older than \(counted(appSettings.oldSessionDays, "day")) with nothing to lose show up here an hour before they go.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, Space.xxxl)
         .transition(.fadeIn)
     }
 
@@ -291,27 +291,27 @@ private struct GoingRow: View {
     let keep: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(title)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(detail)
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            InlineLink(title: openTitle, size: 11.5, action: open)
+            InlineLink(title: openTitle, size: Typography.Size.detail, action: open)
                 .accessibilityLabel("\(openTitle) \(title)")
-            ActionButton(title: "Keep", tone: .outlined, height: 24, size: 11.5, action: keep)
+            ActionButton(title: "Keep", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail, action: keep)
                 .accessibilityLabel("Keep \(title) out of this sweep")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .surface(Theme.sunken, cornerRadius: 10, border: Theme.settingsBorder)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .surface(Theme.sunken, cornerRadius: Radius.card, border: Theme.settingsBorder)
         .accessibilityElement(children: .contain)
     }
 }
@@ -326,22 +326,22 @@ struct CleanupCrossLink: View {
     let go: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(tint)
             Text(text)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.numericText())
                 .frame(maxWidth: .infinity, alignment: .leading)
-            InlineLink(title: action, size: 12, action: go)
+            InlineLink(title: action, size: Typography.Size.detail, action: go)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .surface(Theme.field, cornerRadius: 10)
-        .padding(.top, 4)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .surface(Theme.field, cornerRadius: Radius.card)
+        .padding(.top, Space.xs)
         .accessibilityElement(children: .contain)
         .transition(.fadeIn)
     }

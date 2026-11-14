@@ -20,15 +20,15 @@ struct TaskRunRow: View {
     private var isLive: Bool { tone == .running || tone == .waiting }
 
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
+            HStack(spacing: Space.lg) {
                 light
                     .frame(width: 14)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    HStack(spacing: Space.sm) {
                         Text(session.title)
-                            .font(.system(size: 13.5, weight: .semibold))
+                            .font(Typography.body.weight(.semibold))
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if session.isPinned { PinnedMark() }
@@ -39,10 +39,10 @@ struct TaskRunRow: View {
 
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(session.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                     took
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(.tertiary)
                 }
                 .fixedSize()
@@ -53,15 +53,15 @@ struct TaskRunRow: View {
 
             // Destructive actions live in the menu: a bare bin in a row is one mis-click
             // from losing a run.
-            GlyphButton(icon: "ellipsis", side: 26)
+            GlyphButton(icon: "ellipsis", side: ControlHeight.sm)
                 .appMenu(menu)
                 .appTooltip("More run actions")
                 .opacity(hovering ? 1 : 0)
                 .accessibilityLabel("More for this run")
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 10)
-        .padding(.vertical, 11)
+        .padding(.leading, Space.xl)
+        .padding(.trailing, Space.md)
+        .padding(.vertical, Space.lg)
         .background(hovering ? Theme.field.opacity(0.5) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
@@ -83,11 +83,11 @@ struct TaskRunRow: View {
     // The colour of the light always comes with words: the live tool line, the reason a
     // run stopped, or the state's own name.
     @ViewBuilder private var meta: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             if isLive {
                 StatusCaps(text: tone.word, tint: tone.colour)
                 Text(activity)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(Theme.dotOn)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -98,14 +98,14 @@ struct TaskRunRow: View {
                 trigger
                 if let failure {
                     Text(failure)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(Typography.detail.weight(.medium))
                         .foregroundStyle(Theme.deletion)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .appTooltip(failure)
                 } else if !given.isEmpty {
                     Text(given)
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -116,18 +116,18 @@ struct TaskRunRow: View {
 
     @ViewBuilder private var trigger: some View {
         if session.isScheduledRun {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "clock")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
                     .accessibilityHidden(true)
                 Text("Scheduled")
             }
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .fixedSize()
         } else {
             Text("Run by you")
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize()
         }

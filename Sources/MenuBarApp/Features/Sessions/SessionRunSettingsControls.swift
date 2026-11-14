@@ -20,7 +20,7 @@ struct SessionRunSettingsControls: View {
     var body: some View {
         if let session = store.session(sessionID) {
             let agent = session.agent
-            let layout = wraps ? AnyLayout(FlowRow(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+            let layout = wraps ? AnyLayout(FlowRow(spacing: Space.md)) : AnyLayout(HStackLayout(spacing: Space.md))
             layout {
                 AgentPill(agent: agent)
                     .appTooltip("This session always runs on \(agent.title).")
@@ -292,17 +292,17 @@ private struct AgentPill: View {
     let agent: AgentKind
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             Image(systemName: agent.symbol)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(.secondary)
             Text(agent.title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(.secondary)
         }
         .lineLimit(1)
-        .padding(.horizontal, 10)
-        .frame(height: 30)
+        .padding(.horizontal, Space.md)
+        .frame(height: ControlHeight.md)
         .overlay(Capsule().strokeBorder(Theme.border))
         .contentShape(Capsule())
         .fixedSize()
@@ -317,11 +317,11 @@ private struct ModelPill: View {
 
     var body: some View {
         BarPill {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "cpu")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(.secondary)
-                RollingText(title, font: .system(size: 12, weight: .semibold))
+                RollingText(title, font: Typography.label)
                 MenuChevron(size: 8)
             }
         }
@@ -388,10 +388,10 @@ private struct EffortPill: View {
 
     var body: some View {
         BarPill {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 EffortMeter(lit: lit)
                 RollingText(title, rising: lit >= (previous ?? lit),
-                            font: .system(size: 12, weight: .semibold))
+                            font: Typography.label)
                 MenuChevron(size: 8)
             }
         }
@@ -438,9 +438,9 @@ private struct AmbitionPill: View {
 
     var body: some View {
         BarPill(fill: ambition.pillFill) {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "paintbrush.pointed")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(ambition.tint)
                     // On the glyph rather than the pill, for the same reason as the shield.
                     .keyframeAnimator(initialValue: 1.0, trigger: reduceMotion ? nil : ambition) { glyph, scale in
@@ -450,7 +450,7 @@ private struct AmbitionPill: View {
                         SpringKeyframe(1.0, duration: 0.23, spring: .bouncy)
                     }
                 RollingText(ambition.title, rising: rank(ambition) >= rank(previous ?? ambition),
-                            font: .system(size: 12, weight: .semibold))
+                            font: Typography.label)
                     .foregroundStyle(ambition.pillInk)
                 MenuChevron(size: 8, tint: ambition == .restrained ? .secondary : ambition.tint.opacity(0.7))
             }
@@ -530,9 +530,9 @@ private struct ShieldPill: View {
 
     var body: some View {
         BarPill(fill: tone.fill) {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "shield")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     // The swell is on the glyph inside the label: the pill around it hosts
                     // AppKit views that cannot be laid out under a transform.
                     .keyframeAnimator(initialValue: 1.0, trigger: reduceMotion ? nil : tone) { glyph, scale in
@@ -541,7 +541,7 @@ private struct ShieldPill: View {
                         SpringKeyframe(1.25, duration: 0.15)
                         SpringKeyframe(1.0, duration: 0.23, spring: .bouncy)
                     }
-                RollingText(title, font: .system(size: 12, weight: .semibold))
+                RollingText(title, font: Typography.label)
                 MenuChevron(size: 8, tint: tone.ink.opacity(0.7))
             }
             .foregroundStyle(tone.ink)
@@ -569,8 +569,8 @@ struct BarPill<Content: View>: View {
     var body: some View {
         content
             .lineLimit(1)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .padding(.horizontal, Space.md)
+            .frame(height: ControlHeight.md)
             .background(Capsule().fill(fill))
             .overlay(Capsule().fill(Color.primary.opacity(hovering || open ? 0.05 : 0)))
             .contentShape(Capsule())

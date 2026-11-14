@@ -99,7 +99,7 @@ struct SessionOpinionAsk: View {
 
     private var picker: some View {
         SecondOpinionSection(title: "What to review") {
-            HStack(spacing: 2) {
+            HStack(spacing: Space.xxs) {
                 kindPill(.chat, title: answer.map { answerTitle($0) } ?? "The last answer",
                          detail: answer.map { _ in "And what you asked" } ?? "No answer yet",
                          enabled: answer != nil)
@@ -110,8 +110,8 @@ struct SessionOpinionAsk: View {
                          detail: design.map { counted($0.screenCount, "screen") } ?? "No design yet",
                          enabled: design != nil)
             }
-            .padding(2)
-            .fieldSurface(cornerRadius: 10)
+            .padding(Space.xxs)
+            .fieldSurface(cornerRadius: Radius.card)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("What to review")
         }

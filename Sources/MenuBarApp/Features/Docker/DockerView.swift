@@ -52,7 +52,7 @@ struct DockerView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, 20)
+                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -83,18 +83,18 @@ struct DockerView: View {
     private var isUp: Bool { docker.containers.hasLoaded && docker.containers.failure == nil }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Text("Docker").font(.serif(20))
-            HStack(spacing: 6) {
+        HStack(spacing: Space.lg) {
+            Text("Docker").font(Typography.display)
+            HStack(spacing: Space.sm) {
                 Circle().fill(engine.colour).frame(width: 6, height: 6)
                 Text(engine.text)
                     .contentTransition(.opacity)
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .foregroundStyle(isUp ? Theme.accent : Theme.secondaryText)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Space.md)
             .frame(height: 22)
-            .background(isUp ? Theme.accent.opacity(0.1) : Theme.field, in: RoundedRectangle(cornerRadius: 6))
+            .background(isUp ? Theme.accent.opacity(0.1) : Theme.field, in: RoundedRectangle(cornerRadius: Radius.inset))
             .motion(Motion.control, value: engine.text)
             .accessibilityElement(children: .combine)
 
@@ -114,31 +114,31 @@ struct DockerView: View {
                          tone: .outlined, icon: "sparkles", action: cleanUp)
                 .disabled(!isUp)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
     private var searchField: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
             TextField("Filter by name or image", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .focused($searchFocused)
                 .onChange(of: query) { selection = []; anchor = nil }
             if query.isEmpty {
                 Text("⌘F")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                     .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Space.xs)
                     .padding(.vertical, 1.5)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.border))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.tag).stroke(Theme.border))
             } else {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.tertiary)
                         .contentShape(Rectangle())
                 }
@@ -146,10 +146,10 @@ struct DockerView: View {
                 .accessibilityLabel("Clear the filter")
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(width: 240, height: 32)
-        .background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8)
+        .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control)
             .stroke(searchFocused ? Theme.accent.opacity(0.5) : Theme.border))
         .motion(Motion.hover, value: searchFocused)
     }
@@ -157,14 +157,14 @@ struct DockerView: View {
     // MARK: - Rail
 
     private var rail: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             ForEach(DockerKind.allCases) { item in
                 railItem(item)
             }
             Spacer(minLength: 12)
             diskCard
         }
-        .padding(12)
+        .padding(Space.lg)
         .frame(width: 216)
         .frame(maxHeight: .infinity)
         .background(Theme.sidebar)
@@ -195,49 +195,49 @@ struct DockerView: View {
         let current = kind == item
         let restarting = item == .containers ? docker.containers.items.count { $0.state == .restarting } : 0
         return Button { switchKind(item) } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(current ? Color.white : Theme.accent)
+                    .font(Typography.body.weight(.medium))
+                    .foregroundStyle(current ? Theme.onFill : Theme.accent)
                     .frame(width: 30, height: 30)
-                    .background(current ? Theme.accentFill : Theme.field, in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).font(.system(size: 12.5, weight: .semibold))
+                    .background(current ? Theme.accentFill : Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text(item.title).font(Typography.body.weight(.semibold))
                     Group {
                         if !docker.containers.hasLoaded {
-                            RoundedRectangle(cornerRadius: 3).fill(Theme.field).frame(width: 80, height: 8)
+                            RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: 80, height: 8)
                         } else if !isUp {
                             Text("Not available")
                         } else {
                             Text(railSubtitle(item)).contentTransition(.numericText())
                         }
                     }
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(Theme.secondaryText)
                     .lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 if isUp {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Space.xs) {
                         if restarting > 0 {
                             BreathingCircle(colour: Theme.attention, restingOpacity: 1, fullOpacity: 0.35)
                                 .frame(width: 6, height: 6)
                         }
                         Text("\(count(item))").contentTransition(.numericText())
                     }
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(Typography.label)
                     .monospacedDigit()
                     .foregroundStyle(restarting > 0 ? Theme.attentionText : Theme.secondaryText)
                     .appTooltip(restarting > 0 ? "\(counted(restarting, "container keeps", plural: "containers keep")) restarting" : "\(item.amount(count(item)))")
                 }
             }
-            .padding(8)
-            .background(current ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(current ? Theme.border : .clear))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .padding(Space.md)
+            .background(current ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(current ? Theme.border : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 10)
+        .hoverFill(cornerRadius: Radius.card)
         .motion(Motion.control, value: current)
         .accessibilityLabel("\(item.title), \(count(item))")
         .accessibilityHint("⌘\(item.rawValue + 1)")
@@ -252,54 +252,54 @@ struct DockerView: View {
     }
 
     private var diskCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text("Docker on this Mac")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(Theme.secondaryText)
             if !docker.containers.hasLoaded {
-                RoundedRectangle(cornerRadius: 4).fill(Theme.field).frame(width: 110, height: 22)
-                RoundedRectangle(cornerRadius: 3).fill(Theme.field).frame(height: 6)
+                RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(width: 110, height: 22)
+                RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field).frame(height: 6)
             } else if !isUp {
-                Text("Waiting for Docker").font(.system(size: 12)).foregroundStyle(Theme.secondaryText)
+                Text("Waiting for Docker").font(Typography.detail).foregroundStyle(Theme.secondaryText)
             } else {
                 Text(DockerSize.text(docker.disk.total))
-                    .font(.serif(24))
+                    .font(Typography.display)
                     .contentTransition(.numericText())
                 diskMeter
-                VStack(spacing: 5) {
+                VStack(spacing: Space.xs) {
                     ForEach(diskSegments, id: \.title) { segment in
-                        HStack(spacing: 7) {
+                        HStack(spacing: Space.sm) {
                             RoundedRectangle(cornerRadius: 2).fill(segment.colour).frame(width: 8, height: 8)
                             Text(segment.title)
                             Spacer(minLength: 4)
                             Text(DockerSize.text(segment.bytes)).monospacedDigit()
                                 .contentTransition(.numericText())
                         }
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .accessibilityElement(children: .combine)
                     }
                 }
                 Rectangle().fill(Theme.hairline).frame(height: 1)
                 if safeToFree > 0 {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Space.xs) {
                         (Text(DockerSize.text(safeToFree)).fontWeight(.semibold) + Text(" is safe to free"))
-                            .font(.system(size: 11.5))
+                            .font(Typography.detail)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                         Spacer(minLength: 2)
-                        InlineLink(title: "Clean up", size: 11.5, action: cleanUp)
+                        InlineLink(title: "Clean up", size: Typography.Size.detail, action: cleanUp)
                     }
                 } else {
                     Label("Nothing to free", systemImage: "checkmark")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(Typography.detail.weight(.medium))
                         .foregroundStyle(Theme.dotOnText)
                 }
             }
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.floating))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.border))
     }
 
     // One bar split by kind, drawn rather than built from `Meter`s, since its parts share
@@ -307,7 +307,7 @@ struct DockerView: View {
     private var diskMeter: some View {
         let total = max(docker.disk.total, 1)
         return GeometryReader { geometry in
-            HStack(spacing: 2) {
+            HStack(spacing: Space.xxs) {
                 ForEach(diskSegments, id: \.title) { segment in
                     Capsule()
                         .fill(segment.colour)
@@ -331,11 +331,11 @@ struct DockerView: View {
             if docker.containers.hasLoaded, docker.containers.failure != nil {
                 notRunning
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: Space.lg) {
                     toolbar
                     table
                 }
-                .padding(20)
+                .padding(Space.xxl)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -352,21 +352,21 @@ struct DockerView: View {
             // so what docker said is the only way to tell them apart.
             if installed, let failure = docker.containers.failure {
                 Text(failure)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(Theme.secondaryText)
                     .multilineTextAlignment(.leading)
                     .lineLimit(6)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.md)
                     .frame(maxWidth: 460, alignment: .leading)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
                     .contentTransition(.opacity)
                     .motion(Motion.reveal, value: failure)
-                    .padding(.top, 6)
+                    .padding(.top, Space.sm)
             }
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 if let desktop = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.docker.docker") {
                     ActionButton(title: "Open Docker Desktop", tone: .green, icon: "arrow.up.forward.app") {
                         NSWorkspace.shared.openApplication(at: desktop, configuration: NSWorkspace.OpenConfiguration())
@@ -377,7 +377,7 @@ struct DockerView: View {
                     Task { await docker.refresh(sizes: true) }
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, Space.md)
         }
         .transition(.fadeIn)
     }
@@ -414,7 +414,7 @@ struct DockerView: View {
     @Namespace private var filterTrack
 
     private var toolbar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             ForEach(filterOptions(kind), id: \.0) { option, title, number in
                 ChoicePill(title: "\(title)  \(number)", selected: filter == option,
                            enabled: number > 0 || option == .all || filter == option,
@@ -436,13 +436,13 @@ struct DockerView: View {
     }
 
     private var sortButton: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.up.arrow.down").font(.system(size: 10.5, weight: .semibold))
-            Text(sortLabel).font(.system(size: 12, weight: .semibold))
+        HStack(spacing: Space.sm) {
+            Image(systemName: "arrow.up.arrow.down").font(Typography.caption.weight(.semibold))
+            Text(sortLabel).font(Typography.label)
             MenuChevron()
         }
         .foregroundStyle(Theme.secondaryText)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(height: 28)
         .contentShape(Rectangle())
         .hoverLift()
@@ -473,7 +473,7 @@ struct DockerView: View {
                 ZStack {
                     if let bar = selectionBar {
                         bar
-                            .padding(.bottom, 14)
+                            .padding(.bottom, Space.lg)
                             .transition(reduceMotion
                                 ? .opacity.animation(Motion.reveal)
                                 : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity).animation(Motion.arrive),
@@ -483,9 +483,9 @@ struct DockerView: View {
             }
             .clipped()
         }
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.floating))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.border))
     }
 
     private var headCheck: (on: Bool, mixed: Bool) {
@@ -523,13 +523,13 @@ struct DockerView: View {
     }
 
     @ViewBuilder private func headerTitle(_ title: String, sortsBy: Sort?) -> some View {
-        let label = HStack(spacing: 4) {
+        let label = HStack(spacing: Space.xs) {
             Text(title)
             if let sortsBy, sort == sortsBy {
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
             }
         }
-        .font(.system(size: 11.5, weight: .semibold))
+        .font(Typography.label)
         .foregroundStyle(Theme.secondaryText)
         if let sortsBy {
             Button { sorts[kind] = sortsBy } label: { label.contentShape(Rectangle()) }
@@ -584,8 +584,8 @@ struct DockerView: View {
         if !query.isEmpty {
             PaneMessage(icon: "magnifyingglass", title: "No \(kind.noun)s match \"\(query)\"",
                         detail: "Try part of a name, an image or a compose project.") {
-                ActionButton(title: "Clear filter", tone: .outlined, height: 28, size: 12) { query = "" }
-                    .padding(.top, 6)
+                ActionButton(title: "Clear filter", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) { query = "" }
+                    .padding(.top, Space.sm)
             }
             .transition(.fadeIn)
         } else if filter != .all {
@@ -596,10 +596,10 @@ struct DockerView: View {
                         detail: everyInUse
                             ? "\(kind.title) that nothing uses show up here, ready to clean up."
                             : "Nothing fits this filter right now.") {
-                ActionButton(title: "Show all \(kind.noun)s", tone: .outlined, height: 28, size: 12) {
+                ActionButton(title: "Show all \(kind.noun)s", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
                     filters[kind] = .all
                 }
-                .padding(.top, 6)
+                .padding(.top, Space.sm)
             }
             .transition(.fadeIn)
         } else {
@@ -651,7 +651,7 @@ struct DockerView: View {
             DockerSizeCell(bytes: container.bytes)
                 .frame(width: widths[2], alignment: .trailing)
         } actions: {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 if container.isRunning {
                     rowGlyph("stop.fill", "Stop") { act(.stop, on: [container]) }
                 } else {
@@ -688,7 +688,7 @@ struct DockerView: View {
             DockerSizeCell(bytes: image.bytes)
                 .frame(width: widths[1], alignment: .trailing)
         } actions: {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 rowGlyph("trash", "Delete image") { delete([image.id]) }
                 moreButton { resourceMenu(id: image.imageID, name: image.reference) { delete([image.id]) } }
             }
@@ -710,17 +710,17 @@ struct DockerView: View {
                            fullName: volume.id) {
                 if volume.isAnonymous { DockerBadge(text: "Anonymous", tone: .grey) }
                 if let project = volume.composeProject {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xs) {
                         RoundedRectangle(cornerRadius: 2)
                             .fill(Theme.projectTint(for: project).colour)
                             .frame(width: 6, height: 6)
                         Text(project)
                     }
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                     .foregroundStyle(Theme.secondaryText)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 5))
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xxs)
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.inset))
                 }
             }
         } cells: {
@@ -730,7 +730,7 @@ struct DockerView: View {
             DockerSizeCell(bytes: docker.volumeSizes[volume.id] ?? volume.bytes)
                 .frame(width: widths[1], alignment: .trailing)
         } actions: {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 rowGlyph("trash", "Delete volume") { delete([volume.id]) }
                 moreButton { resourceMenu(id: volume.id, name: volume.id) { delete([volume.id]) } }
             }
@@ -755,24 +755,24 @@ struct DockerView: View {
         } cells: {
             let widths = DockerColumns.widths(.networks)
             Text(network.driver)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(Theme.secondaryText)
                 .frame(width: widths[0], alignment: .leading)
             Group {
                 if users.isEmpty {
-                    Text("None").font(.system(size: 12)).foregroundStyle(.tertiary)
+                    Text("None").font(Typography.detail).foregroundStyle(.tertiary)
                 } else {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         Circle().fill(users.contains(where: \.isRunning) ? Theme.dotOn : Theme.dotOff)
                             .frame(width: 6, height: 6)
-                        Text(counted(users.count, "container")).font(.system(size: 12))
+                        Text(counted(users.count, "container")).font(Typography.detail)
                     }
                     .appTooltip(users.map(\.name).joined(separator: ", "))
                 }
             }
             .frame(width: widths[1], alignment: .leading)
         } actions: {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 if !network.isBuiltIn {
                     rowGlyph("trash", "Delete network") { delete([network.id]) }
                 }
@@ -783,13 +783,13 @@ struct DockerView: View {
     }
 
     private func rowGlyph(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
-        GlyphButton(icon: icon, side: 26, action: action)
+        GlyphButton(icon: icon, side: ControlHeight.sm, action: action)
             .appTooltip(label)
             .accessibilityLabel(label)
     }
 
     private func moreButton(_ entries: @escaping () -> [MenuEntry]) -> some View {
-        GlyphButton(icon: "ellipsis", side: 26)
+        GlyphButton(icon: "ellipsis", side: ControlHeight.sm)
             .appMenu(entries)
             .accessibilityLabel("More actions")
     }

@@ -1793,9 +1793,9 @@ struct MarkdownBlockView: View, Equatable {
         case .table(let table):
             MarkdownTableView(table: table, textScale: textScale)
         case .list(let items):
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 9) {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
                         paragraph(item.text, lineSpacing: 2)
@@ -1807,7 +1807,7 @@ struct MarkdownBlockView: View, Equatable {
         case .quote(let text):
             SelectableText(MarkdownBlock.displayText(text), size: 13, secondary: true)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 13)
+                .padding(.leading, Space.lg)
                 .overlay(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(Theme.accent.opacity(0.35))
@@ -1838,13 +1838,13 @@ struct MarkdownBlockView: View, Equatable {
                     }
                 }
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 12) { previews }
+                    HStack(alignment: .top, spacing: Space.lg) { previews }
                         .fixedSize()
-                    VStack(alignment: centered ? .center : .leading, spacing: 12) { previews }
+                    VStack(alignment: centered ? .center : .leading, spacing: Space.lg) { previews }
                 }
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
             } else {
-                VStack(alignment: centered ? .center : .leading, spacing: 8) {
+                VStack(alignment: centered ? .center : .leading, spacing: Space.md) {
                     ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                         switch part {
                         case .text(let piece):
@@ -1865,11 +1865,11 @@ struct MarkdownBlockView: View, Equatable {
     }
 
     private func imagePreview(url: URL, label: String, attributes: MarkdownImageAttributes?) -> some View {
-        VStack(alignment: centered ? .center : .leading, spacing: 5) {
+        VStack(alignment: centered ? .center : .leading, spacing: Space.xs) {
             InlineImageView(url: url, label: label.isEmpty ? nil : label, size: attributes)
             if !label.isEmpty, attributes?.captioned ?? true {
                 Text(label)
-                    .scaledText(11)
+                    .scaledText(Typography.Size.caption)
                     .multilineTextAlignment(textAlignment)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -1898,7 +1898,7 @@ struct MarkdownBlockView: View, Equatable {
                 .offset(y: -3)
         } else {
             Text(item.marker)
-                .scaledText(13)
+                .scaledText(Typography.Size.body)
                 .foregroundStyle(.secondary)
         }
     }
@@ -1937,9 +1937,9 @@ struct MarkdownProse<Code: View>: View {
 
     var body: some View {
         if lazy {
-            LazyVStack(alignment: .leading, spacing: 12) { blocks }
+            LazyVStack(alignment: .leading, spacing: Space.lg) { blocks }
         } else {
-            VStack(alignment: .leading, spacing: 12) { blocks }
+            VStack(alignment: .leading, spacing: Space.lg) { blocks }
         }
     }
 
@@ -2029,9 +2029,9 @@ struct TranscriptChartBlock: View, Equatable {
                 TranscriptChartView(spec: spec)
             case .failure:
                 Text(TranscriptChartSpec.Failure.unreadable.localizedDescription)
-                    .scaledText(12)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(Theme.warningText)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, Space.xxs)
             }
         }
     }
@@ -2060,16 +2060,16 @@ struct MarkdownCodeBlock: View, Equatable {
     let segment: MessageSegment
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             if let language = segment.language {
                 Text(language.uppercased())
-                    .scaledText(10, .semibold)
+                    .scaledText(Typography.Size.micro, .semibold)
                     .kerning(0.6)
                     .foregroundStyle(.secondary)
             }
             if segment.isDeletion {
                 Text("Deletes the commented lines")
-                    .scaledText(12)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(.secondary)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -2079,9 +2079,9 @@ struct MarkdownCodeBlock: View, Equatable {
                 }
             }
         }
-        .padding(12)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .fieldSurface(cornerRadius: 10)
+        .fieldSurface(cornerRadius: Radius.card)
     }
 }
 
@@ -2112,8 +2112,8 @@ private struct MarkdownTableView: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .cardSurface(cornerRadius: 8)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+        .cardSurface(cornerRadius: Radius.control)
     }
 
     // Every row uses the same preferred widths, so columns stay aligned while wider
@@ -2128,8 +2128,8 @@ private struct MarkdownTableView: View {
                                   role: .tableCell(table: id, row: row))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: frameAlignment(alignment))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
     }
 
     private var preferredColumnWidths: [CGFloat] {

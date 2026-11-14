@@ -12,25 +12,25 @@ struct FindBar: View {
     let close: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 7) {
+        HStack(spacing: Space.md) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 TextField(placeholder, text: $query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .focused(focused)
                     .onSubmit { move(1) }
                     .onExitCommand(perform: close)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Space.md)
             .frame(minWidth: 90, idealWidth: 260, maxWidth: 260)
             .frame(height: 28)
-            .fieldSurface(cornerRadius: 7)
+            .fieldSurface(cornerRadius: Radius.control)
 
             Text(summary)
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -44,8 +44,8 @@ struct FindBar: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.sm)
         .background(Theme.card)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
         .onAppear { focused.request() }
@@ -58,8 +58,8 @@ struct FindBar: View {
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(Theme.accent.opacity(disabled ? 0.3 : 1))
                 .frame(width: 26, height: 26)
-                .fieldSurface(cornerRadius: 7)
-                .contentShape(RoundedRectangle(cornerRadius: 7))
+                .fieldSurface(cornerRadius: Radius.control)
+                .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .hoverLift(amount: Motion.smallLift)

@@ -33,38 +33,38 @@ struct NewWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text("New workspace")
-                    .font(.serif(22, .semibold))
+                    .font(Typography.display)
                 Text("Pick the projects that get worked on together. Every session starts with all of them.")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 12) {
+                HStack(spacing: Space.lg) {
                     SectionLabel("NAME", style: .field)
                     TextField("Workspace name", text: $name)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Space.lg)
                 .frame(height: 44)
-                .fieldSurface(cornerRadius: 10)
-                .padding(.top, 10)
+                .fieldSurface(cornerRadius: Radius.card)
+                .padding(.top, Space.md)
             }
-            .padding(20)
+            .padding(Space.xxl)
 
             projectFilterField
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
+                .padding(.horizontal, Space.xxl)
+                .padding(.bottom, Space.lg)
 
             ScrollView {
-                VStack(spacing: 9) {
+                VStack(spacing: Space.md) {
                     if filteredProjects.isEmpty && !projectFilter.isBlank {
                         Text("No project matches this filter.")
-                            .font(.system(size: 13))
+                            .font(Typography.body)
                             .foregroundStyle(.secondary)
-                            .padding(14)
+                            .padding(Space.lg)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -73,12 +73,12 @@ struct NewWorkspaceView: View {
                     }
 
                     ActionButton(title: "Add a folder that isn't a project yet", tone: .outlined,
-                                 height: 36, size: 13, icon: "plus", action: addFolder)
+                                 height: ControlHeight.xl, size: Typography.Size.body, icon: "plus", action: addFolder)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
+                        .padding(.top, Space.xs)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.horizontal, Space.xxl)
+                .padding(.bottom, Space.xxl)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                     // The first height is taken as it is, so the sheet opens at its
                     // final size instead of growing into it.
@@ -106,17 +106,17 @@ struct NewWorkspaceView: View {
     }
 
     private var projectFilterField: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
             TextField("Filter projects by name or path", text: $projectFilter)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
             if !projectFilter.isEmpty {
                 Button { projectFilter = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.tertiary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
@@ -127,9 +127,9 @@ struct NewWorkspaceView: View {
                 .appTooltip("Clear filter")
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(height: 36)
-        .fieldSurface(cornerRadius: 8)
+        .fieldSurface(cornerRadius: Radius.control)
     }
 
     private var filteredProjects: [Project] {
@@ -145,7 +145,7 @@ struct NewWorkspaceView: View {
     private func projectRow(_ project: Project) -> some View {
         let isSelected = selected.contains(project.id)
         let isLead = leadProjectID == project.id
-        return HStack(spacing: 12) {
+        return HStack(spacing: Space.lg) {
             Toggle(isOn: Binding(get: { selected.contains(project.id) },
                                  set: { _ in toggle(project.id) })) {
                 EmptyView()
@@ -154,18 +154,18 @@ struct NewWorkspaceView: View {
 
             ProjectDot(tint: Theme.projectTint(for: project.name), size: 10)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
                     Text(project.name)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                     if isLead {
-                        MonoChip(text: "LEAD", size: 9, tint: Theme.accent)
+                        MonoChip(text: "LEAD", size: Typography.Size.micro, tint: Theme.accent)
                             .transition(.fadeIn)
                     }
                 }
                 Text(project.collapsedPath)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -174,21 +174,21 @@ struct NewWorkspaceView: View {
             Spacer(minLength: 10)
 
             if isSelected && !isLead {
-                ActionButton(title: "Make lead", tone: .outlined, height: 26, size: 11) {
+                ActionButton(title: "Make lead", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption) {
                     leadProjectID = project.id
                 }
                 .transition(.fadeIn)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Space.lg)
         .frame(height: 62)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(isSelected ? Theme.accent : Theme.border,
                     lineWidth: isSelected ? 1.5 : 1))
-        .contentShape(RoundedRectangle(cornerRadius: 11))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         .onTapGesture { toggle(project.id) }
-        .hoverFill(cornerRadius: 11)
+        .hoverFill(cornerRadius: Radius.floating)
         .motion(Motion.control, value: isSelected)
         .motion(Motion.control, value: isLead)
     }
@@ -243,21 +243,21 @@ private struct RemoveWhenEmptyBand: View {
             Toggle(isOn: Binding(get: { isOn }, set: { on in
                 if reduceMotion { isOn = on } else { withAnimation(Motion.reveal) { isOn = on } }
             })) {
-                HStack(spacing: 12) {
+                HStack(spacing: Space.lg) {
                     Image(systemName: "hourglass")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .foregroundStyle(isOn ? Theme.workspaceTint.ink : Color.secondary)
                         .frame(width: 28, height: 28)
                         .background(isOn ? Theme.workspaceTint.fill : Theme.field,
-                                    in: RoundedRectangle(cornerRadius: 8))
+                                    in: RoundedRectangle(cornerRadius: Radius.control))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Remove it when it sits empty")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Typography.body.weight(.semibold))
                         Text(isOn
                              ? "On: it goes once it has had no session for a while. Its projects stay."
                              : "Off: the workspace stays until you delete it. Turn on for a short job.")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .contentTransition(.opacity)
@@ -279,37 +279,37 @@ private struct RemoveWhenEmptyBand: View {
                 .allowsHitTesting(isOn)
                 .accessibilityHidden(!isOn)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Space.xxl)
+        .padding(.vertical, Space.lg)
         .background(Theme.statusBand)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
 
     private var detail: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Text("Remove after")
             DayField(days: $days, accessibilityLabel: "Days the workspace may sit empty")
             Text("with no session in it.")
             if days == oldSessionDays {
                 Text("Same as old sessions")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(Theme.workspaceTint.ink)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xxs)
                     .background(Theme.workspaceTint.fill, in: Capsule())
                     .transition(.fadeIn)
             }
             Spacer(minLength: 0)
         }
-        .font(.system(size: 12.5))
+        .font(Typography.body)
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border, lineWidth: 1))
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border, lineWidth: 1))
         .motion(Motion.control, value: days == oldSessionDays)
         .padding(.leading, 40)
-        .padding(.top, 10)
+        .padding(.top, Space.md)
     }
 }
 

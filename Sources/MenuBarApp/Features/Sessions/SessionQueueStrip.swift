@@ -24,7 +24,7 @@ struct SessionQueueStrip: View {
     var body: some View {
         let waiting = runner.queued(sessionID)
         if !waiting.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 heading(count: waiting.count)
                 if let maxListHeight {
                     ScrollView {
@@ -46,7 +46,7 @@ struct SessionQueueStrip: View {
     }
 
     private func heading(count: Int) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             // The count sits in the heading because the list can be scrolled past or
             // capped, and how much is waiting is the part worth knowing.
             HStack(spacing: 0) {
@@ -57,12 +57,12 @@ struct SessionQueueStrip: View {
                     Text(" · RUNS WHEN THIS TURN ENDS")
                 }
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .kerning(1.2)
             .accessibilityElement(children: .combine)
             Spacer(minLength: 8)
             if !busy && !blocked {
-                InlineLink(title: "Send now", size: 12) {
+                InlineLink(title: "Send now", size: Typography.Size.detail) {
                     runner.runQueue(sessionID, store: store)
                 }
                 .transition(.fadeIn)
@@ -76,15 +76,15 @@ struct SessionQueueStrip: View {
         let canSteer = runner.canSteer(sessionID)
         // An agent that can never take a prompt mid-turn has no use for the button at all.
         let steerable = store.session(sessionID)?.agent.canSteer ?? false
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: Space.md) {
             ForEach(waiting) { item in
-                HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .center, spacing: Space.lg) {
                     Text(item.text)
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    HStack(spacing: 2) {
+                    HStack(spacing: Space.xxs) {
                         // Only a running turn can be steered into. Once it ends the
                         // heading's Send now is the way to start the queue instead.
                         if busy && steerable {
@@ -95,7 +95,7 @@ struct SessionQueueStrip: View {
                                 steer(item.id)
                             }
                             .disabled(!canSteer)
-                            .padding(.trailing, 4)
+                            .padding(.trailing, Space.xs)
                             .transition(.fadeIn)
                         }
                         QueueRowAction(title: "Edit", icon: "pencil", tone: .plain,
@@ -113,11 +113,11 @@ struct SessionQueueStrip: View {
                     .fixedSize()
                     .motion(Motion.control, value: busy)
                 }
-                .padding(.leading, 14)
-                .padding(.trailing, 8)
-                .padding(.vertical, 6)
+                .padding(.leading, Space.lg)
+                .padding(.trailing, Space.md)
+                .padding(.vertical, Space.sm)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .fieldSurface(cornerRadius: 8)
+                .fieldSurface(cornerRadius: Radius.control)
                 .transition(.asymmetric(insertion: .fadeIn, removal: removal(for: item.id)))
             }
         }
@@ -157,11 +157,11 @@ private struct QueueRowAction: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(Typography.micro)
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
             }
         }
         .buttonStyle(QueueRowActionStyle(tone: tone, hovering: hovering))
@@ -184,7 +184,7 @@ private struct QueueRowActionStyle: ButtonStyle {
         let pressed = configuration.isPressed && isEnabled
         configuration.label
             .foregroundStyle(foreground(lit: lit))
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Space.md)
             .frame(height: 28)
             .background(Capsule().fill(fill(lit: lit, pressed: pressed)))
             .overlay {

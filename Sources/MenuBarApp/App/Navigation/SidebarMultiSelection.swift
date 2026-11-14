@@ -231,22 +231,22 @@ struct SidebarSelectionBar: View {
     let onDone: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             Text("\(count) selected")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .contentTransition(.numericText(value: Double(count)))
                 .motion(Motion.pop, value: count)
             Text("Right-click for actions")
-                .font(.system(size: 10))
+                .font(Font.system(size: Typography.Size.micro))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 6)
             Button(action: onDone) {
                 Text("Done")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -255,6 +255,6 @@ struct SidebarSelectionBar: View {
         }
         .frame(height: 43)
         .overlay(alignment: .bottom) { Theme.hairline.frame(height: 1) }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Space.lg)
     }
 }

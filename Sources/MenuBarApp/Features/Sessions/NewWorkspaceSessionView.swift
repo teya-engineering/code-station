@@ -53,26 +53,26 @@ struct NewWorkspaceSessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text("New session in \(workspace.name)")
-                    .font(.serif(22, .semibold))
+                    .font(Typography.display)
                 Text("The lead project is the agent's working directory. Attached projects are available to the same conversation.")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            .padding(Space.xxl)
 
             ScrollView {
-                VStack(spacing: 10) {
+                VStack(spacing: Space.md) {
                     HStack {
                         Text("Projects · \(projectIDs.count)")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(Typography.body.weight(.semibold))
                         Spacer()
                         if !attachableProjects.isEmpty {
                             Label("Attach a project", systemImage: "plus")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(Typography.label)
                                 .foregroundStyle(Theme.accent)
                                 .contentShape(Rectangle())
                                 .hoverLift()
@@ -97,12 +97,12 @@ struct NewWorkspaceSessionView: View {
                     })
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Text("Worktrees are isolated checkouts. Deleting this session removes its worktrees.")
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.horizontal, Space.xxl)
+                .padding(.bottom, Space.xxl)
             }
             .frame(maxHeight: 470)
 

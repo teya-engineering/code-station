@@ -36,11 +36,11 @@ struct SessionRunButton: View {
             } else {
                 Button(action: toggleList) {
                     Label("Shortcuts", systemImage: "bolt")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                         .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 12)
-                        .frame(height: 30)
-                        .cardSurface(cornerRadius: 9)
+                        .padding(.horizontal, Space.lg)
+                        .frame(height: ControlHeight.md)
+                        .cardSurface(cornerRadius: Radius.card)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -84,8 +84,8 @@ struct SessionRunButton: View {
             }
 
             Rectangle()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 1, height: 30)
+                .fill(Theme.onFill.opacity(0.18))
+                .frame(width: 1, height: ControlHeight.md)
 
             ListHalf(open: listOpen) { toggleList() }
                 .appTooltip("All shortcuts (⇧⌘R)")
@@ -97,34 +97,34 @@ struct SessionRunButton: View {
 
     private var list: some View {
         let rows = rows
-        return VStack(spacing: 8) {
+        return VStack(spacing: Space.md) {
             HStack {
-                Text("Shortcuts").font(.system(size: 13, weight: .semibold))
+                Text("Shortcuts").font(Typography.body.weight(.semibold))
                 Spacer()
-                GlyphButton(icon: "xmark", side: 24, tint: .secondary, action: closeList)
+                GlyphButton(icon: "xmark", side: ControlHeight.sm, tint: .secondary, action: closeList)
                     .accessibilityLabel("Close shortcuts")
             }
-            .padding(.horizontal, 6)
-            HStack(spacing: 6) {
+            .padding(.horizontal, Space.sm)
+            HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Find a shortcut", text: $query)
                     .textFieldStyle(.plain)
                     .focused($pickerFocused)
                     .accessibilityLabel("Find a shortcut")
                 if !query.isEmpty {
-                    GlyphButton(icon: "xmark.circle.fill", side: 24, tint: .secondary) { query = "" }
+                    GlyphButton(icon: "xmark.circle.fill", side: ControlHeight.sm, tint: .secondary) { query = "" }
                         .accessibilityLabel("Clear shortcut search")
                 }
             }
-            .font(.system(size: 12))
-            .padding(.horizontal, 9)
+            .font(Typography.detail)
+            .padding(.horizontal, Space.md)
             .frame(height: 32)
-            .fieldSurface(cornerRadius: 8)
-            .overlay(RoundedRectangle(cornerRadius: 8)
+            .fieldSurface(cornerRadius: Radius.control)
+            .overlay(RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(pickerFocused ? Theme.accent : .clear, lineWidth: 2))
             ScrollViewReader { scroller in
                 ScrollView {
-                    VStack(spacing: 6) {
+                    VStack(spacing: Space.sm) {
                         ForEach([ShortcutKind.prompt, .command], id: \.self) { kind in
                             HStack {
                                 Text(kind == .prompt ? "Prompts" : "Commands").fontWeight(.semibold)
@@ -132,17 +132,17 @@ struct SessionRunButton: View {
                                 Text(kind == .prompt ? "Insert into message" : "Run in this worktree")
                                     .foregroundStyle(.secondary)
                             }
-                            .font(.system(size: 10.5))
-                            .padding(.horizontal, 6)
-                            .padding(.top, 5)
+                            .font(Typography.caption)
+                            .padding(.horizontal, Space.sm)
+                            .padding(.top, Space.xs)
                             let group = rows.enumerated().filter { $0.element.kind == kind }
                             if group.isEmpty {
                                 Text(query.isBlank ? "No \(kind == .prompt ? "prompts" : "commands") saved. Add a shortcut below."
                                      : "No matches. Try another phrase or clear the search.")
-                                    .font(.system(size: 11))
+                                    .font(Typography.caption)
                                     .foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(8)
+                                    .padding(Space.md)
                             }
                             ForEach(group, id: \.element.id) { index, row in
                                 card(row, highlighted: highlighted == index)
@@ -162,13 +162,13 @@ struct SessionRunButton: View {
                 footerAction("Manage shortcuts", row: .manage)
             }
         }
-        .padding(10)
+        .padding(Space.md)
         .frame(width: min(380, max(240, availableWidth)))
         .background {
-            RoundedRectangle(cornerRadius: 11)
+            RoundedRectangle(cornerRadius: Radius.floating)
                 .fill(Theme.sidebar)
-                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.settingsBorder))
-                .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
+                .overlay(RoundedRectangle(cornerRadius: Radius.floating).strokeBorder(Theme.settingsBorder))
+                .elevation(.floating)
         }
         .background(FrameAnchorView(anchor: listAnchor))
         .accessibilityElement(children: .contain)
@@ -181,19 +181,19 @@ struct SessionRunButton: View {
 
     private func footerAction(_ title: String, icon: String? = nil, row: Row) -> some View {
         Button { choose(row) } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 if let icon { Image(systemName: icon) }
                 Text(title)
             }
-            .font(.system(size: 11, weight: .medium))
+            .font(Typography.caption.weight(.medium))
             .foregroundStyle(Theme.accent)
-            .padding(5)
+            .padding(Space.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focused($focusedRow, equals: row.id)
-        .hoverFill(cornerRadius: 6)
-        .overlay(RoundedRectangle(cornerRadius: 6)
+        .hoverFill(cornerRadius: Radius.inset)
+        .overlay(RoundedRectangle(cornerRadius: Radius.inset)
             .stroke((rows.indices.contains(highlighted) && rows[highlighted].id == row.id) ? Theme.accent : .clear, lineWidth: 2))
     }
 
@@ -491,7 +491,7 @@ private struct RunHalf: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 ZStack {
                     if running {
                         RunSpinner().transition(.opacity)
@@ -503,11 +503,11 @@ private struct RunHalf: View {
                 }
                 .frame(width: 12, height: 12)
                 RollingText(running ? name : "Run \(name)",
-                            font: .system(size: 12.5, weight: .semibold))
+                            font: Typography.body.weight(.semibold))
                 if case .running(let since) = state {
                     TimelineView(.periodic(from: since, by: 0.1)) { context in
                         Text(CommandRunSummary.elapsed(context.date.timeIntervalSince(since)))
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .monospacedDigit()
                             .opacity(0.7)
                     }
@@ -515,16 +515,16 @@ private struct RunHalf: View {
                 }
                 KeyHint("⌘R", onFill: true)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.onFill)
             .lineLimit(1)
-            .padding(.leading, 11)
-            .padding(.trailing, 10)
-            .frame(height: 30)
+            .padding(.leading, Space.lg)
+            .padding(.trailing, Space.md)
+            .frame(height: ControlHeight.md)
             .background(Theme.accentFill.brightness(hovering ? 0.06 : 0))
             .overlay(alignment: .bottom) {
                 if running { RunSweep().transition(.opacity) }
             }
-            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 9, bottomLeadingRadius: 9))
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: Radius.card, bottomLeadingRadius: Radius.card))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -545,16 +545,16 @@ private struct ListHalf: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "bolt")
-                    .font(.system(size: 10))
+                    .font(Font.system(size: Typography.Size.micro))
                     .actOut("bolt", trigger: open ? 1 : 0)
                 Text("Shortcuts")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
                     .monospacedDigit()
                     .opacity(0.75)
                 Chevron()
-                    .stroke(.white, style: StrokeStyle(lineWidth: 1.6, lineCap: .round,
+                    .stroke(Theme.onFill, style: StrokeStyle(lineWidth: 1.6, lineCap: .round,
                                                        lineJoin: .round))
                     .frame(width: 8, height: 4.5)
                     // Turned inside the label, never on the button: the button carries
@@ -562,11 +562,11 @@ private struct ListHalf: View {
                     .rotationEffect(.degrees(open ? 180 : 0))
                     .motion(Motion.control, value: open)
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .foregroundStyle(Theme.onFill)
+            .padding(.horizontal, Space.md)
+            .frame(height: ControlHeight.md)
             .background(Theme.accentFill.brightness(hovering ? 0.06 : 0))
-            .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: 9, topTrailingRadius: 9))
+            .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: Radius.card, topTrailingRadius: Radius.card))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -750,44 +750,44 @@ private struct CommandCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 11) {
+            HStack(spacing: Space.lg) {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .foregroundStyle(dashed ? Color.secondary : Theme.accent)
                     .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8)
+                    .background(RoundedRectangle(cornerRadius: Radius.control)
                         .fill(dashed ? Color.clear : Theme.sunken))
                     .overlay(alignment: .topTrailing) {
-                        if let tint { ProjectDot(tint: tint, size: 6).padding(3) }
+                        if let tint { ProjectDot(tint: tint, size: 6).padding(Space.xxs) }
                     }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                     detailLine
                 }
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let verb {
                     Text(verb)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(Font.system(size: Typography.Size.micro, weight: .medium))
                         .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .cardSurface(cornerRadius: 4)
+                        .padding(.horizontal, Space.sm)
+                        .padding(.vertical, Space.xxs)
+                        .cardSurface(cornerRadius: Radius.tag)
                         .fixedSize()
                 }
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 12)
-            .padding(.vertical, 9)
+            .padding(.leading, Space.md)
+            .padding(.trailing, Space.lg)
+            .padding(.vertical, Space.md)
             .background(fill)
-            .overlay(RoundedRectangle(cornerRadius: 11)
+            .overlay(RoundedRectangle(cornerRadius: Radius.floating)
                 .strokeBorder(stroke,
                               style: StrokeStyle(lineWidth: highlighted ? 1.5 : 1,
                                                  dash: dashed && !highlighted ? [4, 3] : [])))
             // Only a hairline: the tray under the cards does the lifting.
-            .shadow(color: .black.opacity(dashed ? 0 : 0.05), radius: 1, y: 1)
-            .contentShape(RoundedRectangle(cornerRadius: 11))
+            .elevation(dashed ? .none : .raised)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         }
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
@@ -801,7 +801,7 @@ private struct CommandCard: View {
     // never used on its own. A dashed row stays clear until touched, because the tray
     // under it is already opaque.
     private var fill: some View {
-        let shape = RoundedRectangle(cornerRadius: 11)
+        let shape = RoundedRectangle(cornerRadius: Radius.floating)
         return ZStack {
             shape.fill(dashed && !hovering && !highlighted ? Color.clear : Theme.card)
             if hovering && !dashed {
@@ -824,22 +824,22 @@ private struct CommandCard: View {
         switch detail {
         case .plain(let text):
             Text(text)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
         case .command(let text):
             Text(text)
-                .font(.mono(10.5))
+                .font(Typography.data)
                 .foregroundStyle(.secondary)
                 .truncationMode(.middle)
         case .outcome(let summary):
             // The state is in the glyph and the words as well as the colour, so it reads
             // the same to someone who cannot tell the colours apart.
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 if let glyph = summary.glyph {
                     Image(systemName: glyph)
                         .font(.system(size: 8.5, weight: .bold))
                 }
-                RollingText(summary.text, font: .system(size: 11.5))
+                RollingText(summary.text, font: Typography.detail)
             }
             .foregroundStyle(colour(of: summary.outcome))
         }
@@ -875,13 +875,13 @@ private struct KeyHint: View {
 
     var body: some View {
         Text(keys)
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(onFill ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-            .padding(.horizontal, 5)
+            .font(Typography.caption.weight(.medium))
+            .foregroundStyle(onFill ? AnyShapeStyle(Theme.onFill) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, Space.xs)
             .frame(height: 18)
-            .background(RoundedRectangle(cornerRadius: 5)
-                .fill(onFill ? Color.white.opacity(0.16) : Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 5)
+            .background(RoundedRectangle(cornerRadius: Radius.inset)
+                .fill(onFill ? Theme.onFill.opacity(0.16) : Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset)
                 .stroke(onFill ? Color.clear : Theme.border))
             .accessibilityHidden(true)
     }
@@ -1033,13 +1033,13 @@ struct ShortcutOutputDrawer: View {
             ScrollViewReader { scroller in
                 ScrollView {
                     Text(text)
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(log.isEmpty ? AnyShapeStyle(.secondary)
                                                      : AnyShapeStyle(.primary))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
+                        .padding(Space.lg)
                     Color.clear.frame(height: 1).id(Self.bottom)
                 }
                 .onChange(of: log) { _, _ in
@@ -1055,18 +1055,18 @@ struct ShortcutOutputDrawer: View {
     }
 
     private var strip: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Text("OUTPUT")
-                .font(.mono(10.5, .semibold))
+                .font(Typography.data.weight(.semibold))
                 .kerning(0.6)
                 .foregroundStyle(.secondary)
             if let name = shortcuts.shortcut(run.shortcutID)?.name {
                 Text(name)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .lineLimit(1)
             }
             Text(status)
-                .font(.mono(10.5))
+                .font(Typography.data)
                 .foregroundStyle(statusColour)
                 .lineLimit(1)
 
@@ -1093,8 +1093,8 @@ struct ShortcutOutputDrawer: View {
                 .appTooltip("Hide this panel. Anything running keeps running.")
                 .accessibilityLabel("Hide the output")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.sm)
         .background(Theme.card)
     }
 
@@ -1102,12 +1102,12 @@ struct ShortcutOutputDrawer: View {
                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(tint)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.field))
-                .contentShape(RoundedRectangle(cornerRadius: 7))
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.xs)
+                .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .hoverLift()

@@ -16,7 +16,7 @@ struct TroubleshootEvidenceView: View {
         let traces = items.filter(\.kind.isTrace)
         let rest = items.filter { !$0.kind.isTrace }
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: Space.xl) {
                 heading(count: items.count)
                 if runner.state(session.id).isBusy { workingNote }
                 if items.isEmpty {
@@ -32,50 +32,50 @@ struct TroubleshootEvidenceView: View {
             }
             .frame(maxWidth: 1100, alignment: .leading)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 24)
+            .padding(.horizontal, Space.xxxl)
+            .padding(.vertical, Space.xxxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
     }
 
     private func heading(count: Int) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Evidence").font(.serif(21))
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text("Evidence").font(Typography.display)
             Text(count == 0
                  ? "What the agent finds lands here: the traces it fetches, the log lines it picks out, and its charts."
                  : "\(counted(count, "piece")) of evidence from the diagnosis, each one taken from the conversation.")
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var workingNote: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             LoopSpinner(size: 14)
             Text("The agent is still investigating. New evidence shows up here as it arrives.")
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
         }
     }
 
     private var emptyCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text("Nothing yet")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text("Paste a trace into the brief, or ask the agent to fetch one, and it is drawn here as a waterfall. Log lines and charts the agent shows in its replies are gathered here too.")
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 11)
+        .cardSurface(cornerRadius: Radius.floating)
     }
 
     private func section(_ title: String, _ items: [TroubleshootEvidence.Item]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             SectionLabel(title)
             ForEach(items) { item in
                 card(item)
@@ -84,13 +84,13 @@ struct TroubleshootEvidenceView: View {
     }
 
     private func card(_ item: TroubleshootEvidence.Item) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
                 Text(Self.origin(item.kind))
-                    .scaledMono(10.5, .bold)
+                    .scaledMono(Typography.Size.caption, .bold)
                     .foregroundStyle(.secondary)
                 Text(GrafanaResultView.clock(item.date))
-                    .scaledMono(10.5)
+                    .scaledMono(Typography.Size.caption)
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 8)
                 InlineAskButton(title: "Show in conversation") {
@@ -99,9 +99,9 @@ struct TroubleshootEvidenceView: View {
             }
             content(item.kind)
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 11)
+        .cardSurface(cornerRadius: Radius.floating)
     }
 
     @ViewBuilder private func content(_ kind: TroubleshootEvidence.Kind) -> some View {

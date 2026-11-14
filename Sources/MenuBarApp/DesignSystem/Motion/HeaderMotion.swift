@@ -106,17 +106,17 @@ struct HeaderNote: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(Theme.brand)
             Text(text)
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
                 .foregroundStyle(Theme.terminalText)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.lg)
         .frame(height: 32)
-        .background(Theme.terminal, in: RoundedRectangle(cornerRadius: 9))
+        .background(Theme.terminal, in: RoundedRectangle(cornerRadius: Radius.card))
         .shadow(color: .black.opacity(0.22), radius: 12, y: 6)
         .fixedSize()
         .allowsHitTesting(false)

@@ -43,15 +43,15 @@ struct SkillsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 ChoicePill(title: "Skills \(manager.plugins.count)", selected: !showingMarketplaces) { showingMarketplaces = false }
                 ChoicePill(title: "Marketplaces \(manager.marketplaceConfigurations.count)", selected: showingMarketplaces) { showingMarketplaces = true }
                 Spacer()
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    Text(marketplaceStatus(at: context.date)).font(.mono(10.5)).foregroundStyle(.secondary)
+                    Text(marketplaceStatus(at: context.date)).font(Typography.data).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 24).padding(.vertical, 16)
+            .padding(.horizontal, Space.xxxl).padding(.vertical, Space.xl)
             Divider().overlay(Theme.border)
             if showingMarketplaces {
                 MarketplaceManagementView(manager: manager, add: addMarketplace) { source in
@@ -67,7 +67,7 @@ struct SkillsView: View {
             }
             SheetFooter(dismiss: { dismiss() }) {
                 Text("Installs apply to your user account across projects. Agents are managed separately.")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
         }
@@ -84,12 +84,12 @@ struct SkillsView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Repertoire")
-                    .scaledSerif(28)
+                    .scaledSerif(Typography.Size.display)
                 Text("Find skills for your agents. Keep them up to date.")
-                    .scaledText(13).foregroundStyle(.secondary)
+                    .scaledText(Typography.Size.body).foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
             if showingMarketplaces {
@@ -99,8 +99,8 @@ struct SkillsView: View {
             if manager.isConfigured {
                 ActionButton(title: manager.isRefreshing ? "Refreshing…" : "Refresh",
                              tone: .sunken,
-                             height: 30,
-                             size: 11.5,
+                             height: ControlHeight.md,
+                             size: Typography.Size.detail,
                              icon: "arrow.clockwise") {
                     Task { await manager.refresh() }
                 }
@@ -110,7 +110,7 @@ struct SkillsView: View {
                 .appTooltip("Refresh all marketplaces and installed versions")
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand(Theme.background, height: 100)
     }
 
@@ -134,9 +134,9 @@ struct SkillsView: View {
                 filterBar
                 if manager.updateCount > 0 {
                     HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(outdatedPluginCount) packages have updates").font(.system(size: 13, weight: .semibold))
-                            Text("Update installed copies across your agents.").font(.system(size: 11)).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: Space.xs) {
+                            Text("\(outdatedPluginCount) packages have updates").font(Typography.body.weight(.semibold))
+                            Text("Update installed copies across your agents.").font(Typography.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         ActionButton(title: manager.isUpdatingAll ? "Updating…" : "Update all", tone: .outlined) {
@@ -146,22 +146,22 @@ struct SkillsView: View {
                         .motion(Motion.reveal, value: manager.isUpdatingAll)
                         .disabled(manager.isBusy)
                     }
-                    .padding(14)
-                    .surface(Theme.secret.opacity(0.09), cornerRadius: 10, border: Theme.secret.opacity(0.4))
-                    .padding(.horizontal, 20).padding(.bottom, 16)
+                    .padding(Space.lg)
+                    .surface(Theme.secret.opacity(0.09), cornerRadius: Radius.card, border: Theme.secret.opacity(0.4))
+                    .padding(.horizontal, Space.xxl).padding(.bottom, Space.xl)
                 }
                 columnHeadings
                 ScrollView {
                     if filteredPlugins.isEmpty {
                         emptyResults
                     } else {
-                        LazyVStack(spacing: 6) {
+                        LazyVStack(spacing: Space.sm) {
                             ForEach(filteredPlugins) { plugin in
                                 skillRow(plugin)
                             }
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20)
+                        .padding(.horizontal, Space.xxl)
+                        .padding(.bottom, Space.xxl)
                     }
                 }
             }
@@ -183,18 +183,18 @@ struct SkillsView: View {
     }
 
     private var filterBar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 7) {
+        HStack(spacing: Space.md) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(Typography.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                 TextField("Filter packages", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                 if !query.isEmpty {
                     Button { query = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.secondary)
                             .contentShape(Rectangle())
                     }
@@ -203,11 +203,11 @@ struct SkillsView: View {
                     .appTooltip("Clear filter")
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Space.md)
             .frame(width: 270, height: 32)
             .fieldSurface()
 
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 ForEach(RepertoireFilter.allCases) { option in
                     ChoicePill(title: filterTitle(option),
                                selected: filter == option) {
@@ -225,16 +225,16 @@ struct SkillsView: View {
             }
             .frame(maxWidth: 230)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 13)
+        .padding(.horizontal, Space.xxl)
+        .padding(.vertical, Space.lg)
     }
 
     private var columnHeadings: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Text("PACKAGE")
                 .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(SkillHost.allCases) { host in
-                HStack(spacing: 5) {
+                HStack(spacing: Space.xs) {
                     Circle()
                         .fill(hostColour(host))
                         .frame(width: 6, height: 6)
@@ -243,11 +243,11 @@ struct SkillsView: View {
                 .frame(width: 190, alignment: .leading)
             }
         }
-        .font(.mono(9.5, .semibold))
+        .font(Typography.caps)
         .kerning(0.55)
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Space.xxl)
+        .padding(.bottom, Space.md)
     }
 
     private func skillRow(_ plugin: SkillMarketplace.Plugin) -> some View {
@@ -257,25 +257,25 @@ struct SkillsView: View {
         }
 
         return VStack(alignment: .leading, spacing: failures.isEmpty ? 0 : 8) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 7) {
-                        Text(plugin.name).scaledText(13.5, .semibold)
+            HStack(alignment: .center, spacing: Space.lg) {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    HStack(spacing: Space.sm) {
+                        Text(plugin.name).scaledText(Typography.Size.body, .semibold)
                         SkillDescriptionButton(plugin: plugin)
                         if let version = plugin.version {
                             Text(version)
-                                .font(.mono(10))
+                                .font(Font.mono(Typography.Size.micro))
                                 .foregroundStyle(.secondary)
                         }
                         if let category = plugin.category {
                             Text(category.uppercased())
-                                .font(.mono(8, .semibold))
+                                .font(Typography.caps)
                                 .kerning(0.45)
                                 .foregroundStyle(Theme.accent)
                         }
                     }
                     Text(plugin.marketplace)
-                        .font(.mono(9.5))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(Theme.accent)
                         .lineLimit(1)
                 }
@@ -289,15 +289,15 @@ struct SkillsView: View {
 
             if !failures.isEmpty {
                 Text(failures.joined(separator: "\n"))
-                    .font(.system(size: 10.5))
+                    .font(Typography.caption)
                     .foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 9)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
             .stroke(outdated ? Theme.secret.opacity(0.52) : Theme.border,
                     lineWidth: outdated ? 1.2 : 1))
     }
@@ -311,12 +311,12 @@ struct SkillsView: View {
         let manageable = manager.canManage(host)
         let controlID = "\(plugin.id)-\(host.id)"
 
-        return HStack(spacing: 7) {
+        return HStack(spacing: Space.sm) {
             hostStatus(installation, latestVersion: plugin.version,
                        outdated: outdated, progress: progress)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if installation == nil, !working {
-                ActionButton(title: "Install", tone: .outlined, height: 26, size: 10.5) {
+                ActionButton(title: "Install", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption) {
                     Task { await manager.setInstalled(true, plugin: plugin, on: host) }
                 }
                 .disabled(!manageable || manager.isUpdatingAll || manager.isRefreshing)
@@ -344,12 +344,12 @@ struct SkillsView: View {
                     Task { await manager.update(plugin, on: host) }
                 } label: {
                     Text("Update")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 9)
+                        .font(Typography.caption.weight(.semibold))
+                        .foregroundStyle(Theme.onFill)
+                        .padding(.horizontal, Space.md)
                         .frame(height: 25)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.secret))
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.secret))
+                        .contentShape(RoundedRectangle(cornerRadius: Radius.control))
                 }
                 .buttonStyle(.plain)
                 .hoverLift()
@@ -357,9 +357,9 @@ struct SkillsView: View {
                 .disabled(!manageable || manager.isUpdatingAll || manager.isRefreshing)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Space.md)
         .frame(height: 34)
-        .background(RoundedRectangle(cornerRadius: 8)
+        .background(RoundedRectangle(cornerRadius: Radius.control)
             .fill(installation == nil ? Color.clear : Theme.field))
         .contentShape(Rectangle())
         .onPointerHover { hovering in
@@ -378,10 +378,10 @@ struct SkillsView: View {
                                          progress: SkillActionProgress?) -> some View {
         if let progress {
             Text(progress.rawValue)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(Typography.caption.weight(.medium))
                 .lineLimit(1)
         } else if let installation {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 if outdated, let latestVersion {
                     Text(versionText(installation.version))
                         .foregroundStyle(.secondary)
@@ -396,16 +396,16 @@ struct SkillsView: View {
                     Spacer(minLength: 4)
                     if installation.version != "unknown" {
                         Text(installation.version)
-                            .font(.mono(9.5))
+                            .font(Font.mono(Typography.Size.micro))
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            .font(.system(size: 10.5, weight: .medium))
+            .font(Typography.caption.weight(.medium))
             .lineLimit(1)
         } else {
             Text("Not installed")
-                .font(.system(size: 10.5, weight: .medium))
+                .font(Typography.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
@@ -416,19 +416,19 @@ struct SkillsView: View {
     }
 
     private var emptyResults: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: Space.sm) {
             Image(systemName: "line.3.horizontal.decrease.circle")
                 .font(.system(size: 22, weight: .light))
                 .foregroundStyle(.secondary)
             Text("No matching packages")
-                .font(.serif(15, .semibold))
+                .font(Typography.title)
             ActionButton(title: "Clear filters", tone: .outlined) {
                 query = ""
                 filter = .all
                 sourceFilter = nil
             }
             Text("Try another search or filter.")
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -495,9 +495,9 @@ private struct SkillDescriptionButton: View {
     var body: some View {
         Button { activation += 1 } label: {
             Image(systemName: "info.circle")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.secondary)
-                .padding(2)
+                .padding(Space.xxs)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

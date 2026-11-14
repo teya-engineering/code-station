@@ -25,8 +25,8 @@ struct SheetAction {
 // is the line of small print at the other end of the bar, saying what the actions will
 // do or where the edits will land.
 struct SheetFooter<Leading: View>: View {
-    var horizontalInset: CGFloat = 20
-    var verticalInset: CGFloat = 12
+    var horizontalInset: CGFloat = Space.pane
+    var verticalInset: CGFloat = Space.lg
 
     private let title: String?
     private let primary: SheetAction?
@@ -58,10 +58,10 @@ struct SheetFooter<Leading: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 if let title {
                     Text(title)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -69,13 +69,13 @@ struct SheetFooter<Leading: View>: View {
                 Spacer()
                 if let secondary {
                     ActionButton(title: secondary.title, tone: secondary.tone ?? .outlined,
-                                 size: 13, icon: secondary.icon,
+                                 size: Typography.Size.body, icon: secondary.icon,
                                  keyboardShortcut: secondary.shortcut, action: secondary.action)
                         .disabled(!secondary.enabled)
                 }
                 if primaryLast { dismissButton }
                 if let primary {
-                    ActionButton(title: primary.title, tone: primary.tone ?? .green, size: 13,
+                    ActionButton(title: primary.title, tone: primary.tone ?? .green, size: Typography.Size.body,
                                  icon: primary.icon, shortcut: primary.hint,
                                  keyboardShortcut: primary.shortcut,
                                  action: primary.action)
@@ -102,7 +102,7 @@ struct SheetFooter<Leading: View>: View {
 
     private var dismissButton: some View {
         ActionButton(title: dismissTitle ?? (primary == nil && secondary == nil ? "Done" : "Cancel"),
-                     tone: dismissTone, size: 13, keyboardShortcut: .cancelAction, action: dismiss)
+                     tone: dismissTone, size: Typography.Size.body, keyboardShortcut: .cancelAction, action: dismiss)
     }
 
     private func controlTwin(_ shortcut: KeyboardShortcut) -> KeyboardShortcut? {

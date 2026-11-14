@@ -234,8 +234,8 @@ struct DesignConversation: View {
                     designComposer(session)
                     SessionRunSettingsControls(sessionID: sessionID, wraps: true,
                                                showsDesignAmbition: showsDesignAmbition)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.bottom, Space.lg)
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
             }
@@ -262,7 +262,7 @@ struct DesignConversation: View {
             RoundedRectangle(cornerRadius: 17).stroke(Theme.border, lineWidth: 1)
                 .allowsHitTesting(false)
         }
-        .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 8)
+        .elevation(.floating)
         .background(DesignConversationDismissal(
             expanded: conversationExpanded,
             minimized: conversationMinimized,
@@ -301,7 +301,7 @@ struct DesignConversation: View {
             conversationExpanded.toggle()
         } label: {
             Image(systemName: conversationExpanded ? "chevron.down" : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 11, weight: .medium))
+                .font(Typography.caption.weight(.medium))
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                 .foregroundStyle(cornerHovered ? .primary : .secondary)
                 .frame(width: DesignConversationLayout.cornerButtonSize,
@@ -358,7 +358,7 @@ struct DesignConversation: View {
         return Button {
             conversationMinimized = false
         } label: {
-            HStack(spacing: 11) {
+            HStack(spacing: Space.lg) {
                 conversationBot(session, needsYou: needsYou, size: 30)
                 MinimizedConversationLine(tone: tone, personality: personality,
                                           waitingSince: runner.waitingSince(sessionID)) { lineWidth in
@@ -366,8 +366,8 @@ struct DesignConversation: View {
                     minimizedWidth = 14 + 30 + 11 + lineWidth + 18
                 }
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 18)
+            .padding(.leading, Space.lg)
+            .padding(.trailing, Space.xl)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -388,13 +388,13 @@ struct DesignConversation: View {
         let hiddenCount = session.messages.count - messages.count
         return ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     if session.messages.isEmpty, showsDesignAmbition {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: Space.sm) {
                             Text("What would you like to design?")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(Typography.body.weight(.medium))
                             Text("Describe a screen, or drag a reference into the prompt to get started.")
-                                .font(.system(size: 12))
+                                .font(Typography.detail)
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -442,7 +442,7 @@ struct DesignConversation: View {
 
                     Color.clear.frame(height: 1).id("design-transcript-bottom")
                 }
-                .padding(14)
+                .padding(Space.lg)
                 .background {
                     TranscriptScrollObserver(pinnedToBottom: transcriptAtBottom) { isAtBottom in
                         transcriptAtBottom = isAtBottom
@@ -594,7 +594,7 @@ struct DesignConversation: View {
         let question = runner.question(sessionID)
         let waiting = state == .waiting && !waitNoticeDismissed
             ? runner.waitingSince(sessionID) : nil
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if let request = question {
                 PermissionCard(request: request,
                                workingDirectories: store.workingDirectories(for: session),
@@ -616,7 +616,7 @@ struct DesignConversation: View {
 
             TurnEndActions(sessionID: sessionID, agent: session.agent, state: state)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.lg)
         .padding(.vertical, question != nil || waiting != nil || hasTurnEndAction(state) ? 10 : 0)
         // A dismissed notice is dismissed for that wait only: the next one is a new turn
         // parked on new tasks, and it has its own case to make.
@@ -650,8 +650,8 @@ private struct MinimizedConversationLine: View {
             let word = words.word(after: context.date.timeIntervalSince(started))
             let line = DesignConversationLayout.minimizedLine(
                 tone, word: word, waited: waitingSince.map { RelativeTime.duration(since: $0) })
-            let font: Font = tone == .running || tone == .waiting ? .mono(12, .medium)
-                : .system(size: 12, weight: tone == .needsYou ? .semibold : .regular)
+            let font: Font = tone == .running || tone == .waiting ? Typography.code.weight(.medium)
+                : Typography.detail.weight(tone == .needsYou ? .semibold : .regular)
             Text(line)
                 .font(font)
                 .foregroundStyle(tone == .needsYou ? Theme.attentionText
@@ -661,7 +661,7 @@ private struct MinimizedConversationLine: View {
                 .truncationMode(.tail)
                 .id(tone == .running ? word : "")
                 .transition(.fadeIn)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: word)
+                .motion(Motion.reveal, value: word)
                 .background {
                     Text(line).font(font).monospacedDigit().fixedSize().hidden()
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { measured($0) }

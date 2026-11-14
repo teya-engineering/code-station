@@ -133,20 +133,20 @@ struct ExplorerFindDialog: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             HStack(alignment: .firstTextBaseline) {
                 Text(model.mode == .names ? "Find a file" : "Find in files")
-                    .font(.serif(17, .semibold))
+                    .font(Typography.title)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
-                (Text("esc").font(.mono(10)) + Text(" to close"))
-                    .font(.system(size: 11))
+                (Text("esc").font(Font.mono(Typography.Size.micro)) + Text(" to close"))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
             }
             .arrives(after: 0.04, rising: 4)
 
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 ForEach(ExplorerSearchMode.allCases, id: \.self) { mode in
                     ChoicePill(title: "\(mode.title)  \(mode.keys)", selected: model.mode == mode, thumb: thumb) {
                         model.show(mode)
@@ -167,24 +167,24 @@ struct ExplorerFindDialog: View {
 
             results
                 .frame(height: 320)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field.opacity(0.55)))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field.opacity(0.55)))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                 .motion(Motion.reveal, value: model.resultsState)
                 .motion(Motion.reveal, value: model.mode)
                 .arrives(after: 0.16, rising: 4)
 
-            HStack(spacing: 14) {
-                (Text("↑ ↓").font(.mono(10)) + Text(" to move"))
-                (Text("↩").font(.mono(10)) + Text(" to open"))
+            HStack(spacing: Space.lg) {
+                (Text("↑ ↓").font(Font.mono(Typography.Size.micro)) + Text(" to move"))
+                (Text("↩").font(Font.mono(Typography.Size.micro)) + Text(" to open"))
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 11))
+            .font(Typography.caption)
             .foregroundStyle(.secondary)
             .accessibilityHidden(true)
             .arrives(after: 0.2)
         }
-        .padding(20)
+        .padding(Space.xxl)
         .onExitCommand(perform: close)
         .task {
             fieldFocused = true
@@ -195,14 +195,14 @@ struct ExplorerFindDialog: View {
 
     private var field: some View {
         let placeholder = model.mode == .names ? "Search files" : "Find in files"
-        return HStack(spacing: 8) {
+        return HStack(spacing: Space.md) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             TextField(placeholder, text: $model.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .focused($fieldFocused)
                 .onSubmit { if let selected = model.selected { open(selected) } }
                 .onMoveCommand { direction in
@@ -216,17 +216,17 @@ struct ExplorerFindDialog: View {
                 .accessibilityLabel(placeholder)
             if let summary = model.summary {
                 Text(summary)
-                    .font(.mono(10))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize()
                     .transition(.fadeIn)
             }
         }
-        .padding(.horizontal, 11)
-        .frame(height: 34)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(fieldFocused ? Theme.accent : Theme.border))
+        .padding(.horizontal, Space.lg)
+        .frame(height: ControlHeight.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(fieldFocused ? Theme.accent : Theme.border))
     }
 
     // MARK: - Results
@@ -238,11 +238,11 @@ struct ExplorerFindDialog: View {
                     detail: model.mode == .names ? "Matches the name and the folders above it." : "Case does not matter.")
                 .transition(.fadeIn)
         case .loading:
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 LoopSpinner(size: 14)
                 Text("Reading files...")
             }
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .transition(.fadeIn)
@@ -278,12 +278,12 @@ struct ExplorerFindDialog: View {
         let names = model.names
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 2) {
+                LazyVStack(spacing: Space.xxs) {
                     ForEach(Array(names.matches.enumerated()), id: \.element.path) { index, node in
                         nameRow(node, index: index).id(node.path)
                     }
                 }
-                .padding(5)
+                .padding(Space.xs)
             }
             .onChange(of: names.selectedIndex) {
                 if let path = names.selected?.path {
@@ -304,32 +304,32 @@ struct ExplorerFindDialog: View {
         return Button {
             model.names.select(index)
         } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "doc")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: 14)
                 Text(name.highlighted)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if !directory.isEmpty && directory != "." {
                     Text(directory)
-                        .font(.mono(10))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.head)
                 }
                 Spacer(minLength: 8)
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, Space.md)
             .frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Theme.card : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Theme.border : .clear))
+            .background(RoundedRectangle(cornerRadius: Radius.inset).fill(selected ? Theme.card : .clear))
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset).stroke(selected ? Theme.border : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 6)
+        .hoverFill(cornerRadius: Radius.inset)
         .simultaneousGesture(TapGesture(count: 2).onEnded { open(.file(node)) })
         .accessibilityLabel(directory.isEmpty || directory == "." ? node.name : "\(node.name), in \(directory)")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -339,7 +339,7 @@ struct ExplorerFindDialog: View {
         let contents = model.contents
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
+                LazyVStack(alignment: .leading, spacing: Space.xxs) {
                     let starts = groupStarts
                     ForEach(Array(contents.result.files.enumerated()), id: \.element.id) { group, matches in
                         fileRow(matches)
@@ -360,12 +360,12 @@ struct ExplorerFindDialog: View {
                     }
                     if contents.limited {
                         Text("Some files were left out because this folder has more than 32 MB of text.")
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.secondary)
-                            .padding(9)
+                            .padding(Space.md)
                     }
                 }
-                .padding(5)
+                .padding(Space.xs)
             }
             .onChange(of: contents.selectedIndex) {
                 if let selected = contents.selected {
@@ -388,28 +388,28 @@ struct ExplorerFindDialog: View {
         let path = matches.file.path.pathRelative(to: model.root) ?? matches.file.path
         let directory = (path as NSString).deletingLastPathComponent
 
-        return HStack(spacing: 9) {
+        return HStack(spacing: Space.md) {
             Image(systemName: "doc")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: 14)
             Text(matches.file.name)
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
                 .lineLimit(1)
                 .layoutPriority(1)
             if !directory.isEmpty && directory != "." {
                 Text(directory)
-                    .font(.mono(10))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
             }
             Spacer(minLength: 8)
             Text("\(matches.lines.count)")
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, Space.md)
         .frame(height: 30)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(matches.file.name), \(counted(matches.lines.count, "match", plural: "matches"))")
@@ -417,11 +417,11 @@ struct ExplorerFindDialog: View {
     }
 
     private var loadingMoreRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             LoopSpinner(size: 14)
             Text("Finding more...")
         }
-        .font(.system(size: 11))
+        .font(Typography.caption)
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity)
         .frame(height: 30)
@@ -434,43 +434,43 @@ struct ExplorerFindDialog: View {
         return Button {
             model.contents.select(index)
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Text(verbatim: "\(line.number)")
-                    .font(.mono(10, selected ? .semibold : .regular))
+                    .font(Font.mono(Typography.Size.micro, selected ? .semibold : .regular))
                     .foregroundStyle(selected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
                     .frame(width: 36, alignment: .trailing)
                 Text(line.highlighted)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, Space.md)
             .frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Theme.card : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? Theme.border : .clear))
+            .background(RoundedRectangle(cornerRadius: Radius.inset).fill(selected ? Theme.card : .clear))
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset).stroke(selected ? Theme.border : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 6)
+        .hoverFill(cornerRadius: Radius.inset)
         .simultaneousGesture(TapGesture(count: 2).onEnded { open(.line(match)) })
         .accessibilityLabel("Line \(line.number) in \(match.file.name): \(line.text)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func message(_ text: String, detail: String?) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: Space.sm) {
             Text(text)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
             if let detail {
                 Text(detail)
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.tertiary)
             }
         }
         .multilineTextAlignment(.center)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

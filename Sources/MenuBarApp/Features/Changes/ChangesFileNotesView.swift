@@ -16,9 +16,9 @@ struct FileNotesBadge: View {
             } icon: {
                 Image(systemName: "text.bubble")
             }
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .foregroundStyle(ink)
-            .padding(.horizontal, 6).frame(height: 18)
+            .padding(.horizontal, Space.sm).frame(height: 18)
             .background(Capsule().fill(fill))
             .contentShape(Capsule())
             .hoverLift(amount: Motion.smallLift)
@@ -61,16 +61,16 @@ struct FileNoteRow: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Space.md) {
                 avatar.padding(.top, 1)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    HStack(spacing: Space.sm) {
                         if note.unread { Circle().fill(Theme.plan).frame(width: 6, height: 6) }
                         if let fileLabel {
-                            Text(fileLabel).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                            Text(fileLabel).font(Typography.caption.weight(.semibold)).foregroundStyle(.secondary)
                                 .lineLimit(1).truncationMode(.middle)
                         }
-                        Text(lines).font(.mono(10.5)).foregroundStyle(.tertiary).lineLimit(1).fixedSize()
+                        Text(lines).font(Typography.data).foregroundStyle(.tertiary).lineLimit(1).fixedSize()
                         Spacer(minLength: 4)
                         FileNoteTag(tag: note.tag)
                         // Room for the stop button, which sits over the row so it is not a
@@ -79,22 +79,22 @@ struct FileNoteRow: View {
                     }
                     ReviewText(text: text, size: 12, lineLimit: 1)
                     if let reply {
-                        Text(reply).font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(reply).font(Typography.detail).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8).fill(focused ? Theme.plan.opacity(0.07) : .clear))
+            .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(focused ? Theme.plan.opacity(0.07) : .clear))
             .overlay {
-                RoundedRectangle(cornerRadius: 8).stroke(showsCursor ? Theme.accent : .clear, lineWidth: 2)
+                RoundedRectangle(cornerRadius: Radius.control).stroke(showsCursor ? Theme.accent : .clear, lineWidth: 2)
             }
             .opacity(note.isResolved ? 0.7 : 1)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 8)
+        .hoverFill(cornerRadius: Radius.control)
         .overlay(alignment: .topTrailing) {
-            if let stop { StopAnsweringButton(action: stop).padding(.top, 4).padding(.trailing, 6) }
+            if let stop { StopAnsweringButton(action: stop).padding(.top, Space.xs).padding(.trailing, Space.sm) }
         }
         .accessibilityLabel(spokenName)
         .accessibilityAddTraits(focused ? .isSelected : [])
@@ -208,13 +208,13 @@ struct FileNoteTag: View {
     }
 
     private func chip(_ title: String, icon: String?, ink: Color, fill: Color) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             if let icon { Image(systemName: icon).font(.system(size: 9, weight: .bold)) }
             Text(title).lineLimit(1).fixedSize()
         }
-        .font(.system(size: 10.5, weight: .semibold))
+        .font(Typography.caption.weight(.semibold))
         .foregroundStyle(ink)
-        .padding(.horizontal, tag == .resolved ? 0 : 6).padding(.vertical, 2)
+        .padding(.horizontal, tag == .resolved ? 0 : 6).padding(.vertical, Space.xxs)
         .background(Capsule().fill(fill))
     }
 }

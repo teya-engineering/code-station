@@ -37,11 +37,11 @@ struct NewTaskView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     Text("New task")
-                        .font(.serif(22, .semibold))
+                        .font(Typography.display)
                     Text("A prompt you can run again and again. Each run starts a fresh session in the task's own folder.")
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -49,17 +49,17 @@ struct NewTaskView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         nameField
-                            .padding(.top, 18)
+                            .padding(.top, Space.xl)
                         promptBox
-                            .padding(.top, 12)
+                            .padding(.top, Space.lg)
                         whenSection
-                            .padding(.top, 16)
+                            .padding(.top, Space.xl)
                     }
                 }
                 .frame(maxHeight: 470)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            .padding(Space.xxl)
 
             SheetFooter(title: "More schedule options, inputs and run choices are on the task page.",
                         primary: SheetAction(title: "Create and run", icon: "play.fill",
@@ -83,9 +83,9 @@ struct NewTaskView: View {
             .font(.system(size: 15, weight: .semibold))
             .focused($nameFocused)
             .accessibilityLabel("Task name")
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
             .frame(height: 44)
-            .fieldSurface(cornerRadius: 10)
+            .fieldSurface(cornerRadius: Radius.card)
     }
 
     // The prompt and who runs it, in one box: the agent is part of what a run sends.
@@ -96,13 +96,13 @@ struct NewTaskView: View {
                              placeholder: "What should the agent do on every run? Write {{ticket}} where each run should ask for something.",
                              fontSize: 13.5,
                              minHeight: 120)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
+                .padding(.horizontal, Space.lg)
+                .padding(.top, Space.lg)
 
             Divider().overlay(Theme.hairline)
-                .padding(.top, 12)
+                .padding(.top, Space.lg)
 
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 if !holes.isEmpty {
                     asks(holes)
                 }
@@ -112,11 +112,11 @@ struct NewTaskView: View {
                                   agentTitle: (agent ?? runner.agent).title,
                                   agentMenu: agentMenu)
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 10)
-            .padding(.vertical, 9)
+            .padding(.leading, Space.lg)
+            .padding(.trailing, Space.md)
+            .padding(.vertical, Space.md)
         }
-        .cardSurface(cornerRadius: 10)
+        .cardSurface(cornerRadius: Radius.card)
     }
 
     private func asks(_ holes: [String]) -> some View {
@@ -125,14 +125,14 @@ struct NewTaskView: View {
             names = Text("\(names), \(holeName(hole))")
         }
         return Text("Asks for \(names) on each run")
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
     }
 
     private func holeName(_ name: String) -> Text {
-        Text(verbatim: name).font(.mono(11)).foregroundStyle(Theme.accent)
+        Text(verbatim: name).font(Typography.data).foregroundStyle(Theme.accent)
     }
 
     private var avatarBinding: Binding<String> {
@@ -152,10 +152,10 @@ struct NewTaskView: View {
     // MARK: - When
 
     private var whenSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text("When should it run?")
-                .font(.system(size: 12.5, weight: .semibold))
-            HStack(spacing: 8) {
+                .font(Typography.body.weight(.semibold))
+            HStack(spacing: Space.md) {
                 whenChoice(.manual, title: "When I run it", detail: "Click Run task each time.")
                 whenChoice(.schedule, title: "On a schedule",
                            detail: "While Teya Code Station is open.")
@@ -165,7 +165,7 @@ struct NewTaskView: View {
 
             if when == .schedule {
                 scheduleFields
-                    .padding(.top, 2)
+                    .padding(.top, Space.xxs)
                     .transition(.fadeIn)
             }
         }
@@ -174,20 +174,20 @@ struct NewTaskView: View {
     private func whenChoice(_ value: When, title: String, detail: String) -> some View {
         let selected = when == value
         return Button { when = value } label: {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(detail)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(selected ? Theme.accent : Theme.border, lineWidth: selected ? 2 : 1))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -195,17 +195,17 @@ struct NewTaskView: View {
     }
 
     private var scheduleFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .bottom, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .bottom, spacing: Space.md) {
                 LabeledField("TIME") {
                     TextField("09:00", text: $timeText)
-                        .font(.mono(12))
+                        .font(Typography.code)
                         .appTextField(size: 12)
                         .frame(width: 90)
                         .accessibilityLabel("Time, 24-hour")
                 }
                 LabeledField("REPEAT") {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         ForEach(Repeat.allCases, id: \.self) { rule in
                             ChoicePill(title: title(of: rule), selected: repeatRule == rule) {
                                 repeatRule = rule
@@ -216,9 +216,9 @@ struct NewTaskView: View {
             }
             scheduleNote
         }
-        .padding(12)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.sunken))
     }
 
     @ViewBuilder private var scheduleNote: some View {
@@ -226,7 +226,7 @@ struct NewTaskView: View {
         if let schedule {
             if holes.isEmpty {
                 Text("\(schedule.summary). The first run is \(RelativeTime.stamp(schedule.nextDate(after: Date()))).")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             } else {
                 warning("Scheduled runs need a value for \(holes.joined(separator: ", ")). "
@@ -238,12 +238,12 @@ struct NewTaskView: View {
     }
 
     private func warning(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 7) {
+        HStack(alignment: .top, spacing: Space.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .semibold))
+                .font(Typography.micro)
                 .accessibilityHidden(true)
             Text(text)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(Theme.attentionText)

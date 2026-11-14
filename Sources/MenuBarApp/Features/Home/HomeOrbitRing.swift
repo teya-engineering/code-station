@@ -62,11 +62,11 @@ struct OrbitRing: View {
                     .animation(.easeOut(duration: 0.5).delay(opening.flow), value: built)
             }
 
-            VStack(spacing: 4) {
+            VStack(spacing: Space.xs) {
                 RollingCount(value: built ? Double(map.inProgressCount) : 0)
                     .animation(reduceMotion ? nil : .easeInOut(duration: opening.ringDone), value: built)
                 Text(map.inProgressCount == 1 ? "session in progress" : "in progress")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
             .allowsHitTesting(false)

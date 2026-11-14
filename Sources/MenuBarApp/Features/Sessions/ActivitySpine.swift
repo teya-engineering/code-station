@@ -44,7 +44,7 @@ struct ActivitySpine: View {
                         TranscriptAgentGroup(nodes: nodes, messageID: messageID,
                                              projectPath: projectPath, openChange: openChange,
                                              runInShell: runInShell)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, Space.sm)
                     case .call(let node):
                         CallReceipt(
                             node: node,
@@ -65,12 +65,12 @@ struct ActivitySpine: View {
                 }
             }
         }
-        .padding(.leading, 20)
+        .padding(.leading, Space.xxl)
         .overlay(alignment: .leading) {
             RoundedRectangle(cornerRadius: 1)
                 .fill(Theme.border)
                 .frame(width: 2)
-                .padding(.leading, 4)
+                .padding(.leading, Space.xs)
         }
         // Only a reader's click changes an opened detail. Calls arriving and finishing
         // update their permanent rows without taking ownership of this state.
@@ -78,7 +78,7 @@ struct ActivitySpine: View {
     }
 
     private var caption: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Text(Self.summary(calls))
                 .foregroundStyle(.tertiary)
             let failures = calls.count { $0.tool.isError }
@@ -87,11 +87,11 @@ struct ActivitySpine: View {
                     .foregroundStyle(Theme.deletion)
             }
         }
-        .scaledMono(10)
+        .scaledMono(Typography.Size.micro)
         .kerning(1)
         .lineLimit(1)
-        .padding(.top, 2)
-        .padding(.bottom, 6)
+        .padding(.top, Space.xxs)
+        .padding(.bottom, Space.sm)
     }
 
     nonisolated static func flattened(_ nodes: [ToolNode]) -> [ToolNode] {
@@ -177,10 +177,10 @@ private struct RunningToolIndicator: View {
     let tool: ToolUse
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             PulsingDot(size: 7 * textScale)
             Text("RUNNING")
-                .scaledMono(10, .bold)
+                .scaledMono(Typography.Size.micro, .bold)
                 .kerning(1)
                 .foregroundStyle(Theme.accent)
             Spacer(minLength: 8)
@@ -250,7 +250,7 @@ private struct CallReceipt: View {
             if canExpand {
                 Button(action: onToggle) { row }
                     .buttonStyle(.plain)
-                    .hoverFill(cornerRadius: 8)
+                    .hoverFill(cornerRadius: Radius.control)
             } else {
                 row
             }
@@ -260,29 +260,29 @@ private struct CallReceipt: View {
                     presentation: presentation,
                     openChange: openChange,
                     runInShell: runInShell)
-                    .padding(.leading, 17)
-                    .padding(.top, 4)
-                    .padding(.bottom, 10)
+                    .padding(.leading, Space.xl)
+                    .padding(.top, Space.xs)
+                    .padding(.bottom, Space.md)
                     .transition(.fold)
             }
         }
     }
 
     private var row: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             statusDot
             // An MCP verb can be longer than the row, so the name gives way like the
             // subject does. Held at its natural width it would draw over the subject.
             Text(tool.name.uppercased())
                 .kerning(1)
-                .scaledMono(10, .bold)
+                .scaledMono(Typography.Size.micro, .bold)
                 .foregroundStyle(verbColour)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(minWidth: 40 * textScale, alignment: .leading)
                 .layoutPriority(1)
             Text(subject)
-                .scaledMono(11.5)
+                .scaledMono(Typography.Size.detail)
                 .foregroundStyle(isWorking ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -290,7 +290,7 @@ private struct CallReceipt: View {
             outcome
             if canExpand {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8 * textScale, weight: .semibold))
+                    .font(.system(size: Typography.Size.micro * textScale, weight: .semibold))
                     .foregroundStyle(isExpanded ? AnyShapeStyle(.secondary)
                                                  : AnyShapeStyle(.tertiary))
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -336,9 +336,9 @@ private struct CallReceipt: View {
 
     @ViewBuilder private var outcome: some View {
         if state == .interrupted {
-            Text("interrupted").scaledMono(11).foregroundStyle(Theme.secret)
+            Text("interrupted").scaledMono(Typography.Size.caption).foregroundStyle(Theme.secret)
         } else if isWorking {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Text("running")
                 if let startedAt = tool.startedAt {
                     Text("·")
@@ -346,15 +346,15 @@ private struct CallReceipt: View {
                         .foregroundStyle(Theme.accent)
                 }
             }
-            .scaledMono(11)
+            .scaledMono(Typography.Size.caption)
             .foregroundStyle(Theme.accent)
             .fixedSize()
         } else if let added = presentation.added, let removed = presentation.removed,
                   !tool.isError {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 if presentation.changedFiles > 1 {
                     Text(counted(presentation.changedFiles, "file"))
-                        .scaledMono(11)
+                        .scaledMono(Typography.Size.caption)
                         .foregroundStyle(.tertiary)
                 }
                 DiffPair(added: added, removed: removed, size: 11 * textScale,
@@ -363,10 +363,10 @@ private struct CallReceipt: View {
             }
             .fixedSize()
         } else {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 if let note = outcomeNote {
                     Text(note)
-                        .scaledMono(11)
+                        .scaledMono(Typography.Size.caption)
                         .foregroundStyle(tool.isError
                                          ? AnyShapeStyle(Theme.deletion)
                                          : AnyShapeStyle(.tertiary))
@@ -381,11 +381,11 @@ private struct CallReceipt: View {
         if let value = tool.duration {
             if outcomeNote != nil || presentation.added != nil {
                 Text("·")
-                    .scaledMono(11)
+                    .scaledMono(Typography.Size.caption)
                     .foregroundStyle(.tertiary)
             }
             Text(ElapsedTime.duration(value))
-                .scaledMono(11)
+                .scaledMono(Typography.Size.caption)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
         }
@@ -426,7 +426,7 @@ private struct CallDetail: View {
     private var rendering: ToolRenderingCache.Rendering { ToolRenderingCache.rendering(of: tool) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if isCommand {
                 ToolOutputCard(label: "OUTPUT",
                                text: tool.result ?? "",
@@ -491,21 +491,21 @@ struct ToolOutputCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Text(label)
-                    .scaledMono(10.5, .bold)
+                    .scaledMono(Typography.Size.caption, .bold)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 if let runInShell {
                     ActivityLink(title: "run it yourself →", action: runInShell)
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Space.lg)
             .frame(height: 30 * textScale)
             Rectangle().fill(Theme.hairline).frame(height: 1)
             ScrollView {
                 Text(text.isEmpty ? "No output" : text)
-                    .scaledMono(11.5)
+                    .scaledMono(Typography.Size.detail)
                     .foregroundStyle(isFailure
                                      ? AnyShapeStyle(Theme.deletion)
                                      : AnyShapeStyle(.secondary))
@@ -513,14 +513,14 @@ struct ToolOutputCard: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.md)
             }
             .frame(maxHeight: 220 * textScale)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.sunken, cornerRadius: 8, border: Theme.border)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .surface(Theme.sunken, cornerRadius: Radius.control, border: Theme.border)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
     }
 }
 
@@ -558,14 +558,14 @@ private struct EditDiffCard: View {
             Rectangle().fill(Theme.hairline).frame(height: 1)
             lines
         }
-        .surface(Theme.sunken, cornerRadius: 8, border: Theme.border)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .surface(Theme.sunken, cornerRadius: Radius.control, border: Theme.border)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Text(change.name)
-                .scaledMono(10.5, .bold)
+                .scaledMono(Typography.Size.caption, .bold)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -576,7 +576,7 @@ private struct EditDiffCard: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.lg)
         .frame(height: 30 * textScale)
     }
 
@@ -593,42 +593,42 @@ private struct EditDiffCard: View {
             }
             if change.lines.count > Self.visibleLines {
                 Text("… \(change.lines.count - Self.visibleLines) more lines")
-                    .scaledMono(11)
+                    .scaledMono(Typography.Size.caption)
                     .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.xs)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, Space.sm)
     }
 
     @ViewBuilder private func row(_ line: ToolPresentation.Line) -> some View {
         if line.kind == .gap {
             Text("⋯")
-                .scaledMono(11.5)
+                .scaledMono(Typography.Size.detail)
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 2)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.xxs)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Space.md) {
                 if gutterWidth > 0 {
                     Text(line.number.map(String.init) ?? "")
-                        .scaledMono(11.5)
+                        .scaledMono(Typography.Size.detail)
                         .foregroundStyle(.tertiary)
                         .frame(width: gutterWidth, alignment: .trailing)
                 }
                 Text(line.marker)
-                    .scaledMono(11.5, .semibold)
+                    .scaledMono(Typography.Size.detail, .semibold)
                     .foregroundStyle(markerColor(line.kind))
                 Text(line.text)
-                    .scaledMono(11.5)
+                    .scaledMono(Typography.Size.detail)
                     .foregroundStyle(lineColor(line.kind))
             }
             .lineLimit(1)
             .truncationMode(.tail)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.xxs)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(background(line.kind))
         }

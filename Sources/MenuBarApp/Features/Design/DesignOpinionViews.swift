@@ -8,7 +8,7 @@ struct DesignOpinionChoices: View {
 
     var body: some View {
         SecondOpinionSection(title: "What to look for") {
-            FlowRow(spacing: 6) {
+            FlowRow(spacing: Space.sm) {
                 ForEach(DesignSecondOpinion.Focus.allCases, id: \.self) { item in
                     ChoicePill(title: item.title, selected: focus.contains(item)) {
                         if !focus.insert(item).inserted { focus.remove(item) }
@@ -18,7 +18,7 @@ struct DesignOpinionChoices: View {
             }
         }
         SecondOpinionSection(title: "What they look at") {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 row(title: "The HTML, handoff and theme", note: "To check contrast and tokens", on: $reading.source)
                 row(title: "The design conversation", note: "Makes them think like the author",
                     warns: true, on: $reading.conversation)
@@ -28,10 +28,10 @@ struct DesignOpinionChoices: View {
 
     private func row(title: String, note: String, warns: Bool = false, on: Binding<Bool>) -> some View {
         Toggle(isOn: on) {
-            HStack(spacing: 8) {
-                Text(title).font(.system(size: 12, weight: .semibold))
+            HStack(spacing: Space.md) {
+                Text(title).font(Typography.label)
                 Spacer(minLength: 8)
-                Text(note).font(.system(size: 11))
+                Text(note).font(Typography.caption)
                     .foregroundStyle(warns ? Theme.attentionText : Color.secondary)
             }
         }
@@ -65,26 +65,26 @@ struct DesignOpinionPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-                .padding(14)
+                .padding(Space.lg)
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: Space.md) {
                         lanes
                         if let sent = opinion.sent, opinion.notes.isEmpty {
                             Label("Sent \(counted(sent, "note")) to the design agent", systemImage: "checkmark")
-                                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.dotOnText)
+                                .font(Typography.label).foregroundStyle(Theme.dotOnText)
                         } else if !opinion.isRunning, opinion.notes.isEmpty,
                                   opinion.lanes.contains(where: { if case .finished = $0.state { true } else { false } }) {
                             Text("They found nothing worth raising.")
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .font(Typography.detail).foregroundStyle(.secondary)
                         }
                         ForEach(Array(opinion.notes.enumerated()), id: \.element.id) { index, note in
                             card(note, number: index + 1).id(note.id)
                                 .transition(.fold)
                         }
                     }
-                    .padding(14)
+                    .padding(Space.lg)
                 }
                 .onChange(of: revealedNote) { _, id in
                     guard let id else { return }
@@ -102,16 +102,16 @@ struct DesignOpinionPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             HStack(spacing: -6) {
                 ForEach(Array(opinion.lanes.enumerated()), id: \.offset) {
                     ReviewAvatar(agent: $0.element.reviewer.agent, size: 22)
                 }
             }
-            Text("Second opinion").font(.system(size: 13, weight: .semibold))
+            Text("Second opinion").font(Typography.body.weight(.semibold))
             Spacer(minLength: 6)
-            Text(status).font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
-            GlyphButton(icon: "xmark", side: 22, action: close)
+            Text(status).font(Typography.detail).foregroundStyle(.secondary).lineLimit(1)
+            GlyphButton(icon: "xmark", side: ControlHeight.xs, action: close)
                 .appTooltip(opinion.isRunning ? "Stop and close" : "Close")
                 .accessibilityLabel(opinion.isRunning ? "Stop the second opinion" : "Close the second opinion")
         }
@@ -130,7 +130,7 @@ struct DesignOpinionPanel: View {
             return true
         }
         if !shown.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 ForEach(shown) { lane in
                     ReviewLane(reviewer: lane.reviewer, started: lane.started, ended: lane.ended,
                                activity: lane.activity, state: lane.state, fillsWidth: true,
@@ -144,10 +144,10 @@ struct DesignOpinionPanel: View {
     private func card(_ note: DesignOpinion.PinnedNote, number: Int) -> some View {
         let hot = hotNote == note.id
         let kept = note.status == .kept
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+        return VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.sm) {
                 Text("\(number)")
-                    .font(.system(size: 10.5, weight: .bold)).foregroundStyle(.white)
+                    .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.onFill)
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(Self.tint(note.severity)))
                     .accessibilityHidden(true)
@@ -156,32 +156,32 @@ struct DesignOpinionPanel: View {
                         ReviewAvatar(agent: $0.element.reviewer.agent, size: 16)
                     }
                 }
-                Text(note.category).font(.system(size: 12, weight: .semibold))
+                Text(note.category).font(Typography.label)
                 SeverityChip(severity: note.severity)
                 Spacer(minLength: 0)
             }
             if note.voices.count > 1 {
                 Label(note.voices.count == 2 ? "Both raised this" : "\(note.voices.count) raised this",
                       systemImage: "checkmark")
-                    .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.dotOnText)
+                    .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.dotOnText)
             }
             if editing == note.id {
                 TextField("What the design agent should change", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .lineLimit(2...8)
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-                HStack(spacing: 10) {
-                    ActionButton(title: "Save and keep", tone: .green, height: 24, size: 11) {
+                    .padding(Space.md)
+                    .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.inset).stroke(Theme.border))
+                HStack(spacing: Space.md) {
+                    ActionButton(title: "Save and keep", tone: .green, height: ControlHeight.sm, size: Typography.Size.caption) {
                         animate(Motion.reveal) {
                             edit(note.id, draft)
                             editing = nil
                         }
                     }
                     .disabled(draft.isBlank)
-                    InlineLink(title: "Cancel", size: 11, tint: Color.secondary) {
+                    InlineLink(title: "Cancel", size: Typography.Size.caption, tint: Color.secondary) {
                         animate(Motion.leave) { editing = nil }
                     }
                 }
@@ -189,22 +189,22 @@ struct DesignOpinionPanel: View {
                 ReviewText(text: note.text, size: 12)
                 ForEach(Array(note.voices.dropFirst().enumerated()), id: \.offset) { _, voice in
                     Text("\(voice.reviewer.label()): \(voice.text)")
-                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                        .font(Typography.detail).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(spacing: 10) {
+                HStack(spacing: Space.md) {
                     if kept {
                         Label(note.edited ? "Edited and kept" : "Kept", systemImage: "checkmark")
-                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.dotOnText)
+                            .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.dotOnText)
                     } else {
-                        ActionButton(title: "Keep", tone: .green, height: 24, size: 11) {
+                        ActionButton(title: "Keep", tone: .green, height: ControlHeight.sm, size: Typography.Size.caption) {
                             animate(Motion.reveal) { keep(note.id) }
                         }
-                        InlineLink(title: "Dismiss", size: 11, tint: Color.secondary) {
+                        InlineLink(title: "Dismiss", size: Typography.Size.caption, tint: Color.secondary) {
                             animate(Motion.leave) { dismissNote(note.id) }
                         }
                     }
-                    InlineLink(title: "Edit", size: 11, tint: Color.secondary) {
+                    InlineLink(title: "Edit", size: Typography.Size.caption, tint: Color.secondary) {
                         draft = note.text
                         animate(Motion.reveal) { editing = note.id }
                     }
@@ -213,13 +213,13 @@ struct DesignOpinionPanel: View {
                 }
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(kept ? Theme.dotOn.opacity(0.06)
+        .padding(Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(kept ? Theme.dotOn.opacity(0.06)
                                                             : note.severity == .must ? Theme.deletion.opacity(0.04) : Theme.field))
-        .overlay(RoundedRectangle(cornerRadius: 10)
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
             .strokeBorder(hot ? Self.tint(note.severity) : Theme.border, lineWidth: hot ? 2 : 1))
         .motion(Motion.hover, value: hot)
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         .onPointerHover { inside in
             if inside { hotNote = note.id } else if hotNote == note.id { hotNote = nil }
         }
@@ -233,13 +233,13 @@ struct DesignOpinionPanel: View {
             let title = screens.first { $0.id == id }?.title ?? id
             if id == currentScreen || screens.count < 2 {
                 Label("On \(title)", systemImage: "mappin")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                    .font(Typography.caption).foregroundStyle(.tertiary).lineLimit(1)
             } else {
                 Button { showScreen(id) } label: {
                     // Lifted inside the label, since the button carries an AppKit tooltip
                     // that cannot be laid out under a scale.
                     Label("On \(title)", systemImage: "mappin")
-                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).lineLimit(1)
+                        .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.accent).lineLimit(1)
                         .contentShape(Rectangle())
                         .hoverLift()
                 }
@@ -248,21 +248,21 @@ struct DesignOpinionPanel: View {
             }
         } else {
             Label("The whole design", systemImage: "square.stack")
-                .font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                .font(Typography.caption).foregroundStyle(.tertiary).lineLimit(1)
         }
     }
 
     private var footer: some View {
         let count = opinion.kept.count
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: Space.sm) {
             ActionButton(title: count > 0 ? "Send \(counted(count, "note")) to the design agent" : "Keep a note to send it",
-                         tone: .green, height: 30, size: 12, fills: true, action: send)
+                         tone: .green, height: ControlHeight.md, size: Typography.Size.detail, fills: true, action: send)
                 .disabled(count == 0)
             Text("Kept notes go to the design agent as your next prompt. Dismissed ones are gone for good.")
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .font(Typography.caption).foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
+        .padding(Space.lg)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
 

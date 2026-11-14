@@ -82,28 +82,28 @@ struct SessionTitleList: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             // The rows follow the list in one by one, the way the rows of a deletion do.
             ForEach(Array(titles.prefix(shown).enumerated()), id: \.offset) { index, title in
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Circle().fill(Theme.dotOn).frame(width: 6, height: 6)
                         .accessibilityHidden(true)
                         .arrives(after: rowStart(index) + 0.04, growing: 0.5, animation: Motion.pop)
-                    Text(title).font(.system(size: 12)).lineLimit(1).truncationMode(.tail)
+                    Text(title).font(Typography.detail).lineLimit(1).truncationMode(.tail)
                         .arrives(after: rowStart(index) + 0.06, sliding: 6, animation: Motion.reveal)
                 }
             }
             if titles.count > shown {
                 Text("and \(titles.count - shown) more")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                    .padding(.leading, 14)
+                    .font(Typography.detail).foregroundStyle(.secondary)
+                    .padding(.leading, Space.lg)
                     .arrives(after: rowStart(shown) + 0.06, animation: Motion.reveal)
             }
         }
-        .padding(12)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-        .padding(.top, 4)
+        .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
+        .padding(.top, Space.xs)
     }
 }

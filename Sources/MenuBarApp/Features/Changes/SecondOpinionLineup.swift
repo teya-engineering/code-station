@@ -197,13 +197,13 @@ struct LineupTiles: View {
         switch mark {
         case .done:
             Image(systemName: "checkmark").font(.system(size: side * 0.5, weight: .heavy))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.onFill)
                 .frame(width: side, height: side)
                 .background(Circle().fill(Theme.dotOn))
                 .overlay(Circle().stroke(Theme.card, lineWidth: 1.5))
         case .failed:
             Image(systemName: "exclamationmark").font(.system(size: side * 0.55, weight: .heavy))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.onFill)
                 .frame(width: side, height: side)
                 .background(Circle().fill(Theme.warningText))
                 .overlay(Circle().stroke(Theme.card, lineWidth: 1.5))
@@ -422,22 +422,22 @@ struct SecondOpinionLineupButton: View {
     }
 
     private var label: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             LineupTiles(agents: SecondOpinionLineup.agents(lineup: lineup, runs: runs, status: status),
                         fanned: hovering && shown == .rest && canAsk,
                         gathered: shown == .settled,
                         marks: shown == .rest ? [:] : SecondOpinionLineup.marks(runs: runs, status: status),
                         deals: deals, squashes: squashes, shakes: shakes)
-                .padding(.horizontal, 2)
+                .padding(.horizontal, Space.xxs)
             words
         }
-        .font(.system(size: 12, weight: .semibold))
+        .font(Typography.label)
         .foregroundStyle(ink)
         .lineLimit(1).fixedSize()
-        .padding(.horizontal, 7).frame(height: 30)
+        .padding(.horizontal, Space.sm).frame(height: ControlHeight.md)
         .background { chipBackground }
         .overlay(alignment: .bottom) { progressBar }
-        .contentShape(RoundedRectangle(cornerRadius: 9))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         .opacity(shown == .rest && !canAsk ? 0.5 : 1)
         .motion(HeaderMotion.grow, value: shown)
         .motion(Motion.hover, value: hovering)
@@ -450,10 +450,10 @@ struct SecondOpinionLineupButton: View {
              _ where shown == .rest:
             EmptyView()
         case .reviewing(_, let started, let pending):
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Text(SecondOpinionLineup.readingWords(runs: runs))
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(clock(from: started, to: context.date)).font(.mono(11)).foregroundStyle(.tertiary)
+                    Text(clock(from: started, to: context.date)).font(Typography.data).foregroundStyle(.tertiary)
                 }
                 if pending > 0 {
                     Text("\(counted(pending, "finding")) so far").fontWeight(.medium).foregroundStyle(.secondary)
@@ -463,9 +463,9 @@ struct SecondOpinionLineupButton: View {
         case .failed(let agent):
             Text("\(agent.title) could not finish").transition(wordsTransition)
         case .ready(_, let pending):
-            HStack(spacing: 6) {
-                Text("\(pending)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                    .padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18)
+            HStack(spacing: Space.sm) {
+                Text("\(pending)").font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.onFill)
+                    .padding(.horizontal, Space.xs).frame(minWidth: 18, minHeight: 18)
                     .background(Capsule().fill(Theme.attention))
                     .transition(.opacity.animation(reduceMotion ? change : HeaderMotion.grow.delay(0.12)))
                 Text(pending == 1 ? "finding to look at" : "findings to look at")
@@ -485,7 +485,7 @@ struct SecondOpinionLineupButton: View {
 
     @ViewBuilder
     private var chipBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 9)
+        let shape = RoundedRectangle(cornerRadius: Radius.card)
         switch shown {
         case .rest:
             if hovering && canAsk { shape.fill(Theme.field) }
@@ -507,7 +507,7 @@ struct SecondOpinionLineupButton: View {
                     .animation(change, value: progress)
             }
             .frame(height: 2)
-            .padding(.horizontal, 6).padding(.bottom, 1)
+            .padding(.horizontal, Space.sm).padding(.bottom, 1)
         }
     }
 
@@ -552,7 +552,7 @@ struct AnswerLineupButton: View {
             action()
         } label: {
             LineupTiles(agents: lineup, size: 18, fanned: hovering, deals: deals)
-                .padding(.horizontal, 7)
+                .padding(.horizontal, Space.sm)
                 .frame(minWidth: 28, minHeight: 28)
                 .contentShape(Rectangle())
         }

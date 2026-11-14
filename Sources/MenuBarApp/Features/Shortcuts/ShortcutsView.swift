@@ -61,40 +61,40 @@ struct ShortcutsView: View {
 
     // The footer is the only way out, so the header carries no close button.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Shortcuts").font(.serif(18))
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            Text("Shortcuts").font(Typography.title)
             Text("Commands and prompts you can use in every project.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
     private var library: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 search
-                HStack(spacing: 2) {
+                HStack(spacing: Space.xxs) {
                     filter("All", kind: nil)
                     filter("Commands", kind: .command)
                     filter("Prompts", kind: .prompt)
                 }
-                .padding(3)
-                .fieldSurface(cornerRadius: 10)
+                .padding(Space.xxs)
+                .fieldSurface(cornerRadius: Radius.card)
                 .motion(Motion.control, value: kind)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Filter shortcuts by type")
                 Label(shortcuts.contains(where: \.favorite) ? "Starred shortcuts stay at the top."
                       : "Star a shortcut to keep it at the top.", systemImage: "star")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 2)
+                    .padding(.horizontal, Space.xxs)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
-            .padding(.bottom, 6)
+            .padding(.horizontal, Space.lg)
+            .padding(.top, Space.lg)
+            .padding(.bottom, Space.sm)
             ShortcutLibraryList(shortcuts: matches, pending: draft?.isNew == true ? draft?.value : nil,
                                 selectedID: draft?.value.id,
                                 selectedIsDirty: draft?.isDirty == true,
@@ -111,7 +111,7 @@ struct ShortcutsView: View {
                                 })
             Rectangle().fill(Theme.hairline).frame(height: 1)
             NewItemButton(title: "New shortcut") { guardChanges { add() } }
-                .padding(14)
+                .padding(Space.lg)
         }
         .background(Theme.sidebar)
         .accessibilityElement(children: .contain)
@@ -119,18 +119,18 @@ struct ShortcutsView: View {
     }
 
     private var search: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(Theme.secondaryText)
             TextField("Find a shortcut", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .accessibilityLabel("Find a shortcut")
             if !query.isEmpty {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.tertiary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
@@ -140,9 +140,9 @@ struct ShortcutsView: View {
                 .transition(.fadeIn)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(height: 32)
-        .surface(Theme.card, cornerRadius: 9)
+        .surface(Theme.card, cornerRadius: Radius.card)
         .motion(Motion.hover, value: query.isEmpty)
     }
 
@@ -178,9 +178,9 @@ struct ShortcutsView: View {
                                               canRun: !draft.isDirty && !draft.isNew,
                                               isNew: draft.isNew)
                     }
-                    .padding(.horizontal, 26)
-                    .padding(.top, 22)
-                    .padding(.bottom, 26)
+                    .padding(.horizontal, Space.xxxl)
+                    .padding(.top, Space.xxl)
+                    .padding(.bottom, Space.xxxl)
                 }
                 .id(draft.value.id)
                 .transition(paneTransition)
@@ -197,12 +197,12 @@ struct ShortcutsView: View {
                     dismiss: { guardChanges { dismiss() } }) {
             ZStack(alignment: .leading) {
                 if draft.isDirty {
-                    HStack(spacing: 7) {
+                    HStack(spacing: Space.sm) {
                         Circle().fill(Theme.attention).frame(width: 6, height: 6)
                             .accessibilityHidden(true)
                         Text("Unsaved changes")
-                        InlineLink(title: draft.isNew ? "Discard" : "Revert", size: 11.5) { revert(draft) }
-                            .padding(.leading, 4)
+                        InlineLink(title: draft.isNew ? "Discard" : "Revert", size: Typography.Size.detail) { revert(draft) }
+                            .padding(.leading, Space.xs)
                     }
                     .transition(noteTransition)
                 } else if !saveStatus.isEmpty {
@@ -211,7 +211,7 @@ struct ShortcutsView: View {
                         .transition(noteTransition)
                 }
             }
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .motion(Motion.pop, value: draft.isDirty)
@@ -300,7 +300,7 @@ struct ShortcutLibraryList: View {
     var body: some View {
         ScrollViewReader { scroller in
             ScrollView {
-                VStack(spacing: 2) {
+                VStack(spacing: Space.xxs) {
                     if pending == nil && shortcuts.isEmpty {
                         emptyMessage
                     }
@@ -329,21 +329,21 @@ struct ShortcutLibraryList: View {
                         .zIndex(movingID == shortcut.id ? 1 : 0)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 2)
-                .padding(.bottom, 10)
+                .padding(.horizontal, Space.md)
+                .padding(.top, Space.xxs)
+                .padding(.bottom, Space.md)
             }
         }
     }
 
     private var emptyMessage: some View {
-        VStack(spacing: 8) {
-            VStack(spacing: 4) {
+        VStack(spacing: Space.md) {
+            VStack(spacing: Space.xs) {
                 Text(isEmptyLibrary ? "No shortcuts yet" : "No shortcuts found")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(isEmptyLibrary ? "Save a command you run often, or a prompt you keep retyping."
                      : emptyDetail)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(Theme.secondaryText)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -353,8 +353,8 @@ struct ShortcutLibraryList: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.top, 24)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.xxxl)
         .transition(.fadeIn)
     }
 }
@@ -376,18 +376,18 @@ struct ShortcutLibraryRow: View {
     var body: some View {
         HStack(spacing: 0) {
             Button(action: select) {
-                HStack(spacing: 10) {
+                HStack(spacing: Space.md) {
                     Image(systemName: shortcut.icon ?? shortcut.kind.icon)
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.accent)
                         .frame(width: 28, height: 28)
-                        .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
-                    VStack(alignment: .leading, spacing: 2) {
+                        .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: Radius.control))
+                    VStack(alignment: .leading, spacing: Space.xxs) {
                         Text(title)
-                            .font(.system(size: 12.5, weight: shortcut.name.isBlank ? .medium : .semibold))
+                            .font(Typography.body.weight(shortcut.name.isBlank ? .medium : .semibold))
                             .foregroundStyle(shortcut.name.isBlank ? Theme.secondaryText : Color.primary)
                         Text(subtitle)
-                            .font(shortcut.kind == .command ? .mono(10.5) : .system(size: 10.5))
+                            .font(shortcut.kind == .command ? Typography.data : Typography.caption)
                             .foregroundStyle(.secondary)
                     }
                     .lineLimit(1)
@@ -401,7 +401,7 @@ struct ShortcutLibraryRow: View {
                             .accessibilityLabel("Unsaved changes")
                     }
                 }
-                .padding(.leading, 10)
+                .padding(.leading, Space.md)
                 .padding(.trailing, favorite == nil ? 10 : 4)
                 .frame(height: ShortcutLibraryList.rowHeight)
                 .contentShape(Rectangle())
@@ -416,7 +416,7 @@ struct ShortcutLibraryRow: View {
                     favorite()
                 } label: {
                     Image(systemName: shortcut.favorite ? "star.fill" : "star")
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .foregroundStyle(shortcut.favorite ? Theme.secret : Color.secondary)
                         .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                         .actOut("star", trigger: starClicks)
@@ -427,9 +427,9 @@ struct ShortcutLibraryRow: View {
                 .hoverLift(starHovering, amount: Motion.smallLift)
                 .onPointerHover { starHovering = $0 }
                 .focused(starFocus, equals: shortcut.id)
-                .overlay(RoundedRectangle(cornerRadius: 7)
+                .overlay(RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(starFocus.wrappedValue == shortcut.id ? Theme.accent : .clear, lineWidth: 2))
-                .padding(.trailing, 4)
+                .padding(.trailing, Space.xs)
                 .accessibilityLabel(shortcut.favorite ? "Remove \(shortcut.name) from favorites" : "Add \(shortcut.name) to favorites")
                 .accessibilityValue(shortcut.favorite ? "Favorite" : "Not favorite")
                 .accessibilityAddTraits(shortcut.favorite ? .isSelected : [])
@@ -437,12 +437,12 @@ struct ShortcutLibraryRow: View {
         }
         .background {
             if selected {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .fill(Theme.card)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.settingsBorder))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.settingsBorder))
             }
         }
-        .hoverFill(cornerRadius: 8)
+        .hoverFill(cornerRadius: Radius.control)
         .motion(Motion.control, value: selected)
         .motion(Motion.pop, value: dirty)
     }
@@ -504,14 +504,14 @@ private struct ShortcutCommandOutput: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Text("Output").font(.system(size: 12, weight: .semibold))
-                HStack(spacing: 6) {
+            HStack(spacing: Space.md) {
+                Text("Output").font(Typography.label)
+                HStack(spacing: Space.sm) {
                     Breathing(active: active) {
                         Circle().fill(status.colour).frame(width: 6, height: 6)
                     }
                     Text(status.text)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(failed ? Theme.deletion : Color.secondary)
                         .contentTransition(.opacity)
                 }
@@ -520,12 +520,12 @@ private struct ShortcutCommandOutput: View {
                 .motion(Motion.reveal, value: status.text)
                 Spacer(minLength: 0)
                 if !log.isEmpty && !active {
-                    InlineLink(title: "Clear", size: 11.5) { if let run { store.clearLog(run) } }
+                    InlineLink(title: "Clear", size: Typography.Size.detail) { if let run { store.clearLog(run) } }
                         .frame(minHeight: 26)
                         .transition(.fadeIn)
                 }
                 ActionButton(title: active ? "Stop" : "Run here",
-                             tone: active ? .dangerOutlined : .outlined, height: 26, size: 11.5,
+                             tone: active ? .dangerOutlined : .outlined, height: ControlHeight.sm, size: Typography.Size.detail,
                              icon: active ? "stop.fill" : "play.fill") {
                     guard let run else { return }
                     if active { store.stop(run) } else { store.start(run) }
@@ -534,31 +534,31 @@ private struct ShortcutCommandOutput: View {
                 .accessibilityLabel(active ? "Stop command" : "Run command here")
                 .accessibilityHint(!active && !canRun ? emptyMessage : "")
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 8)
+            .padding(.leading, Space.lg)
+            .padding(.trailing, Space.md)
             .frame(height: 40)
             .motion(Motion.control, value: active)
             ScrollViewReader { scroller in
                 Group {
                     if log.isEmpty {
                         Text(emptyMessage)
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(failed ? Theme.terminalFailure : Theme.terminalDim)
                             .multilineTextAlignment(.center)
                             .textSelection(.enabled)
                             .contentTransition(.opacity)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(14)
+                            .padding(Space.lg)
                             .motion(Motion.reveal, value: emptyMessage)
                     } else {
                         ScrollView {
                             Text(log)
-                                .font(.mono(11))
+                                .font(Typography.data)
                                 .foregroundStyle(Theme.terminalText)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
+                                .padding(.horizontal, Space.lg)
+                                .padding(.vertical, Space.lg)
                             Color.clear.frame(height: 1).id("output-bottom")
                         }
                     }
@@ -568,7 +568,7 @@ private struct ShortcutCommandOutput: View {
                 .onChange(of: log) { _, _ in scroller.scrollTo("output-bottom", anchor: .bottom) }
             }
         }
-        .cardSurface(cornerRadius: 10)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .cardSurface(cornerRadius: Radius.card)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
     }
 }

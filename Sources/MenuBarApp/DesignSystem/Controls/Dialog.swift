@@ -63,7 +63,7 @@ struct Dialog: Identifiable {
     // standing at the maximum height.
     var hugsContent = false
     var maximumHeight: CGFloat = 680
-    var cornerRadius: CGFloat = 14
+    var cornerRadius: CGFloat = Radius.floating
     var canDismiss: () -> Bool = { true }
 }
 
@@ -227,20 +227,20 @@ struct DialogHost: View {
                 description(dialog)
             }
 
-            VStack(spacing: 8) {
+            VStack(spacing: Space.md) {
                 ForEach(dialog.actions) { action in
                     button(action)
                         .focused($focusedAction, equals: action.id)
-                        .overlay(RoundedRectangle(cornerRadius: 8)
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control)
                             .stroke(dialog.isModal && focusedAction == action.id ? Theme.accent : .clear,
                                     lineWidth: 2))
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.horizontal, Space.xxl)
+            .padding(.bottom, Space.xxl)
             .arrives(after: 0.06)
         }
-        .floatingCard(cornerRadius: 14)
+        .floatingCard(cornerRadius: Radius.floating)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(dialog.isModal ? [.isModal] : [])
         .accessibilityLabel(dialog.title)
@@ -260,14 +260,14 @@ struct DialogHost: View {
     }
 
     private func description(_ dialog: Dialog) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text(dialog.title)
-                .font(.serif(17, .semibold))
+                .font(Typography.title)
                 .fixedSize(horizontal: false, vertical: true)
                 .arrives(after: 0.05, rising: 4)
             if let message = dialog.message {
                 Text(message)
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .arrives(after: 0.09, rising: 4)
@@ -278,13 +278,13 @@ struct DialogHost: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
+        .padding(Space.xxl)
     }
 
     // The buttons are the app's own pills, so the action a dialog confirms wears the
     // same shape as the one that opened it.
     private func button(_ action: Dialog.Action) -> some View {
-        ActionButton(title: action.label, tone: tone(action.kind), height: 36, size: 13,
+        ActionButton(title: action.label, tone: tone(action.kind), height: ControlHeight.xl, size: Typography.Size.body,
                      fills: true, keyboardShortcut: shortcut(action.kind)) {
             presenter.run(action)
         }
@@ -342,7 +342,7 @@ private struct ImpactDialogCard: View {
                                                 stacked: subject.kind == .workspace)
                                     .accessibilityHidden(true)
                                 Text(subject.name)
-                                    .font(.system(size: 12))
+                                    .font(Typography.detail)
                                     .foregroundStyle(.secondary)
                             }
                             .arrives(after: 0.05, rising: 4)
@@ -372,10 +372,10 @@ private struct ImpactDialogCard: View {
                                                     in: Circle())
                                         .accessibilityHidden(true)
                                         .arrives(after: start + 0.04, growing: 0.5, animation: Motion.pop)
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(row.title).font(.system(size: 13, weight: .medium))
+                                    VStack(alignment: .leading, spacing: Space.xs) {
+                                        Text(row.title).font(Typography.body.weight(.medium))
                                         Text(row.detail)
-                                            .font(.system(size: 12))
+                                            .font(Typography.detail)
                                             .foregroundStyle(.secondary)
                                     }
                                     .arrives(after: start + 0.06, sliding: 6)
@@ -389,7 +389,7 @@ private struct ImpactDialogCard: View {
                         }
                         if let warning = impact.warning {
                             Label(warning, systemImage: "info.circle")
-                                .font(.system(size: 12))
+                                .font(Typography.detail)
                                 .foregroundStyle(Theme.deletion)
                                 .arrives(after: rowStart(impact.rows.count) + 0.06)
                         }
@@ -405,13 +405,13 @@ private struct ImpactDialogCard: View {
                 ForEach(dialog.actions.reversed()) { action in
                     ActionButton(title: action.label,
                                  tone: action.kind == .destructive ? .danger : .sunken,
-                                 height: compact ? 32 : 36, size: 12,
+                                 height: compact ? 32 : 36, size: Typography.Size.detail,
                                  keyboardShortcut: action.kind == .cancel ? .cancelAction : .defaultAction) {
                         presenter.run(action)
                     }
                     .disabled(!action.isEnabled())
                     .focused($focusedAction, equals: action.id)
-                    .overlay(RoundedRectangle(cornerRadius: 9)
+                    .overlay(RoundedRectangle(cornerRadius: Radius.card)
                         .stroke(focusedAction == action.id ? Theme.accent : .clear, lineWidth: 2)
                         .padding(-3))
                 }

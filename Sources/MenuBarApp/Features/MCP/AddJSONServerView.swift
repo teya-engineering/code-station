@@ -58,18 +58,18 @@ struct AddJSONServerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Add MCP server").font(.serif(26, .semibold))
+            VStack(alignment: .leading, spacing: Space.xl) {
+                Text("Add MCP server").font(Typography.display)
                 Text("Paste a server as JSON, for stdio or remote (url) servers. Accepts a bare \"name\": { … } map, or the setup snippet for Claude, Cursor or VS Code.")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     SectionLabel("ENVIRONMENT")
                     ServerEnvironmentPills(tag: $environment)
                     Text("Which diagnoses offer these servers. JSON that names its own \"environment\" keeps it.")
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -81,12 +81,12 @@ struct AddJSONServerView: View {
                     // reads as the link settling into what it did.
                     if status.formatted {
                         Label("Formatted", systemImage: "text.alignleft")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(Typography.detail.weight(.medium))
                             .foregroundStyle(.secondary)
                             .transition(.fadeIn)
                             .accessibilityLabel("JSON formatted")
                     } else if status.formattable {
-                        InlineLink(title: "Format", size: 11.5, icon: "text.alignleft") {
+                        InlineLink(title: "Format", size: Typography.Size.detail, icon: "text.alignleft") {
                             formatRequest += 1
                         }
                         .transition(.fadeIn)
@@ -95,13 +95,13 @@ struct AddJSONServerView: View {
                 }
                 .motion(Motion.pop, value: status.formatted)
                 .motion(Motion.reveal, value: status.formattable)
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     ZStack(alignment: .topLeading) {
                         if text.isEmpty {
                             Text(Self.placeholder)
-                                .font(.mono(12))
+                                .font(Typography.code)
                                 .foregroundStyle(.tertiary)
-                                .padding(10)
+                                .padding(Space.md)
                                 .allowsHitTesting(false)
                         }
                         JSONPayloadEditor(text: $text, pasteRequest: pasteRequest,
@@ -112,11 +112,11 @@ struct AddJSONServerView: View {
                                           })
                     }
                     .frame(height: 260)
-                    .fieldSurface(cornerRadius: 10)
+                    .fieldSurface(cornerRadius: Radius.card)
 
                     if let wrapperNote {
                         Label(wrapperNote, systemImage: "scope")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .contentTransition(.opacity)
@@ -130,7 +130,7 @@ struct AddJSONServerView: View {
 
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .foregroundStyle(Theme.deletion)
                         .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.opacity)
@@ -139,12 +139,12 @@ struct AddJSONServerView: View {
                 }
             }
             .motion(Motion.reveal, value: error)
-            .padding(28)
+            .padding(Space.xxxl)
 
             SheetFooter(primary: SheetAction(title: "Add", enabled: !text.isBlank,
                                              shortcut: .defaultAction, action: add),
                         dismiss: { dismiss() }) {
-                InlineLink(title: "Paste", size: 13) { pasteRequest += 1 }
+                InlineLink(title: "Paste", size: Typography.Size.body) { pasteRequest += 1 }
             }
         }
         .frame(width: 540)

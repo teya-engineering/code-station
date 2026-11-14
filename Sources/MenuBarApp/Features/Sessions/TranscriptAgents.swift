@@ -55,15 +55,15 @@ struct SessionAgentIndicator: View {
                 : "\(counted(running.count, "agent")) running"
             let colour = running.isEmpty ? Theme.deletion : Theme.accent
             Button { open(target) } label: {
-                HStack(spacing: 5) {
+                HStack(spacing: Space.xs) {
                     Image(systemName: "person.2.fill")
                     Text(label)
                 }
-                .font(.mono(10, .medium))
+                .font(Font.mono(Typography.Size.micro, .medium))
                 .foregroundStyle(colour)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .surface(Theme.card, cornerRadius: 12)
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.xs)
+                .surface(Theme.card, cornerRadius: Radius.floating)
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -106,22 +106,22 @@ struct TranscriptAgentGroup: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { expanded = !isExpanded } label: {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 9) {
+                    HStack(spacing: Space.md) {
                         heading(agents.count)
                         Spacer(minLength: 8)
                         reading(agents)
                         chevron(isExpanded)
                     }
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         HStack { heading(agents.count); Spacer(); chevron(isExpanded) }
                         reading(agents)
                     }
                 }
-                .padding(12)
+                .padding(Space.lg)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverFill(cornerRadius: 10)
+            .hoverFill(cornerRadius: Radius.card)
             .accessibilityLabel("Delegated to \(counted(agents.count, "agent")), \(TranscriptAgents.summary(agents))")
             .accessibilityValue(isExpanded ? "expanded" : "collapsed")
 
@@ -137,7 +137,7 @@ struct TranscriptAgentGroup: View {
                 }
             }
         }
-        .cardSurface(cornerRadius: 10)
+        .cardSurface(cornerRadius: Radius.card)
         .id(anchor)
         // Keyed on the person's own choice, not on the agents: a group that opens because
         // a subagent started, or closes because the last one finished, does so in place.
@@ -148,22 +148,22 @@ struct TranscriptAgentGroup: View {
     }
 
     private func heading(_ count: Int) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "person.2.fill").foregroundStyle(Theme.accent)
             Text("Delegated to \(counted(count, "agent"))")
         }
-        .scaledMono(11.5, .semibold)
+        .scaledMono(Typography.Size.detail, .semibold)
     }
 
     private func reading(_ agents: [WorkingSetActivity]) -> some View {
         Text(TranscriptAgents.summary(agents))
-            .scaledMono(10)
+            .scaledMono(Typography.Size.micro)
             .foregroundStyle(agents.contains { $0.state == .failed } ? Theme.deletion : .secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private func chevron(_ expanded: Bool) -> some View {
-        Text(expanded ? "▾" : "▸").scaledMono(11).foregroundStyle(.secondary)
+        Text(expanded ? "▾" : "▸").scaledMono(Typography.Size.caption).foregroundStyle(.secondary)
     }
 }
 
@@ -201,37 +201,37 @@ private struct TranscriptAgentRow: View {
     var body: some View {
         let identity = identity
         let tint = Theme.projectTint(for: activity.title)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Button {
                 expanded.toggle()
                 if expanded { onExpand() }
             } label: {
-                HStack(spacing: 9) {
+                HStack(spacing: Space.md) {
                     Image(systemName: "person.fill")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(tint.ink)
                         .frame(width: 24, height: 24)
                         .background(Circle().fill(tint.fill))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(identity.task).scaledMono(11.5, .medium)
+                    VStack(alignment: .leading, spacing: Space.xxs) {
+                        Text(identity.task).scaledMono(Typography.Size.detail, .medium)
                             .fixedSize(horizontal: false, vertical: true)
                         if let name = identity.name, name != identity.task {
-                            Text(name).scaledMono(10).foregroundStyle(.secondary)
+                            Text(name).scaledMono(Typography.Size.micro).foregroundStyle(.secondary)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    VStack(alignment: .trailing, spacing: 2) {
+                    VStack(alignment: .trailing, spacing: Space.xxs) {
                         Label(activity.state.label, systemImage: activity.state.symbol)
-                            .scaledMono(10).foregroundStyle(stateColour)
+                            .scaledMono(Typography.Size.micro).foregroundStyle(stateColour)
                         elapsed
                     }
                     .fixedSize()
-                    Text(expanded ? "▾" : "▸").scaledMono(11).foregroundStyle(.secondary)
+                    Text(expanded ? "▾" : "▸").scaledMono(Typography.Size.caption).foregroundStyle(.secondary)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverFill(cornerRadius: 8)
+            .hoverFill(cornerRadius: Radius.control)
             .accessibilityLabel("\(activity.title), \(activity.state.label)")
             .accessibilityValue(expanded ? "expanded" : "collapsed")
 
@@ -244,15 +244,15 @@ private struct TranscriptAgentRow: View {
                 if let tool = reportTool {
                     ToolCallExpandedDetail(tool: tool, projectPath: projectPath, isRunning: false)
                 } else if let status = activity.sourceTool?.status, !status.isBlank {
-                    Text(status).scaledMono(11).foregroundStyle(.secondary)
+                    Text(status).scaledMono(Typography.Size.caption).foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 } else if children.isEmpty {
                     Text(activity.state == .running ? "Waiting for agent activity…" : "No agent report was recorded.")
-                        .scaledMono(11).foregroundStyle(.secondary)
+                        .scaledMono(Typography.Size.caption).foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(12)
+        .padding(Space.lg)
         .smoothlyResizes(when: expanded)
     }
 
@@ -274,7 +274,7 @@ private struct TranscriptAgentRow: View {
                     .foregroundStyle(.secondary)
             } else if let end = activity.sourceTool?.agentTask?.finishedAt ?? activity.sourceTool?.finishedAt {
                 Text(ElapsedTime.duration(max(0, end.timeIntervalSince(start))))
-                    .scaledMono(10).foregroundStyle(.secondary)
+                    .scaledMono(Typography.Size.micro).foregroundStyle(.secondary)
             }
         }
     }

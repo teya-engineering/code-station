@@ -21,20 +21,20 @@ struct ChoiceBlock<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
                 Text(title)
-                    .font(.mono(9, .semibold))
+                    .font(Typography.caps)
                     .kerning(1.1)
                     .foregroundStyle(.secondary)
                 if let badge {
                     Text(badge)
-                        .font(.system(size: 9.5, weight: .semibold))
+                        .font(Typography.micro)
                         .kerning(0.6)
                         .foregroundStyle(Theme.secret)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.secret.opacity(0.12)))
+                        .padding(.horizontal, Space.sm)
+                        .padding(.vertical, Space.xxs)
+                        .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.secret.opacity(0.12)))
                 }
                 Rectangle()
                     .fill(Theme.settingsHairline)
@@ -42,7 +42,7 @@ struct ChoiceBlock<Content: View>: View {
             }
             if let note {
                 Text(note)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, -2)
@@ -67,9 +67,9 @@ struct SettingsCard<Content: View>: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .clipShape(RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.settingsBorder))
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.settingsBorder))
     }
 }
 
@@ -78,7 +78,7 @@ struct SettingsRowDivider: View {
         Rectangle()
             .fill(Theme.settingsHairline)
             .frame(height: 1)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
     }
 }
 
@@ -99,12 +99,12 @@ struct SettingsToggleRow: View {
     var body: some View {
         Toggle(isOn: $isOn) {
             HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                     if let detail {
                         Text(detail)
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -141,7 +141,7 @@ struct OptionRow: View {
 
     var body: some View {
         Button(action: choose) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 // The mark is drawn rather than swapped between two symbols, so choosing
                 // an option swells its dot instead of cutting one glyph for another.
                 ZStack {
@@ -156,25 +156,25 @@ struct OptionRow: View {
                 }
                 .frame(width: 15, height: 15)
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(title).font(.system(size: 13, weight: .medium))
+                    HStack(spacing: Space.sm) {
+                        Text(title).font(Typography.body.weight(.medium))
                         if warning {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(Typography.micro)
                         }
                     }
                     .foregroundStyle(warning ? Theme.deletion : Color.primary)
                     if let detail {
                         Text(detail)
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(background)
             .contentShape(Rectangle())
@@ -228,25 +228,25 @@ struct ChoicePill: View {
             content
                 .background {
                     if selected {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: Radius.control)
                             .fill(Theme.accentFill)
                             .matchedGeometryEffect(id: "thumb", in: thumb)
                     } else if hovering && enabled {
-                        RoundedRectangle(cornerRadius: 8).fill(Theme.field)
+                        RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field)
                     }
                 }
                 .contentShape(Rectangle())
                 .opacity(enabled ? 1 : 0.45)
         } else {
             content
-                .surface(fill, cornerRadius: 8, border: selected ? .clear : Theme.border)
+                .surface(fill, cornerRadius: Radius.control, border: selected ? .clear : Theme.border)
                 .contentShape(Rectangle())
                 .opacity(enabled ? 1 : 0.45)
         }
     }
 
     private var content: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             if let dot {
                 // The accent fill swallows an amber dot, so a picked pill carries the
                 // brand mark instead and the warning stays visible on it.
@@ -257,26 +257,26 @@ struct ChoicePill: View {
             if let detail {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                     Text(detail)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .lineLimit(1)
                         .opacity(0.8)
                 }
                 .foregroundStyle(selected ? Color.white : Color.primary)
             } else {
                 if let icon {
-                    Image(systemName: icon).font(.system(size: 11.5, weight: .semibold))
+                    Image(systemName: icon).font(Typography.label)
                 }
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     // A squeezed pill must never fold its title onto two lines.
                     .lineLimit(1)
                     .fixedSize()
                 if let count {
                     Text("\(count)")
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .font(Typography.detail.weight(.medium).monospacedDigit())
                         .opacity(0.7)
                         .fixedSize()
                         .contentTransition(.numericText())
@@ -285,7 +285,7 @@ struct ChoicePill: View {
             }
         }
         .foregroundStyle(selected ? Color.white : Color.secondary)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.lg)
         .padding(.vertical, detail == nil ? 6 : 7)
         // A counted filter shares its track evenly, so its words sit in the middle.
         .frame(maxWidth: fills ? .infinity : nil, alignment: count == nil ? .leading : .center)

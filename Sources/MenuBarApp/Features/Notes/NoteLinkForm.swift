@@ -8,14 +8,14 @@ struct NoteLinkForm: View {
     private enum Field: Hashable { case url, insert, cancel }
     @FocusState private var focused: Field?
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Add a link").font(.serif(20, .semibold))
+        VStack(alignment: .leading, spacing: Space.lg) {
+            Text("Add a link").font(Typography.display)
             TextField("https://example.com", text: $url)
-                .textFieldStyle(.plain).padding(10).fieldSurface(cornerRadius: 7)
+                .textFieldStyle(.plain).padding(Space.md).fieldSurface(cornerRadius: Radius.control)
                 .focused($focused, equals: .url).accessibilityLabel("Link URL")
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(focused == .url ? Theme.accent : .clear, lineWidth: 2))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(focused == .url ? Theme.accent : .clear, lineWidth: 2))
                 .onSubmit { if NoteDocument.safeLink(url) != nil { insert(url) } }
-            Text("Use an https, http, or mailto link.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("Use an https, http, or mailto link.").font(Typography.caption).foregroundStyle(.secondary)
             HStack {
                 ActionButton(title: "Cancel", tone: .outlined, keyboardShortcut: .cancelAction, action: close)
                     .focused($focused, equals: .cancel)
@@ -24,7 +24,7 @@ struct NoteLinkForm: View {
                     .disabled(NoteDocument.safeLink(url) == nil).focused($focused, equals: .insert)
             }
         }
-        .padding(22).background(Theme.card)
+        .padding(Space.xxl).background(Theme.card)
         .onKeyPress(keys: [.tab]) { press in
             let fields: [Field] = NoteDocument.safeLink(url) == nil ? [.url, .cancel] : [.url, .cancel, .insert]
             let index = fields.firstIndex(of: focused ?? .url) ?? 0

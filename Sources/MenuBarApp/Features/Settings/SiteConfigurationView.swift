@@ -42,7 +42,7 @@ struct SiteConfigurationSection: View {
     @State private var pendingBackup: AppBackup?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: Space.xxl) {
             configuration.id(SettingsSearchTarget.advancedConfiguration.id)
             importing.id(SettingsSearchTarget.advancedImport.id)
         }
@@ -89,17 +89,17 @@ struct SiteConfigurationSection: View {
         ChoiceBlock("CONFIGURATION",
                     note: "These values are saved to one current configuration file. The JSON view is read-only and always generated from the settings shown here. A backup also carries your preferences, bots, shortcuts, requests and project list to another Mac.") {
             SettingsCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    HStack(alignment: .top, spacing: Space.lg) {
+                        VStack(alignment: .leading, spacing: Space.xxs) {
                             Text("Current configuration")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(Typography.body.weight(.semibold))
                             Text(loaded.summary)
-                                .font(.system(size: 12))
+                                .font(Typography.detail)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Text(SiteConfigurationImporter.destination.path.abbreviatedPath)
-                                .font(.mono(10.5))
+                                .font(Typography.data)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -113,7 +113,7 @@ struct SiteConfigurationSection: View {
                     }
                     if let exportFailure { SourceFailure(exportFailure).transition(.fadeIn) }
                 }
-                .padding(14)
+                .padding(Space.lg)
                 .smoothlyResizes(when: [exportFailure])
 
                 SettingsRowDivider()
@@ -129,49 +129,49 @@ struct SiteConfigurationSection: View {
     }
 
     private func configurationRow(_ aspect: SiteConfigurationAspect) -> some View {
-        HStack(spacing: 11) {
+        HStack(spacing: Space.lg) {
             Image(systemName: aspect.icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 27, height: 27)
                 .background(Circle().fill(Theme.accent.opacity(0.09)))
             VStack(alignment: .leading, spacing: 1) {
                 Text(aspect.title)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(currentDetail(for: aspect))
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
             configurationActions(for: aspect)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
         .contentShape(Rectangle())
     }
 
     @ViewBuilder private func configurationActions(for aspect: SiteConfigurationAspect) -> some View {
         if aspect == .apiAccess {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 ActionButton(title: "Shared defaults",
                              tone: .sunken,
-                             height: 28,
-                             size: 11.5) {
+                             height: ControlHeight.md,
+                             size: Typography.Size.detail) {
                     editor = .apiAccess
                 }
                 ActionButton(title: "Environment credentials",
                              tone: .sunken,
-                             height: 28,
-                             size: 11.5) {
+                             height: ControlHeight.md,
+                             size: Typography.Size.detail) {
                     showingEnvironmentAccess = true
                 }
             }
         } else {
             ActionButton(title: actionTitle(for: aspect),
                          tone: .sunken,
-                         height: 28,
-                         size: 11.5) {
+                         height: ControlHeight.md,
+                         size: Typography.Size.detail) {
                 open(aspect)
             }
         }
@@ -210,14 +210,14 @@ struct SiteConfigurationSection: View {
     }
 
     private func backupPreview(_ backup: AppBackup) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Divider().overlay(Theme.border)
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text("Backup from \(backup.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                     Text("\(backupChosen.count) of \(backup.parts.count) parts will be imported.")
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
@@ -228,9 +228,9 @@ struct SiteConfigurationSection: View {
             ForEach(backup.parts) { part in
                 Toggle(isOn: binding(for: part)) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(part.title).font(.system(size: 12, weight: .medium))
+                        Text(part.title).font(Typography.detail.weight(.medium))
                         Text(backup.detail(for: part))
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -242,23 +242,23 @@ struct SiteConfigurationSection: View {
     }
 
     private func pendingImport(_ pending: AppBackup) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundStyle(Theme.addition)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Import waiting for a restart")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text("\(pending.parts.map(\.title).joined(separator: ", ")) will be applied the next time Code Station opens.")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            ActionButton(title: "Cancel import", tone: .sunken, height: 28, size: 11.5) {
+            ActionButton(title: "Cancel import", tone: .sunken, height: ControlHeight.md, size: Typography.Size.detail) {
                 AppBackup.cancelPending()
                 pendingBackup = nil
             }
-            ActionButton(title: "Restart now", height: 28, size: 11.5, action: restart)
+            ActionButton(title: "Restart now", height: ControlHeight.md, size: Typography.Size.detail, action: restart)
         }
         .sourceResult(Theme.addition)
     }
@@ -361,7 +361,7 @@ struct SiteConfigurationSection: View {
         ChoiceBlock("IMPORT",
                     note: "Load a team configuration from a repository or a file, or choose a backup made on another Mac. Nothing changes until you choose what to bring in. Sessions, history and secrets never travel in a backup, so sign in again after a move.") {
             SettingsCard {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     sources
                     if let pendingBackup {
                         pendingImport(pendingBackup).transition(.fadeIn)
@@ -374,7 +374,7 @@ struct SiteConfigurationSection: View {
                     }
                     if let loadFailure = loaded.loadFailure { SourceFailure(loadFailure).transition(.fadeIn) }
                 }
-                .padding(14)
+                .padding(Space.lg)
                 .smoothlyResizes(when: [loader.selection?.sourceName, loader.failure, loaded.loadFailure,
                                         backup?.createdAt.description,
                                         pendingBackup?.createdAt.description, backupFailure])
@@ -384,11 +384,11 @@ struct SiteConfigurationSection: View {
 
     private var sources: some View {
         @Bindable var loader = loader
-        return HStack(spacing: 8) {
+        return HStack(spacing: Space.md) {
             TextField("https://github.com/org/settings", text: $loader.repositoryURL)
                 .textFieldStyle(.plain)
-                .font(.mono(11.5))
-                .padding(.horizontal, 10)
+                .font(Typography.code)
+                .padding(.horizontal, Space.md)
                 .frame(height: 32)
                 .fieldSurface()
                 .onSubmit(loadRepository)
@@ -405,16 +405,16 @@ struct SiteConfigurationSection: View {
     // Loading is only a preview. The current file is not touched until Reset selected is
     // pressed, which makes it safe to inspect an unfamiliar team configuration.
     private func preview(_ selection: SiteConfigurationSelection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Divider().overlay(Theme.border)
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(selection.sourceName)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(chosenText(selection.plan))
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
@@ -425,9 +425,9 @@ struct SiteConfigurationSection: View {
             ForEach(selection.plan.aspects) { aspect in
                 Toggle(isOn: binding(for: aspect)) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(aspect.title).font(.system(size: 12, weight: .medium))
+                        Text(aspect.title).font(Typography.detail.weight(.medium))
                         Text(aspect.detail(in: selection.defaults))
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -519,18 +519,18 @@ private struct SiteConfigurationEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(editorTitle).font(.serif(16))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(editorTitle).font(Typography.title)
                 Text(editorNote)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Space.xxl)
             .headerBand()
 
             ScrollView {
                 editor
-                    .padding(20)
+                    .padding(Space.xxl)
             }
             .frame(maxHeight: 560)
 
@@ -540,14 +540,14 @@ private struct SiteConfigurationEditorView: View {
                         dismiss: { dismiss() }) {
                 if let failure {
                     Text(failure)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(Theme.deletion)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(draft == saved
                          ? "Changes are written to the current configuration file."
                          : "Unsaved changes. Cancel leaves without keeping them.")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -590,12 +590,12 @@ private struct SiteConfigurationEditorView: View {
     }
 
     private var environmentsEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             ForEach(Array((draft.environments ?? []).indices), id: \.self) { index in
                 let environment = binding(\.environments, at: index,
                                           or: SiteDefaults.Environment(name: ""))
                 editorCard {
-                    HStack(alignment: .top, spacing: 10) {
+                    HStack(alignment: .top, spacing: Space.md) {
                         SiteConfigurationField(caption: "NAME / {{env}}",
                                                placeholder: "production",
                                                text: environment.name)
@@ -607,7 +607,7 @@ private struct SiteConfigurationEditorView: View {
                     Toggle("Treat as a live environment",
                            isOn: optionalBool(environment.danger))
                         .toggleStyle(.appCheckbox)
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                 }
                 .transition(.fold)
             }
@@ -619,13 +619,13 @@ private struct SiteConfigurationEditorView: View {
     }
 
     private var apiAccessEditor: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             editorCard {
                 Toggle("Configure a shared sign-in provider", isOn: oauthEnabled)
                     .toggleStyle(.appSwitch)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 if oauthEnabled.wrappedValue {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Space.lg) {
                         OptionMenu(caption: "GRANT TYPE",
                                    value: oauthGrant.wrappedValue.label,
                                    options: GrantType.allCases.map { grant in
@@ -663,12 +663,12 @@ private struct SiteConfigurationEditorView: View {
     }
 
     private var requestsEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             ForEach(Array((draft.requestList ?? []).indices), id: \.self) { index in
                 let request = binding(\.requestList, at: index,
                                       or: SiteDefaults.DispatchConfig.Request(name: "", url: ""))
                 editorCard {
-                    HStack(alignment: .top, spacing: 10) {
+                    HStack(alignment: .top, spacing: Space.md) {
                         SiteConfigurationField(caption: "NAME",
                                                placeholder: "List orders",
                                                text: request.name)
@@ -695,12 +695,12 @@ private struct SiteConfigurationEditorView: View {
         editorCard {
             Toggle("Configure a skills marketplace", isOn: skillsEnabled)
                 .toggleStyle(.appSwitch)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             if skillsEnabled.wrappedValue {
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         SectionLabel("SOURCE", style: .field)
-                        HStack(spacing: 6) {
+                        HStack(spacing: Space.sm) {
                             ChoicePill(title: "Git repository",
                                        selected: skillsSourceKind.wrappedValue == .gitRepository) {
                                 skillsSourceKind.wrappedValue = .gitRepository
@@ -718,7 +718,7 @@ private struct SiteConfigurationEditorView: View {
                     SiteConfigurationField(caption: "MARKETPLACE NAME",
                                            placeholder: "example-engineering",
                                            text: skillsText(\.marketplace))
-                    HStack(alignment: .bottom, spacing: 8) {
+                    HStack(alignment: .bottom, spacing: Space.md) {
                         SiteConfigurationField(
                             caption: skillsSourceKind.wrappedValue == .localFile
                                 ? "MARKETPLACE FILE" : "GIT REPOSITORY",
@@ -729,7 +729,7 @@ private struct SiteConfigurationEditorView: View {
                         if skillsSourceKind.wrappedValue == .localFile {
                             ActionButton(title: "Choose file…",
                                          tone: .outlined,
-                                         height: 34,
+                                         height: ControlHeight.lg,
                                          icon: "folder",
                                          action: chooseSkillsFile)
                                 .transition(.fadeIn)
@@ -743,12 +743,12 @@ private struct SiteConfigurationEditorView: View {
     }
 
     private var shortcutsEditor: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             ForEach(Array((draft.shortcuts ?? []).indices), id: \.self) { index in
                 let shortcut = binding(\.shortcuts, at: index,
                                        or: SiteDefaults.ShortcutEntry(name: "", command: ""))
                 editorCard {
-                    HStack(alignment: .top, spacing: 10) {
+                    HStack(alignment: .top, spacing: Space.md) {
                         SiteConfigurationField(caption: "NAME",
                                                placeholder: "Run service",
                                                text: shortcut.name)
@@ -757,7 +757,7 @@ private struct SiteConfigurationEditorView: View {
                     SiteConfigurationField(caption: "COMMAND",
                                            placeholder: "./gradlew bootRun",
                                            text: shortcut.command)
-                    VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         SectionLabel("ICON", style: .field)
                         ShortcutIconPicker(symbol: shortcut.icon)
                     }
@@ -772,8 +772,8 @@ private struct SiteConfigurationEditorView: View {
     }
 
     private func editorCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) { content() }
-            .padding(14)
+        VStack(alignment: .leading, spacing: Space.lg) { content() }
+            .padding(Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .cardSurface()
     }
@@ -785,24 +785,24 @@ private struct SiteConfigurationEditorView: View {
     private func removeButton(_ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "trash")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(Theme.deletion)
                 .frame(width: 32, height: 32)
-                .surface(Theme.deletion.opacity(0.07), cornerRadius: 8,
+                .surface(Theme.deletion.opacity(0.07), cornerRadius: Radius.control,
                          border: Theme.deletion.opacity(0.2))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .hoverLift(amount: Motion.smallLift)
-        .padding(.top, 17)
+        .padding(.top, Space.xl)
     }
 
     private func methodMenu(_ method: Binding<HTTPMethod?>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             SectionLabel("METHOD", style: .field)
             ActionButton(title: (method.wrappedValue ?? .get).rawValue,
                          tone: .sunken,
-                         height: 34,
+                         height: ControlHeight.lg,
                          disclosure: true)
                 .appMenu {
                     HTTPMethod.allCases.map { choice in
@@ -1085,14 +1085,14 @@ private struct SiteConfigurationField: View {
     @Binding var text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             SectionLabel(caption, style: .field)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.mono(11))
-                .padding(.horizontal, 11)
-                .frame(height: 34)
-                .fieldSurface(cornerRadius: 9)
+                .font(Typography.data)
+                .padding(.horizontal, Space.lg)
+                .frame(height: ControlHeight.lg)
+                .fieldSurface(cornerRadius: Radius.card)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1104,24 +1104,24 @@ private struct SiteConfigurationTextArea: View {
     @Binding var text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             SectionLabel(caption, style: .field)
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(placeholder)
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, Space.sm)
+                        .padding(.vertical, Space.md)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $text)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .scrollContentBackground(.hidden)
-                    .padding(2)
+                    .padding(Space.xxs)
             }
             .frame(height: 64)
-            .fieldSurface(cornerRadius: 9)
+            .fieldSurface(cornerRadius: Radius.card)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1138,39 +1138,39 @@ private struct SiteConfigurationJSONView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Current configuration JSON").font(.serif(16))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("Current configuration JSON").font(Typography.title)
                 Text("This read-only view is generated from the current settings and is safe to export as a reset file.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Space.xxl)
             .headerBand()
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 ScrollView {
                     Text(text)
-                        .font(.mono(11.5))
+                        .font(Typography.code)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
+                        .padding(Space.lg)
                 }
                 .frame(height: 440)
-                .fieldSurface(cornerRadius: 9)
+                .fieldSurface(cornerRadius: Radius.card)
 
                 if let failure {
                     Text(failure)
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(Theme.deletion)
                         .transition(.fadeIn)
                 }
             }
-            .padding(20)
+            .padding(Space.xxl)
             .smoothlyResizes(when: failure)
 
             SheetFooter(dismiss: { dismiss() }) {
-                HStack(spacing: 14) {
-                    CopyButton("Copy JSON", size: 12) { text }
+                HStack(spacing: Space.lg) {
+                    CopyButton("Copy JSON", size: Typography.Size.detail) { text }
                     InlineLink(title: "Export…", action: export)
                 }
             }

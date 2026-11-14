@@ -32,9 +32,9 @@ struct TerminalScreen: View {
             .overlay(alignment: .bottomLeading) {
                 if let failure = terminal.failure {
                     Text(failure)
-                        .scaledText(12)
+                        .scaledText(Typography.Size.detail)
                         .foregroundStyle(Theme.warningText)
-                        .padding(16)
+                        .padding(Space.xl)
                 }
             }
     }

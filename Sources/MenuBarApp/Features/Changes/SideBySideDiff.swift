@@ -85,15 +85,15 @@ struct SideBySideDiff: View {
                         if let gap = row.left?.gap {
                             HStack {
                                 ForEach([DiffExpandDirection.up, .all, .down], id: \.self) { direction in
-                                    InlineLink(title: "Show context \(direction.rawValue)", size: 11) {
+                                    InlineLink(title: "Show context \(direction.rawValue)", size: Typography.Size.caption) {
                                         expand(gap.key, direction)
                                     }
                                 }
                             }
-                            .font(.system(size: 11)).padding(8)
+                            .font(Typography.caption).padding(Space.md)
                         } else if row.left?.kind == .hunk || row.left?.kind == .meta || row.left?.kind == .section {
-                            Text(row.left?.text ?? "").font(.mono(11))
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                            Text(row.left?.text ?? "").font(Typography.data)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(Space.sm)
                                 .background(Theme.field)
                         } else {
                             HStack(alignment: .top, spacing: 0) {
@@ -106,7 +106,7 @@ struct SideBySideDiff: View {
                                 threads[id]
                                     .frame(maxWidth: min(760, geometry.size.width - 80), alignment: .leading)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.leading, 54).padding(.trailing, 12).padding(.vertical, 6)
+                                    .padding(.leading, 54).padding(.trailing, Space.lg).padding(.vertical, Space.sm)
                                     .background(Theme.field.opacity(0.5))
                                     .id(id)
                             }
@@ -156,7 +156,7 @@ struct SideBySideDiff: View {
         if let anchor, let onLine {
             label
                 .contentShape(Rectangle())
-                .hoverFill(cornerRadius: 4)
+                .hoverFill(cornerRadius: Radius.tag)
                 .background(GeometryReader { proxy in
                     Color.clear.preference(key: NumberFrames.self,
                                            value: [anchor: proxy.frame(in: .named(Self.space))])
@@ -193,14 +193,14 @@ struct SideBySideDiff: View {
 
     private func cell(_ line: DiffLine?, number: Int?, anchor: DiffAnchor? = nil) -> some View {
         let isPicked = anchor.map { !picked.union(dragged).isDisjoint(with: DiffComments.keys($0)) } == true
-        return HStack(alignment: .top, spacing: 8) {
+        return HStack(alignment: .top, spacing: Space.md) {
             self.number(number, anchor: anchor)
             Text(line.map { String($0.text.prefix(1)) } ?? "").frame(width: 10)
             Text(line.map { String($0.text.dropFirst()) } ?? " ")
                 .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.mono(12)).padding(.vertical, 3).padding(.trailing, 8)
+        .font(Typography.code).padding(.vertical, Space.xxs).padding(.trailing, Space.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             if line == nil {

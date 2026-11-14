@@ -84,7 +84,7 @@ struct RootView: View {
             SnoozeReminder()
             AppUpdateRestartPrompt()
             QuitConfirmation(isFront: sheet == nil)
-            VStack(spacing: 8) {
+            VStack(spacing: Space.md) {
                 if let attention, attention != dismissedAttention {
                     AttentionBanner(title: attention.title,
                                     message: attention.message,
@@ -110,7 +110,7 @@ struct RootView: View {
                             removal: .opacity.animation(Motion.leave)))
                 }
             }
-            .padding(.top, 12)
+            .padding(.top, Space.lg)
             // The backdrop and the palette come and go as separate layers, the same way a
             // dialog does, so the dimming fades while only the palette rises into place.
             ZStack {
@@ -241,7 +241,7 @@ struct RootView: View {
             })
             .frame(width: min(720, geometry.size.width - 64),
                    height: min(620, geometry.size.height - 64))
-            .padding(.top, 28)
+            .padding(.top, Space.xxxl)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .ignoresSafeArea()
@@ -505,15 +505,15 @@ private struct AttentionBanner: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
+        HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: "externaldrive.badge.exclamationmark")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .foregroundStyle(Theme.deletion)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                 Text(message)
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(4)
             }
@@ -532,11 +532,11 @@ private struct AttentionBanner: View {
             .appTooltip("Dismiss")
             .accessibilityLabel("Dismiss \(title)")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
         .frame(maxWidth: 720, alignment: .leading)
-        .surface(Theme.card, cornerRadius: 10, border: Theme.deletion.opacity(0.45))
-        .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
+        .surface(Theme.card, cornerRadius: Radius.card, border: Theme.deletion.opacity(0.45))
+        .elevation(.floating)
     }
 }
 
@@ -586,18 +586,18 @@ private struct AppUpdateBanner: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: Space.md) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                 if case .downloading(let fraction) = state {
                     progress(fraction)
                 } else {
                     Text(message)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -617,11 +617,11 @@ private struct AppUpdateBanner: View {
             .appTooltip("Dismiss")
             .accessibilityLabel("Dismiss update \(release.version)")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
         .frame(maxWidth: 720, alignment: .leading)
-        .surface(Theme.card, cornerRadius: 10, border: tint.opacity(0.42))
-        .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
+        .surface(Theme.card, cornerRadius: Radius.card, border: tint.opacity(0.42))
+        .elevation(.floating)
     }
 
     @ViewBuilder
@@ -629,12 +629,12 @@ private struct AppUpdateBanner: View {
         switch state {
         case .idle:
             if canInstallInPlace {
-                ActionButton(title: "Update", tone: .green, height: 28, size: 11,
+                ActionButton(title: "Update", tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
                              action: onInstall)
-                ActionButton(title: "Notes", tone: .outlined, height: 28, size: 11,
+                ActionButton(title: "Notes", tone: .outlined, height: ControlHeight.md, size: Typography.Size.caption,
                              action: onReadNotes)
             } else {
-                ActionButton(title: "View release", tone: .outlined, height: 28, size: 11,
+                ActionButton(title: "View release", tone: .outlined, height: ControlHeight.md, size: Typography.Size.caption,
                              action: onViewRelease)
             }
         case .downloading:
@@ -642,18 +642,18 @@ private struct AppUpdateBanner: View {
         case .installing:
             LoopSpinner(size: 14)
         case .ready:
-            ActionButton(title: "Restart now", tone: .green, height: 28, size: 11,
+            ActionButton(title: "Restart now", tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
                          action: onRestart)
         case .failed:
-            ActionButton(title: "Try again", tone: .outlined, height: 28, size: 11,
+            ActionButton(title: "Try again", tone: .outlined, height: ControlHeight.md, size: Typography.Size.caption,
                          action: onInstall)
-            ActionButton(title: "Download", tone: .outlined, height: 28, size: 11,
+            ActionButton(title: "Download", tone: .outlined, height: ControlHeight.md, size: Typography.Size.caption,
                          action: onViewRelease)
         }
     }
 
     private func progress(_ fraction: Double) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             GeometryReader { proxy in
                 Capsule().fill(Theme.field)
                     .overlay(alignment: .leading) {
@@ -664,7 +664,7 @@ private struct AppUpdateBanner: View {
             }
             .frame(width: 160, height: 5)
             Text("\(Int(fraction * 100))%")
-                .font(.system(size: 11).monospacedDigit())
+                .font(Typography.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
         .frame(height: 13)

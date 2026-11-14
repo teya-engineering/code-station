@@ -58,7 +58,7 @@ struct ConfigManagerView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, 20)
+                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -86,7 +86,7 @@ struct ConfigManagerView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Button {
                 store.load()
                 refreshIntegrations()
@@ -98,19 +98,19 @@ struct ConfigManagerView: View {
             .hoverLift(amount: Motion.smallLift)
             .appTooltip("Reload from disk")
 
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Text("MCP Servers")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(Typography.title)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             .appMenu { configFileMenuEntries }
 
             Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Space.xxl)
+        .padding(.vertical, Space.lg)
         .background(Theme.card)
     }
 
@@ -118,32 +118,32 @@ struct ConfigManagerView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Servers").font(.serif(22, .semibold))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("Servers").font(Typography.display)
                 Text("\(processes.runningCount(among: store.servers.map(\.id))) of \(store.servers.count) Code Station servers running")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 12)
+            .padding(.horizontal, Space.xxl)
+            .padding(.top, Space.xl)
+            .padding(.bottom, Space.lg)
 
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Typography.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                 TextField("Filter servers", text: $filter)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .fieldSurface(cornerRadius: 9)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
+            .fieldSurface(cornerRadius: Radius.card)
+            .padding(.horizontal, Space.xl)
+            .padding(.bottom, Space.lg)
 
             ScrollView {
-                VStack(spacing: 4) {
+                VStack(spacing: Space.xs) {
                     // Grafana needs one process per instance, so the rows cannot merge.
                     // Grouping them at least keeps it to a single control.
                     if !grafanaServers.isEmpty {
@@ -153,7 +153,7 @@ struct ConfigManagerView: View {
                             expanded: $grafanaExpanded,
                             toggleAll: toggleAllGrafana)
                         if grafanaExpanded || !filter.isBlank {
-                            VStack(spacing: 4) {
+                            VStack(spacing: Space.xs) {
                                 ForEach(grafanaServers) { row(for: $0) }
                             }
                             .transition(.fadeIn)
@@ -162,14 +162,14 @@ struct ConfigManagerView: View {
                     if !otherServers.isEmpty, store.servers.contains(where: \.isGrafana) {
                         HStack {
                             Text("OTHER")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(Typography.caption.weight(.semibold))
                                 .kerning(0.6)
                                 .foregroundStyle(.secondary)
                             Spacer()
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.top, 10)
-                        .padding(.bottom, 2)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.top, Space.md)
+                        .padding(.bottom, Space.xxs)
                     }
                     ForEach(otherServers) { row(for: $0) }
                     // Grouped by agent, so who owns a server is read before its name.
@@ -186,7 +186,7 @@ struct ConfigManagerView: View {
                                 },
                                 expanded: expandedBinding(source))
                             if expandedAgents.contains(source) || !filter.isBlank {
-                                VStack(spacing: 4) {
+                                VStack(spacing: Space.xs) {
                                     ForEach(held) { row(for: $0, from: source) }
                                 }
                                 .transition(.fadeIn)
@@ -196,20 +196,20 @@ struct ConfigManagerView: View {
                     if grafanaServers.isEmpty && otherServers.isEmpty
                         && filteredAgentConfiguredServers.isEmpty && !filter.isBlank {
                         Text("No servers match.")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
+                            .padding(Space.lg)
                     }
                 }
                 .smoothlyResizes(when: grafanaExpanded)
                 .smoothlyResizes(when: expandedAgents)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, Space.lg)
             }
 
             Spacer(minLength: 0)
 
-            VStack(spacing: 10) {
+            VStack(spacing: Space.md) {
                 if claude.available {
                     syncButton(needing: claude.serversNeedingSync(store.servers).count,
                                busy: claude.bulkBusy, label: "Claude Code") {
@@ -230,32 +230,32 @@ struct ConfigManagerView: View {
                 }
 
                 Text("+ Add server")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(Typography.body.weight(.semibold))
+                    .foregroundStyle(Theme.onFill)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.88)))
+                    .padding(.vertical, Space.lg)
+                    .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color.black.opacity(0.88)))
                     .addServerTrigger(addServerMenuEntries)
 
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Text("Config file")
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                    Image(systemName: "chevron.down").font(Typography.micro)
                 }
-                .font(.system(size: 13, weight: .medium))
+                .font(Typography.body.weight(.medium))
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .surface(Theme.card, cornerRadius: 10, border: Theme.hairline)
+                .padding(.vertical, Space.md)
+                .surface(Theme.card, cornerRadius: Radius.card, border: Theme.hairline)
                 .appMenu { configFileMenuEntries }
 
                 Text(collapsedPath)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .padding(16)
+            .padding(Space.xl)
         }
         .frame(width: 292)
         .background(Theme.sidebar)
@@ -268,13 +268,13 @@ struct ConfigManagerView: View {
         if needing > 0 {
             Button(action: action) {
                 Text(busy ? "Syncing…" : "Sync \(needing) to \(label)")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .foregroundStyle(Theme.accent)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .surface(Theme.accent.opacity(0.10), cornerRadius: 10,
+                    .padding(.vertical, Space.md)
+                    .surface(Theme.accent.opacity(0.10), cornerRadius: Radius.card,
                              border: Theme.accent.opacity(0.35))
-                    .contentShape(RoundedRectangle(cornerRadius: 10))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.card))
             }
             .buttonStyle(.plain)
             .hoverLift()
@@ -360,7 +360,7 @@ struct ConfigManagerView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 9)
+        .hoverFill(cornerRadius: Radius.card)
         .motion(Motion.control, value: selected)
     }
 
@@ -375,7 +375,7 @@ struct ConfigManagerView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 9)
+        .hoverFill(cornerRadius: Radius.card)
         .motion(Motion.control, value: selected)
     }
 
@@ -447,28 +447,28 @@ private struct AgentConfiguredGroupHeader: View {
         Button {
             expanded.toggle()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(Typography.micro)
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
                     .motion(Motion.reveal, value: expanded)
                 Image(systemName: source.symbol)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Typography.caption.weight(.medium))
                     .foregroundStyle(.primary)
                 Text("FROM \(source.title.uppercased())")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .kerning(0.6)
                     .foregroundStyle(.secondary)
                 Text("\(total)")
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if needingLook > 0 {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xs) {
                         Circle().fill(Theme.attention).frame(width: 7, height: 7)
                         Text("\(needingLook)")
-                            .font(.mono(11, .semibold))
+                            .font(Typography.data.weight(.semibold))
                             .foregroundStyle(Theme.attentionText)
                     }
                     .appTooltip(lookPhrase)
@@ -477,13 +477,13 @@ private struct AgentConfiguredGroupHeader: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 8)
+        .hoverFill(cornerRadius: Radius.control)
         .accessibilityLabel("From \(source.title), \(counted(total, "server"))"
             + (needingLook > 0 ? ", \(lookPhrase)" : ""))
         .accessibilityValue(expanded ? "expanded" : "collapsed")
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 2)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.md)
+        .padding(.bottom, Space.xxs)
     }
 }
 
@@ -496,50 +496,50 @@ private struct GrafanaGroupHeader: View {
     private var allRunning: Bool { running == total }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Button {
                 expanded.toggle()
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(Typography.micro)
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                         .motion(Motion.reveal, value: expanded)
                     Image(systemName: "chart.xyaxis.line")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(Typography.caption.weight(.medium))
                         .foregroundStyle(.primary)
                     Text("GRAFANA")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                         .kerning(0.6)
                         .foregroundStyle(.secondary)
                     Text("\(running)/\(total)")
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverFill(cornerRadius: 8)
+            .hoverFill(cornerRadius: Radius.control)
 
             Spacer()
 
             Button(action: toggleAll) {
                 Text(allRunning ? "Stop all" : "Start all")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(allRunning ? Color.secondary : Theme.accent)
                     .contentTransition(.interpolate)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Color.black.opacity(0.05)))
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.xxs)
+                    .background(Capsule().fill(Theme.field))
                     .motion(Motion.reveal, value: allRunning)
             }
             .buttonStyle(.plain)
             .hoverLift()
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.sm)
+        .padding(.bottom, Space.xxs)
     }
 }
 
@@ -550,7 +550,7 @@ private struct ServerRow: View {
     let claudeStatus: AgentConfiguredServer.Status?
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             // A remote server has no process here, so the only state worth a dot is
             // whether Claude Code can reach it.
             if server.isRemote, let claudeStatus {
@@ -562,15 +562,15 @@ private struct ServerRow: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(server.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(server.transport).font(.mono(11)).foregroundStyle(.secondary)
+                Text(server.transport).font(Typography.data).foregroundStyle(.secondary)
             }
             Spacer()
             if let claudeStatus, claudeStatus.needsLook {
                 Text(claudeStatus.word)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(claudeStatus.tint)
                     .lineLimit(1)
                     .fixedSize()
@@ -578,16 +578,16 @@ private struct ServerRow: View {
             }
             if let environment = server.deployEnvironment {
                 Text(environment)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Color.black.opacity(0.05)))
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.xxs)
+                    .background(Capsule().fill(Theme.field))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Color.black.opacity(0.06) : .clear))
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(selected ? Theme.field : .clear))
     }
 }
 
@@ -609,15 +609,15 @@ private struct AgentConfiguredServerRow: View {
 
     var body: some View {
         let status = registration?.status ?? .on
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             AgentStatusDot(status: status)
             VStack(alignment: .leading, spacing: 1) {
                 Text(server.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(subtitle)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -625,16 +625,16 @@ private struct AgentConfiguredServerRow: View {
             Spacer(minLength: 6)
             if status.showsWordInSidebar {
                 Text(status.word)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(status.tint)
                     .lineLimit(1)
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 9)
-            .fill(selected ? Color.black.opacity(0.06) : .clear))
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.card)
+            .fill(selected ? Theme.field : .clear))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(server.name), \(subtitle), \(status.word)")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -646,19 +646,19 @@ private struct EmptyDetail: View {
     let addEntries: [MenuEntry]
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Space.lg) {
             Image(systemName: "server.rack")
                 .font(.system(size: 40))
                 .foregroundStyle(.tertiary)
             Text(hasServers ? "Select a server" : "No servers configured yet")
-                .font(.serif(22))
+                .font(Typography.display)
             if !hasServers {
                 Text("Add an MCP server")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.88)))
+                    .font(Typography.body.weight(.semibold))
+                    .foregroundStyle(Theme.onFill)
+                    .padding(.horizontal, Space.xl)
+                    .padding(.vertical, Space.md)
+                    .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color.black.opacity(0.88)))
                     .addServerTrigger(addEntries)
             }
         }

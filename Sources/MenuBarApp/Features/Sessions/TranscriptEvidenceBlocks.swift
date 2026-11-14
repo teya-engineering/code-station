@@ -283,9 +283,9 @@ struct TranscriptBlockFailure: View {
 
     var body: some View {
         Text(message)
-            .scaledText(12)
+            .scaledText(Typography.Size.detail)
             .foregroundStyle(Theme.warningText)
-            .padding(.vertical, 2)
+            .padding(.vertical, Space.xxs)
     }
 }
 
@@ -311,7 +311,7 @@ struct InlineAskButton: View {
     var body: some View {
         Button(action: action) {
             Text(title + " →")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(Theme.accent)
                 .opacity(hovering ? 0.75 : 1)
                 .contentShape(Rectangle())

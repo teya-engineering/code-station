@@ -51,10 +51,10 @@ struct WholeChangeAskCard<Thread: View>: View {
             composer
         }
         .frame(width: Self.width)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.border))
         .overlay(alignment: .topLeading) { notch }
-        .shadow(color: .black.opacity(0.16), radius: 24, y: 9)
+        .elevation(.floating)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Ask about the whole change")
@@ -75,7 +75,7 @@ struct WholeChangeAskCard<Thread: View>: View {
     @ViewBuilder private var notch: some View {
         if let origin = navigation.askOrigin, frame.width > 0 {
             let x = min(max(origin.x - frame.minX, 24), Self.width - 24)
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: Radius.tag)
                 .fill(Theme.card)
                 .overlay(alignment: .topLeading) {
                     // Only the two outer edges carry the border, so the notch joins the card.
@@ -96,39 +96,39 @@ struct WholeChangeAskCard<Thread: View>: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Image(systemName: "questionmark.bubble")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.plan)
                 .frame(width: 32, height: 32)
-                .surface(Theme.plan.opacity(0.12), cornerRadius: 10, border: Theme.plan.opacity(0.25))
+                .surface(Theme.plan.opacity(0.12), cornerRadius: Radius.card, border: Theme.plan.opacity(0.25))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Ask about the whole change")
-                    .font(.serif(17, .semibold))
+                    .font(Typography.title)
                     .accessibilityAddTraits(.isHeader)
                 Text(forksConversation
                      ? "A side copy of \(agentTitle) answers. It has read the chat, can't edit files, and nothing it says goes back to the chat."
                      : "A read-only run of \(agentTitle) answers from the diff and the recent chat. It can't edit files, and nothing it says goes to the chat.")
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            GlyphButton(icon: "xmark", side: 26, action: close)
+            GlyphButton(icon: "xmark", side: ControlHeight.sm, action: close)
                 .appTooltip("Put away  esc")
                 .accessibilityLabel("Put away")
         }
-        .padding(.leading, 16).padding(.trailing, 14).padding(.top, 16).padding(.bottom, 12)
+        .padding(.leading, Space.xl).padding(.trailing, Space.lg).padding(.top, Space.xl).padding(.bottom, Space.lg)
     }
 
     // Where the change is: one bar split by how many lines each project changed, then a
     // row for each project with its files and lines.
     private var changeMap: some View {
         let total = max(scope.reduce(0) { $0 + $1.lines }, 1)
-        return VStack(alignment: .leading, spacing: 9) {
+        return VStack(alignment: .leading, spacing: Space.md) {
             GeometryReader { proxy in
                 let gaps = CGFloat(max(scope.count - 1, 0)) * 3
-                HStack(spacing: 3) {
+                HStack(spacing: Space.xxs) {
                     ForEach(scope) { project in
                         Capsule()
                             .fill(Theme.projectTint(for: project.name).colour)
@@ -142,24 +142,24 @@ struct WholeChangeAskCard<Thread: View>: View {
             .frame(height: 6)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(mapSummary(total: total))
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 5) {
+            Grid(alignment: .leading, horizontalSpacing: Space.lg, verticalSpacing: Space.xs) {
                 ForEach(scope) { project in
                     GridRow {
-                        HStack(spacing: 7) {
+                        HStack(spacing: Space.sm) {
                             ProjectDot(tint: Theme.projectTint(for: project.name), size: 8)
-                            Text(project.name).font(.system(size: 12, weight: .medium))
+                            Text(project.name).font(Typography.detail.weight(.medium))
                                 .lineLimit(1).truncationMode(.middle)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         Text(counted(project.files, "file"))
-                            .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            .font(Typography.detail).foregroundStyle(.secondary)
                             .gridColumnAlignment(.trailing)
-                        HStack(spacing: 5) {
+                        HStack(spacing: Space.xs) {
                             Text("+\(project.added)").foregroundStyle(Theme.addition)
                             Text("\u{2212}\(project.removed)").foregroundStyle(Theme.deletion)
                                 .opacity(project.removed == 0 ? 0.4 : 1)
                         }
-                        .font(.mono(11)).fixedSize()
+                        .font(Typography.data).fixedSize()
                         .gridColumnAlignment(.trailing)
                     }
                     .accessibilityElement(children: .ignore)
@@ -168,9 +168,9 @@ struct WholeChangeAskCard<Thread: View>: View {
                 }
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
-        .padding(.horizontal, 14).padding(.bottom, 12)
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.sunken))
+        .padding(.horizontal, Space.lg).padding(.bottom, Space.lg)
     }
 
     private func mapSummary(total: Int) -> String {
@@ -186,7 +186,7 @@ struct WholeChangeAskCard<Thread: View>: View {
         ScrollViewReader { proxy in
             HuggingHeight {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         if !resolved.isEmpty {
                             resolvedToggle.frame(maxWidth: .infinity)
                         }
@@ -202,7 +202,7 @@ struct WholeChangeAskCard<Thread: View>: View {
                             thread(question, question.id == expanded).id(question.id).transition(.fadeIn)
                         }
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 8)
+                    .padding(.horizontal, Space.md).padding(.vertical, Space.md)
                     .motion(Motion.reveal, value: expanded)
                     .motion(Motion.reveal, value: open.map(\.id))
                     .motion(Motion.reveal, value: navigation.askShowsResolved)
@@ -225,66 +225,66 @@ struct WholeChangeAskCard<Thread: View>: View {
     private var resolvedToggle: some View {
         let count = resolved.count == 1 ? "1 resolved question" : "\(resolved.count) resolved questions"
         return InlineLink(title: (navigation.askShowsResolved ? "Hide " : "Show ") + count,
-                          size: 11.5, tint: Color.secondary) {
+                          size: Typography.Size.detail, tint: Color.secondary) {
             navigation.askShowsResolved.toggle()
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Space.xs)
     }
 
     private var empty: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: Space.sm) {
             Image(systemName: "questionmark.bubble")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Theme.plan)
                 .frame(width: 40, height: 40)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.plan.opacity(0.08)))
-                .padding(.bottom, 4)
+                .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.plan.opacity(0.08)))
+                .padding(.bottom, Space.xs)
                 .accessibilityHidden(true)
-            Text("Ask how this change fits together").font(.serif(15, .semibold))
+            Text("Ask how this change fits together").font(Typography.title)
                 .accessibilityAddTraits(.isHeader)
             Text("Good for the big picture: why it was built this way, what to read first, what it could break. To ask about a few lines, select them in the diff.")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .font(Typography.detail).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 330)
-            VStack(spacing: 4) {
+            VStack(spacing: Space.xs) {
                 ForEach(WholeChangeThreads.starters(projects: scope.count), id: \.self) { starter in
                     WholeChangeStarter(text: starter) { ask(starter) }
                 }
             }
-            .padding(.top, 10)
+            .padding(.top, Space.md)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Questions to start with")
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12).padding(.top, 18).padding(.bottom, 10)
+        .padding(.horizontal, Space.lg).padding(.top, Space.xl).padding(.bottom, Space.md)
     }
 
     // One box: the field, then where the answer stays and the button that asks.
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if let following {
-                HStack(spacing: 7) {
-                    Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold))
+                HStack(spacing: Space.sm) {
+                    Image(systemName: "arrow.turn.down.right").font(Typography.caption.weight(.semibold))
                         .foregroundStyle(Theme.plan)
                     (Text("Following up on ").foregroundStyle(.secondary)
                      + Text(following.text).fontWeight(.semibold).foregroundStyle(Color.primary))
-                        .font(.system(size: 11.5)).lineLimit(1).truncationMode(.tail)
+                        .font(Typography.detail).lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    GlyphButton(icon: "xmark", side: 20) { navigation.askFollowing = nil }
+                    GlyphButton(icon: "xmark", side: ControlHeight.xs) { navigation.askFollowing = nil }
                         .appTooltip("Ask a new question instead")
                         .accessibilityLabel("Ask a new question instead")
                 }
-                .padding(.leading, 9).padding(.trailing, 4).padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.plan.opacity(0.08)))
+                .padding(.leading, Space.md).padding(.trailing, Space.xs).padding(.vertical, Space.xs)
+                .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.plan.opacity(0.08)))
                 .transition(.fadeIn)
             }
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 TextField(following == nil ? "Ask \(agentTitle) about the whole change" : "Ask a follow-up",
                           text: Binding(get: { navigation.askDraft }, set: { navigation.askDraft = $0 }),
                           axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .lineLimit(1...5)
                     .focused($fieldFocused)
                     .onSubmit(send)
@@ -296,24 +296,24 @@ struct WholeChangeAskCard<Thread: View>: View {
                     .onExitCommand(perform: escape)
                     .accessibilityLabel(following == nil ? "Question about the whole change" : "Follow-up question")
                     .accessibilityHint("Return asks. Shift-Return adds a line.")
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Label("Stays in this review", systemImage: "lock")
-                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                        .font(Typography.caption).foregroundStyle(.tertiary)
                         .labelStyle(.titleAndIcon)
                     Spacer(minLength: 8)
                     WholeChangeAskButton(title: following == nil ? "Ask" : "Ask follow-up",
                                          ready: !navigation.askDraft.isBlank, action: send)
                 }
             }
-            .padding(.leading, 12).padding(.trailing, 7).padding(.top, 10).padding(.bottom, 7)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 10)
+            .padding(.leading, Space.lg).padding(.trailing, Space.sm).padding(.top, Space.md).padding(.bottom, Space.sm)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(fieldFocused ? Theme.plan.opacity(0.5) : Theme.border))
             .motion(Motion.hover, value: fieldFocused)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
             .onTapGesture { fieldFocused = true }
         }
-        .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 12)
+        .padding(.horizontal, Space.lg).padding(.top, Space.md).padding(.bottom, Space.lg)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
         .motion(Motion.reveal, value: navigation.askFollowing)
     }
@@ -338,21 +338,21 @@ private struct WholeChangeStarter: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "questionmark.bubble")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Theme.plan)
-                Text(text).font(.system(size: 12.5))
+                Text(text).font(Typography.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "return")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(Theme.plan)
                     .opacity(hovering ? 1 : 0)
             }
-            .padding(.horizontal, 11).frame(height: 32)
-            .surface(hovering ? Theme.plan.opacity(0.06) : Theme.card, cornerRadius: 8,
+            .padding(.horizontal, Space.lg).frame(height: 32)
+            .surface(hovering ? Theme.plan.opacity(0.06) : Theme.card, cornerRadius: Radius.control,
                      border: hovering ? Theme.plan.opacity(0.35) : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .hoverLift(hovering, amount: Motion.smallLift)
@@ -374,19 +374,19 @@ private struct WholeChangeAskButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Text(title).font(.system(size: 11.5, weight: .semibold)).fixedSize()
+            HStack(spacing: Space.sm) {
+                Text(title).font(Typography.label).fixedSize()
                 Image(systemName: "return")
                     .font(.system(size: 9, weight: .bold))
-                    .padding(.horizontal, 4).padding(.vertical, 2)
-                    .overlay(RoundedRectangle(cornerRadius: 4)
+                    .padding(.horizontal, Space.xs).padding(.vertical, Space.xxs)
+                    .overlay(RoundedRectangle(cornerRadius: Radius.tag)
                         .stroke(ready ? Theme.card.opacity(0.5) : Theme.border))
             }
             .foregroundStyle(ready ? Theme.card : Color.secondary)
-            .padding(.horizontal, 10).frame(height: 28)
+            .padding(.horizontal, Space.md).frame(height: 28)
             .surface(ready ? (hovering ? Theme.plan.opacity(0.86) : Theme.plan) : Theme.sunken,
-                     cornerRadius: 7, border: ready ? .clear : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+                     cornerRadius: Radius.control, border: ready ? .clear : Theme.border)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .disabled(!ready)
@@ -406,22 +406,22 @@ struct WholeChangeFoldedThread<Badge: View>: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Text(question.text)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 badge()
                 Text(question.created.formatted(date: .omitted, time: .shortened))
-                    .font(.mono(10.5)).foregroundStyle(.tertiary).fixedSize()
+                    .font(Typography.data).foregroundStyle(.tertiary).fixedSize()
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                    .font(Typography.micro).foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 10).padding(.vertical, 9)
-            .contentShape(RoundedRectangle(cornerRadius: 11))
+            .padding(.horizontal, Space.md).padding(.vertical, Space.md)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 11)
+        .hoverFill(cornerRadius: Radius.floating)
         .accessibilityLabel(question.spokenName)
         .accessibilityHint("Opens the thread")
     }

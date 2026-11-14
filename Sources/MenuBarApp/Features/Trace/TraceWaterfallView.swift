@@ -80,13 +80,13 @@ struct TraceWaterfallView: View {
         let rows = displayRows
         VStack(alignment: .leading, spacing: 0) {
             header
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 12)
+                .padding(.horizontal, Space.xl)
+                .padding(.top, Space.lg)
+                .padding(.bottom, Space.lg)
             if trace.rows.count >= Self.overviewMinimum {
                 TraceOverview(trace: trace, window: $window, dragging: $zooming, colour: colour)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, Space.xl)
+                    .padding(.bottom, Space.lg)
             }
             if trace.services.count > 1 || trace.errorCount > 0 {
                 rule
@@ -100,8 +100,8 @@ struct TraceWaterfallView: View {
             footer
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.card, cornerRadius: 11)
-        .clipShape(RoundedRectangle(cornerRadius: 11))
+        .surface(Theme.card, cornerRadius: Radius.floating)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Trace \(titleText)")
         // A view reused for another trace starts that trace afresh: what was folded or
@@ -127,24 +127,24 @@ struct TraceWaterfallView: View {
     private var titleText: String { title ?? trace.root?.operation ?? "Trace" }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(alignment: .top, spacing: Space.lg) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(titleText)
-                        .scaledText(14, .semibold)
+                        .scaledText(Typography.Size.body, .semibold)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                     if trace.root != nil {
                         Text(Self.startLine(trace))
-                            .scaledText(12)
+                            .scaledText(Typography.Size.detail)
                             .foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 8)
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     if let server {
                         Text(server)
-                            .scaledText(11.5)
+                            .scaledText(Typography.Size.detail)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .modifier(TraceChip())
@@ -181,12 +181,12 @@ struct TraceWaterfallView: View {
                 copiedID = false
             }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: copiedID ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 10 * textScale, weight: .semibold))
+                    .font(.system(size: Typography.Size.micro * textScale, weight: .semibold))
                     .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                 Text(copiedID ? "Copied" : String(trace.traceID.prefix(8)))
-                    .scaledMono(11)
+                    .scaledMono(Typography.Size.caption)
                     .contentTransition(.opacity)
             }
             .foregroundStyle(copiedID ? Theme.addition : Color.secondary)
@@ -207,11 +207,11 @@ struct TraceWaterfallView: View {
             }
             statRule
             stat("Spans") {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                     Text(Trace.grouped(Int64(trace.rows.count)))
                     if omittedSpans > 0 {
                         Text("of \(Trace.grouped(Int64(trace.rows.count + omittedSpans)))")
-                            .scaledText(12)
+                            .scaledText(Typography.Size.detail)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -240,9 +240,9 @@ struct TraceWaterfallView: View {
     }
 
     private func stat(_ title: String, @ViewBuilder value: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)
-                .scaledText(11.5)
+                .scaledText(Typography.Size.detail)
                 .foregroundStyle(.secondary)
             value()
                 .scaledText(18, .semibold)
@@ -255,15 +255,15 @@ struct TraceWaterfallView: View {
         Rectangle()
             .fill(Theme.hairline)
             .frame(width: 1, height: 34 * textScale)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, Space.xl)
     }
 
     // MARK: - Legend and views
 
     private var tools: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: Space.lg) {
             if trace.services.count > 1 {
-                FlowRow(spacing: 2) {
+                FlowRow(spacing: Space.xxs) {
                     ForEach(trace.services, id: \.self) { service in
                         legendItem(service)
                     }
@@ -272,7 +272,7 @@ struct TraceWaterfallView: View {
                 .accessibilityLabel("Services")
             }
             Spacer(minLength: 8)
-            HStack(spacing: 2) {
+            HStack(spacing: Space.xxs) {
                 ChoicePill(title: "All spans", selected: lens == .all, thumb: lensTrack) {
                     choose(.all)
                 }
@@ -287,8 +287,8 @@ struct TraceWaterfallView: View {
             }
             .fixedSize()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
     }
 
     private func legendItem(_ service: String) -> some View {
@@ -296,21 +296,21 @@ struct TraceWaterfallView: View {
         return Button {
             focusedService = focused ? nil : service
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Circle().fill(colour(service)).frame(width: 7, height: 7)
                 Text(service)
-                    .scaledText(11.5)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(Color.primary)
                     .lineLimit(1)
                 Text(Trace.spacedDuration(trace.ownTime[service] ?? 0))
-                    .scaledText(11)
+                    .scaledText(Typography.Size.caption)
                     .monospacedDigit()
                     .foregroundStyle(.tertiary)
             }
             .fixedSize()
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 6).fill(focused ? Theme.field : .clear))
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.xxs)
+            .background(RoundedRectangle(cornerRadius: Radius.inset).fill(focused ? Theme.field : .clear))
             .opacity(focusedService == nil || focused ? 1 : 0.5)
             .contentShape(Rectangle())
             .hoverLift(previewedService == service)
@@ -357,10 +357,10 @@ struct TraceWaterfallView: View {
                 Spacer()
                 Text("Took")
             }
-            .scaledText(11)
+            .scaledText(Typography.Size.caption)
             .foregroundStyle(.secondary)
-            .padding(.leading, 16)
-            .padding(.trailing, 10)
+            .padding(.leading, Space.xl)
+            .padding(.trailing, Space.md)
             .frame(width: labelWidth)
             GeometryReader { proxy in
                 axisTicks(width: proxy.size.width, height: proxy.size.height)
@@ -379,25 +379,25 @@ struct TraceWaterfallView: View {
                 // Marks near the end would run into the end's own label.
                 if x <= width * 0.88 {
                     Text(Trace.tickText(offset, step: ticks.step))
-                        .scaledMono(10)
+                        .scaledMono(Typography.Size.micro)
                         .foregroundStyle(.secondary)
                         .fixedSize()
                         .offset(x: x + 3)
                 }
             }
             Text(Trace.spacedDuration(view.upperBound - trace.startNanos))
-                .scaledMono(10)
+                .scaledMono(Typography.Size.micro)
                 .foregroundStyle(.secondary)
                 .fixedSize()
                 .frame(width: width, alignment: .trailing)
             if let hoverFraction {
                 Text(Trace.offsetText(view.lowerBound - trace.startNanos
                     + Int64(Double(hoverFraction) * Double(view.upperBound - view.lowerBound))))
-                    .scaledMono(10, .semibold)
+                    .scaledMono(Typography.Size.micro, .semibold)
                     .foregroundStyle(Theme.accent)
                     .fixedSize()
-                    .padding(.horizontal, 4)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.card))
+                    .padding(.horizontal, Space.xs)
+                    .background(RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.card))
                     .offset(x: min(hoverFraction * width + 3, max(width - 70, 0)))
             }
         }
@@ -430,17 +430,17 @@ struct TraceWaterfallView: View {
     private func rowList(_ rows: [Trace.DisplayRow]) -> some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             if rows.isEmpty {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Text("No spans match.")
-                        .scaledText(12)
+                        .scaledText(Typography.Size.detail)
                         .foregroundStyle(.secondary)
-                    InlineLink(title: "Show all spans", size: 12) {
+                    InlineLink(title: "Show all spans", size: Typography.Size.detail) {
                         lens = .all
                         window = nil
                         focusedService = nil
                     }
                 }
-                .padding(16)
+                .padding(Space.xl)
             }
             ForEach(rows) { row in
                 rowView(row)
@@ -650,8 +650,8 @@ struct TraceWaterfallView: View {
             case .group(let group): groupLabel(group)
             }
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 10)
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.md)
     }
 
     private func guides(_ row: Trace.DisplayRow) -> some View {
@@ -678,7 +678,7 @@ struct TraceWaterfallView: View {
     private func spanLabel(_ row: Trace.Row) -> some View {
         let span = row.span
         let folded = collapsed.contains(span.id)
-        return HStack(spacing: 4) {
+        return HStack(spacing: Space.xs) {
             if row.hasChildren {
                 Button { toggleFold(span.id) } label: {
                     chevron(open: !folded, failureInside: folded && (trace.failuresBelow[span.id] ?? 0) > 0)
@@ -691,13 +691,13 @@ struct TraceWaterfallView: View {
             operation(span.operation, failed: span.isError)
             if folded, let hidden = hiddenCounts[span.id], hidden > 0 {
                 Text("+\(hidden)")
-                    .scaledMono(10)
+                    .scaledMono(Typography.Size.micro)
                     .foregroundStyle(.tertiary)
                     .fixedSize()
             }
             if row.parentMissing {
                 Text("parent not in trace")
-                    .scaledText(10.5)
+                    .scaledText(Typography.Size.caption)
                     .foregroundStyle(Theme.attentionText)
                     .lineLimit(1)
                     .fixedSize()
@@ -708,7 +708,7 @@ struct TraceWaterfallView: View {
     }
 
     private func groupLabel(_ group: Trace.Group) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             Button { openGroups.insert(group.key) } label: {
                 chevron(open: false, failureInside: false)
             }
@@ -716,7 +716,7 @@ struct TraceWaterfallView: View {
             .appTooltip("List each of the \(group.spans.count) spans")
             operation(group.spans[0].operation, failed: !group.failures.isEmpty)
             Text("×\(group.spans.count)")
-                .scaledMono(10.5)
+                .scaledMono(Typography.Size.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize()
             Spacer(minLength: 6)
@@ -726,7 +726,7 @@ struct TraceWaterfallView: View {
 
     private func chevron(open: Bool, failureInside: Bool) -> some View {
         Image(systemName: open ? "chevron.down" : "chevron.right")
-            .font(.system(size: 8.5 * textScale, weight: .bold))
+            .font(.system(size: Typography.Size.micro * textScale, weight: .bold))
             .foregroundStyle(.secondary)
             .frame(width: 14, height: 14)
             .overlay(alignment: .topTrailing) {
@@ -742,15 +742,15 @@ struct TraceWaterfallView: View {
 
     private func operation(_ operation: String, failed: Bool) -> some View {
         let parts = Trace.verb(of: operation)
-        return HStack(alignment: .firstTextBaseline, spacing: 5) {
+        return HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
             if let verb = parts.verb {
                 Text(verb)
-                    .scaledMono(9.5, .medium)
+                    .scaledMono(Typography.Size.micro, .medium)
                     .foregroundStyle(failed ? Theme.deletion : Color.secondary)
                     .fixedSize()
             }
             Text(parts.rest)
-                .scaledText(12.5)
+                .scaledText(Typography.Size.body)
                 .foregroundStyle(failed ? Theme.deletion : Color.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -759,7 +759,7 @@ struct TraceWaterfallView: View {
 
     private func duration(_ nanos: Int64, failed: Bool) -> some View {
         Text(Trace.durationText(nanos))
-            .scaledMono(11)
+            .scaledMono(Typography.Size.caption)
             .monospacedDigit()
             .foregroundStyle(failed ? Theme.deletion : Color.secondary)
             .fixedSize()
@@ -799,7 +799,7 @@ struct TraceWaterfallView: View {
         if to < view.lowerBound || from > view.upperBound {
             let offset = Trace.offsetText(span.startNanos - trace.startNanos)
             Text(span.endNanos < view.lowerBound ? "← \(offset)" : "\(offset) →")
-                .scaledMono(10)
+                .scaledMono(Typography.Size.micro)
                 .foregroundStyle(.tertiary)
                 .frame(width: width, alignment: span.endNanos < view.lowerBound ? .leading : .trailing)
         } else {
@@ -862,9 +862,9 @@ struct TraceWaterfallView: View {
     private func serviceTag(_ service: String, from: Int64, to: Int64, width: CGFloat) -> some View {
         let start = fraction(max(from, view.lowerBound))
         let end = fraction(min(to, view.upperBound))
-        let tag = HStack(spacing: 4) {
+        let tag = HStack(spacing: Space.xs) {
             Circle().fill(colour(service)).frame(width: 5, height: 5)
-            Text(service).scaledText(11)
+            Text(service).scaledText(Typography.Size.caption)
         }
         .foregroundStyle(colour(service))
         .lineLimit(1)
@@ -913,15 +913,15 @@ struct TraceWaterfallView: View {
 
     @ViewBuilder
     private func drawer(_ row: Trace.DisplayRow) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             switch row {
             case .span(let row): spanDrawer(row.span)
             case .group(let group): groupDrawer(group)
             }
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 16)
-        .padding(.vertical, 14)
+        .padding(.leading, Space.xl)
+        .padding(.trailing, Space.xl)
+        .padding(.vertical, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.sunken)
         .overlay(alignment: .top) { rule }
@@ -933,13 +933,13 @@ struct TraceWaterfallView: View {
         let caller = trace.parentIDs[span.id].flatMap(trace.span)
         drawerHead(title: span.operation, service: span.service,
                    note: Self.kindWord(span.kind) + (caller.map { ", called by \($0.operation)" } ?? "")) {
-            ActionButton(title: "Zoom to span", tone: .outlined, height: 28, size: 11.5,
+            ActionButton(title: "Zoom to span", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
                          icon: "plus.magnifyingglass") {
                 window = trace.zoomWindow(around: span)
             }
             askButton(for: span, key: span.id)
         }
-        FlowRow(spacing: 24) {
+        FlowRow(spacing: Space.xxxl) {
             fact("Started", Trace.offsetText(span.startNanos - trace.startNanos))
             fact("Took", Trace.spacedDuration(span.durationNanos))
             fact("Span ID", span.id)
@@ -959,13 +959,13 @@ struct TraceWaterfallView: View {
         let failures = group.failures
         drawerHead(title: "\(group.spans.count) × \(first.operation)", service: first.service,
                    note: "ran these side by side under \(group.parent.operation)") {
-            ActionButton(title: "List each span", tone: .outlined, height: 28, size: 11.5) {
+            ActionButton(title: "List each span", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
                 openGroups.insert(group.key)
                 opened = nil
             }
             askButton(for: failures.first ?? first, key: group.id)
         }
-        FlowRow(spacing: 24) {
+        FlowRow(spacing: Space.xxxl) {
             fact("Started", Trace.offsetText(group.startNanos - trace.startNanos))
             fact("Shortest", Trace.spacedDuration(durations.first ?? 0))
             fact("Longest", Trace.spacedDuration(durations.last ?? 0))
@@ -982,21 +982,21 @@ struct TraceWaterfallView: View {
 
     private func drawerHead(title: String, service: String, note: String,
                             @ViewBuilder actions: () -> some View) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(title)
-                    .scaledText(13.5, .semibold)
+                    .scaledText(Typography.Size.body, .semibold)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
-                HStack(spacing: 5) {
+                HStack(spacing: Space.xs) {
                     Circle().fill(colour(service)).frame(width: 6, height: 6)
                     Text(service).foregroundStyle(colour(service))
                     Text(note).foregroundStyle(.secondary).lineLimit(1)
                 }
-                .scaledText(11.5)
+                .scaledText(Typography.Size.detail)
             }
             Spacer(minLength: 8)
-            HStack(spacing: 8) { actions() }
+            HStack(spacing: Space.md) { actions() }
         }
     }
 
@@ -1004,12 +1004,12 @@ struct TraceWaterfallView: View {
     private func askButton(for span: Trace.Span, key: String) -> some View {
         if let askAgent {
             if asked.contains(key) {
-                ActionButton(title: "Asked the agent", tone: .outlined, height: 28, size: 11.5,
+                ActionButton(title: "Asked the agent", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
                              icon: "checkmark")
                     .disabled(true)
             } else {
-                ActionButton(title: "Ask for \(span.service) logs", tone: .dark, height: 28,
-                             size: 11.5, icon: "text.alignleft") {
+                ActionButton(title: "Ask for \(span.service) logs", tone: .dark, height: ControlHeight.md,
+                             size: Typography.Size.detail, icon: "text.alignleft") {
                     askAgent(TraceFollowUp.spanLogs(span, traceID: trace.traceID))
                     asked.insert(key)
                 }
@@ -1028,12 +1028,12 @@ struct TraceWaterfallView: View {
     }
 
     private func fact(_ title: String, _ value: String, tint: Color = .primary) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)
-                .scaledText(11)
+                .scaledText(Typography.Size.caption)
                 .foregroundStyle(.secondary)
             Text(value)
-                .scaledMono(11.5)
+                .scaledMono(Typography.Size.detail)
                 .foregroundStyle(tint)
                 .lineLimit(3)
                 .frame(maxWidth: 360 * textScale, alignment: .leading)
@@ -1050,9 +1050,9 @@ struct TraceWaterfallView: View {
         let stripWidth: CGFloat = 120
         let left = CGFloat(Double(span.startNanos - from) / range) * stripWidth
         let width = max(CGFloat(Double(span.durationNanos) / range) * stripWidth, 2)
-        return VStack(alignment: .leading, spacing: 7) {
+        return VStack(alignment: .leading, spacing: Space.sm) {
             Text(caller == nil ? "Within the trace" : "Within its caller")
-                .scaledText(11)
+                .scaledText(Typography.Size.caption)
                 .foregroundStyle(.secondary)
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.field)
@@ -1068,9 +1068,9 @@ struct TraceWaterfallView: View {
     }
 
     private func sectionTitle(_ title: String, count: Int) -> some View {
-        HStack(spacing: 5) {
-            Text(title).scaledText(11.5, .semibold)
-            Text("\(count)").scaledMono(10.5).foregroundStyle(.tertiary)
+        HStack(spacing: Space.xs) {
+            Text(title).scaledText(Typography.Size.detail, .semibold)
+            Text("\(count)").scaledMono(Typography.Size.caption).foregroundStyle(.tertiary)
         }
     }
 
@@ -1080,18 +1080,18 @@ struct TraceWaterfallView: View {
             filter.isEmpty || attribute.key.lowercased().contains(filter)
                 || attribute.value.lowercased().contains(filter)
         }
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        return VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.md) {
                 sectionTitle("Attributes", count: span.attributes.count)
                 Spacer(minLength: 8)
                 if span.attributes.count > 1 {
                     TextField("Filter", text: $attributeFilter)
                         .textFieldStyle(.plain)
-                        .scaledText(11.5)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .scaledText(Typography.Size.detail)
+                        .padding(.horizontal, Space.md)
+                        .padding(.vertical, Space.xs)
                         .frame(width: 170 * textScale)
-                        .surface(Theme.field, cornerRadius: 6)
+                        .surface(Theme.field, cornerRadius: Radius.inset)
                         .accessibilityLabel("Filter attributes")
                 }
             }
@@ -1105,10 +1105,10 @@ struct TraceWaterfallView: View {
             if !span.resourceAttributes.isEmpty {
                 InlineLink(title: "\(showsResources ? "Hide" : "Show") the "
                                + counted(span.resourceAttributes.count, "resource attribute"),
-                           size: 11.5) {
+                           size: Typography.Size.detail) {
                     showsResources.toggle()
                 }
-                .padding(.top, 2)
+                .padding(.top, Space.xxs)
                 if showsResources {
                     attributeRows(span.resourceAttributes, filter: "")
                 }
@@ -1117,12 +1117,12 @@ struct TraceWaterfallView: View {
     }
 
     private func attributeRows(_ attributes: [Trace.Attribute], filter: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             ForEach(Array(attributes.enumerated()), id: \.offset) { _, attribute in
                 let id = attribute.key + "\u{0}" + attribute.value
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.lg) {
                     Text(Self.highlighted(attribute.key, filter))
-                        .scaledMono(11)
+                        .scaledMono(Typography.Size.caption)
                         .foregroundStyle(.secondary)
                         .frame(width: 240 * textScale, alignment: .leading)
                         .textSelection(.enabled)
@@ -1136,7 +1136,7 @@ struct TraceWaterfallView: View {
                     } label: {
                         Text(copiedValue == id ? AttributedString("Copied")
                                                : Self.highlighted(attribute.value, filter))
-                            .scaledMono(11)
+                            .scaledMono(Typography.Size.caption)
                             .foregroundStyle(copiedValue == id ? Theme.addition : Color.primary)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1164,7 +1164,7 @@ struct TraceWaterfallView: View {
     }
 
     private func events(_ span: Trace.Span) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             sectionTitle("Events", count: span.events.count)
             if span.events.isEmpty {
                 quiet("No events were recorded on this span.")
@@ -1186,7 +1186,7 @@ struct TraceWaterfallView: View {
                 .accessibilityHidden(true)
                 ForEach(Array(span.events.enumerated()), id: \.offset) { _, event in
                     Text(TraceWaterfallView.eventLine(event))
-                        .scaledMono(11)
+                        .scaledMono(Typography.Size.caption)
                         .foregroundStyle(Self.isException(event) ? Theme.deletion : Color.primary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -1207,27 +1207,27 @@ struct TraceWaterfallView: View {
 
     private func quiet(_ text: String) -> some View {
         Text(text)
-            .scaledText(11.5)
+            .scaledText(Typography.Size.detail)
             .foregroundStyle(.secondary)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.lg) {
             if omittedSpans > 0 {
                 Text("Showing \(trace.rows.count) of \(Trace.grouped(Int64(trace.rows.count + omittedSpans))) spans: every failure, the calls above it, and the slowest work.")
-                    .scaledText(11.5)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let askAgent, !trace.traceID.isEmpty {
                     if asked.contains("whole") {
                         Text("Asked the agent to fetch it")
-                            .scaledText(11.5, .semibold)
+                            .scaledText(Typography.Size.detail, .semibold)
                             .foregroundStyle(.secondary)
                             .fixedSize()
                     } else {
-                        InlineLink(title: "Fetch the whole trace", size: 11.5) {
+                        InlineLink(title: "Fetch the whole trace", size: Typography.Size.detail) {
                             askAgent(TraceFollowUp.fullTrace(trace.traceID, server: server))
                             asked.insert("whole")
                         }
@@ -1235,27 +1235,27 @@ struct TraceWaterfallView: View {
                 }
             } else {
                 Text("All \(counted(trace.rows.count, "span")) in this trace.")
-                    .scaledText(11.5)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 keyHint(["↑", "↓"], "move")
                 keyHint(["←", "→"], "fold")
                 keyHint(["↩"], "details")
             }
             .accessibilityHidden(true)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.md)
         .background(Theme.sunken.opacity(0.6))
     }
 
     private func keyHint(_ keys: [String], _ word: String) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: Space.xxs) {
             ForEach(keys, id: \.self) { KeyCap(key: $0) }
             Text(word)
-                .scaledText(11)
+                .scaledText(Typography.Size.caption)
                 .foregroundStyle(.secondary)
         }
         .fixedSize()
@@ -1270,9 +1270,9 @@ struct TraceWaterfallView: View {
 private struct TraceChip: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .surface(.clear, cornerRadius: 7)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.xs)
+            .surface(.clear, cornerRadius: Radius.control)
     }
 }
 
@@ -1309,7 +1309,7 @@ struct TraceOverview: View {
     private static let lanes = 8
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             GeometryReader { proxy in
                 let width = proxy.size.width
                 ZStack(alignment: .topLeading) {
@@ -1326,18 +1326,18 @@ struct TraceOverview: View {
                 .onTapGesture(count: 2) { window = nil }
             }
             .frame(height: Self.height)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.sunken))
-            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.sunken))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Trace overview")
             .accessibilityValue(caption)
             .accessibilityAction(named: "Show whole trace") { window = nil }
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Text(caption)
-                    .scaledText(11.5)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(.secondary)
                 if window != nil {
-                    InlineLink(title: "Show whole trace", size: 11.5) { window = nil }
+                    InlineLink(title: "Show whole trace", size: Typography.Size.detail) { window = nil }
                 }
             }
         }
@@ -1378,7 +1378,7 @@ struct TraceOverview: View {
             Rectangle().fill(Theme.card.opacity(0.7))
                 .frame(width: max(width - right, 0))
                 .offset(x: right)
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: Radius.tag)
                 .stroke(Theme.accent, lineWidth: 1.5)
                 .frame(width: max(right - left, 2))
                 .offset(x: left)
@@ -1446,27 +1446,27 @@ struct TraceOverview: View {
 struct TraceArrivingCard: View {
     var body: some View {
         Breathing(period: 1.8) { skeleton }
-            .surface(Theme.card, cornerRadius: 11)
+            .surface(Theme.card, cornerRadius: Radius.floating)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Trace arriving")
             .accessibilityValue("The agent is writing out the trace")
     }
 
     private var skeleton: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             line(width: 0.46, height: 13)
             line(width: 0.22, height: 9)
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 ForEach(Array(Self.bars.enumerated()), id: \.offset) { _, bar in
                     GeometryReader { proxy in
                         HStack(spacing: 0) {
-                            RoundedRectangle(cornerRadius: 3)
+                            RoundedRectangle(cornerRadius: Radius.tag)
                                 .fill(Theme.field)
                                 .frame(width: proxy.size.width * 0.3 * bar.label, height: 9)
                             Spacer(minLength: 0)
                         }
                         .overlay(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 3)
+                            RoundedRectangle(cornerRadius: Radius.tag)
                                 .fill(Theme.field)
                                 .frame(width: max(proxy.size.width * 0.6 * bar.width, 4), height: 9)
                                 .offset(x: proxy.size.width * (0.38 + 0.6 * bar.offset))
@@ -1475,13 +1475,13 @@ struct TraceArrivingCard: View {
                     .frame(height: 9)
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, Space.md)
             Text("The agent is writing out the trace. It draws once the block is complete.")
-                .scaledText(11.5)
+                .scaledText(Typography.Size.detail)
                 .foregroundStyle(.secondary)
-                .padding(.top, 4)
+                .padding(.top, Space.xs)
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -1492,7 +1492,7 @@ struct TraceArrivingCard: View {
 
     private func line(width: CGFloat, height: CGFloat) -> some View {
         GeometryReader { proxy in
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: Radius.tag)
                 .fill(Theme.field)
                 .frame(width: proxy.size.width * width, height: height)
         }
@@ -1510,40 +1510,40 @@ struct TraceUnreadableCard: View {
     let server: String?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.warningText)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text("This trace could not be drawn")
-                    .scaledText(13, .semibold)
+                    .scaledText(Typography.Size.body, .semibold)
                 Text(detail)
-                    .scaledText(12)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let askAgent {
                     Group {
                         if asked {
-                            ActionButton(title: "Asked the agent", tone: .outlined, height: 28,
-                                         size: 11.5, icon: "checkmark")
+                            ActionButton(title: "Asked the agent", tone: .outlined, height: ControlHeight.md,
+                                         size: Typography.Size.detail, icon: "checkmark")
                                 .disabled(true)
                         } else {
                             ActionButton(title: "Ask the agent to fetch it again", tone: .dark,
-                                         height: 28, size: 11.5, icon: "arrow.clockwise") {
+                                         height: ControlHeight.md, size: Typography.Size.detail, icon: "arrow.clockwise") {
                                 askAgent(TraceFollowUp.drawAgain(traceID, server: server))
                                 asked = true
                             }
                         }
                     }
-                    .padding(.top, 4)
+                    .padding(.top, Space.xs)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.card, cornerRadius: 11)
+        .surface(Theme.card, cornerRadius: Radius.floating)
     }
 
     private var detail: String {

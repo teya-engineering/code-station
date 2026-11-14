@@ -28,11 +28,11 @@ struct PullRequestReplyBox: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: proposal == nil ? "pencil.line" : "sparkles").font(.system(size: 10.5))
-                Text(proposal == nil ? "Your reply" : "Agent proposes").font(.system(size: 11.5, weight: .semibold))
-                if let action = proposal?.action { MonoChip(text: action.title, size: 9.5, tint: action.ink) }
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
+                Image(systemName: proposal == nil ? "pencil.line" : "sparkles").font(Typography.caption)
+                Text(proposal == nil ? "Your reply" : "Agent proposes").font(Typography.label)
+                if let action = proposal?.action { MonoChip(text: action.title, size: Typography.Size.micro, tint: action.ink) }
                 Spacer(minLength: 0)
                 askButton
             }
@@ -40,13 +40,13 @@ struct PullRequestReplyBox: View {
             if let fix, !fix.files.isEmpty { filesRow(fix.files) }
             if proposal?.action == .pushback {
                 Text("The agent disagrees with the reviewer. Read this one twice before sending it.")
-                    .font(.system(size: 11.5)).foregroundStyle(Theme.warningText)
+                    .font(Typography.detail).foregroundStyle(Theme.warningText)
             }
             AppTextEditor(text: $reply, placeholder: "Reply to the reviewer…", minHeight: 56)
             buttons
         }
-        .padding(12)
-        .surface(Theme.field, cornerRadius: 10, border: Theme.hairline)
+        .padding(Space.lg)
+        .surface(Theme.field, cornerRadius: Radius.card, border: Theme.hairline)
         .onAppear { reply = proposal?.reply ?? "" }
         // Asking again replaces the proposal under a box that is still on screen.
         .onChange(of: proposal?.reply) { _, text in
@@ -58,49 +58,49 @@ struct PullRequestReplyBox: View {
     // Nothing it does leaves the machine: edits stay uncommitted, the reply stays here.
     @ViewBuilder private var askButton: some View {
         if drafting {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 LoopSpinner(size: 14)
                 if agentNeedsYou {
-                    Text("The agent is waiting for you in the chat.").font(.system(size: 11.5))
-                    InlineLink(title: "Open chat", size: 11.5) { store.selectSession(sessionID) }
+                    Text("The agent is waiting for you in the chat.").font(Typography.detail)
+                    InlineLink(title: "Open chat", size: Typography.Size.detail) { store.selectSession(sessionID) }
                 } else {
-                    Text("Agent is working…").font(.system(size: 11.5))
+                    Text("Agent is working…").font(Typography.detail)
                 }
             }
         } else if store.session(sessionID) != nil {
-            InlineLink(title: proposal == nil ? "Ask the agent" : "Ask again", size: 11.5, icon: "sparkles", action: ask)
+            InlineLink(title: proposal == nil ? "Ask the agent" : "Ask again", size: Typography.Size.detail, icon: "sparkles", action: ask)
                 .appTooltip("The agent reads this comment, edits the checkout without committing, and writes a reply here for you to approve.")
                 .disabled(reviews.busy.contains(entry.pullRequest.url) || proposal?.changes?.files.isEmpty == false)
         }
     }
 
     private func filesRow(_ files: [String]) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "doc.text").font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(files.joined(separator: ", ")).font(.mono(11)).lineLimit(2).truncationMode(.middle)
+        HStack(spacing: Space.md) {
+            Image(systemName: "doc.text").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
+            Text(files.joined(separator: ", ")).font(Typography.data).lineLimit(2).truncationMode(.middle)
             Spacer(minLength: 4)
-            InlineLink(title: "Show the diff", size: 11.5, action: openChanges)
+            InlineLink(title: "Show the diff", size: Typography.Size.detail, action: openChanges)
         }
     }
 
     private var buttons: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             if let fix {
-                ActionButton(title: "Approve: commit, push and reply", tone: .green, height: 28, size: 12, icon: "checkmark") {
+                ActionButton(title: "Approve: commit, push and reply", tone: .green, height: ControlHeight.md, size: Typography.Size.detail, icon: "checkmark") {
                     run(resolves: false) {
                         await PullRequestReviewActions.approve(fix, reply: reply, thread: thread, on: entry,
                                                                sessionID: sessionID, store: store)
                     }
                 }
             }
-            ActionButton(title: fix == nil ? "Send reply" : "Reply only", tone: .dark, height: 28, size: 12) {
+            ActionButton(title: fix == nil ? "Send reply" : "Reply only", tone: .dark, height: ControlHeight.md, size: Typography.Size.detail) {
                 run(resolves: false) { await PullRequestReviewActions.reply(reply, thread: thread, on: entry) }
             }
             .disabled(reply.trimmed.isEmpty)
             if working { LoopSpinner(size: 14) }
             Spacer(minLength: 0)
             // Done without a word. A fix is put back first, so nothing stray stays in the checkout.
-            InlineLink(title: fix == nil ? "Resolve" : "Discard and resolve", size: 11.5, tint: .secondary) {
+            InlineLink(title: fix == nil ? "Resolve" : "Discard and resolve", size: Typography.Size.detail, tint: .secondary) {
                 if let fix, !fix.files.isEmpty { confirmDiscard(fix) }
                 else { resolve(discarding: nil) }
             }

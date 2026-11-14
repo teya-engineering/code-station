@@ -27,7 +27,7 @@ private struct AppSwitch: View {
         Button {
             configuration.isOn.toggle()
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 configuration.label
                 Capsule()
                     .fill(configuration.isOn ? Theme.accentFill : Theme.dotOff)
@@ -39,7 +39,7 @@ private struct AppSwitch: View {
                         Circle()
                             .fill(.white)
                             .frame(width: Self.knob, height: Self.knob)
-                            .shadow(color: .black.opacity(0.15), radius: 1, y: 1)
+                            .elevation(.raised)
                             .offset(x: Self.inset + (configuration.isOn ? Self.travel : 0))
                     }
                     // Only the switch lifts. A label that grew with it would drag the
@@ -70,7 +70,7 @@ private struct AppCheckbox: View {
         Button {
             configuration.isOn.toggle()
         } label: {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Space.md) {
                 CheckboxMark(isOn: configuration.isOn)
                     .hoverLift(hovering, amount: Motion.smallLift)
                 configuration.label
@@ -93,10 +93,10 @@ struct CheckboxMark: View {
     private var filled: Bool { isOn || mixed }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 5)
+        RoundedRectangle(cornerRadius: Radius.inset)
             .fill(filled ? Theme.accentFill : Theme.card)
             .frame(width: 16, height: 16)
-            .overlay(RoundedRectangle(cornerRadius: 5)
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset)
                 .stroke(filled ? .clear : Theme.border, lineWidth: 1.5))
             .overlay {
                 // The tick is always there and grows into the filled box, so ticking a

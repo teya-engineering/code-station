@@ -14,16 +14,16 @@ struct DayField: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             TextField("Days", value: value, format: .number)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .monospacedDigit()
                 .multilineTextAlignment(.trailing)
                 .frame(width: 36)
                 .accessibilityLabel(accessibilityLabel)
             Text(days == 1 ? "day" : "days")
-                .font(.system(size: 13, weight: .medium))
+                .font(Typography.body.weight(.medium))
                 .foregroundStyle(.secondary)
             VStack(spacing: 0) {
                 DayStepButton(icon: "chevron.up", label: "One more day",
@@ -36,10 +36,10 @@ struct DayField: View {
                 }
             }
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
-        .frame(height: 34)
-        .fieldSurface(cornerRadius: 9)
+        .padding(.leading, Space.md)
+        .padding(.trailing, Space.xs)
+        .frame(height: ControlHeight.lg)
+        .fieldSurface(cornerRadius: Radius.card)
     }
 }
 
@@ -63,7 +63,7 @@ private struct DayStepButton: View {
                 .actOut(icon, trigger: clicks)
                 .frame(width: 20, height: 13)
                 .background(hovering && enabled ? Theme.accent.opacity(0.12) : .clear,
-                            in: RoundedRectangle(cornerRadius: 4))
+                            in: RoundedRectangle(cornerRadius: Radius.tag))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

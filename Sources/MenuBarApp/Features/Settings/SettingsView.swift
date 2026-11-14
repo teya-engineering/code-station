@@ -45,11 +45,11 @@ struct SettingsView: View {
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 18) {
+                            VStack(alignment: .leading, spacing: Space.xl) {
                                 paneHeading
                                 tabContent
                             }
-                            .padding(24)
+                            .padding(Space.xxxl)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .scrollIndicators(.visible)
@@ -85,7 +85,7 @@ struct SettingsView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, 20)
+                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -107,37 +107,37 @@ struct SettingsView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             AppMark()
                 .frame(width: 32, height: 32)
                 .accessibilityHidden(true)
             Text("Settings")
-                .font(.serif(18))
+                .font(Typography.title)
             Spacer(minLength: 0)
             Text("Teya Code Station")
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
     private var navigation: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                     .foregroundStyle(.secondary)
                 TextField("Search settings", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .focused($searchFocused)
                     .onChange(of: searchText) { _, query in
                         selectFirstSearchResult(for: query)
                     }
                 if searchText.isEmpty {
                     Text("⌘F")
-                        .font(.mono(9))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                 } else {
                     Button {
@@ -145,7 +145,7 @@ struct SettingsView: View {
                         searchTarget = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.tertiary)
                             .contentShape(Circle())
                     }
@@ -153,9 +153,9 @@ struct SettingsView: View {
                     .hoverLift(amount: Motion.smallLift)
                 }
             }
-            .padding(.horizontal, 9)
-            .frame(height: 30)
-            .fieldSurface(cornerRadius: 9)
+            .padding(.horizontal, Space.md)
+            .frame(height: ControlHeight.md)
+            .fieldSurface(cornerRadius: Radius.card)
 
             Button { searchFocused = true } label: { EmptyView() }
                 .buttonStyle(.plain)
@@ -164,7 +164,7 @@ struct SettingsView: View {
                 .accessibilityHidden(true)
 
             if searchText.isBlank {
-                VStack(spacing: 4) {
+                VStack(spacing: Space.xs) {
                     ForEach(SettingsTab.allCases, id: \.self) { choice in
                         SettingsNavigationItem(
                             title: choice.title,
@@ -177,13 +177,13 @@ struct SettingsView: View {
                 }
             } else if searchResults.isEmpty {
                 Text("No settings found. Try ‘cursor’, ‘theme’, or ‘text’.")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.md)
             } else {
                 ScrollView {
-                    VStack(spacing: 4) {
+                    VStack(spacing: Space.xs) {
                         ForEach(searchResults) { result in
                             SettingsSearchResultItem(
                                 result: result,
@@ -198,7 +198,7 @@ struct SettingsView: View {
 
             Spacer(minLength: 16)
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(width: 190)
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.sidebar)
@@ -271,11 +271,11 @@ struct SettingsView: View {
     }
 
     private var paneHeading: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text(tab.title)
-                .font(tab == .appearance ? .logo(26) : .serif(26))
+                .font(tab == .appearance ? .logo(26) : Typography.display)
             Text(tab.note)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -292,11 +292,11 @@ struct SettingsView: View {
                     .frame(width: 13, height: 13))
                 .accessibilityHidden(true)
             Text("Changes save automatically")
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
             if tab == .appearance && !bots.isPresented {
                 InlineLink(title: "Reset Appearance", action: resetAppearance)
-                    .padding(.leading, 6)
+                    .padding(.leading, Space.sm)
                 if appearanceBeforeReset != nil { InlineLink(title: "Undo reset", action: undoAppearanceReset) }
             }
         }
@@ -305,7 +305,7 @@ struct SettingsView: View {
     @ViewBuilder private var tabContent: some View {
         switch tab {
         case .general:
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 sidebar.id(SettingsSearchTarget.generalSidebar.id)
                 recaps.id(SettingsSearchTarget.generalRecaps.id)
                 midTurnPrompts.id(SettingsSearchTarget.generalMidTurnPrompts.id)
@@ -317,7 +317,7 @@ struct SettingsView: View {
                 system.id(SettingsSearchTarget.generalSystem.id)
             }
         case .appearance:
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 appearance.id(SettingsSearchTarget.appearanceTheme.id)
                 workingSet.id(SettingsSearchTarget.appearanceWorkingSet.id)
                 headerButtons.id(SettingsSearchTarget.appearanceHeaderButtons.id)
@@ -332,7 +332,7 @@ struct SettingsView: View {
             AgentSettingsView(selectedAgent: runner.agent,
                               requestedAgent: searchedAgent)
         case .advanced:
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 SiteConfigurationSection(skills: skills)
             }
         case .experimental:
@@ -343,7 +343,7 @@ struct SettingsView: View {
     // Read only. The keys are bound where their action lives, so this is the one place
     // that says out loud what the whole set is.
     private var keyboardShortcuts: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: Space.xxl) {
             ForEach(KeyboardShortcutsReference.groups) { group in
                 ChoiceBlock(group.title.uppercased()) {
                     SettingsCard {
@@ -360,7 +360,7 @@ struct SettingsView: View {
     private var sidebar: some View {
         ChoiceBlock("SIDEBAR") {
             SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: Space.lg) {
                     settingCopy(
                         title: "Sessions shown",
                         detail: "How many recent sessions each project and workspace lists before See more.")
@@ -375,8 +375,8 @@ struct SettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .accessibilityLabel("Sessions shown per sidebar list: \(settings.sidebarSessionLimit)")
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -389,16 +389,16 @@ struct SettingsView: View {
                     "Automatic session recaps",
                     detail: "Creates a short recap after a turn finishes while you are in another session or app. You can still request one manually when this is off.",
                     isOn: $settings.sessionRecapsEnabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
             SettingsCard {
                 SettingsToggleRow(
                     "Automatic session titles",
                     detail: "Summarises the conversation into a short title after the first turn finishes. You can still regenerate a title from the session's right-click menu when this is off.",
                     isOn: $settings.sessionTitlesEnabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
             .id(SettingsSearchTarget.generalTitles.id)
             SettingsCard {
@@ -406,8 +406,8 @@ struct SettingsView: View {
                     "Suggest the next prompt",
                     detail: "Offers a likely next prompt above the composer once a turn ends. Claude Code predicts one as part of the turn. Codex and Copilot cannot, so they are asked in a short separate run that costs a little on every turn.",
                     isOn: $settings.promptSuggestionsEnabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
             .id(SettingsSearchTarget.generalSuggestions.id)
         }
@@ -441,7 +441,7 @@ struct SettingsView: View {
     private var finishedSound: some View {
         ChoiceBlock("SOUND") {
             SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: Space.lg) {
                     settingCopy(
                         title: "When a session finishes",
                         detail: "Plays once a turn ends, whether or not you are looking at that session.")
@@ -458,8 +458,8 @@ struct SettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .accessibilityLabel("Sound when a session finishes: \(settings.sessionFinishedSound.title)")
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -476,8 +476,8 @@ struct SettingsView: View {
                     "Treat them like old sessions",
                     detail: "Checkouts no session owns go with the same countdown when they have no changes. One with uncommitted changes waits for your OK instead of being pruned.",
                     isOn: $settings.sweepsOrphanedWorktrees)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
         }
     }
@@ -486,7 +486,7 @@ struct SettingsView: View {
         let limit = settings.sessionMemoryLimit
         return ChoiceBlock("SESSION MEMORY") {
             SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: Space.lg) {
                     settingCopy(
                         title: "Stop a turn after it uses",
                         detail: limit.detail().map {
@@ -503,8 +503,8 @@ struct SettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .accessibilityLabel("Session memory limit: \(limit.title)")
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -512,7 +512,7 @@ struct SettingsView: View {
     private var skillRefresh: some View {
         ChoiceBlock("SKILLS") {
             SettingsCard {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: Space.lg) {
                     settingCopy(
                         title: "Refresh the skills list",
                         detail: "Checks the marketplace for new versions. You can still refresh it from Skills at any time.")
@@ -527,8 +527,8 @@ struct SettingsView: View {
                     }
                     .fixedSize(horizontal: true, vertical: false)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }
@@ -536,13 +536,13 @@ struct SettingsView: View {
     private var appearance: some View {
         ChoiceBlock("APPEARANCE") {
             SettingsCard {
-                HStack(alignment: .center, spacing: 20) {
+                HStack(alignment: .center, spacing: Space.xxl) {
                     settingCopy(
                         title: "Theme",
                         detail: "Follow macOS or keep the app in one appearance.")
                         .frame(width: 160, alignment: .leading)
 
-                    HStack(spacing: 9) {
+                    HStack(spacing: Space.md) {
                         ForEach(Appearance.allCases) { choice in
                             SettingsThemeChoice(
                                 appearance: choice,
@@ -553,7 +553,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .padding(14)
+                .padding(Space.lg)
 
                 SettingsRowDivider()
                 sunlight.id(SettingsSearchTarget.appearanceSunlight.id)
@@ -563,7 +563,7 @@ struct SettingsView: View {
                 .id(SettingsSearchTarget.appearanceCursorEffects.id)
 
             SettingsCard {
-                HStack(alignment: .center, spacing: 20) {
+                HStack(alignment: .center, spacing: Space.xxl) {
                     settingCopy(
                         title: "Session text",
                         detail: "Changes transcripts, diffs, tool output, and terminals.")
@@ -575,7 +575,7 @@ struct SettingsView: View {
                         .font(.serif(22 * settings.textSize.scale, .regular))
                         .frame(width: 36)
                         .accessibilityLabel("Text size preview: \(settings.textSize.label)")
-                    HStack(spacing: 4) {
+                    HStack(spacing: Space.xs) {
                         ForEach(TextSize.allCases) { size in
                             ChoicePill(title: size.label, selected: settings.textSize == size) {
                                 settings.textSize = size
@@ -585,18 +585,18 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .padding(14)
+                .padding(Space.lg)
                 .id(SettingsSearchTarget.appearanceText.id)
 
                 SettingsRowDivider()
 
-                HStack(alignment: .center, spacing: 20) {
+                HStack(alignment: .center, spacing: Space.xxl) {
                     settingCopy(
                         title: "Your messages",
                         detail: "The colour behind what you send in a session.")
                         .frame(width: 160, alignment: .leading)
 
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Space.lg) {
                         MessageColourPicker(selection: settings.messageColour,
                                             projectTints: previewProjectTints) { colour in
                             settings.messageColour = colour
@@ -604,7 +604,7 @@ struct SettingsView: View {
                         messageColourNote
                     }
                 }
-                .padding(14)
+                .padding(Space.lg)
                 .id(SettingsSearchTarget.appearanceMessages.id)
 
                 SettingsRowDivider()
@@ -624,17 +624,17 @@ struct SettingsView: View {
                 "Sunlight",
                 detail: "Warms the window the way evening light does, easier on the eyes than a cold white screen.",
                 isOn: $settings.sunlightEnabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
 
             if settings.sunlightEnabled {
-                HStack(alignment: .center, spacing: 20) {
+                HStack(alignment: .center, spacing: Space.xxl) {
                     settingCopy(
                         title: "When",
                         detail: "Follow the sun where you are, or keep the warmth on all day.")
                         .frame(width: 160, alignment: .leading)
                     Spacer(minLength: 0)
-                    HStack(spacing: 4) {
+                    HStack(spacing: Space.xs) {
                         ForEach(SunlightMode.allCases) { mode in
                             ChoicePill(title: mode.label, selected: settings.sunlightMode == mode) {
                                 settings.sunlightMode = mode
@@ -644,11 +644,11 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.bottom, Space.lg)
                 .transition(reduceMotion ? .opacity : .fadeIn)
 
-                HStack(alignment: .center, spacing: 20) {
+                HStack(alignment: .center, spacing: Space.xxl) {
                     settingCopy(
                         title: "Warmth",
                         detail: settings.sunlightMode == .fixed
@@ -666,9 +666,9 @@ struct SettingsView: View {
 
                     VStack(alignment: .trailing, spacing: 1) {
                         Text(Sunlight.name(for: settings.sunlightNightKelvin))
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(Typography.label)
                         Text("\(Int(settings.sunlightNightKelvin)) K")
-                            .font(.mono(10))
+                            .font(Font.mono(Typography.Size.micro))
                             .foregroundStyle(.secondary)
                     }
                     .frame(width: 72, alignment: .trailing)
@@ -676,8 +676,8 @@ struct SettingsView: View {
                     .motion(Motion.control, value: settings.sunlightNightKelvin)
                     .accessibilityHidden(true)
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 13)
+                .padding(.horizontal, Space.lg)
+                .padding(.bottom, Space.lg)
                 .transition(reduceMotion ? .opacity : .fadeIn)
             }
         }
@@ -711,9 +711,9 @@ struct SettingsView: View {
     }
 
     private var messageColourNote: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             if settings.messageColour == .projectIcon {
-                HStack(spacing: 3) {
+                HStack(spacing: Space.xxs) {
                     ForEach(Self.previewProjects) { project in
                         SidebarIdentityTile(
                             avatar: SidebarAvatar(subject: .project, id: project.id),
@@ -730,13 +730,13 @@ struct SettingsView: View {
                 Text("Every session uses \(Text(settings.messageColour.label).fontWeight(.semibold).foregroundStyle(.primary)), whatever the project.")
             }
         }
-        .font(.system(size: 11.5))
+        .font(Typography.detail)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.sunken, cornerRadius: 9, border: Theme.settingsHairline)
+        .surface(Theme.sunken, cornerRadius: Radius.card, border: Theme.settingsHairline)
         .accessibilityElement(children: .combine)
     }
 
@@ -748,8 +748,8 @@ struct SettingsView: View {
                     "Open working set automatically",
                     detail: "Opens the Working Set when an agent starts work in a session with no saved panel choice. Opening or closing it yourself is remembered.",
                     isOn: $settings.opensWorkingSetByDefault)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
         }
     }
@@ -759,12 +759,12 @@ struct SettingsView: View {
             SettingsCard {
                 ForEach(Array(HeaderButton.allCases.enumerated()), id: \.element) { index, button in
                     if index > 0 { SettingsRowDivider() }
-                    HStack(spacing: 12) {
+                    HStack(spacing: Space.lg) {
                         Image(systemName: button.icon)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(Typography.body.weight(.medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 28, height: 28)
-                            .surface(Theme.sunken, cornerRadius: 7, border: Theme.settingsHairline)
+                            .surface(Theme.sunken, cornerRadius: Radius.control, border: Theme.settingsHairline)
                             .accessibilityHidden(true)
                         SettingsToggleRow(
                             button.title,
@@ -772,23 +772,23 @@ struct SettingsView: View {
                             isOn: Binding(get: { settings.shows(button) },
                                           set: { settings.setShows($0, button) }))
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
                 }
             }
         }
     }
 
     private var sidebarIcons: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: Space.xxl) {
             settingCopy(title: "Sidebar icons", detail: "Give projects a distinct, recognisable look.")
                 .frame(width: 160, alignment: .leading)
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 ForEach(Self.previewProjects.prefix(3)) { project in
-                    VStack(spacing: 5) {
+                    VStack(spacing: Space.xs) {
                         SidebarIdentityTile(avatar: SidebarAvatar(subject: .project, id: project.id),
                                             name: project.name, tint: Theme.projectTint(for: project.name), side: 26)
-                        Text(project.name).font(.system(size: 9)).foregroundStyle(.secondary)
+                        Text(project.name).font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -799,7 +799,7 @@ struct SettingsView: View {
             OptionMenu(value: sidebarIconStyleLabel) { sidebarIconStyleMenu }
                 .accessibilityLabel("Sidebar icon style: \(sidebarIconStyleLabel)")
         }
-        .padding(14)
+        .padding(Space.lg)
     }
 
     private var sidebarIconStyleLabel: String {
@@ -858,16 +858,16 @@ struct SettingsView: View {
         ChoiceBlock("SYSTEM") {
             SettingsCard {
                 terminal
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
                 SettingsRowDivider()
                 startAtLogin
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
                 SettingsRowDivider()
                 log
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
         }
     }
@@ -878,14 +878,14 @@ struct SettingsView: View {
         let inDrawer = settings.opensTerminalInDrawer
         let value = inDrawer ? SystemTerminal.drawerName : SystemTerminal.appName
 
-        return HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        return HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Terminal")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(inDrawer
                      ? "The Terminal button offers a shell in the drawer and one in a window of its own. The drawer is named first, and a window opens in \(SystemTerminal.appName), the app macOS hands shell scripts. Pick an app to name it first instead."
                      : "The Terminal button offers a shell in the drawer and one in a window of its own. \(value) is named first, and is where a window opens.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -939,7 +939,7 @@ struct SettingsView: View {
     }
 
     private var startAtLogin: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             SettingsToggleRow(
                 "Start at login",
                 detail: "Opens Teya Code Station when you log in, so sessions are there waiting.",
@@ -947,7 +947,7 @@ struct SettingsView: View {
 
             if let failure = loginItem.failure {
                 Text(failure)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(Theme.deletion)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -963,18 +963,18 @@ struct SettingsView: View {
                     "Mobile access",
                     detail: "Puts a QR code on Home. A phone on the same trusted Wi-Fi that scans it can read and run every session in every project.",
                     isOn: $settings.mobileAccessEnabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
         }
     }
 
     private func settingCopy(title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text(detail)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -983,12 +983,12 @@ struct SettingsView: View {
     // A turn that stops moving looks the same as one that is working, and the transcript
     // keeps no record of the difference. This is where that record is.
     private var log: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Session log")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text("Every line Claude Code sent, and what the app did with it. Worth opening when a turn seems stuck.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1015,13 +1015,13 @@ private struct SettingsNavigationItem: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Image(systemName: symbol)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(selected ? Theme.accent : Color.secondary)
                     .frame(width: 20)
                 Text(title)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
                 Spacer(minLength: 0)
                 Circle()
@@ -1030,21 +1030,21 @@ private struct SettingsNavigationItem: View {
                     .scaleEffect(selected ? 1 : 0.1)
                     .opacity(selected ? 1 : 0)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Space.md)
             .frame(maxWidth: .infinity, minHeight: 42)
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: Radius.card)
                         .fill(Theme.card)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border))
                         .matchedGeometryEffect(id: "pane", in: seat)
                 } else if hovering {
-                    RoundedRectangle(cornerRadius: 10).fill(Theme.card.opacity(0.5))
+                    RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card.opacity(0.5))
                 }
             }
             .overlay {
                 if focused {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: Radius.card)
                         .stroke(Theme.accent, lineWidth: 2)
                 }
             }
@@ -1066,30 +1066,30 @@ private struct SettingsSearchResultItem: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
+            HStack(spacing: Space.md) {
                 Image(systemName: result.tab.symbol)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Typography.caption.weight(.medium))
                     .foregroundStyle(selected ? Theme.accent : Color.secondary)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(result.title)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(Typography.label)
                         .foregroundStyle(selected ? Color.primary : Color.secondary)
                         .lineLimit(1)
                     Text(result.tab.title)
-                        .font(.system(size: 9.5))
+                        .font(Font.system(size: Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, Space.md)
             .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-            .surface(selected ? Theme.card : .clear, cornerRadius: 9,
+            .surface(selected ? Theme.card : .clear, cornerRadius: Radius.card,
                      border: selected ? Theme.border : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 9)
+        .hoverFill(cornerRadius: Radius.card)
     }
 }
 
@@ -1103,7 +1103,7 @@ private struct MessageColourPicker: View {
     @FocusState private var focused: MessageColour?
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             ForEach(MessageColour.allCases) { colour in
                 choice(colour)
             }
@@ -1128,22 +1128,22 @@ private struct MessageColourPicker: View {
         let selected = selection == colour
         let isFocused = focused == colour
         return Button { choose(colour) } label: {
-            VStack(spacing: 7) {
+            VStack(spacing: Space.sm) {
                 MessageColourMiniBubble(colour: colour, projectTints: projectTints)
                 Text(colour.label)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(Typography.label)
                     .lineLimit(1)
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
             }
-            .padding(.horizontal, 4)
-            .padding(.top, 8)
-            .padding(.bottom, 7)
+            .padding(.horizontal, Space.xs)
+            .padding(.top, Space.md)
+            .padding(.bottom, Space.sm)
             .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Theme.sunken : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 9)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(selected ? Theme.sunken : .clear))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .strokeBorder(Theme.accent, lineWidth: isFocused ? 2 : 1.5)
                 .opacity(selected || isFocused ? 1 : 0))
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
         .hoverLift()
@@ -1157,21 +1157,21 @@ private struct MessageColourMiniBubble: View {
     let colour: MessageColour
     let projectTints: [Theme.ProjectTint]
 
-    private let shape = UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8,
-                                               bottomTrailingRadius: 3, topTrailingRadius: 8)
+    private let shape = UnevenRoundedRectangle(topLeadingRadius: Radius.control, bottomLeadingRadius: Radius.control,
+                                               bottomTrailingRadius: Radius.tag, topTrailingRadius: Radius.control)
 
     var body: some View {
         let style = colour.style(projectTint: projectTints.first)
         style.fill
             .overlay(alignment: .trailing) { edge }
             .overlay(alignment: .topLeading) {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     Capsule().frame(width: 30, height: 3)
                     Capsule().frame(width: 20, height: 3)
                 }
                 .foregroundStyle(Color.primary.opacity(0.16))
-                .padding(.leading, 8)
-                .padding(.top, 8)
+                .padding(.leading, Space.md)
+                .padding(.top, Space.md)
                 .environment(\.colorScheme, style.inverts ? inverted : scheme)
             }
             .frame(width: 52, height: 26)
@@ -1211,23 +1211,23 @@ private struct SettingsThemeChoice: View {
                     .frame(height: 44)
                     .accessibilityHidden(true)
 
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Text(appearance.label)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                     Spacer(minLength: 0)
                     Image(systemName: "checkmark")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Theme.accent)
                         .opacity(selected ? 1 : 0)
                 }
-                .padding(.horizontal, 9)
+                .padding(.horizontal, Space.md)
                 .frame(height: 26)
                 .background(Theme.field)
             }
             .frame(maxWidth: .infinity)
             .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(focused || selected ? Theme.accent : Theme.border,
                         lineWidth: focused ? 2 : selected ? 1.5 : 1))
             .contentShape(Rectangle())
@@ -1262,14 +1262,14 @@ private struct SettingsThemePreview: View {
             (dark ? Color(red: 0.082, green: 0.082, blue: 0.067)
                   : Color(red: 0.969, green: 0.957, blue: 0.918))
 
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(dark
                           ? Color(red: 0.18, green: 0.18, blue: 0.16)
                           : Color(red: 0.91, green: 0.90, blue: 0.85))
                     .frame(width: 18)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(dark ? Color.white.opacity(0.15) : Color.black.opacity(0.12))
                         .frame(maxWidth: .infinity, minHeight: 7)
@@ -1280,13 +1280,13 @@ private struct SettingsThemePreview: View {
                         .frame(maxWidth: .infinity, minHeight: 7)
                 }
             }
-            .padding(7)
+            .padding(Space.sm)
             .surface(dark
                      ? Color(red: 0.125, green: 0.122, blue: 0.114)
                      : Color(red: 1, green: 0.992, blue: 0.965),
-                     cornerRadius: 5,
+                     cornerRadius: Radius.inset,
                      border: dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
-            .padding(7)
+            .padding(Space.sm)
         }
     }
 }
@@ -1296,27 +1296,27 @@ private struct KeyboardShortcutRow: View {
     let shortcut: KeyboardShortcutHelp
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(shortcut.title)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(shortcut.detail)
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(shortcut.keys)
-                .font(.mono(11, .semibold))
+                .font(Typography.data.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .fieldSurface(cornerRadius: 6)
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.xxs)
+                .fieldSurface(cornerRadius: Radius.inset)
                 .fixedSize()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
     }
 }
 

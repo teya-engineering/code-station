@@ -39,7 +39,7 @@ struct TerminalDrawer: View {
     // MARK: - Strip
 
     private var strip: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             ForEach(open) { terminal in
                 tab(terminal)
                     .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
@@ -50,10 +50,10 @@ struct TerminalDrawer: View {
                 focusTerminal = true
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Space.xs)
+                    .padding(.vertical, Space.xs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -69,8 +69,8 @@ struct TerminalDrawer: View {
             // clicking, not dragging, so the arrow comes back.
             .cursorOnHover(.arrow)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.sm)
         .motion(Motion.reveal, value: open.map(\.id))
         .background(Theme.card)
         .contentShape(Rectangle())
@@ -99,17 +99,17 @@ struct TerminalDrawer: View {
             terminals.setOpen(false, for: scope, directory: directory)
             focusTerminal = false
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                 Text("Close")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .surface(hoveringClose ? Theme.field : .clear, cornerRadius: 7)
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.xs)
+            .surface(hoveringClose ? Theme.field : .clear, cornerRadius: Radius.control)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .hoverLift(hoveringClose)
@@ -123,17 +123,17 @@ struct TerminalDrawer: View {
             terminals.select(terminal, in: scope)
             focusTerminal = true
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 if renaming?.id == terminal.id {
                     TextField("Name", text: $draftName)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                         .frame(width: 80)
                         .onSubmit { commitRename(terminal) }
                         .onExitCommand { renaming = nil }
                 } else {
                     Text(terminal.name)
-                        .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                        .font(Typography.detail.weight(selected ? .semibold : .regular))
                         .foregroundStyle(selected ? Color.primary : Color.secondary)
                 }
                 // A tab only gets a dot while a command actually holds its terminal,
@@ -144,20 +144,20 @@ struct TerminalDrawer: View {
                     Circle().fill(Theme.dotOff).frame(width: 6, height: 6)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.xs)
             .background(
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .fill(selected ? Theme.card : .clear)
-                    .shadow(color: .black.opacity(selected ? 0.07 : 0), radius: 1, y: 0.5))
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? Theme.border : .clear))
+                    .elevation(selected ? .raised : .none))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(selected ? Theme.border : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .motion(Motion.control, value: selected)
         // A fill rather than a lift: while it is renamed the tab holds a text field,
         // which AppKit cannot lay out under a scale.
-        .hoverFill(cornerRadius: 7)
+        .hoverFill(cornerRadius: Radius.control)
         .onTapGesture(count: 2) { startRename(terminal) }
         .appContextMenu {
             var entries: [MenuEntry] = [
@@ -200,20 +200,20 @@ struct TerminalToggle: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             Text(">_")
-                .font(.mono(11, .bold))
+                .font(Typography.data.weight(.semibold))
             Text("Terminal")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
             Image(systemName: "chevron.down")
                 .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(isOpen ? Color.white.opacity(0.75) : Color.secondary)
+                .foregroundStyle(isOpen ? Theme.onFill.opacity(0.75) : Color.secondary)
         }
-        .foregroundStyle(isOpen ? Color.white : Color.primary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .foregroundStyle(isOpen ? Theme.onFill : Color.primary)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.sm)
         .surface(isOpen ? Theme.accentFill.opacity(hovering ? 0.86 : 1) : hovering ? Theme.field : Theme.card,
-                 cornerRadius: 10, border: isOpen ? .clear : Theme.border)
+                 cornerRadius: Radius.card, border: isOpen ? .clear : Theme.border)
         .contentShape(Rectangle())
         .motion(Motion.control, value: isOpen)
         // Lifted inside the menu's button, so the tooltip outside it is never scaled.

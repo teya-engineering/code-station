@@ -32,9 +32,9 @@ struct FirstRunTour: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     Text(Self.features[selected].title)
                         .font(.serif(21 * max(1, textScale)))
                         .accessibilityAddTraits(.isHeader)
@@ -50,7 +50,7 @@ struct FirstRunTour: View {
                 .transition(.fadeIn.animation(Motion.reveal))
             }
             .frame(idealHeight: 280, maxHeight: 320)
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 ForEach(Self.features.indices, id: \.self) { index in
                     ChoicePill(title: Self.features[index].label, selected: selected == index) {
                         select(index)
@@ -61,10 +61,10 @@ struct FirstRunTour: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Feature examples")
-            ActionButton(title: closeTitle, tone: .green, height: 36, fills: true) { dialogs.dismiss() }
+            ActionButton(title: closeTitle, tone: .green, height: ControlHeight.xl, fills: true) { dialogs.dismiss() }
                 .focused($focused, equals: 4)
         }
-        .padding(.top, 10)
+        .padding(.top, Space.md)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .onAppear { focused = selected }
@@ -102,55 +102,55 @@ struct FirstRunTour: View {
                 Text(selected == 0 ? "2 sessions" : selected == 3 ? "Terminal" : "Filter deliveries")
                     .foregroundStyle(.secondary)
             }
-            .font(.system(size: 11)).padding(13)
+            .font(Typography.caption).padding(Space.lg)
             Rectangle().fill(Theme.hairline).frame(height: 1)
             if selected == 0 {
                 sessionRow("Filter deliveries", branch: "delivery-filter", status: "Running")
                 sessionRow("Refresh checkout tokens", branch: "checkout-tokens", status: "Ready")
             } else if selected == 3 {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     Text("$ ./mvnw test").foregroundStyle(Theme.terminalText)
                     Text("Tests run: 12, Failures: 0\nBUILD SUCCESS").foregroundStyle(Theme.terminalText)
                 }
-                .font(.mono(11.5)).padding(18)
+                .font(Typography.code).padding(Space.xl)
                 .frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
                 .background(Theme.terminal)
             } else {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     Text("Add a delivery window filter.\nKeep the existing date range.")
-                        .font(.system(size: 12)).padding(12)
+                        .font(Typography.detail).padding(Space.lg)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .surface(Theme.userMessage, cornerRadius: 9, border: Theme.userMessageRing)
+                        .surface(Theme.userMessage, cornerRadius: Radius.card, border: Theme.userMessageRing)
                     Text(selected == 1
                          ? "I'll check the current filters and add the delivery window alongside them."
                          : "The delivery filter is ready.")
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                     Text(selected == 1 ? "Read DeliveryController.java" : "Updated the query and covered it with tests.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(Typography.caption).foregroundStyle(.secondary)
                 }
-                .padding(14)
+                .padding(Space.lg)
                 if selected == 2 {
                     Text("+ deliveryWindow: selectedWindow\n+ preserveDateRange: true")
-                        .font(.mono(11)).foregroundStyle(Theme.addition)
-                        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                        .font(Typography.data).foregroundStyle(Theme.addition)
+                        .padding(Space.md).frame(maxWidth: .infinity, alignment: .leading)
                         .background(Theme.addition.opacity(0.06))
                 }
             }
         }
-        .cardSurface(cornerRadius: 10)
+        .cardSurface(cornerRadius: Radius.card)
         .accessibilityElement(children: .combine)
     }
 
     private func sessionRow(_ title: String, branch: String, status: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Image(systemName: "arrow.triangle.branch").foregroundStyle(Theme.accent)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 12))
-                Text("worktree / \(branch)").font(.mono(10)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(title).font(Typography.detail)
+                Text("worktree / \(branch)").font(Font.mono(Typography.Size.micro)).foregroundStyle(.secondary)
             }
             Spacer()
-            Text(status).font(.system(size: 10)).foregroundStyle(Theme.accent)
+            Text(status).font(Font.system(size: Typography.Size.micro)).foregroundStyle(Theme.accent)
         }
-        .padding(15)
+        .padding(Space.xl)
     }
 }

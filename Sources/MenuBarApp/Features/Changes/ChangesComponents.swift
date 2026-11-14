@@ -13,7 +13,7 @@ struct ImageDiffView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: Space.xl) {
             if let before {
                 side(before, title: before == after ? "UNCHANGED" : "BEFORE")
             }
@@ -21,14 +21,14 @@ struct ImageDiffView: View {
                 side(after, title: before == nil ? "NEW" : "AFTER")
             }
         }
-        .padding(20)
+        .padding(Space.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func side(_ data: Data, title: String) -> some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Space.md) {
             Text(title)
-                .font(.mono(11, .medium))
+                .font(Typography.data.weight(.medium))
                 .foregroundStyle(.secondary)
             if let image = NSImage(data: data) {
                 Image(nsImage: image)
@@ -37,7 +37,7 @@ struct ImageDiffView: View {
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Text("\(Int(image.size.width)) × \(Int(image.size.height)) · \(data.count.formatted(.byteCount(style: .file)))")
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
             } else {
                 PaneMessage(icon: "photo", title: "Cannot draw this image",
@@ -80,10 +80,10 @@ struct StatusChip: View {
 
     var body: some View {
         Text(kind.letter)
-            .font(.mono(11, .bold))
+            .font(Typography.data.weight(.semibold))
             .foregroundStyle(color)
             .frame(width: 18, height: 18)
-            .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.16)))
+            .background(RoundedRectangle(cornerRadius: Radius.inset).fill(color.opacity(0.16)))
             .appTooltip(kind.label)
     }
 }

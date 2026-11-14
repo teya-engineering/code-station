@@ -51,7 +51,7 @@ struct CleanupReviewView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: Space.xl) {
                     if items.isEmpty {
                         emptyState
                     } else {
@@ -69,7 +69,7 @@ struct CleanupReviewView: View {
                                          go: showCountdown)
                     }
                 }
-                .padding(20)
+                .padding(Space.xxl)
                 .motion(Motion.leave, value: answered)
                 .motion(Motion.control, value: filter)
             }
@@ -90,7 +90,7 @@ struct CleanupReviewView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: "checkmark", text: note)
-                        .padding(.top, 10)
+                        .padding(.top, Space.md)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -102,17 +102,17 @@ struct CleanupReviewView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(items.isEmpty ? "Waiting for your OK" : "\(items.count) waiting for your OK")
-                .font(.serif(16))
+                .font(Typography.title)
                 .contentTransition(.numericText(value: Double(items.count)))
                 .motion(Motion.pop, value: items.count)
             Text("These are older than \(counted(appSettings.oldSessionDays, "day")), but deleting them would cost you something. They stay until you decide, however old they get.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .headerBand()
     }
@@ -123,27 +123,27 @@ struct CleanupReviewView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: Space.sm) {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 20))
                 .foregroundStyle(Theme.dotOnText)
             Text("Nothing is waiting for you")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text("Sessions older than \(counted(appSettings.oldSessionDays, "day")) that hold work or that you have not looked at will show up here. Read sessions with nothing to lose are cleared after a one-hour warning.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, Space.xxxl)
         .transition(.fadeIn)
     }
 
     private var pills: some View {
         let work = items.count { $0.parked.family == .losesWork }
         let unseen = items.count - work
-        return HStack(spacing: 6) {
+        return HStack(spacing: Space.sm) {
             ChoicePill(title: "All \(items.count)", selected: filter == .all) {
                 filter = .all
             }
@@ -184,7 +184,7 @@ struct CleanupReviewView: View {
                         detail: String) -> some View {
         let rows = items.filter { $0.parked.family == family }
         if !rows.isEmpty, filter == .all || filter == .family(family) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 familyHeader(title: title, detail: detail)
                 ForEach(rows) { item in
                     WaitingRow(item: item,
@@ -208,12 +208,12 @@ struct CleanupReviewView: View {
     private func familyHeader(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(title)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text(detail)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 2)
+        .padding(.horizontal, Space.xxs)
     }
 
     // "code-station · Last turn 9 days ago"
@@ -499,29 +499,29 @@ private struct WaitingRow: View {
     let delete: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Toggle(isOn: Binding(get: { picked }, set: { _ in togglePick() })) { EmptyView() }
                 .toggleStyle(.appCheckbox)
                 .disabled(isChecking || isDeleting)
                 .opacity(isChecking ? 0.4 : 1)
                 .accessibilityLabel("Select \(title)")
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(detail)
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                HStack(spacing: 5) {
+                HStack(spacing: Space.xs) {
                     ForEach(item.parked.reasons, id: \.self) { reason in
                         CleanupReasonChip(text: chipText(reason), reason: reason)
                     }
                 }
                 Text(isChecking ? "Checking the worktree…" : (cost ?? ""))
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(isChecking || !lossTint ? Color.secondary : Theme.deletion)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -529,7 +529,7 @@ private struct WaitingRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 RowAction(title: item.session == nil ? "Show in Finder" : "Open", action: open)
                 RowAction(title: "Keep", disclosure: true)
                     .appMenu(keepMenu)
@@ -539,11 +539,11 @@ private struct WaitingRow: View {
                     .accessibilityLabel("Delete \(title)")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .surface(Theme.card, cornerRadius: 10,
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
+        .surface(Theme.card, cornerRadius: Radius.card,
                  border: picked ? Theme.deletion.opacity(0.45) : Theme.border)
-        .hoverFill(cornerRadius: 10)
+        .hoverFill(cornerRadius: Radius.card)
         .motion(Motion.control, value: picked)
         .accessibilityElement(children: .contain)
     }
@@ -590,19 +590,19 @@ private struct RowAction: View {
     }
 
     private var label: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: Space.xxs) {
             Text(title)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
             if disclosure {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
             }
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 7)
+        .padding(.horizontal, Space.sm)
         .frame(height: 24)
-        .background(tint.opacity(hovering && isEnabled ? 0.1 : 0), in: RoundedRectangle(cornerRadius: 6))
+        .background(tint.opacity(hovering && isEnabled ? 0.1 : 0), in: RoundedRectangle(cornerRadius: Radius.inset))
         .motion(Motion.hover, value: hovering)
-        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.inset))
     }
 }

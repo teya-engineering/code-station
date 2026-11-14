@@ -14,7 +14,7 @@ import SwiftUI
 struct StatusCaps: View {
     let text: String
     var tint: Color? = nil
-    var size: CGFloat = 10.5
+    var size: CGFloat = Typography.Size.caption
 
     var body: some View {
         Text(text)
@@ -31,7 +31,7 @@ struct StatusValue: View {
     let text: String
     var tint: Color? = nil
     var truncation: Text.TruncationMode = .tail
-    var size: CGFloat = 10.5
+    var size: CGFloat = Typography.Size.caption
 
     var body: some View {
         Text(text)
@@ -44,7 +44,7 @@ struct StatusValue: View {
 
 // The separator between two readings that belong to the same item.
 struct StatusDot: View {
-    var size: CGFloat = 10.5
+    var size: CGFloat = Typography.Size.caption
 
     var body: some View {
         Text("·").font(.mono(size)).foregroundStyle(.tertiary)

@@ -10,9 +10,10 @@ struct SessionWorkingSet: View {
 
     // Rows sit under the prompt text rather than under the chevron, so a turn reads as one
     // block. An agent's actions step in once more, past the rail and the avatar.
-    fileprivate static let rowIndent: CGFloat = 32
-    fileprivate static let childIndent: CGFloat = 52
-    fileprivate static let railInset: CGFloat = 18
+    fileprivate static let chevronWidth: CGFloat = 10
+    fileprivate static let rowIndent: CGFloat = Space.lg + chevronWidth + Space.md
+    fileprivate static let childIndent: CGFloat = rowIndent + Space.xxl
+    fileprivate static let railInset: CGFloat = Space.xl
 
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
@@ -48,9 +49,9 @@ struct SessionWorkingSet: View {
                                       headline: headline)
                     if let started = session.messages.first?.date {
                         Text("Session started at \(started.formatted(date: .omitted, time: .shortened))")
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.tertiary)
-                            .padding(14)
+                            .padding(Space.lg)
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -67,9 +68,9 @@ struct SessionWorkingSet: View {
 
     private func header(headline: WorkingSetRunningItem?, runningCount: Int) -> some View {
         let status = headerStatus(headline: headline)
-        return HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 7) {
+        return HStack(spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
                     if tone == .running {
                         PulsingDot(size: 7)
                     } else {
@@ -78,45 +79,45 @@ struct SessionWorkingSet: View {
                     Text(status.word)
                         .contentTransition(.opacity)
                         .motion(Motion.control, value: status.word)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .foregroundStyle(status.isNew ? Color.primary : tone.wordColour)
                     if let since = status.elapsedSince {
                         ElapsedTime(since: since, size: 10.5)
                     }
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     lineText(status)
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if runningCount > 1 {
                         Text("+\(runningCount - 1)")
-                            .font(.mono(10.5, .semibold))
+                            .font(Typography.data.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .fixedSize()
                     }
                 }
-                .padding(.leading, 14)
+                .padding(.leading, Space.lg)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .appTooltip(status.line ?? "Finished")
             .accessibilityElement(children: .combine)
             Button(action: close) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 26, height: 26)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
-                    .contentShape(RoundedRectangle(cornerRadius: 6))
+                    .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.field))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.inset))
             }
             .buttonStyle(.plain)
             .hoverLift(amount: Motion.smallLift)
             .appTooltip("Close working set")
             .accessibilityLabel("Close working set")
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 10)
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(headerTint)
         .headerBand(Theme.sidebar, height: Theme.subHeaderHeight)
@@ -192,16 +193,16 @@ struct SessionWorkingSet: View {
     // MARK: - Activity
 
     private var emptyState: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: Space.xxs) {
             Text("Nothing has run yet")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text("Each prompt you send starts a new group here.")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
         }
         .multilineTextAlignment(.center)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 28)
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.xxxl)
         .frame(maxWidth: .infinity)
     }
 
@@ -338,7 +339,7 @@ struct WorkingSetHistory: View {
         Button {
             spans.toggle(activity.id, byDefault: !compact && running)
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(Color.primary.opacity(0.4))
@@ -349,15 +350,15 @@ struct WorkingSetHistory: View {
                     .frame(width: 16, height: 16)
                     .background(Circle().fill(ink.fill))
                 Text(activity.title)
-                    .font(.mono(10.5, .semibold))
+                    .font(Typography.data.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 6)
                 spanSummary(activity, ink: ink, expanded: expanded)
             }
             .padding(.leading, Self.rowIndent - 4)
-            .padding(.trailing, 14)
-            .padding(.vertical, 8)
+            .padding(.trailing, Space.lg)
+            .padding(.vertical, Space.md)
             .background(expanded ? ink.rail.opacity(0.05) : .clear)
             .contentShape(Rectangle())
         }
@@ -372,15 +373,15 @@ struct WorkingSetHistory: View {
     }
     private func spanSummary(_ activity: WorkingSetActivity, ink: WorkingSetInk,
                              expanded: Bool) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             if !activity.actions.isEmpty {
                 Text(counted(activity.actions.count, "action") + (expanded ? "" : " ·"))
-                    .font(.mono(8.5, expanded ? .semibold : .regular))
+                    .font(Font.mono(Typography.Size.micro, expanded ? .semibold : .regular))
                     .foregroundStyle(expanded ? ink.ink : Color.secondary)
             }
             if compact {
                 Text(activity.state.label.capitalized)
-                    .font(.system(size: 9))
+                    .font(Font.system(size: Typography.Size.micro))
                     .foregroundStyle(activity.state.colour)
             }
             if !expanded {
@@ -463,17 +464,17 @@ private struct WorkingSetVisibilityRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: icon)
                     .font(.system(size: 8, weight: .bold))
                 Text(title)
-                    .font(.mono(9.5, .semibold))
+                    .font(Typography.caps)
             }
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, indent)
-            .padding(.trailing, 14)
-            .padding(.vertical, 9)
+            .padding(.trailing, Space.lg)
+            .padding(.vertical, Space.md)
             .background(hovering ? Theme.field : Color.clear)
             .contentShape(Rectangle())
         }
@@ -503,20 +504,20 @@ private struct WorkingSetTurnHeader: View {
         let events = WorkingSetSummary.eventCount(in: turn.entries)
         let failures = WorkingSetSummary.failureCount(in: turn.entries)
         Button(action: toggle) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Space.md) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
-                    .frame(width: 10, height: 15)
-                VStack(alignment: .leading, spacing: 3) {
+                    .frame(width: SessionWorkingSet.chevronWidth, height: 15)
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(turn.prompt)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                         .lineLimit(expanded ? 2 : 1)
                         .truncationMode(.tail)
                         .multilineTextAlignment(.leading)
                     if !compact {
-                        HStack(spacing: 10) {
+                        HStack(spacing: Space.md) {
                             if let sentAt = turn.sentAt {
                                 Text(sentAt.formatted(date: .omitted, time: .shortened))
                             }
@@ -525,7 +526,7 @@ private struct WorkingSetTurnHeader: View {
                                 Text("\(failures) failed").foregroundStyle(Theme.deletion)
                             }
                         }
-                        .font(.mono(10))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                     }
                 }
@@ -533,11 +534,11 @@ private struct WorkingSetTurnHeader: View {
                 if compact {
                     Text(expanded ? turn.sentAt?.formatted(date: .omitted, time: .shortened) ?? ""
                          : counted(events, "event"))
-                        .font(.mono(9))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
             .padding(.vertical, compact ? 7 : 10)
             .background(background)
             .contentShape(Rectangle())
@@ -587,14 +588,14 @@ struct WorkingSetTimelineRow: View {
         let presentation = ToolPresentationCache.presentation(for: call.tool,
                                                               projectPath: projectPath)
         Button(action: showDetails) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 glyph
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Text(presentation.verb)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(Typography.label)
                         .fixedSize()
                     Text(presentation.argument)
-                        .font(.mono(11, running ? .semibold : .regular))
+                        .font(Typography.data.weight(running ? .semibold : .regular))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -602,8 +603,8 @@ struct WorkingSetTimelineRow: View {
                 trailing
             }
             .padding(.leading, indent)
-            .padding(.trailing, 14)
-            .padding(.vertical, 6)
+            .padding(.trailing, Space.lg)
+            .padding(.vertical, Space.sm)
             .frame(minHeight: 30)
             .background(background)
             .contentShape(Rectangle())
@@ -643,11 +644,11 @@ struct WorkingSetTimelineRow: View {
     private var trailing: some View {
         if running {
             Text("now")
-                .font(.mono(10, .semibold))
+                .font(Typography.caps)
                 .foregroundStyle(Theme.addition)
         } else if let startedAt = call.startedAt {
             Text(startedAt.formatted(date: .omitted, time: .shortened))
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.tertiary)
         }
     }

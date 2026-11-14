@@ -221,7 +221,7 @@ struct AttachmentChip: View {
     @State private var thumbnail: ImageThumbnail?
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if let thumbnail {
                 Button {
                     AttachmentImagePreview.show(url, aspectRatio: thumbnail.aspectRatio, in: dialogs)
@@ -230,8 +230,8 @@ struct AttachmentChip: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 22, height: 22)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .contentShape(RoundedRectangle(cornerRadius: 4))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
+                        .contentShape(RoundedRectangle(cornerRadius: Radius.tag))
                 }
                 .buttonStyle(.plain)
                 .hoverLift(amount: Motion.smallLift)
@@ -240,7 +240,7 @@ struct AttachmentChip: View {
                 .imageContextMenu(url)
             } else {
                 Image(systemName: missing ? "questionmark.square.dashed" : "doc")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .frame(width: 22, height: 22)
             }
@@ -249,7 +249,7 @@ struct AttachmentChip: View {
             // came from. The hint sits on the name rather than on the whole pill, so it
             // does not fight the buttons on either side of it for the pointer.
             Text(url.lastPathComponent)
-                .font(.system(size: 11, weight: .medium))
+                .font(Typography.caption.weight(.medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .foregroundStyle(missing ? Color.secondary : Color.primary)
@@ -267,11 +267,11 @@ struct AttachmentChip: View {
                 .accessibilityLabel("Remove \(url.lastPathComponent)")
             }
         }
-        .padding(.leading, 5)
-        .padding(.trailing, 8)
-        .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .padding(.leading, Space.xs)
+        .padding(.trailing, Space.md)
+        .padding(.vertical, Space.xs)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
         .frame(maxWidth: 220)
         .task(id: url) {
             let thumbnail = await Task.detached(priority: .utility) {
@@ -322,9 +322,9 @@ struct InlineImageView: View {
                         // size it was asked for rather than its own pixels.
                         .frame(idealWidth: size.width, maxWidth: size.width,
                                idealHeight: size.height, maxHeight: size.height)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
+                        .contentShape(RoundedRectangle(cornerRadius: Radius.control))
                 }
                 .buttonStyle(.plain)
                 .hoverLift()
@@ -336,9 +336,9 @@ struct InlineImageView: View {
             } else {
                 // A quiet stand-in close to the finished size, so the page settles
                 // instead of jumping when the decode lands.
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .fill(Theme.sunken)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
                     .overlay {
                         Image(systemName: "photo")
                             .font(.system(size: 18, weight: .light))
@@ -424,18 +424,18 @@ private struct AttachmentImagePreview: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(Theme.sunken)
+            RoundedRectangle(cornerRadius: Radius.control).fill(Theme.sunken)
 
             if let image {
                 Image(decorative: image.image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
             } else if failed {
-                VStack(spacing: 8) {
+                VStack(spacing: Space.md) {
                     Image(systemName: "photo.badge.exclamationmark")
                         .font(.system(size: 24, weight: .light))
                     Text("This image could not be loaded.")
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                 }
                 .foregroundStyle(.secondary)
             } else {
@@ -446,8 +446,8 @@ private struct AttachmentImagePreview: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: previewHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
         .imageContextMenu(url)
         .task(id: url) {
             // The popup is at most 720 points wide. A 1,440-pixel copy remains sharp on

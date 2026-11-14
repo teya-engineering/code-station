@@ -50,18 +50,18 @@ struct LoadEarlierMessages: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "arrow.up")
                 Text("Load earlier messages")
                 Text("\(hiddenCount) hidden")
                     .foregroundStyle(.secondary)
             }
-            .font(.system(size: 12, weight: .semibold))
+            .font(Typography.label)
             .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .cardSurface(cornerRadius: 8)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, Space.lg)
+            .frame(height: ControlHeight.lg)
+            .cardSurface(cornerRadius: Radius.control)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .hoverLift()

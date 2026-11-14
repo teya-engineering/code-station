@@ -100,15 +100,15 @@ struct ToolCallDetailHost: View {
                     tool: presented.call.tool,
                     projectPath: presented.projectPath,
                     isRunning: presented.call.state == .running)
-                    .padding(12)
+                    .padding(Space.lg)
             }
         }
         .frame(width: min(Self.width, max(0, bounds.width - Self.margin * 2)))
-        .floatingCard(cornerRadius: 12)
+        .floatingCard(cornerRadius: Radius.floating)
     }
 
     private func header(_ call: WorkingSetToolCall) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: call.state.symbol)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(call.state.colour)
@@ -116,11 +116,11 @@ struct ToolCallDetailHost: View {
                 .background(Circle().fill(call.state.colour.opacity(0.12)))
                 .accessibilityHidden(true)
             Text("TOOL CALL")
-                .font(.mono(9, .semibold))
+                .font(Typography.caps)
                 .kerning(0.8)
                 .foregroundStyle(.secondary)
             Text(call.state.label)
-                .font(.mono(9))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(call.state.colour)
             Spacer(minLength: 8)
             Button(action: { presenter.dismiss() }) {
@@ -128,15 +128,15 @@ struct ToolCallDetailHost: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 24, height: 24)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.field))
-                    .contentShape(RoundedRectangle(cornerRadius: 6))
+                    .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.field))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.inset))
             }
             .buttonStyle(.plain)
             .hoverLift(amount: Motion.smallLift)
             .appTooltip("Close tool call details")
             .accessibilityLabel("Close tool call details")
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.lg)
         .frame(height: 42)
     }
 

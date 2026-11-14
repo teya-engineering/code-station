@@ -49,12 +49,12 @@ struct HomeView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.lg) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(Theme.brand)
                 .frame(width: 8, height: 8)
             Text("Home")
-                .font(.serif(17, .semibold))
+                .font(Typography.title)
             SectionLabel(Date().formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
                             .uppercased()
                          + " · " + Date().formatted(date: .omitted, time: .shortened),
@@ -66,7 +66,7 @@ struct HomeView: View {
                 MobileAccessButton()
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Space.xxxl)
         .headerBand()
     }
 
@@ -76,7 +76,7 @@ struct HomeView: View {
         let map = HomeWorkMap(sessions: standing.sessions)
         return GeometryReader { geometry in
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: Space.xxxl) {
                     introduction(map)
                     // The page's padding and the card's own come off the width.
                     HomeWorkMapView(map: map,
@@ -100,17 +100,17 @@ struct HomeView: View {
                     dailyTotals(standing)
                     resume(standing)
                 }
-                .padding(24)
+                .padding(Space.xxxl)
             }
         }
     }
 
     private func introduction(_ map: HomeWorkMap) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text("Your work, in motion.").font(.serif(36, .medium))
             Text("\(map.progressSummary). "
                  + (map.waiting.isEmpty ? "You're all caught up." : "\(map.waiting.count) need your attention."))
-                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .font(Typography.body).foregroundStyle(.secondary)
         }
     }
 
@@ -141,20 +141,20 @@ struct HomeView: View {
     }
 
     private func dailyTotals(_ standing: Standing) -> some View {
-        FlowRow(spacing: 22) {
-            HStack(spacing: 8) {
+        FlowRow(spacing: Space.xxl) {
+            HStack(spacing: Space.md) {
                 if scanned(standing) {
-                    DiffPair(added: standing.addedToday, removed: standing.removedToday, size: 14)
+                    DiffPair(added: standing.addedToday, removed: standing.removedToday, size: Typography.Size.body)
                 } else {
-                    Text("Counting…").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("Counting…").font(Typography.detail).foregroundStyle(.secondary)
                 }
-                Text("lines changed today").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text("lines changed today").font(Typography.detail).foregroundStyle(.secondary)
             }
             .appTooltip(changedNote(standing))
             Text("\(counted(standing.sessionsToday, "session")) today")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .font(Typography.detail).foregroundStyle(.secondary)
             Text("\(counted(standing.worktrees.count, "worktree"))")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .font(Typography.detail).foregroundStyle(.secondary)
                 .appTooltip("Across \(counted(standing.worktreeSessions, "session"))")
         }
     }
@@ -199,12 +199,12 @@ struct HomeView: View {
     }
 
     private func resume(_ standing: Standing) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             HStack {
-                Text("Still on your mind?").font(.serif(20))
+                Text("Still on your mind?").font(Typography.display)
                 Spacer()
                 ActionButton(title: "All \(standing.sessions.count) sessions", tone: .outlined,
-                             height: 28, size: 11.5, disclosure: true)
+                             height: ControlHeight.md, size: Typography.Size.detail, disclosure: true)
                     .appMenu {
                         [.searchable(standing.sessions.map { live in
                             MenuItem(label: live.session.title, projectTint: live.tint,
@@ -214,14 +214,14 @@ struct HomeView: View {
                     }
             }
             if !standing.resumable.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: Space.lg)], spacing: Space.lg) {
                     ForEach(standing.resumable.prefix(6)) { live in
                         ResumeCard(live: live) { open(live) }
                     }
                 }
             } else {
                 Text("Recent conversations will appear here when you're ready to return to them.")
-                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                    .font(Typography.body).foregroundStyle(.secondary)
             }
         }
     }
@@ -368,41 +368,41 @@ private struct ResumeCard: View {
 
     var body: some View {
         Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack(spacing: Space.sm) {
                     ProjectDot(tint: live.tint, size: 6)
                     Text(live.containerName.uppercased())
-                        .font(.mono(9.5))
+                        .font(Font.mono(Typography.Size.micro))
                         .kerning(0.5)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     Text(RelativeTime.short(live.session.lastActivity))
-                        .font(.mono(9.5))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                 }
                 Text(live.session.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     DiffPair(added: live.session.summary.added,
-                             removed: live.session.summary.removed, size: 10.5, spacing: 4)
+                             removed: live.session.summary.removed, size: Typography.Size.caption, spacing: Space.xs)
                     Spacer(minLength: 4)
                     Text(live.location)
-                        .font(.mono(9.5))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 11)
+            .background(RoundedRectangle(cornerRadius: Radius.floating)
                 .fill(hovering ? Theme.field : Theme.sunken))
-            .contentShape(RoundedRectangle(cornerRadius: 11))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         }
         .buttonStyle(.plain)
         .accessibilityHint("Opens this session")
@@ -441,16 +441,16 @@ private struct HomeIntroduction: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                HStack(alignment: .top, spacing: 22) {
+            VStack(alignment: .leading, spacing: Space.xxxl) {
+                HStack(alignment: .top, spacing: Space.xxl) {
                     AppMark()
                         .frame(width: 84, height: 84)
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Space.lg) {
                         Text("Run the work. See the whole change.")
                             .font(.serif(30))
                             .fixedSize(horizontal: false, vertical: true)
                         Text("Add a project from the rail on the left and Code Station starts reporting on it here: what is running, what is waiting on you, and what you left half done.")
-                            .font(.system(size: 14))
+                            .font(Typography.body)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: 650, alignment: .leading)
@@ -458,31 +458,31 @@ private struct HomeIntroduction: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                LazyVGrid(columns: [GridItem(.flexible(minimum: 250), spacing: 14),
-                                    GridItem(.flexible(minimum: 250), spacing: 14)],
-                          alignment: .leading, spacing: 14) {
+                LazyVGrid(columns: [GridItem(.flexible(minimum: 250), spacing: Space.lg),
+                                    GridItem(.flexible(minimum: 250), spacing: Space.lg)],
+                          alignment: .leading, spacing: Space.lg) {
                     ForEach(highlights) { highlight in
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: Space.lg) {
                             Image(systemName: highlight.icon)
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(Theme.accent)
                                 .frame(width: 34, height: 34)
                                 .background(Circle().fill(Theme.accent.opacity(0.09)))
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(highlight.title).font(.serif(17))
+                            VStack(alignment: .leading, spacing: Space.xs) {
+                                Text(highlight.title).font(Typography.title)
                                 Text(highlight.detail)
-                                    .font(.system(size: 12.5))
+                                    .font(Typography.body)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
-                        .padding(16)
+                        .padding(Space.xl)
                         .frame(maxWidth: .infinity, minHeight: 142, alignment: .topLeading)
-                        .cardSurface(cornerRadius: 12)
+                        .cardSurface(cornerRadius: Radius.floating)
                     }
                 }
             }
-            .padding(24)
+            .padding(Space.xxxl)
             .frame(maxWidth: 920, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }

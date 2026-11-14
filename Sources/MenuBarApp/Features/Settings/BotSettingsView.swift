@@ -11,39 +11,39 @@ struct BotSettingsEntry: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: Space.xl) {
+                VStack(alignment: .leading, spacing: Space.sm) {
                     Text("Your bots").font(.logo(17))
                     Text("A little character for every session.")
-                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                        .font(Typography.detail).foregroundStyle(.secondary)
                     Text("\(settings.agentAvatars.count + 1) \(settings.agentAvatars.isEmpty ? "bot" : "bots") in your collection")
-                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                        .font(Typography.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 BotPortrait(image: current.displayImage(for: nil), size: 56)
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.sm) {
                     Text("\(current.personality.title) is your default")
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(Typography.label)
                     Text(current.personality.sampleLine)
-                        .font(.serif(16, .regular).italic())
+                        .font(Typography.title.weight(.regular).italic())
                         .foregroundStyle(Theme.accent)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Label("Manage bots", systemImage: "chevron.right")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 13).padding(.vertical, 10)
+                    .font(Typography.label)
+                    .foregroundStyle(Theme.onFill)
+                    .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
                     .background(Capsule().fill(Theme.accentFill))
             }
-            .padding(18)
+            .padding(Space.xl)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(Theme.botSelection, cornerRadius: 14, border: Theme.accent.opacity(0.3))
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .surface(Theme.botSelection, cornerRadius: Radius.floating, border: Theme.accent.opacity(0.3))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         }
         .buttonStyle(.plain)
         .focused($focused)
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
         .hoverLift()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Manage bots. Your current default is \(current.personality.title). \(settings.agentAvatars.count + 1) bots in your collection.")
@@ -71,14 +71,14 @@ struct BotSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: Space.xxl) {
                     if let draft = flow.draft {
                         BotEditorView(draft: draft, portraits: portraits, cancel: back)
                     } else {
                         collection
                     }
                 }
-                .padding(24)
+                .padding(Space.xxxl)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.visible)
@@ -111,9 +111,9 @@ struct BotSettingsView: View {
     }
 
     private var notice: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Image(systemName: "checkmark.circle").foregroundStyle(Theme.accent)
-            Text(flow.notice ?? "").font(.system(size: 12))
+            Text(flow.notice ?? "").font(Typography.detail)
             Spacer(minLength: 0)
             if let previous = flow.undoDefaultName {
                 InlineLink(title: "Undo") {
@@ -122,32 +122,32 @@ struct BotSettingsView: View {
                     flow.announce("Default bot restored.")
                 }
             }
-            GlyphButton(icon: "xmark", side: 24) {
+            GlyphButton(icon: "xmark", side: ControlHeight.sm) {
                 flow.notice = nil
                 flow.undoDefaultName = nil
             }
             .accessibilityLabel("Dismiss notice")
         }
-        .padding(12)
+        .padding(Space.lg)
         .background(Theme.botSelection)
     }
 
     private var collection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: Space.xxl) {
+            HStack(spacing: Space.sm) {
                 InlineLink(title: "Appearance", action: appearance)
                 Image(systemName: "chevron.right").font(.system(size: 9))
-                Text("Your bots").font(.system(size: 11.5))
+                Text("Your bots").font(Typography.detail)
             }
             .foregroundStyle(.secondary)
             HStack {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.sm) {
                     Text("Your bots").font(.logo(27))
                     Text("A familiar face. A little personality.")
-                        .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                        .font(Typography.body).foregroundStyle(.secondary)
                 }
                 Spacer()
-                ActionButton(title: "Add bot", tone: .green, height: 36, icon: "plus") { edit(nil) }
+                ActionButton(title: "Add bot", tone: .green, height: ControlHeight.xl, icon: "plus") { edit(nil) }
                     .disabled(full)
                     .appTooltip(full ? "Remove a custom bot to add another" : "Add a bot")
             }
@@ -156,32 +156,32 @@ struct BotSettingsView: View {
                 Text("The whole crew").font(.logo(16))
                 Spacer()
                 Text("\(settings.agentAvatars.count) of \(AgentAvatarFile.maxCount) custom bots")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(Typography.caption).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: Space.lg)], spacing: Space.lg) {
                 ForEach(roster) { avatar in card(avatar) }
                 if !full {
                     Button { edit(nil) } label: {
-                        VStack(spacing: 12) {
+                        VStack(spacing: Space.lg) {
                             Image(systemName: "plus").font(.system(size: 23, weight: .light))
                                 .frame(width: 44, height: 44).background(Circle().fill(Theme.card))
-                            Text("Someone new?").font(.system(size: 13, weight: .semibold))
-                            Text("Add a bot to your crew").font(.system(size: 11)).foregroundStyle(.secondary)
+                            Text("Someone new?").font(Typography.body.weight(.semibold))
+                            Text("Add a bot to your crew").font(Typography.caption).foregroundStyle(.secondary)
                         }
                         .foregroundStyle(Theme.accent)
                         .frame(maxWidth: .infinity, minHeight: 188)
-                        .overlay(RoundedRectangle(cornerRadius: 14)
+                        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
                             .stroke(Theme.accent.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [5])))
-                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                        .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
                     }
                     .buttonStyle(.plain).hoverLift()
                     .accessibilityLabel("Add bot")
                 }
             }
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: Space.md) {
                 Image(systemName: "info.circle").foregroundStyle(Theme.accent)
                 Text(full ? "Your crew is full. Remove a custom bot to add another." : "Your default starts every new session. You can choose a different bot in any session.")
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 InlineLink(title: "How bots work") {
@@ -191,9 +191,9 @@ struct BotSettingsView: View {
                     dialogs.show(dialog)
                 }
             }
-            .padding(14).surface(Theme.sidebar, cornerRadius: 10)
+            .padding(Space.lg).surface(Theme.sidebar, cornerRadius: Radius.card)
             Label("Saved on this Mac", systemImage: "lock")
-                .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                .font(Typography.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -202,24 +202,24 @@ struct BotSettingsView: View {
             BotPortraitStage(image: current.displayImage(for: nil), size: 126,
                              portraits: portraits, portraitID: current.id.absoluteString)
                 .frame(width: 196, height: 228)
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 Label("Default for new sessions", systemImage: "checkmark")
-                    .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                    .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
                     .background(Capsule().fill(Theme.botSelection))
                 Text(current.personality.title).font(.logo(23))
-                Text(current.personality.detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(current.personality.detail).font(Typography.detail).foregroundStyle(.secondary)
                 BotWorkingLine(personality: current.personality, size: 20)
                 ActionButton(title: current.url.lastPathComponent == AgentAvatarSelection.defaultName ? "Make it your own" : "Edit bot",
-                             tone: .outlined, height: 32, icon: "pencil") { edit(current) }
+                             tone: .outlined, height: ControlHeight.lg, icon: "pencil") { edit(current) }
                     .disabled(full && current.url.lastPathComponent == AgentAvatarSelection.defaultName)
             }
-            .padding(20)
+            .padding(Space.xxl)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.border))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.border))
     }
 
     private func card(_ avatar: AgentAvatar) -> some View {
@@ -227,13 +227,13 @@ struct BotSettingsView: View {
         let builtIn = avatar.url.lastPathComponent == AgentAvatarSelection.defaultName
         return VStack(spacing: 0) {
             Button { edit(avatar) } label: {
-                VStack(spacing: 8) {
+                VStack(spacing: Space.md) {
                     BotPortrait(image: avatar.displayImage(for: nil), size: 60)
                         .matchedGeometryEffect(id: selected ? "card-\(avatar.id)" : avatar.id.absoluteString,
                                                in: portraits)
-                    Text(avatar.personality.title).font(.system(size: 13, weight: .semibold))
+                    Text(avatar.personality.title).font(Typography.body.weight(.semibold))
                     Text(builtIn ? "The original" : "Edit picture and personality")
-                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                        .font(Typography.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
                 .contentShape(Rectangle())
@@ -242,10 +242,10 @@ struct BotSettingsView: View {
             .focused($focusedBot, equals: avatar.id)
             .disabled(builtIn && full)
             .accessibilityLabel("\(builtIn ? "Customize" : "Edit") \(avatar.personality.title)")
-            Rectangle().fill(Theme.border).frame(height: 1).padding(.horizontal, 12)
+            Rectangle().fill(Theme.border).frame(height: 1).padding(.horizontal, Space.lg)
             Button { makeDefault(avatar) } label: {
                 Label(selected ? "Default bot" : "Make default", systemImage: selected ? "checkmark" : "star")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Typography.caption.weight(.medium))
                     .foregroundStyle(selected ? Theme.accent : .secondary)
                     .frame(maxWidth: .infinity, minHeight: 37)
                     .contentShape(Rectangle())
@@ -255,8 +255,8 @@ struct BotSettingsView: View {
             .accessibilityValue(selected ? "Selected" : "Not selected")
         }
         .background(selected ? Theme.botSelection : Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(selected || focusedBot == avatar.id ? Theme.accent.opacity(0.7) : Theme.border,
                     lineWidth: focusedBot == avatar.id ? 2 : 1))
         // The card lifts under the menu button rather than with it, since the button's
@@ -385,9 +385,9 @@ struct BotWorkingLine: View {
     @State private var playing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 9) {
-                HStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .top, spacing: Space.md) {
+                HStack(spacing: Space.xxs) {
                     ForEach(0..<3) { index in
                         Capsule().fill(Theme.accent)
                             .frame(width: 3, height: playing ? [14.0, 7, 18][index] : [7.0, 16, 11][index])
@@ -402,11 +402,11 @@ struct BotWorkingLine: View {
                     .contentTransition(.interpolate)
                     .motion(Motion.reveal, value: line)
             }
-            InlineLink(title: "Another working line", size: 10.5, icon: "arrow.clockwise") {
+            InlineLink(title: "Another working line", size: Typography.Size.caption, icon: "arrow.clockwise") {
                 line += 1
                 playing = true
             }
-            .padding(.vertical, 3)
+            .padding(.vertical, Space.xxs)
         }
         .onChange(of: personality) { _, _ in line = 0 }
         .task(id: line) {

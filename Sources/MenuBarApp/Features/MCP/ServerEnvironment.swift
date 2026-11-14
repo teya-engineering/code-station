@@ -40,7 +40,7 @@ struct ServerEnvironmentPills: View {
     @Binding var tag: String
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             ForEach(ServerEnvironmentChoice.all(including: tag)) { choice in
                 ChoicePill(title: choice.title, selected: tag == choice.tag) {
                     tag = choice.tag

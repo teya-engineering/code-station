@@ -12,10 +12,10 @@ struct BotPhotoCropView: View {
     private let side: CGFloat = 210
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Space.lg) {
             stage
             Text("Drag to move your picture, or use the controls below.")
-                .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                .font(Typography.caption).foregroundStyle(.secondary)
             BotCropSlider(title: "Zoom", value: $crop.zoom, range: 1...2.5, step: 0.05, focused: focused == .zoom)
                 .focused($focused, equals: .zoom)
             BotCropSlider(title: "Across", value: $crop.across, range: -1...1, step: 0.05, focused: focused == .across)
@@ -23,7 +23,7 @@ struct BotPhotoCropView: View {
             BotCropSlider(title: "Up / down", value: $crop.down, range: -1...1, step: 0.05, focused: focused == .down)
                 .focused($focused, equals: .down)
             if let error {
-                Text(error).font(.system(size: 11)).foregroundStyle(Theme.warningText)
+                Text(error).font(Typography.caption).foregroundStyle(Theme.warningText)
             }
             HStack {
                 Spacer()
@@ -34,7 +34,7 @@ struct BotPhotoCropView: View {
                     .focused($focused, equals: .use)
                     .overlay(Capsule().stroke(focused == .use ? Theme.accent : .clear, lineWidth: 2))
             }
-            .padding(.top, 4)
+            .padding(.top, Space.xs)
         }
         .onKeyPress(keys: [.tab]) { press in
             let controls = Control.allCases
@@ -93,8 +93,8 @@ private struct BotCropSlider: View {
     private var fraction: Double { (value - range.lowerBound) / (range.upperBound - range.lowerBound) }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(title).font(.system(size: 11.5)).frame(width: 60, alignment: .leading)
+        HStack(spacing: Space.md) {
+            Text(title).font(Typography.detail).frame(width: 60, alignment: .leading)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.field).frame(height: 6)
@@ -112,10 +112,10 @@ private struct BotCropSlider: View {
             }
             .frame(height: 28)
             Text(value.formatted(.number.precision(.fractionLength(2))))
-                .font(.mono(10)).frame(width: 36, alignment: .trailing)
+                .font(Font.mono(Typography.Size.micro)).frame(width: 36, alignment: .trailing)
         }
-        .padding(.horizontal, 4)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
+        .padding(.horizontal, Space.xs)
+        .overlay(RoundedRectangle(cornerRadius: Radius.inset).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
         .focusable()
         .focusEffectDisabled()
         .onMoveCommand { direction in

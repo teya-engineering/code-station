@@ -50,22 +50,22 @@ struct WaitingNotice: View {
     // Sized like a tool-call group rather than a dialog: the card sits in the transcript
     // for as long as the wait lasts, and anything louder pulls the eye off the reply above.
     private var card: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
+                HStack(spacing: Space.md) {
                     heading
                     elapsed.fixedSize()
                     Spacer(minLength: 12)
                     actions
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    HStack(spacing: Space.md) {
                         heading
                         elapsed.fixedSize()
                     }
                     actions.padding(.leading, indent)
                 }
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     heading
                     elapsed.padding(.leading, indent)
                     actions.padding(.leading, indent)
@@ -79,28 +79,28 @@ struct WaitingNotice: View {
             }
             .padding(.leading, indent)
             Text(explainer)
-                .font(.system(size: 12 * textScale))
+                .font(.system(size: Typography.Size.detail * textScale))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, indent)
         }
-        .padding(.vertical, 10)
-        .padding(.leading, 14)
-        .padding(.trailing, 12)
+        .padding(.vertical, Space.md)
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface()
         .onAppear { AccessibilityNotification.Announcement(title).post() }
     }
 
     private var heading: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Image(systemName: "clock")
-                .font(.system(size: 13 * textScale, weight: .medium))
+                .font(.system(size: Typography.Size.body * textScale, weight: .medium))
                 .foregroundStyle(Theme.attentionText)
                 .frame(width: 14 * textScale)
                 .accessibilityHidden(true)
             Text(title)
-                .font(.system(size: 13 * textScale, weight: .semibold))
+                .font(.system(size: Typography.Size.body * textScale, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
         }
@@ -108,12 +108,12 @@ struct WaitingNotice: View {
 
     private var elapsed: some View {
         Text("Last reply \(RelativeTime.duration(since: since)) ago")
-            .font(.system(size: 12 * textScale))
+            .font(.system(size: Typography.Size.detail * textScale))
             .foregroundStyle(.secondary)
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             ActionButton(title: "End turn", tone: .outlined,
                          height: 26 * textScale, size: 12 * textScale, action: onEnd)
                 .help(consequence)
@@ -136,13 +136,13 @@ private struct WaitingTaskRow: View {
     let command: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             if command != nil {
                 Button { expanded.toggle() } label: { row }
                     .buttonStyle(.plain)
                     .focused($focused)
                     .onPointerHover { hovering = $0 }
-                    .overlay(RoundedRectangle(cornerRadius: 6)
+                    .overlay(RoundedRectangle(cornerRadius: Radius.inset)
                         .stroke(focused ? Theme.accent : .clear, lineWidth: 2))
                     .accessibilityElement(children: .combine)
                     .accessibilityValue(expanded ? "Expanded" : "Collapsed")
@@ -158,11 +158,11 @@ private struct WaitingTaskRow: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(Theme.terminal, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.md)
+                    .background(Theme.terminal, in: RoundedRectangle(cornerRadius: Radius.inset))
                     .padding(.leading, 14 * textScale)
-                    .padding(.bottom, 4)
+                    .padding(.bottom, Space.xs)
                     .transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
             }
         }
@@ -170,9 +170,9 @@ private struct WaitingTaskRow: View {
     }
 
     private var row: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: "chevron.right")
-                .font(.system(size: 8 * textScale, weight: .semibold))
+                .font(.system(size: Typography.Size.micro * textScale, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .rotationEffect(.degrees(expanded ? 90 : 0))
                 .motion(Motion.control, value: expanded)
@@ -184,18 +184,18 @@ private struct WaitingTaskRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Circle().fill(Theme.attention).frame(width: 5, height: 5)
                     .accessibilityHidden(true)
                 Text("Pending")
             }
-            .font(.system(size: 11 * textScale))
+            .font(.system(size: Typography.Size.caption * textScale))
             .foregroundStyle(Theme.attentionText)
             .fixedSize()
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, Space.sm)
         .frame(minHeight: 26 * textScale)
-        .background(hovering ? Theme.sunken : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(hovering ? Theme.sunken : .clear, in: RoundedRectangle(cornerRadius: Radius.inset))
         .motion(Motion.hover, value: hovering)
         .contentShape(Rectangle())
         .padding(.leading, -6)

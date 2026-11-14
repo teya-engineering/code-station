@@ -80,13 +80,13 @@ struct ExplorerIcon: View {
 
     private var glyph: some View {
         Image(systemName: symbol)
-            .font(.system(size: 12, weight: .medium))
+            .font(Typography.detail.weight(.medium))
             .foregroundStyle(selected ? Theme.accent : Theme.secondaryText)
             .contentTransition(.symbolEffect(.replace))
             .motion(Motion.control, value: symbol)
             .actOut(symbol, trigger: actOuts)
             .frame(width: 28, height: 28)
-            .background(selected || (hovering && isEnabled) ? Theme.field : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .background(selected || (hovering && isEnabled) ? Theme.field : .clear, in: RoundedRectangle(cornerRadius: Radius.inset))
             .contentShape(Rectangle())
     }
 }

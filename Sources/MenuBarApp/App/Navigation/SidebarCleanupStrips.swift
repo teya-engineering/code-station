@@ -22,16 +22,16 @@ struct CleanupLine: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                         .foregroundStyle(tone == .attention ? Theme.attentionText : Color.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                         .contentTransition(.numericText())
                     Text(detail)
-                        .font(.mono(10))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(tone == .attention ? Theme.attentionText : Color.secondary)
                         .lineLimit(1)
                         .contentTransition(.numericText())
@@ -41,13 +41,13 @@ struct CleanupLine: View {
                     CleanupCountdownLabel(deadline: countdownAt)
                 } else {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(tone == .attention ? Theme.attentionText : Color.secondary)
                         .offset(x: hovering ? 2 : 0)
                 }
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.primary.opacity(hovering ? 0.05 : 0))
             .contentShape(Rectangle())
@@ -96,9 +96,9 @@ private struct CleanupCard<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) { content }
-            .surface(isUrgent ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: 9,
+            .surface(isUrgent ? Theme.attention.opacity(0.10) : Theme.field, cornerRadius: Radius.card,
                      border: isUrgent ? Theme.attention.opacity(0.45) : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
     }
 }
 
@@ -120,10 +120,10 @@ struct CleanupStrip: View {
         if deletion == nil && parked.isEmpty {
             if status.swept > 0 {
                 Text("Nothing old is left. Sessions are checked again every hour.")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Space.xs)
                     .transition(.fadeIn)
             }
         } else {

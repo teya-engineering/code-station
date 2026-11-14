@@ -21,11 +21,11 @@ struct PullRequestThreadView: View {
     private var answered: Bool { thread.isAnswered(by: reviews.selfLogin) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .center, spacing: Space.md) {
                 DisclosureHeader(isExpanded: Binding(get: { unfolded }, set: { _ in toggle() })) { summaryLabel }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                GlyphButton(icon: "arrow.up.right", side: 22) {
+                GlyphButton(icon: "arrow.up.right", side: ControlHeight.xs) {
                     guard let link = thread.first?.url, let url = URL(string: link) else { return }
                     NSWorkspace.shared.open(url)
                     showExternalNote("Opened on GitHub", "arrow.up.forward.app")
@@ -38,8 +38,8 @@ struct PullRequestThreadView: View {
                 if let hunk {
                     DiffTextView(text: hunk, fitsContent: true)
                         .frame(maxHeight: 260)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.hairline))
                 }
                 Group {
                     ForEach(thread.comments) { comment in
@@ -51,8 +51,8 @@ struct PullRequestThreadView: View {
             }
         }
         .smoothlyResizes(when: unfolded)
-        .padding(12)
-        .surface(Theme.card, cornerRadius: 10, border: Theme.hairline)
+        .padding(Space.lg)
+        .surface(Theme.card, cornerRadius: Radius.card, border: Theme.hairline)
         .task(id: unfolded) {
             guard unfolded, hunk == nil else { return }
             hunk = await PullRequestReviewHunk.render(thread.diffHunk, path: thread.path)
@@ -62,25 +62,25 @@ struct PullRequestThreadView: View {
     // Everything on the line is one line tall and gives way in a fixed order when the
     // card is narrow: the preview of the words shrinks first, then the file name.
     private var summaryLabel: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: Space.md) {
             if let author = thread.first?.author {
                 PullRequestReviewerAvatar(reviewer: author, side: 18)
-                Text(author.login).font(.system(size: 12, weight: .semibold)).lineLimit(1).layoutPriority(2)
+                Text(author.login).font(Typography.label).lineLimit(1).layoutPriority(2)
             }
             if !unfolded {
                 Text(thread.body.split(whereSeparator: \.isNewline).first.map(String.init) ?? "")
-                    .font(.system(size: 12)).lineLimit(1).truncationMode(.tail)
+                    .font(Typography.detail).lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: 6)
             if thread.comments.count > 1 {
                 Text(counted(thread.comments.count - 1, "reply", plural: "replies"))
-                    .font(.mono(10)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(2)
+                    .font(Font.mono(Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(2)
             }
             if reviews.proposals[thread.id] != nil, !answered {
-                Image(systemName: "sparkles").font(.system(size: 10)).foregroundStyle(Theme.accent)
+                Image(systemName: "sparkles").font(Font.system(size: Typography.Size.micro)).foregroundStyle(Theme.accent)
             }
             if answered { PullRequestAnsweredTick() }
-            Text(thread.place).font(.mono(10.5)).foregroundStyle(.secondary).lineLimit(1)
+            Text(thread.place).font(Typography.data).foregroundStyle(.secondary).lineLimit(1)
                 .truncationMode(.middle).layoutPriority(1)
         }
     }
@@ -88,10 +88,10 @@ struct PullRequestThreadView: View {
     // A resolved thread can be opened again on GitHub; an open one gets the reply box.
     @ViewBuilder private var footer: some View {
         if thread.isResolved {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 PullRequestAnsweredTick()
-                Text("resolved").font(.system(size: 11.5)).foregroundStyle(.secondary)
-                InlineLink(title: reopening ? "Reopening…" : "Reopen", size: 11.5, action: reopen).disabled(reopening)
+                Text("resolved").font(Typography.detail).foregroundStyle(.secondary)
+                InlineLink(title: reopening ? "Reopening…" : "Reopen", size: Typography.Size.detail, action: reopen).disabled(reopening)
             }
         } else {
             PullRequestReplyBox(review: review, thread: thread, entry: entry, sessionID: sessionID,
@@ -116,17 +116,17 @@ private struct CommentRow: View {
     let comment: PullRequestReviewComment
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Space.md) {
             PullRequestReviewerAvatar(reviewer: comment.author, side: 18)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(comment.author.login).font(.system(size: 12, weight: .semibold))
-                    if comment.author.isAutomated { MonoChip(text: "AI", size: 9.5, tint: Theme.botStage) }
-                    Text(RelativeTime.short(comment.createdAt)).font(.mono(10)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(spacing: Space.sm) {
+                    Text(comment.author.login).font(Typography.label)
+                    if comment.author.isAutomated { MonoChip(text: "AI", size: Typography.Size.micro, tint: Theme.botStage) }
+                    Text(RelativeTime.short(comment.createdAt)).font(Font.mono(Typography.Size.micro)).foregroundStyle(.secondary)
                 }
                 GitHubProse(comment.body)
             }
         }
-        .padding(.leading, 18)
+        .padding(.leading, Space.xl)
     }
 }

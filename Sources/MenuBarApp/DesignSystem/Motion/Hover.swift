@@ -47,7 +47,7 @@ private struct HoverLift: ViewModifier {
 // A wash over the top rather than a fill behind, since most rows already draw a
 // background of their own that a fill would end up hidden under.
 extension View {
-    func hoverFill(cornerRadius: CGFloat = 8) -> some View {
+    func hoverFill(cornerRadius: CGFloat = Radius.control) -> some View {
         modifier(HoverFill(cornerRadius: cornerRadius))
     }
 }

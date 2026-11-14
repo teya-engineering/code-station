@@ -87,7 +87,7 @@ struct HeaderTabDeck: View {
     }
 
     private var items: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Space.xxs) {
             ForEach(tabs) { tab in
                 HeaderTabDeckItem(tab: tab, height: height)
                     .id(tab.id)
@@ -240,7 +240,7 @@ private struct HeaderTabDeckItem: View {
         Button(action: tab.activate) {
             HStack(spacing: Self.labelSpacing) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .actOut(tab.icon, trigger: actOuts)
                     .frame(width: 17, height: 17)
                 Text(tab.label)
@@ -272,7 +272,7 @@ private struct HeaderTabDeckItem: View {
                 }
             }
             .foregroundStyle(tab.selected || hovering ? Color.primary : Color.secondary)
-            .padding(.horizontal, 11)
+            .padding(.horizontal, Space.lg)
             .frame(height: height)
             .overlay(alignment: .bottom) {
                 // A faint promise of the line under a tab being pointed at. The line
@@ -280,7 +280,7 @@ private struct HeaderTabDeckItem: View {
                 RoundedRectangle(cornerRadius: 1)
                     .fill(Theme.accent.opacity(0.18))
                     .frame(height: 2)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, Space.md)
                     .scaleEffect(x: showsHint ? 1 : 0.4)
                     .opacity(showsHint ? 1 : 0)
                     .accessibilityHidden(true)
@@ -337,10 +337,10 @@ private struct HeaderTabDeckItem: View {
         return label
     }
 
-    private static let wordSize: CGFloat = 12.5
-    private static let countSize: CGFloat = 10.5
-    private static let countSpacing: CGFloat = 5
-    private static let labelSpacing: CGFloat = 7
+    private static let wordSize: CGFloat = Typography.Size.detail
+    private static let countSize: CGFloat = Typography.Size.caption
+    private static let countSpacing: CGFloat = Space.xs
+    private static let labelSpacing: CGFloat = Space.sm
     private static let dotSize: CGFloat = 6
     private static let dotSlotWidth: CGFloat = 7
 

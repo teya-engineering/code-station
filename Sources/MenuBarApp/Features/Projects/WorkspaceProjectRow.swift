@@ -18,11 +18,11 @@ struct WorkspaceProjectRow: View {
     let select: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if hasChildren {
                 Button(action: toggle) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10))
+                        .font(Font.system(size: Typography.Size.micro))
                         .rotationEffect(.degrees(collapsed ? 0 : 90))
                         .frame(width: 20, height: 30).contentShape(Rectangle())
                 }
@@ -34,35 +34,35 @@ struct WorkspaceProjectRow: View {
                 Color.clear.frame(width: 20, height: 30).accessibilityHidden(true)
             }
             Button(action: select) {
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     ProjectDot(tint: Theme.projectTint(for: name), size: 8)
-                    Text(name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text(name).font(Typography.label).lineLimit(1)
                     Spacer(minLength: 0)
                     if let detail {
                         Text(detail)
-                            .font(.system(size: 10))
+                            .font(Font.system(size: Typography.Size.micro))
                             .foregroundStyle(selected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
                             .fixedSize()
                     }
                 }
                 .foregroundStyle(selected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.primary))
-                .padding(.vertical, 10).padding(.trailing, 8)
+                .padding(.vertical, Space.md).padding(.trailing, Space.md)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(selected ? .isSelected : [])
             .appTooltip(name)
         }
-        .background(selected ? Theme.accent.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 7))
+        .background(selected ? Theme.accent.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: Radius.control))
         .overlay(alignment: .leading) {
             if selected {
-                RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3).padding(.vertical, 8)
+                RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3).padding(.vertical, Space.md)
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 7).stroke(showsCursor ? Theme.accent : .clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: Radius.control).stroke(showsCursor ? Theme.accent : .clear, lineWidth: 2)
         }
-        .hoverFill(cornerRadius: 7)
+        .hoverFill(cornerRadius: Radius.control)
         .motion(Motion.control, value: selected)
     }
 }

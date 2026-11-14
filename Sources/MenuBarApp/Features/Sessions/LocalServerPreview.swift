@@ -410,7 +410,7 @@ struct LocalServerPreviewPage: View {
     private static let roomForHistory: CGFloat = 400
 
     private var bar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             if barWidth >= Self.roomForHistory {
                 barButton("chevron.left", help: "Go back", disabled: !preview.canGoBack) {
                     preview.goBack()
@@ -426,7 +426,7 @@ struct LocalServerPreviewPage: View {
                 editAddress()
             }
             if preview.phase == .showing {
-                GlyphButton(icon: selectionEnabled ? "scope" : "cursorarrow", side: 28,
+                GlyphButton(icon: selectionEnabled ? "scope" : "cursorarrow", side: ControlHeight.md,
                             active: selectionEnabled, tint: Theme.accent) {
                     selectionEnabled.toggle()
                     if selectionEnabled { conversationMinimized = false }
@@ -450,7 +450,7 @@ struct LocalServerPreviewPage: View {
 
     private func barButton(_ icon: String, help: String, disabled: Bool = false,
                            action: @escaping () -> Void) -> some View {
-        GlyphButton(icon: icon, side: 28, tint: Theme.accent.opacity(disabled ? 0.3 : 1),
+        GlyphButton(icon: icon, side: ControlHeight.md, tint: Theme.accent.opacity(disabled ? 0.3 : 1),
                     action: action)
             .disabled(disabled)
             .appTooltip(help)
@@ -463,7 +463,7 @@ struct LocalServerPreviewPage: View {
             addressSurface {
                 TextField("Address or path", text: $typedAddress)
                     .textFieldStyle(.plain)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .focused($addressFieldFocused)
                     .onSubmit { if preview.open(typed: typedAddress) { leaveAddress() } }
                     .onExitCommand(perform: leaveAddress)
@@ -473,17 +473,17 @@ struct LocalServerPreviewPage: View {
             Button(action: editAddress) {
                 addressSurface {
                     Text(preview.isBlank ? "Address or port" : LocalServerPreview.label(for: preview.address))
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(preview.isBlank ? .secondary : .primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 7))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             }
             .buttonStyle(.plain)
             // A fill rather than a lift, since the address runs the width of the bar.
-            .hoverFill(cornerRadius: 7)
+            .hoverFill(cornerRadius: Radius.control)
             .appTooltip(preview.isBlank ? "Type an address" : preview.address.absoluteString)
             .accessibilityLabel("Address")
             .accessibilityValue(LocalServerPreview.label(for: preview.address))
@@ -491,16 +491,16 @@ struct LocalServerPreviewPage: View {
     }
 
     private func addressSurface<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "globe")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             content()
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 28)
-        .fieldSurface(cornerRadius: 7)
+        .fieldSurface(cornerRadius: Radius.control)
     }
 
     // Just after a page opens, this view still holds the old one, so the selection is read.
@@ -556,7 +556,7 @@ struct LocalServerPreviewPage: View {
                         title: "The preview does not open \(url.host ?? url.absoluteString)",
                         detail: "It only shows pages served from this machine.") {
                 // Only this address goes to the browser, so the app's page stays open.
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     ActionButton(title: "Back to the app", tone: .outlined,
                                  icon: "arrow.uturn.backward") {
                         preview.stay()
@@ -567,7 +567,7 @@ struct LocalServerPreviewPage: View {
                         preview.stay()
                     }
                 }
-                .padding(.top, 4)
+                .padding(.top, Space.xs)
             }
         }
     }
@@ -583,14 +583,14 @@ struct LocalServerPreviewPage: View {
         ActionButton(title: "Reload", tone: .outlined, icon: "arrow.clockwise") {
             preview.reload()
         }
-        .padding(.top, 4)
+        .padding(.top, Space.xs)
     }
 
     private func browserButton(_ url: URL) -> some View {
         ActionButton(title: "Open in browser", tone: .outlined, icon: "arrow.up.right") {
             openInBrowser(url)
         }
-        .padding(.top, 4)
+        .padding(.top, Space.xs)
     }
 
     private func openInBrowser(_ url: URL) {
@@ -605,7 +605,7 @@ struct LocalServerPreviewPage: View {
             let servers = Set(previews.pages.filter { !$0.isBlank }
                 .map { LocalServerPreview.server($0.address) })
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     ForEach(previews.pages) { page in
                         pageTab(page, spansServers: servers.count > 1)
                             .id(page.id)
@@ -614,8 +614,8 @@ struct LocalServerPreviewPage: View {
                 }
                 .scrollTargetLayout()
                 .motion(Motion.reveal, value: previews.pages.map(\.id))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.sm)
             }
             .scrollPosition(id: $scrolledPageID, anchor: .center)
             .onChange(of: previews.selectedID, initial: true) { _, selected in
@@ -633,14 +633,14 @@ struct LocalServerPreviewPage: View {
         return HStack(spacing: 0) {
             Button { previews.select(page) } label: {
                 Text(label)
-                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .font(Typography.detail.weight(selected ? .semibold : .regular))
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 160)
-                    .padding(.leading, 10)
-                    .padding(.trailing, 6)
-                    .padding(.vertical, 4)
+                    .padding(.leading, Space.md)
+                    .padding(.trailing, Space.sm)
+                    .padding(.vertical, Space.xs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -650,8 +650,8 @@ struct LocalServerPreviewPage: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
-                    .padding(.trailing, 8)
-                    .padding(.vertical, 4)
+                    .padding(.trailing, Space.md)
+                    .padding(.vertical, Space.xs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -659,14 +659,14 @@ struct LocalServerPreviewPage: View {
             .accessibilityLabel("Close \(label)")
         }
         .background(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .fill(selected ? Theme.card : .clear)
-                .shadow(color: .black.opacity(selected ? 0.07 : 0), radius: 1, y: 0.5))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? Theme.border : .clear))
+                .elevation(selected ? .raised : .none))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(selected ? Theme.border : .clear))
         .motion(Motion.control, value: selected)
         // A fill rather than a lift: the tab holds two buttons with tooltips, and AppKit
         // cannot lay those out under a scale.
-        .hoverFill(cornerRadius: 7)
+        .hoverFill(cornerRadius: Radius.control)
     }
 
     // The page keeps this closure, so it captures the composer rather than this view,

@@ -10,10 +10,10 @@ import SwiftUI
 private struct WarningCard: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 12, weight: .medium))
+            .font(Typography.detail.weight(.medium))
             .foregroundStyle(Theme.warningText)
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warningBackground))
+            .padding(Space.card)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.warningBackground))
             .transition(.fadeIn)
     }
 }
@@ -38,16 +38,16 @@ struct WarningStrip<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: icon)
             Text(text).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             trailing
         }
-        .font(.system(size: 12, weight: .medium))
+        .font(Typography.detail.weight(.medium))
         .foregroundStyle(Theme.warningText)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.pane)
+        .padding(.vertical, Space.md)
         .frame(maxWidth: .infinity)
         .background(Theme.warningBackground)
         .transition(.fadeIn)

@@ -53,7 +53,7 @@ struct TaskDetailView: View {
                 ZStack {
                     if let note {
                         HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, 24)
+                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                     }
                 }
@@ -82,28 +82,28 @@ struct TaskDetailView: View {
     // of the prompt, because what a run sends is the prompt on screen and the choices
     // beside the button, not something the header can speak for.
     private func header(_ task: Project) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Button { store.changeSidebarAvatar(forProject: task.id) } label: {
                 SidebarIdentityTile(
                     avatar: task.sidebarAvatar,
                     name: task.name,
                     tint: Theme.projectTint(for: task.name),
                     dashed: true)
-                    .contentShape(RoundedRectangle(cornerRadius: 7))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             }
             .buttonStyle(.plain)
             .hoverLift(amount: Motion.smallLift)
             .accessibilityLabel("Change \(task.name) icon")
             .appTooltip("Change icon")
             Text(task.name)
-                .font(.serif(17, .semibold))
+                .font(Typography.title)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .appTooltip(task.collapsedPath)
 
             Spacer(minLength: 12)
 
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 HeaderTabToggle(selection: $tab,
                                 options: [("Task", .task),
                                           ("Explorer", .explorer)])
@@ -118,7 +118,7 @@ struct TaskDetailView: View {
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Space.xxxl)
         .headerBand()
     }
 
@@ -132,7 +132,7 @@ struct TaskDetailView: View {
         let runs = store.standaloneSessions(for: task.id)
         let latest = runs.max { $0.lastActivity < $1.lastActivity }
         let inputs = TaskTemplate.inputs(in: spec(task))
-        return HStack(spacing: 14) {
+        return HStack(spacing: Space.lg) {
             if let latest {
                 lastRun(latest)
             } else {
@@ -141,7 +141,7 @@ struct TaskDetailView: View {
 
             StatusRule()
 
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 StatusCaps(text: counted(runs.count, "run").uppercased())
                 if !inputs.isEmpty {
                     StatusDot()
@@ -162,7 +162,7 @@ struct TaskDetailView: View {
                 let given = TaskTemplate.summary(of: latest.taskValues ?? [:], inputs: inputs)
                 if !given.isEmpty { StatusValue(text: given) }
             }
-            InlineLink(title: "Reveal in Finder", size: 11.5) {
+            InlineLink(title: "Reveal in Finder", size: Typography.Size.detail) {
                 NSWorkspace.shared.activateFileViewerSelecting([task.url])
                 showNote("Showed \(task.name) in Finder")
             }
@@ -175,7 +175,7 @@ struct TaskDetailView: View {
     private func lastRun(_ session: ChatSession) -> some View {
         let tone = SessionTone(session.id, store: store, runner: runner)
         return Button { store.selectSession(session.id) } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 StateLight(tone: tone, size: 6)
                 StatusCaps(text: tone.word, tint: tone.colour)
                 StatusDot()
@@ -215,7 +215,7 @@ struct TaskDetailView: View {
             TaskDetailLayout(wide: paneWidth >= Self.stackBelow) {
                 promptCard(task, inputs: inputs)
 
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: Space.xxl) {
                     TaskScheduleCard(task: task, schedule: spec(task).schedule) { schedule in
                         changeSpec(task) { $0.schedule = schedule }
                     }
@@ -229,7 +229,7 @@ struct TaskDetailView: View {
 
                 runList(task, runs: runs, inputs: inputs)
             }
-            .padding(24)
+            .padding(Space.xxxl)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { paneWidth = $0 }
     }
@@ -237,16 +237,16 @@ struct TaskDetailView: View {
     private func promptCard(_ task: Project, inputs: [TaskInput]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Prompt")
-                .font(.serif(15, .semibold))
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
+                .font(Typography.title)
+                .padding(.horizontal, Space.xl)
+                .padding(.top, Space.xl)
 
             TaskPromptEditor(text: $prompt,
                              placeholder: "What should the agent do on every run?",
                              minHeight: 96,
                              onFocusChange: { promptFocused = $0 })
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
+                .padding(.horizontal, Space.xl)
+                .padding(.top, Space.md)
 
             // How to make a hole only matters while writing, but the holes a run will ask
             // for stay in view, since they change what pressing Run does. The motion is
@@ -254,23 +254,23 @@ struct TaskDetailView: View {
             VStack(spacing: 0) {
                 if promptFocused || !inputs.isEmpty {
                     holeHint(inputs)
-                        .padding(.horizontal, 18)
-                        .padding(.top, 12)
+                        .padding(.horizontal, Space.xl)
+                        .padding(.top, Space.lg)
                         .transition(.fold)
                 }
             }
             .motion(Motion.reveal, value: promptFocused)
 
             Divider().overlay(Theme.hairline)
-                .padding(.top, 16)
+                .padding(.top, Space.xl)
 
             runBar(task)
-                .padding(.leading, 18)
-                .padding(.trailing, 14)
-                .padding(.vertical, 12)
+                .padding(.leading, Space.xl)
+                .padding(.trailing, Space.lg)
+                .padding(.vertical, Space.lg)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 12)
+        .cardSurface(cornerRadius: Radius.floating)
     }
 
     // What each run will ask for, read off the prompt as it is typed. With nothing to
@@ -287,13 +287,13 @@ struct TaskDetailView: View {
             text = Text("Each run asks for \(names) before it starts.")
         }
         return text
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private func holeName(_ name: String) -> Text {
-        Text(verbatim: name).font(.mono(11.5)).foregroundStyle(Theme.accent)
+        Text(verbatim: name).font(Typography.code).foregroundStyle(Theme.accent)
     }
 
     // MARK: - Runs
@@ -301,16 +301,16 @@ struct TaskDetailView: View {
     private func runList(_ task: Project, runs: [ChatSession], inputs: [TaskInput]) -> some View {
         let shown = TaskRunHistory.filtered(runs, by: runFilter) { failure(of: $0) != nil }
         let days = TaskRunHistory.days(of: shown)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
                 Text("Runs")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text("\(runs.count)")
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 12)
                 if !runs.isEmpty {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         ForEach(TaskRunHistory.Filter.allCases, id: \.self) { filter in
                             ChoicePill(title: filter.title, selected: runFilter == filter) {
                                 runFilter = filter
@@ -344,8 +344,8 @@ struct TaskDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .cardSurface(cornerRadius: 12)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+            .cardSurface(cornerRadius: Radius.floating)
             .motion(Motion.reveal, value: runFilter)
         }
     }
@@ -354,11 +354,11 @@ struct TaskDetailView: View {
         VStack(spacing: 0) {
             if !first { Divider().overlay(Theme.hairline) }
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 16)
-                .padding(.top, 9)
-                .padding(.bottom, 5)
+                .padding(.horizontal, Space.xl)
+                .padding(.top, Space.md)
+                .padding(.bottom, Space.xs)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.sunken)
                 .accessibilityAddTraits(.isHeader)
@@ -399,17 +399,17 @@ struct TaskDetailView: View {
         case (true, .failed):
             ("No failed runs", "Every run so far finished.")
         }
-        return VStack(spacing: 4) {
+        return VStack(spacing: Space.xs) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text(detail)
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 26)
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.xxxl)
         .frame(maxWidth: .infinity)
     }
 
@@ -438,7 +438,7 @@ struct TaskDetailView: View {
     // warning kept visible.
     private func runBar(_ task: Project) -> some View {
         let choices = runChoices(task)
-        return HStack(spacing: 14) {
+        return HStack(spacing: Space.lg) {
             SessionBotPicker(avatars: appSettings.agentAvatars,
                              selectedName: botBinding(task), size: 26)
             choiceMenu(agentChoice(task))
@@ -449,7 +449,7 @@ struct TaskDetailView: View {
             Spacer(minLength: 12)
             if runBusy(task) {
                 Text("Waiting for the current run to finish")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -634,9 +634,9 @@ struct TaskDetailView: View {
     }
 
     private func choiceMenu(_ choice: RunChoice) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             Text(choice.label)
-                .font(.system(size: 11, weight: choice.overridden ? .semibold : .regular))
+                .font(Typography.caption.weight(choice.overridden ? .semibold : .regular))
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
         }
@@ -653,11 +653,11 @@ struct TaskDetailView: View {
     // app default, so an override stays visible without a pill of its own.
     private func optionsMenu(_ choices: [RunChoice]) -> some View {
         let overridden = choices.contains(where: \.overridden)
-        return HStack(spacing: 4) {
+        return HStack(spacing: Space.xs) {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 9, weight: .semibold))
             Text(optionsLabel(choices))
-                .font(.system(size: 11, weight: overridden ? .semibold : .regular))
+                .font(Typography.caption.weight(overridden ? .semibold : .regular))
                 .lineLimit(1)
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
@@ -791,7 +791,7 @@ struct TaskDetailView: View {
     // sentence offers the button rather than the button arriving unannounced.
     private func missingFolder(_ task: Project) -> some View {
         WarningStrip("Folder not found at \(task.collapsedPath). The task cannot run without it. Delete the task to clear it out.") {
-            ActionButton(title: "Delete task", tone: .outlined, height: 28, size: 11.5) {
+            ActionButton(title: "Delete task", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
                 ProjectRemoval.confirm(task, in: store, runner: runner, shortcuts: shortcuts,
                                        dialogs: dialogs)
             }

@@ -97,29 +97,29 @@ struct SessionRecapView: View {
     let close: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.attentionText)
                     .frame(width: 28, height: 28)
-                    .surface(Theme.attention.opacity(0.08), cornerRadius: 8,
+                    .surface(Theme.attention.opacity(0.08), cornerRadius: Radius.control,
                              border: Theme.attention.opacity(0.38))
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text("SESSION RECAP")
-                        .font(.mono(10, .semibold))
+                        .font(Typography.caps)
                         .kerning(1)
                         .foregroundStyle(Theme.attentionText)
                     if regenerating {
                         Text("Updating recap")
-                            .font(.mono(9.5))
+                            .font(Font.mono(Typography.Size.micro))
                             .foregroundStyle(.tertiary)
                             .accessibilityAddTraits(.updatesFrequently)
                     } else {
                         TimelineView(.periodic(from: .now, by: 60)) { context in
                             Text(generatedLabel(at: context.date))
-                                .font(.mono(9.5))
+                                .font(Font.mono(Typography.Size.micro))
                                 .foregroundStyle(.tertiary)
                         }
                     }
@@ -128,32 +128,32 @@ struct SessionRecapView: View {
                 Spacer(minLength: 12)
 
                 GlyphButton(icon: regenerating ? "hourglass" : "arrow.clockwise",
-                            side: 28, action: regenerate)
+                            side: ControlHeight.md, action: regenerate)
                     .disabled(regenerating)
                     .appTooltip("Generate a fresh recap")
                     .accessibilityLabel(regenerating
                         ? "Generating a fresh recap"
                         : "Generate a fresh recap")
 
-                GlyphButton(icon: "xmark", side: 28, action: close)
+                GlyphButton(icon: "xmark", side: ControlHeight.md, action: close)
                     .appTooltip("Close recap")
                     .accessibilityLabel("Close recap")
             }
 
             Text(recap.text)
-                .font(.system(size: 13.5))
+                .font(Typography.body)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .accessibilityAddTraits(.updatesFrequently)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
         .frame(width: 430, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(Theme.attention.opacity(0.38)))
-        .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
+        .elevation(.floating)
     }
 
     private func generatedLabel(at now: Date) -> String {

@@ -312,7 +312,7 @@ struct TooltipHost: View {
                 presenter.hideAll()
             } label: {
                 plainCard(tooltip)
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             }
             .buttonStyle(.plain)
         } else if tooltip.isPlain {
@@ -324,18 +324,18 @@ struct TooltipHost: View {
 
     private func plainCard(_ tooltip: Tooltip) -> some View {
         Text(tooltip.title)
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .fixedSize(horizontal: !tooltip.wraps, vertical: true)
             .frame(maxWidth: tooltip.wraps ? Self.width : nil, alignment: .leading)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .floatingCard(cornerRadius: 8)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.xs)
+            .floatingCard(cornerRadius: Radius.control)
     }
 
     private func detailedCard(_ tooltip: Tooltip) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                     Text(tooltip.title)
                         .font(.serif(14, .semibold))
                         .lineLimit(3)
@@ -349,7 +349,7 @@ struct TooltipHost: View {
                 }
                 if let subtitle = tooltip.subtitle {
                     Text(subtitle)
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .truncationMode(.middle)
@@ -357,21 +357,21 @@ struct TooltipHost: View {
                 }
                 if let note = tooltip.note {
                     Text(note)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(Theme.attention)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.md)
 
             if !tooltip.rows.isEmpty {
                 Divider().overlay(Theme.hairline)
-                VStack(spacing: 4) {
+                VStack(spacing: Space.xs) {
                     ForEach(tooltip.rows) { row in
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                             Text(row.label.uppercased())
-                                .font(.mono(9, .semibold))
+                                .font(Typography.caps)
                                 .kerning(0.5)
                                 .foregroundStyle(.tertiary)
                                 // A label too long for the row wraps rather than losing
@@ -380,7 +380,7 @@ struct TooltipHost: View {
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 6)
                             Text(row.value)
-                                .font(.mono(10.5))
+                                .font(Typography.data)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -388,12 +388,12 @@ struct TooltipHost: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.md)
             }
         }
         .frame(width: Self.width, alignment: .leading)
-        .floatingCard(cornerRadius: 11)
+        .floatingCard(cornerRadius: Radius.floating)
     }
 
     // Beside the row rather than under it: the sidebar is a column of rows, and a hint
@@ -443,7 +443,7 @@ private struct HangingCard: View {
     var body: some View {
         hanging.content
             .frame(width: hanging.width, alignment: .leading)
-            .floatingCard(cornerRadius: 12)
+            .floatingCard(cornerRadius: Radius.floating)
             .overlay(alignment: .topLeading) {
                 ZStack {
                     // Reaches one point into the card to cover its border under the caret.
@@ -497,13 +497,13 @@ struct Keycap: View {
 
     var body: some View {
         Text(key)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .frame(minWidth: 18)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.border))
+            .padding(.horizontal, Space.xs)
+            .padding(.vertical, Space.xxs)
+            .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.field))
+            .overlay(RoundedRectangle(cornerRadius: Radius.inset).strokeBorder(Theme.border))
             .accessibilityHidden(true)
     }
 }

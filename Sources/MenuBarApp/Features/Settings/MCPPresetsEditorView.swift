@@ -60,7 +60,7 @@ struct MCPPresetsEditorView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: "folder", text: note)
-                        .padding(.top, Theme.headerHeight + 2).padding(.trailing, 20)
+                        .padding(.top, Theme.headerHeight + 2).padding(.trailing, Space.xxl)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -71,17 +71,17 @@ struct MCPPresetsEditorView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("MCP presets").font(.serif(16))
+        HStack(alignment: .center, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("MCP presets").font(Typography.title)
                 Text("Ready-made servers people add with one click. Values set to *Ask* are filled in at that moment.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             fileChip
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
@@ -90,23 +90,23 @@ struct MCPPresetsEditorView: View {
             fileActOuts += 1
             revealFile()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "folder")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .actOut("folder", trigger: fileActOuts)
                 Text(SiteConfigurationImporter.destination.path.abbreviatedPath)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 240)
             }
             .foregroundStyle(Theme.secondaryText)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, Space.md)
             .frame(height: 26)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 7)
+        .hoverFill(cornerRadius: Radius.control)
         .hoverLift()
         .accessibilityLabel("Show the configuration file in Finder")
     }
@@ -136,33 +136,33 @@ struct MCPPresetsEditorView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             search
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
+                .padding(.horizontal, Space.lg)
+                .padding(.top, Space.lg)
+                .padding(.bottom, Space.md)
             ScrollView {
                 list
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, Space.md)
+                    .padding(.bottom, Space.md)
             }
             Rectangle().fill(Theme.hairline).frame(height: 1)
             NewItemButton(title: "New preset", action: addPreset)
-                .padding(14)
+                .padding(Space.lg)
         }
         .background(Theme.sidebar)
     }
 
     private var search: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(Theme.secondaryText)
             TextField("Find a preset", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
             if !query.isEmpty {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.tertiary)
                         .contentShape(Rectangle())
                 }
@@ -171,27 +171,27 @@ struct MCPPresetsEditorView: View {
                 .transition(.fadeIn)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(height: 32)
-        .surface(Theme.card, cornerRadius: 9)
+        .surface(Theme.card, cornerRadius: Radius.card)
         .motion(Motion.hover, value: query.isEmpty)
     }
 
     @ViewBuilder private var list: some View {
         let groups = MCPPresetDraft.groups(visible)
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             if drafts.isEmpty {
                 listMessage("No presets yet",
                             detail: "Make one so people can add a server without copying settings by hand.")
             } else if groups.isEmpty {
-                VStack(spacing: 8) {
+                VStack(spacing: Space.md) {
                     listMessage("Nothing matches", detail: "No preset is called “\(query.trimmed)”.")
                     InlineLink(title: "Clear search") { query = "" }
                 }
                 .frame(maxWidth: .infinity)
             } else {
                 ForEach(groups, id: \.serverType) { group in
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Space.xxs) {
                         groupHeader(group.serverType, count: group.drafts.count)
                         ForEach(group.drafts) { draft in
                             row(draft).transition(.fold)
@@ -201,24 +201,24 @@ struct MCPPresetsEditorView: View {
                 }
             }
         }
-        .padding(.top, 4)
+        .padding(.top, Space.xs)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Presets")
         .smoothlyResizes(when: groups.map { $0.drafts.map(\.id) })
     }
 
     private func listMessage(_ title: String, detail: String) -> some View {
-        VStack(spacing: 4) {
-            Text(title).font(.system(size: 12.5, weight: .semibold))
+        VStack(spacing: Space.xs) {
+            Text(title).font(Typography.body.weight(.semibold))
             Text(detail)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(Theme.secondaryText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.top, 24)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.xxxl)
         .transition(.fadeIn)
     }
 
@@ -226,22 +226,22 @@ struct MCPPresetsEditorView: View {
         VStack(alignment: .leading, spacing: 1) {
             HStack {
                 Text(serverType ?? "No server type")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Theme.secondaryText)
                 Spacer(minLength: 0)
                 Text("\(count)")
-                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                    .font(Typography.detail.weight(.medium).monospacedDigit())
                     .foregroundStyle(Theme.secondaryText)
                     .contentTransition(.numericText())
                     .motion(Motion.reveal, value: count)
             }
             Text("In the menu as “\(SiteDefaults.MCP.PresetGroup(serverType: serverType, presets: []).addTitle)”")
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(Theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 4)
+        .padding(.horizontal, Space.md)
+        .padding(.bottom, Space.xs)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
     }
@@ -251,14 +251,14 @@ struct MCPPresetsEditorView: View {
         let dirty = isDirty(draft)
         let environment = defaults.deployEnvironment(named: draft.environment)
         return Button { select(draft.id) } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(draft.title.trimmed.isEmpty ? "Untitled preset" : draft.title)
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(Typography.body.weight(.medium))
                         .foregroundStyle(draft.title.trimmed.isEmpty ? Theme.secondaryText : Color.primary)
                         .lineLimit(1)
                     Text(draft.name.isEmpty ? "no name" : draft.name)
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(Theme.secondaryText)
                         .lineLimit(1)
                 }
@@ -276,13 +276,13 @@ struct MCPPresetsEditorView: View {
                         .transition(popTransition)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .fill(Theme.card)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
                 }
             }
             .contentShape(Rectangle())
@@ -316,8 +316,8 @@ struct MCPPresetsEditorView: View {
             if let selection, drafts.contains(where: { $0.id == selection }) {
                 ScrollView {
                     editor(binding(selection))
-                        .padding(.horizontal, 26)
-                        .padding(.vertical, 22)
+                        .padding(.horizontal, Space.xxxl)
+                        .padding(.vertical, Space.xxl)
                 }
                 .id(selection)
                 .transition(paneTransition)
@@ -337,13 +337,13 @@ struct MCPPresetsEditorView: View {
     }
 
     private var noSelection: some View {
-        VStack(spacing: 6) {
-            Text(drafts.isEmpty ? "No presets yet" : "Pick a preset to edit").font(.serif(17))
+        VStack(spacing: Space.sm) {
+            Text(drafts.isEmpty ? "No presets yet" : "Pick a preset to edit").font(Typography.title)
             Text("Or make a new one for a server your team uses.")
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .foregroundStyle(Theme.secondaryText)
             NewItemButton(title: "New preset", filled: true, action: addPreset)
-                .padding(.top, 8)
+                .padding(.top, Space.md)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -351,7 +351,7 @@ struct MCPPresetsEditorView: View {
     private func editor(_ draft: Binding<MCPPresetDraft>) -> some View {
         let value = draft.wrappedValue
         let problems = value.problems(among: drafts)
-        return VStack(alignment: .leading, spacing: 22) {
+        return VStack(alignment: .leading, spacing: Space.xxl) {
             editorHeading(value)
             RunsAsPanel(draft: value)
             identity(draft, problems: problems)
@@ -362,13 +362,13 @@ struct MCPPresetsEditorView: View {
     }
 
     private func editorHeading(_ draft: MCPPresetDraft) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(draft.title.trimmed.isEmpty ? "Untitled preset" : draft.title)
-                    .font(.serif(19))
+                    .font(Typography.title)
                     .lineLimit(2)
                 Text(LocalizedStringKey(askLine(draft.askedCount)))
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
                     .foregroundStyle(Theme.secondaryText)
                     .contentTransition(.opacity)
                     .motion(Motion.reveal, value: draft.askedCount)
@@ -390,9 +390,9 @@ struct MCPPresetsEditorView: View {
                           problems: MCPPresetDraft.Problems) -> some View {
         let value = draft.wrappedValue
         let environment = defaults.deployEnvironment(named: value.environment)
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: Space.lg) {
             sectionHeading("Identity")
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Space.xl) {
                 PresetField(caption: "Label", note: problems.title ?? "What people pick from the menu.",
                             isError: problems.title != nil) {
                     PresetTextField(placeholder: "Grafana platform dev", text: draft.title,
@@ -404,7 +404,7 @@ struct MCPPresetsEditorView: View {
                     nameField(draft, invalid: problems.name != nil)
                 }
             }
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: Space.xl) {
                 PresetField(caption: "Server type", note: serverTypeNote(value), isError: false) {
                     PresetTextField(placeholder: "None", text: draft.serverType, monospaced: false)
                 }
@@ -438,10 +438,10 @@ struct MCPPresetsEditorView: View {
 
     private func nameField(_ draft: Binding<MCPPresetDraft>, invalid: Bool) -> some View {
         let auto = draft.wrappedValue.usesAutoName
-        return HStack(spacing: 6) {
+        return HStack(spacing: Space.sm) {
             if auto {
                 Text(draft.wrappedValue.name.isEmpty ? "made from the label" : draft.wrappedValue.name)
-                    .font(.mono(11.5))
+                    .font(Typography.code)
                     .foregroundStyle(draft.wrappedValue.name.isEmpty ? Theme.secondaryText : Color.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -450,7 +450,7 @@ struct MCPPresetsEditorView: View {
             } else {
                 TextField("service-environment", text: draft.customName)
                     .textFieldStyle(.plain)
-                    .font(.mono(11.5))
+                    .font(Typography.code)
                     .focused($focus, equals: .name)
             }
             Button {
@@ -463,12 +463,12 @@ struct MCPPresetsEditorView: View {
                 }
             } label: {
                 Text(auto ? "Auto" : "Custom")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(auto ? Theme.accent : Theme.secondaryText)
                     .contentTransition(.opacity)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, Space.md)
                     .frame(height: 22)
-                    .background(RoundedRectangle(cornerRadius: 6)
+                    .background(RoundedRectangle(cornerRadius: Radius.inset)
                         .fill(auto ? Theme.accent.opacity(0.1) : Theme.sunken))
                     .contentShape(Rectangle())
             }
@@ -478,10 +478,10 @@ struct MCPPresetsEditorView: View {
             .accessibilityLabel(auto ? "Name made from the label" : "Custom name")
             .accessibilityHint(auto ? "Type your own name" : "Make the name from the label again")
         }
-        .padding(.leading, 11)
-        .padding(.trailing, 6)
-        .frame(height: 34)
-        .surface(Theme.field, cornerRadius: 9, border: invalid ? Theme.deletion : Theme.border)
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.sm)
+        .frame(height: ControlHeight.lg)
+        .surface(Theme.field, cornerRadius: Radius.card, border: invalid ? Theme.deletion : Theme.border)
         .motion(Motion.hover, value: invalid)
     }
 
@@ -507,9 +507,9 @@ struct MCPPresetsEditorView: View {
     private func connection(_ draft: Binding<MCPPresetDraft>,
                             problems: MCPPresetDraft.Problems) -> some View {
         let transport = draft.wrappedValue.transport
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: Space.lg) {
             sectionHeading("Connection")
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 ChoicePill(title: "Local command", selected: transport == .local,
                            thumb: transportTrack, detail: "Runs on this Mac (stdio)",
                            fills: true) {
@@ -521,8 +521,8 @@ struct MCPPresetsEditorView: View {
                     draft.wrappedValue.transport = .remote
                 }
             }
-            .padding(4)
-            .surface(Theme.sunken, cornerRadius: 11)
+            .padding(Space.xs)
+            .surface(Theme.sunken, cornerRadius: Radius.floating)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("How it connects")
 
@@ -539,7 +539,7 @@ struct MCPPresetsEditorView: View {
 
     private func localFields(_ draft: Binding<MCPPresetDraft>,
                              problems: MCPPresetDraft.Problems) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             PresetField(caption: "Command", note: problems.command, isError: problems.command != nil) {
                 PresetTextField(placeholder: "mcp-server", text: draft.command,
                                 invalid: problems.command != nil)
@@ -555,7 +555,7 @@ struct MCPPresetsEditorView: View {
 
     private func remoteFields(_ draft: Binding<MCPPresetDraft>,
                               problems: MCPPresetDraft.Problems) -> some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: Space.xl) {
             PresetField(caption: "Address", note: problems.url, isError: problems.url != nil) {
                 PresetTextField(placeholder: "https://mcp.example.com/mcp", text: draft.url,
                                 invalid: problems.url != nil)
@@ -577,7 +577,7 @@ struct MCPPresetsEditorView: View {
 
     private func sectionHeading(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 13.5, weight: .semibold))
+            .font(Typography.body.weight(.semibold))
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -643,10 +643,10 @@ struct MCPPresetsEditorView: View {
 
     private var status: some View {
         let (text, colour) = statusLine
-        return HStack(spacing: 8) {
+        return HStack(spacing: Space.md) {
             Circle().fill(colour).frame(width: 7, height: 7)
             Text(text)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(failure == nil ? Theme.secondaryText : Theme.deletion)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
@@ -705,14 +705,14 @@ private struct PresetField<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text(caption)
-                .font(.system(size: 12, weight: .medium))
+                .font(Typography.detail.weight(.medium))
                 .foregroundStyle(Theme.secondaryText)
             content
             if let note {
                 Text(note)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(isError ? Theme.deletion : noteTint ?? Theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .id(isError)
@@ -733,10 +733,10 @@ private struct PresetTextField: View {
     var body: some View {
         TextField(placeholder, text: $text)
             .textFieldStyle(.plain)
-            .font(monospaced ? .mono(11.5) : .system(size: 12.5))
-            .padding(.horizontal, 11)
-            .frame(height: 34)
-            .surface(Theme.field, cornerRadius: 9, border: invalid ? Theme.deletion : Theme.border)
+            .font(monospaced ? Typography.code : Typography.body)
+            .padding(.horizontal, Space.lg)
+            .frame(height: ControlHeight.lg)
+            .surface(Theme.field, cornerRadius: Radius.card, border: invalid ? Theme.deletion : Theme.border)
             .motion(Motion.hover, value: invalid)
     }
 }
@@ -752,20 +752,20 @@ private struct ArgumentsEditor: View {
         ZStack(alignment: .topLeading) {
             if text.isEmpty {
                 Text("none")
-                    .font(.mono(11.5))
+                    .font(Typography.code)
                     .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.md)
                     .allowsHitTesting(false)
             }
             TextEditor(text: $text)
-                .font(.mono(11.5))
+                .font(Typography.code)
                 .scrollContentBackground(.hidden)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Space.sm)
+                .padding(.vertical, Space.sm)
         }
         .frame(height: CGFloat(lines) * 16 + 16)
-        .fieldSurface(cornerRadius: 9)
+        .fieldSurface(cornerRadius: Radius.card)
         .accessibilityLabel("Arguments")
     }
 }
@@ -776,26 +776,26 @@ private struct RunsAsPanel: View {
     let draft: MCPPresetDraft
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             HStack {
                 Text(draft.transport == .local ? "Starts as" : "Connects to")
                     .contentTransition(.opacity)
                 Spacer(minLength: 0)
                 Text("Updates as you type")
             }
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(Theme.terminalDim)
             .motion(Motion.reveal, value: draft.transport)
             Text(rendered)
-                .font(.mono(12))
+                .font(Typography.code)
                 .lineSpacing(3)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.terminal, in: RoundedRectangle(cornerRadius: 11))
+        .background(Theme.terminal, in: RoundedRectangle(cornerRadius: Radius.floating))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("What this preset runs")
     }
@@ -830,12 +830,12 @@ private struct EnvironmentTag: View {
 
     var body: some View {
         Text(name)
-            .font(.mono(10.5, .medium))
+            .font(Typography.data.weight(.medium))
             .foregroundStyle(live ? Theme.attentionText : Theme.secondaryText)
             .contentTransition(.opacity)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, Space.sm)
             .frame(height: 18)
-            .background(RoundedRectangle(cornerRadius: 5)
+            .background(RoundedRectangle(cornerRadius: Radius.inset)
                 .fill(live ? Theme.attention.opacity(0.16) : Theme.sunken))
             .motion(Motion.reveal, value: name)
             .accessibilityLabel(live ? "\(name), a live environment" : name)
@@ -855,14 +855,14 @@ private struct EntriesTable: View {
     private var noun: String { draft.entryNoun }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                 Text(draft.transport == .local ? "Environment variables" : "Headers")
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
                 Text(draft.transport == .local ? "Set for the command when it starts."
                         : "Sent with every request to the server.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(Theme.secondaryText)
             }
             VStack(spacing: 0) {
@@ -871,23 +871,23 @@ private struct EntriesTable: View {
                         Text(draft.transport == .local
                              ? "No variables. The server starts with none set."
                              : "No headers. Add one if the server needs a token.")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .foregroundStyle(Theme.secondaryText)
                         Spacer(minLength: 0)
                         addButton
                     }
-                    .padding(12)
+                    .padding(Space.lg)
                     .transition(.fadeIn)
                 } else {
-                    HStack(spacing: 10) {
+                    HStack(spacing: Space.md) {
                         Text("Name").frame(width: 210, alignment: .leading)
                         Text("Value")
                         Spacer(minLength: 0)
                     }
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
                     .foregroundStyle(Theme.secondaryText)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.md)
                     .transition(.fadeIn)
                     ForEach($draft.entries) { $entry in
                         Rectangle().fill(Theme.hairline).frame(height: 1)
@@ -901,15 +901,15 @@ private struct EntriesTable: View {
                         addButton
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.md)
                 }
             }
-            .surface(Theme.card, cornerRadius: 10)
+            .surface(Theme.card, cornerRadius: Radius.card)
             .smoothlyResizes(when: draft.entries.map(\.id))
             if let problem {
                 Text(problem)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(Theme.deletion)
                     .transition(.fadeIn)
             }
@@ -940,20 +940,20 @@ private struct EntryRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             TextField(noun == "header" ? "Authorization" : "SERVICE_TOKEN", text: $entry.key)
                 .textFieldStyle(.plain)
-                .font(.mono(11.5))
-                .padding(.horizontal, 9)
-                .frame(width: 210, height: 30)
-                .fieldSurface(cornerRadius: 7)
+                .font(Typography.code)
+                .padding(.horizontal, Space.md)
+                .frame(width: 210, height: ControlHeight.md)
+                .fieldSurface(cornerRadius: Radius.control)
                 .focused(focus, equals: .key(entry.id))
                 .accessibilityLabel("\(noun.capitalized) name")
             valueCell
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button(action: remove) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(Theme.secondaryText)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
@@ -964,8 +964,8 @@ private struct EntryRow: View {
             .accessibilityLabel(entry.key.trimmed.isEmpty
                                 ? "Remove this \(noun)" : "Remove \(noun) \(entry.key.trimmed)")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.sm)
         .hoverFill(cornerRadius: 0)
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering || focused)
@@ -974,22 +974,22 @@ private struct EntryRow: View {
     @ViewBuilder private var valueCell: some View {
         Group {
             if entry.asks {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Button {
                         entry.asks = false
                         Task { @MainActor in focus.wrappedValue = .value(entry.id) }
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: Space.xs) {
                             Image(systemName: "lock.fill")
                                 .font(.system(size: 9.5, weight: .semibold))
                                 .transition(lockTransition)
                             Text("Ask when added")
-                                .font(.system(size: 11.5, weight: .semibold))
+                                .font(Typography.label)
                         }
                         .foregroundStyle(Theme.secret)
-                        .padding(.horizontal, 9)
+                        .padding(.horizontal, Space.md)
                         .frame(height: 26)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.secret.opacity(0.13)))
+                        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.secret.opacity(0.13)))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -997,15 +997,15 @@ private struct EntryRow: View {
                     .accessibilityLabel("Asked when added")
                     .accessibilityHint("Use a fixed value instead")
                     Text("Never stored")
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(Theme.secondaryText)
                 }
                 .transition(.opacity)
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     TextField("Fixed value", text: $entry.value)
                         .textFieldStyle(.plain)
-                        .font(.mono(11.5))
+                        .font(Typography.code)
                         .focused(focus, equals: .value(entry.id))
                         .accessibilityLabel("\(noun.capitalized) value")
                     Button {
@@ -1013,20 +1013,20 @@ private struct EntryRow: View {
                         entry.value = ""
                     } label: {
                         Text("Ask instead")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(Typography.caption.weight(.semibold))
                             .foregroundStyle(Theme.secondaryText)
-                            .padding(.horizontal, 7)
+                            .padding(.horizontal, Space.sm)
                             .frame(height: 22)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.sunken))
+                            .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.sunken))
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .hoverLift()
                 }
-                .padding(.leading, 9)
-                .padding(.trailing, 4)
-                .frame(height: 30)
-                .fieldSurface(cornerRadius: 7)
+                .padding(.leading, Space.md)
+                .padding(.trailing, Space.xs)
+                .frame(height: ControlHeight.md)
+                .fieldSurface(cornerRadius: Radius.control)
                 .transition(.opacity)
             }
         }

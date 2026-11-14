@@ -52,12 +52,12 @@ struct SeverityChip: View {
     var count: Int?
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             Image(systemName: symbol).font(.system(size: 8, weight: .bold))
-            Text(count.map { "\($0) \(severity.label.lowercased())" } ?? severity.label).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).fixedSize()
+            Text(count.map { "\($0) \(severity.label.lowercased())" } ?? severity.label).font(Typography.caption.weight(.semibold)).lineLimit(1).fixedSize()
         }
         .foregroundStyle(ink)
-        .padding(.horizontal, 6).padding(.vertical, 2)
+        .padding(.horizontal, Space.sm).padding(.vertical, Space.xxs)
         .background(Capsule().fill(fill))
         .accessibilityElement(children: .combine)
     }
@@ -90,9 +90,9 @@ struct SeverityChip: View {
 struct QuestionTag: View {
     var body: some View {
         Text("Question")
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .foregroundStyle(Theme.plan)
-            .padding(.horizontal, 6).padding(.vertical, 2)
+            .padding(.horizontal, Space.sm).padding(.vertical, Space.xxs)
             .background(Capsule().fill(Theme.plan.opacity(0.12)))
             .fixedSize()
     }
@@ -104,10 +104,10 @@ struct KeyCap: View {
 
     var body: some View {
         Text(key)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(Typography.caps)
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 4).padding(.vertical, 1)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.border))
+            .padding(.horizontal, Space.xs).padding(.vertical, 1)
+            .overlay(RoundedRectangle(cornerRadius: Radius.tag).stroke(Theme.border))
     }
 }
 
@@ -149,68 +149,68 @@ struct ReviewCommentCard: View {
     @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             header
             ReviewText(text: comment.body)
             ForEach(Array(comment.also.enumerated()), id: \.offset) { _, voice in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    HStack(spacing: Space.sm) {
                         ReviewAvatar(agent: voice.agent, size: 16)
-                        Text(voice.name).font(.system(size: 11, weight: .semibold))
-                        Text("raised the same lines").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(voice.name).font(Typography.caption.weight(.semibold))
+                        Text("raised the same lines").font(Typography.caption).foregroundStyle(.secondary)
                     }
                     ReviewText(text: voice.body, size: 12)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.leading, 10)
+                .padding(.leading, Space.md)
                 .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 2) }
             }
             if comment.isPending { triage }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(comment.isPending ? Theme.attention.opacity(0.06) : Theme.card))
+        .padding(Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(comment.isPending ? Theme.attention.opacity(0.06) : Theme.card))
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: Radius.card)
                 .strokeBorder(comment.isPending ? Theme.attention.opacity(0.7) : Theme.border,
                               style: StrokeStyle(lineWidth: 1, dash: comment.isPending ? [4, 3] : []))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 10).stroke(focused ? Theme.accent : .clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: Radius.card).stroke(focused ? Theme.accent : .clear, lineWidth: 2)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         .onPointerHover { hovering = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(comment.spokenName)
     }
 
     private var header: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             ReviewAvatars(comment: comment)
-            Text(comment.authorName).scaledText(12, .semibold).lineLimit(1)
+            Text(comment.authorName).scaledText(Typography.Size.detail, .semibold).lineLimit(1)
             if comment.kind == .question { QuestionTag() }
             if comment.reviewer != nil, let severity = comment.severity { SeverityChip(severity: severity) }
             if !comment.also.isEmpty {
                 Label(comment.also.count == 1 ? "Both raised this" : "\(comment.voices.count) raised this",
                       systemImage: "person.2.fill")
-                    .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.dotOnText)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.dotOnText)
+                    .padding(.horizontal, Space.sm).padding(.vertical, Space.xxs)
                     .background(Capsule().fill(Theme.dotOn.opacity(0.12)))
                     .lineLimit(1).fixedSize()
             }
             if showsLines {
-                Text(comment.linesLabel).scaledMono(10.5).foregroundStyle(.secondary).lineLimit(1)
+                Text(comment.linesLabel).scaledMono(Typography.Size.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
             if comment.reviewer != nil, !comment.isPending {
                 Text(comment.edited ? "Edited and kept by you" : "Kept by you")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                    .font(Typography.caption).foregroundStyle(.tertiary).lineLimit(1)
             }
             if !comment.isPending {
-                HStack(spacing: 4) {
-                    GlyphButton(icon: "pencil", side: 22, action: onEdit)
+                HStack(spacing: Space.xs) {
+                    GlyphButton(icon: "pencil", side: ControlHeight.xs, action: onEdit)
                         .appTooltip("Edit")
                         .accessibilityLabel("Edit comment")
-                    GlyphButton(icon: "trash", side: 22, tint: Theme.deletion, action: onDelete)
+                    GlyphButton(icon: "trash", side: ControlHeight.xs, tint: Theme.deletion, action: onDelete)
                         .appTooltip("Delete")
                         .accessibilityLabel("Delete comment")
                 }
@@ -221,22 +221,22 @@ struct ReviewCommentCard: View {
     }
 
     private var triage: some View {
-        HStack(spacing: 10) {
-            ActionButton(title: "Keep", tone: .green, height: 26, size: 11.5, icon: "checkmark", action: onKeep)
-            ActionButton(title: "Edit and keep", tone: .outlined, height: 26, size: 11.5, action: onEdit)
-            InlineLink(title: "Dismiss", size: 11.5, tint: Color.secondary, action: onDismiss)
+        HStack(spacing: Space.md) {
+            ActionButton(title: "Keep", tone: .green, height: ControlHeight.sm, size: Typography.Size.detail, icon: "checkmark", action: onKeep)
+            ActionButton(title: "Edit and keep", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail, action: onEdit)
+            InlineLink(title: "Dismiss", size: Typography.Size.detail, tint: Color.secondary, action: onDismiss)
             Spacer(minLength: 0)
             if focused {
-                HStack(spacing: 4) {
+                HStack(spacing: Space.xs) {
                     KeyCap(key: "K"); Text("keep")
                     KeyCap(key: "E"); Text("edit")
                     KeyCap(key: "D"); Text("dismiss")
                 }
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .font(Typography.caption).foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
             } else {
                 Text("Not in your review until you keep it")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                    .font(Typography.caption).foregroundStyle(.tertiary).lineLimit(1)
             }
         }
     }
@@ -278,48 +278,48 @@ struct ReviewComposer: View {
     private var newComment: some View {
         VStack(alignment: .leading, spacing: 0) {
             RouteBand(place: place, stays: asks, agentTitle: agentTitle)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.md) {
+                HStack(spacing: Space.xs) {
                     ChoicePill(title: "Ask a question", selected: kind == .question) { kind = .question; focused = true }
                         .accessibilityAddTraits(kind == .question ? .isSelected : [])
                     ChoicePill(title: "Request a change", selected: kind == .change) { kind = .change; focused = true }
                         .accessibilityAddTraits(kind == .change ? .isSelected : [])
                     Spacer(minLength: 0)
-                    Text(linesLabel).scaledMono(10.5).foregroundStyle(.secondary).lineLimit(1)
+                    Text(linesLabel).scaledMono(Typography.Size.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Kind of comment")
                 field(asks ? "What do you want to know about these lines?" : "What should \(agentTitle) change here?")
-                HStack(alignment: .top, spacing: 6) {
+                HStack(alignment: .top, spacing: Space.sm) {
                     Image(systemName: asks ? "eye.slash" : "paperplane")
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                         .foregroundStyle(asks ? Theme.plan : Theme.accent)
                         .padding(.top, 1)
                     Text(asks ? questionHint : "Goes to \(agentTitle) in the chat as soon as you send it.")
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
-                HStack(spacing: 14) {
-                    HStack(spacing: 4) {
+                .font(Typography.detail).foregroundStyle(.secondary)
+                HStack(spacing: Space.lg) {
+                    HStack(spacing: Space.xs) {
                         KeyCap(key: "⌘↩"); Text(asks ? "ask" : "send")
                         Text("·"); KeyCap(key: "esc"); Text("cancel")
                         Text("· shift-click a number to cover more lines").lineLimit(1)
                     }
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .font(Typography.caption).foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
                     Spacer(minLength: 0)
                     InlineLink(title: "Cancel", tint: Color.secondary, action: onCancel)
-                    ActionButton(title: asks ? "Ask" : "Send", tone: asks ? .plan : .green, height: 28, size: 12,
+                    ActionButton(title: asks ? "Ask" : "Send", tone: asks ? .plan : .green, height: ControlHeight.md, size: Typography.Size.detail,
                                  icon: asks ? "questionmark" : "paperplane",
                                  keyboardShortcut: KeyboardShortcut(.return, modifiers: .command), action: save)
                         .disabled(text.isBlank)
                 }
             }
-            .padding(12)
+            .padding(Space.lg)
         }
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke((asks ? Theme.plan : Theme.accent).opacity(0.55)))
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke((asks ? Theme.plan : Theme.accent).opacity(0.55)))
     }
 
     private var questionHint: String {
@@ -329,36 +329,36 @@ struct ReviewComposer: View {
     }
 
     private var editor: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
                 ReviewAvatar(agent: nil)
-                Text(title).scaledText(12, .semibold).lineLimit(1)
-                Text(linesLabel).scaledMono(10.5).foregroundStyle(.secondary).lineLimit(1)
+                Text(title).scaledText(Typography.Size.detail, .semibold).lineLimit(1)
+                Text(linesLabel).scaledMono(Typography.Size.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 8)
             }
             field(kind == .question
                   ? "What should \(agentTitle) explain? It answers without changing the code."
                   : "What should \(agentTitle) change here?")
-            HStack(spacing: 14) {
-                HStack(spacing: 4) {
+            HStack(spacing: Space.lg) {
+                HStack(spacing: Space.xs) {
                     KeyCap(key: "↩"); Text("save")
                     Text("·"); KeyCap(key: "esc"); Text("cancel")
                 }
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .font(Typography.caption).foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
                 Spacer(minLength: 0)
                 if let onDelete {
                     InlineLink(title: "Delete", tint: Theme.deletion, action: onDelete)
                 }
                 InlineLink(title: "Cancel", tint: Color.secondary, action: onCancel)
-                ActionButton(title: action, tone: .green, height: 28, size: 12,
+                ActionButton(title: action, tone: .green, height: ControlHeight.md, size: Typography.Size.detail,
                              keyboardShortcut: KeyboardShortcut(.return, modifiers: .command), action: save)
                     .disabled(text.isBlank)
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accent.opacity(0.55)))
+        .padding(Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.accent.opacity(0.55)))
     }
 
     private func field(_ prompt: String) -> some View {
@@ -385,15 +385,15 @@ struct RouteBand: View {
     let agentTitle: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(place).font(.mono(11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        HStack(spacing: Space.md) {
+            Text(place).font(Typography.data).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
             Label(stays ? "Only in Changes" : "Goes to \(agentTitle)", systemImage: stays ? "eye.slash" : "paperplane")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(stays ? Theme.plan : Theme.accent)
                 .lineLimit(1).fixedSize()
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
         .background((stays ? Theme.plan : Theme.accent).opacity(0.07))
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
         .accessibilityElement(children: .combine)
@@ -544,15 +544,15 @@ struct QuestionThreadView: View {
 
     private var collapsed: some View {
         Button(action: reopen) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "questionmark.circle").foregroundStyle(Theme.plan)
                 (Text(question.text).fontWeight(.medium)
                  + Text(ReviewText.attributed(" - " + (question.exchanges.last?.answer ?? ""))).foregroundStyle(.secondary))
-                    .font(.system(size: 12)).lineLimit(1)
+                    .font(Typography.detail).lineLimit(1)
                 Spacer(minLength: 8)
                 ReviewStatusChip(status: .answered)
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
+            .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -563,12 +563,12 @@ struct QuestionThreadView: View {
     private var full: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showsBand { RouteBand(place: place, stays: true, agentTitle: agent.title) }
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 ForEach(question.exchanges) { exchange in
                     you(exchange.question, first: exchange.id == question.exchanges.first?.id)
                     if let answer = exchange.answer {
                         sideCopy(meta: meta(exchange)) {
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: Space.md) {
                                 MarkdownProse(text: answer, projectPath: projectPath, textScale: textScale) { segment in
                                     MarkdownCodeBlock(segment: segment).equatable()
                                 }
@@ -586,7 +586,7 @@ struct QuestionThreadView: View {
                 }
                 if question.status == .answered { outcome }
             }
-            .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 14)
+            .padding(.horizontal, Space.xl).padding(.top, Space.lg).padding(.bottom, Space.lg)
             if asking { followUpBox }
             if question.status == .answered, !asking { actions }
         }
@@ -598,11 +598,11 @@ struct QuestionThreadView: View {
     }
 
     private func you(_ text: String, first: Bool) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             ReviewAvatar(agent: nil, size: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 7) {
-                    Text("You").font(.system(size: 12, weight: .semibold))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
+                    Text("You").font(Typography.label)
                     if first { QuestionTag() }
                 }
                 .frame(minHeight: 22)
@@ -613,12 +613,12 @@ struct QuestionThreadView: View {
 
     private func sideCopy<Content: View>(meta: String, answering: Bool = false,
                                          @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             SideCopyAvatar(agent: agent, answering: answering)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 7) {
-                    Text(agent.title).font(.system(size: 12, weight: .semibold))
-                    Text(meta).font(.system(size: 11)).foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
+                    Text(agent.title).font(Typography.label)
+                    Text(meta).font(Typography.caption).foregroundStyle(.tertiary)
                     if answering {
                         Spacer(minLength: 8)
                         StopAnsweringButton(showsTitle: true, action: stop)
@@ -633,10 +633,10 @@ struct QuestionThreadView: View {
 
     private var answering: some View {
         sideCopy(meta: "side copy · answering", answering: true) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 let shown = steps.isEmpty ? ["Starting"] : steps
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, step in
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         if index == shown.count - 1 {
                             LoopSpinner(size: 10).frame(width: 12)
                         } else {
@@ -649,8 +649,8 @@ struct QuestionThreadView: View {
                     .transition(.fadeIn)
                 }
             }
-            .font(.system(size: 12)).foregroundStyle(.secondary)
-            .padding(.top, 2)
+            .font(Typography.detail).foregroundStyle(.secondary)
+            .padding(.top, Space.xxs)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(agent.title) is answering. " + (steps.last ?? ""))
         }
@@ -660,19 +660,19 @@ struct QuestionThreadView: View {
     // stopped. Nothing is struck through: stopping is the person's choice, not a failure.
     private func stopped(_ reached: [String], at time: Date) -> some View {
         sideCopy(meta: "side copy · stopped at " + time.formatted(date: .omitted, time: .shortened)) {
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     let shown = reached.isEmpty ? ["Starting"] : reached
                     ForEach(Array(shown.enumerated()), id: \.offset) { index, step in
-                        HStack(spacing: 6) {
+                        HStack(spacing: Space.sm) {
                             if index == shown.count - 1 {
                                 RoundedRectangle(cornerRadius: 1.5).fill(Color.secondary)
                                     .frame(width: 7, height: 7).frame(width: 12)
                                 Text(step).lineLimit(1).truncationMode(.middle)
                                 Text("Stopped here")
-                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .font(Typography.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6).padding(.vertical, 1.5)
+                                    .padding(.horizontal, Space.sm).padding(.vertical, 1.5)
                                     .background(Capsule().fill(Theme.sunken))
                                     .fixedSize()
                             } else {
@@ -684,53 +684,53 @@ struct QuestionThreadView: View {
                         }
                     }
                 }
-                .font(.system(size: 12)).foregroundStyle(.secondary)
-                .padding(.top, 2)
+                .font(Typography.detail).foregroundStyle(.secondary)
+                .padding(.top, Space.xxs)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Stopped at: " + (reached.last ?? "Starting"))
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     (Text("You stopped this answer. ").fontWeight(.semibold).foregroundStyle(Color.primary)
                      + Text("Nothing in the session or the review changed."))
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .font(Typography.detail).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    HStack(spacing: 8) {
-                        ActionButton(title: "Ask again", tone: .plan, height: 26, size: 11.5,
+                    HStack(spacing: Space.md) {
+                        ActionButton(title: "Ask again", tone: .plan, height: ControlHeight.sm, size: Typography.Size.detail,
                                      icon: "arrow.clockwise", action: askAgain)
                             .accessibilityFocused($askAgainFocused)
                         if let editQuestion {
-                            ActionButton(title: "Edit question", tone: .outlined, height: 26, size: 11.5,
+                            ActionButton(title: "Edit question", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail,
                                          icon: "pencil", action: editQuestion)
                         }
                         Spacer(minLength: 0)
                         QuietRemoveLink(action: delete)
                     }
                 }
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                .padding(Space.md)
+                .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
             }
         }
     }
 
     private func failed(_ reason: String) -> some View {
         sideCopy(meta: "side copy") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.md) {
+                HStack(alignment: .top, spacing: Space.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
                     (Text("Couldn't answer. ").fontWeight(.semibold) + Text(reason))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .font(.system(size: 12)).foregroundStyle(Theme.warningText)
-                HStack(spacing: 12) {
-                    ActionButton(title: "Try again", tone: .outlined, height: 26, size: 11.5,
+                .font(Typography.detail).foregroundStyle(Theme.warningText)
+                HStack(spacing: Space.lg) {
+                    ActionButton(title: "Try again", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail,
                                  icon: "arrow.clockwise", action: retry)
                     Spacer(minLength: 0)
                     QuietRemoveLink(action: delete)
                 }
             }
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.warningBackground))
+            .padding(Space.md)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.warningBackground))
         }
     }
 
@@ -740,67 +740,67 @@ struct QuestionThreadView: View {
         if let suggestion = question.suggestion {
             Group {
                 if let change, let changeSent {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         Label("Sent to \(agent.title) at " + changeSent.formatted(date: .omitted, time: .shortened),
                               systemImage: "checkmark")
-                            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.accent)
+                            .font(Typography.label).foregroundStyle(Theme.accent)
                         ReviewText(text: change.body, size: 12.5).foregroundStyle(.secondary)
                     }
-                    .padding(10)
+                    .padding(Space.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+                    .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
                 } else if let change {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.md) {
                         Label("Change for \(agent.title) · in your review", systemImage: "pencil")
-                            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.accent)
+                            .font(Typography.label).foregroundStyle(Theme.accent)
                         TextField("What should \(agent.title) change?",
                                   text: Binding(get: { change.body }, set: { editChange($0) }), axis: .vertical)
                             .lineLimit(1...6)
                             .appTextField()
                             .accessibilityLabel("Change for \(agent.title)")
-                        HStack(spacing: 12) {
+                        HStack(spacing: Space.lg) {
                             Toggle("Also send the question and answer",
                                    isOn: Binding(get: { change.why != nil }, set: { sendsQuestion($0) }))
                                 .toggleStyle(.appCheckbox)
-                                .font(.system(size: 11.5))
+                                .font(Typography.detail)
                             Spacer(minLength: 0)
-                            InlineLink(title: "Take out of review", size: 11.5, tint: Color.secondary, action: takeOut)
+                            InlineLink(title: "Take out of review", size: Typography.Size.detail, tint: Color.secondary, action: takeOut)
                         }
                     }
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent.opacity(0.06)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.accent.opacity(0.35)))
+                    .padding(Space.md)
+                    .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.accent.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.accent.opacity(0.35)))
                 } else {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.md) {
                         Label("Suggests a change", systemImage: "pencil")
-                            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.secondary)
+                            .font(Typography.label).foregroundStyle(.secondary)
                         ReviewText(text: suggestion, size: 12.5)
                         if let makeChange {
-                            HStack(spacing: 10) {
-                                ActionButton(title: "Make this a change", tone: .green, height: 26, size: 11.5,
+                            HStack(spacing: Space.md) {
+                                ActionButton(title: "Make this a change", tone: .green, height: ControlHeight.sm, size: Typography.Size.detail,
                                              icon: "pencil", action: makeChange)
                                 Text("Goes to \(agent.title) straight away")
-                                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                                    .font(Typography.caption).foregroundStyle(.tertiary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    .padding(Space.md)
+                    .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                 }
             }
             .padding(.leading, 32)
         } else {
             Label("No change suggested. Nothing here will reach the chat.", systemImage: "checkmark")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .font(Typography.detail).foregroundStyle(.secondary)
                 .padding(.leading, 32)
         }
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
-            ActionButton(title: "Ask a follow-up", tone: .outlined, height: 26, size: 11.5) {
+        HStack(spacing: Space.md) {
+            ActionButton(title: "Ask a follow-up", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) {
                 if let startFollowUp {
                     startFollowUp()
                 } else {
@@ -809,13 +809,13 @@ struct QuestionThreadView: View {
                 }
             }
             Spacer(minLength: 0)
-            InlineLink(title: "Resolve", size: 11.5, tint: Color.secondary, action: resolve)
-            GlyphButton(icon: copied ? "checkmark" : "doc.on.doc", side: 24, tint: copied ? Theme.dotOn : nil,
+            InlineLink(title: "Resolve", size: Typography.Size.detail, tint: Color.secondary, action: resolve)
+            GlyphButton(icon: copied ? "checkmark" : "doc.on.doc", side: ControlHeight.sm, tint: copied ? Theme.dotOn : nil,
                         action: copyAnswer)
                 .appTooltip("Copy the answer")
                 .accessibilityLabel(copied ? "Copied" : "Copy the answer")
         }
-        .padding(.leading, 48).padding(.trailing, 16).padding(.bottom, 14)
+        .padding(.leading, 48).padding(.trailing, Space.xl).padding(.bottom, Space.lg)
     }
 
     private func copyAnswer() {
@@ -829,7 +829,7 @@ struct QuestionThreadView: View {
     // a button among its words, so the chips sit in a row under it.
     @ViewBuilder private func referenceChips(_ found: [AnswerReference]) -> some View {
         if !found.isEmpty {
-            FlowRow(spacing: 6) {
+            FlowRow(spacing: Space.sm) {
                 ForEach(Array(found.enumerated()), id: \.offset) { _, reference in
                     AnswerReferenceChip(reference: reference,
                                         show: { showReference(reference.citation) },
@@ -843,33 +843,33 @@ struct QuestionThreadView: View {
 
 
     private var followUpBox: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             TextField("Ask \(agent.title) a follow-up. The answer stays here.", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .lineLimit(2...8)
                 .focused($fieldFocused)
                 .onSubmit(send)
                 .onExitCommand(perform: cancel)
                 .accessibilityLabel("Follow-up question")
-            HStack(spacing: 10) {
-                HStack(spacing: 4) {
+            HStack(spacing: Space.md) {
+                HStack(spacing: Space.xs) {
                     KeyCap(key: "⌘↩"); Text("ask")
                     KeyCap(key: "esc"); Text("cancel")
                 }
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .font(Typography.caption).foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
                 Spacer(minLength: 0)
-                InlineLink(title: "Cancel", size: 11.5, tint: Color.secondary, action: cancel)
-                ActionButton(title: "Ask", tone: .plan, height: 26, size: 11.5, icon: "questionmark",
+                InlineLink(title: "Cancel", size: Typography.Size.detail, tint: Color.secondary, action: cancel)
+                ActionButton(title: "Ask", tone: .plan, height: ControlHeight.sm, size: Typography.Size.detail, icon: "questionmark",
                              keyboardShortcut: KeyboardShortcut(.return, modifiers: .command), action: send)
                     .disabled(draft.isBlank)
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.plan.opacity(0.5)))
-        .padding(.leading, 48).padding(.trailing, 16).padding(.bottom, 14)
+        .padding(.horizontal, Space.md).padding(.vertical, Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.plan.opacity(0.5)))
+        .padding(.leading, 48).padding(.trailing, Space.xl).padding(.bottom, Space.lg)
         .onAppear { fieldFocused = true }
     }
 
@@ -903,16 +903,16 @@ struct AnswerReferenceChip: View {
 
     var body: some View {
         Button(action: show) {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 ProjectDot(tint: reference.tint, size: 7)
                 (Text(reference.citation.fileName).foregroundStyle(Color.primary)
                  + Text(reference.citation.linesSuffix).foregroundStyle(.secondary))
-                    .font(.mono(11)).lineLimit(1).truncationMode(.middle)
+                    .font(Typography.data).lineLimit(1).truncationMode(.middle)
             }
-            .padding(.horizontal, 7).frame(height: 22)
-            .surface(hovering ? Theme.plan.opacity(0.10) : Theme.sunken, cornerRadius: 6,
+            .padding(.horizontal, Space.sm).frame(height: 22)
+            .surface(hovering ? Theme.plan.opacity(0.10) : Theme.sunken, cornerRadius: Radius.inset,
                      border: hovering ? Theme.plan.opacity(0.4) : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.inset))
         }
         .buttonStyle(.plain)
         .hoverLift(hovering, amount: Motion.smallLift)
@@ -937,7 +937,7 @@ struct QuietRemoveLink: View {
     var body: some View {
         Button(action: action) {
             Text("Remove")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(hovering ? Theme.deletion : Color.secondary)
                 .fixedSize()
                 .contentShape(Rectangle())
@@ -958,19 +958,19 @@ struct StopAnsweringButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 RoundedRectangle(cornerRadius: 2).frame(width: 8, height: 8)
                 if showsTitle {
-                    Text("Stop").font(.system(size: 11.5, weight: .semibold)).fixedSize()
+                    Text("Stop").font(Typography.label).fixedSize()
                     KeyCap(key: "esc")
                 }
             }
             .foregroundStyle(hovering ? Theme.warningText : Color.primary)
             .padding(.horizontal, showsTitle ? 9 : 0)
             .frame(width: showsTitle ? nil : 22, height: showsTitle ? 24 : 22)
-            .surface(hovering ? Theme.warningBackground : Theme.card, cornerRadius: 6,
+            .surface(hovering ? Theme.warningBackground : Theme.card, cornerRadius: Radius.inset,
                      border: hovering ? Theme.warningText.opacity(0.3) : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.inset))
         }
         .buttonStyle(.plain)
         .hoverLift(hovering, amount: Motion.smallLift)
@@ -1027,12 +1027,12 @@ struct ReviewLane: View {
                 failure(message)
             } else {
                 line
-                    .padding(.leading, 8).padding(.trailing, 4)
+                    .padding(.leading, Space.md).padding(.trailing, Space.xs)
                     .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 30, maxHeight: 30, alignment: .leading)
             }
         }
-        .font(.system(size: 11.5))
-        .surface(fill, cornerRadius: 8, border: border)
+        .font(Typography.detail)
+        .surface(fill, cornerRadius: Radius.control, border: border)
         .fixedSize(horizontal: !fillsWidth, vertical: true)
         .appTooltip(name)
         .accessibilityElement(children: .contain)
@@ -1041,60 +1041,60 @@ struct ReviewLane: View {
     }
 
     private var line: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             switch state {
             case .running:
                 LoopSpinner(size: 10)
-                Text(reviewer.agent.title).font(.system(size: 12, weight: .semibold)).fixedSize()
+                Text(reviewer.agent.title).font(Typography.label).fixedSize()
                 if let seat = reviewer.seatLabel {
                     Text(seat)
-                        .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .font(Typography.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .padding(.horizontal, Space.xs).padding(.vertical, 1)
                         .background(Capsule().fill(Theme.sunken))
                         .fixedSize()
                 }
                 Text(activity).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     .frame(maxWidth: fillsWidth ? .infinity : 170, alignment: .leading)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(Self.clock(from: started, to: context.date)).font(.mono(11)).foregroundStyle(.tertiary)
+                    Text(Self.clock(from: started, to: context.date)).font(Typography.data).foregroundStyle(.tertiary)
                 }
-                GlyphButton(icon: "stop.fill", side: 20, action: stop)
+                GlyphButton(icon: "stop.fill", side: ControlHeight.xs, action: stop)
                     .appTooltip("Stop")
                     .accessibilityLabel("Stop \(name)")
             case .finished(let outcome):
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.dotOn)
-                Text(reviewer.agent.title).font(.system(size: 12, weight: .semibold)).fixedSize()
+                Text(reviewer.agent.title).font(Typography.label).fixedSize()
                 Text(outcome + " · " + Self.clock(from: started, to: ended ?? Date()))
                     .foregroundStyle(.secondary).lineLimit(1)
                 if fillsWidth { Spacer(minLength: 0) }
-                if let dismiss { GlyphButton(icon: "xmark", side: 20, action: dismiss).accessibilityLabel("Hide") }
+                if let dismiss { GlyphButton(icon: "xmark", side: ControlHeight.xs, action: dismiss).accessibilityLabel("Hide") }
             case .failed(let message):
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warningText)
-                Text("\(reviewer.agent.title) could not finish").font(.system(size: 12, weight: .semibold))
+                Text("\(reviewer.agent.title) could not finish").font(Typography.label)
                     .foregroundStyle(Theme.warningText).lineLimit(1)
                 Text(message).foregroundStyle(Theme.warningText.opacity(0.8)).lineLimit(1)
                     .frame(maxWidth: 160, alignment: .leading)
                     .appTooltip(message)
                 InlineLink(title: "Try again", tint: Theme.warningText, action: retry)
-                if let dismiss { GlyphButton(icon: "xmark", side: 20, action: dismiss).accessibilityLabel("Hide") }
+                if let dismiss { GlyphButton(icon: "xmark", side: ControlHeight.xs, action: dismiss).accessibilityLabel("Hide") }
             }
         }
     }
 
     private func failure(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                Text("\(reviewer.agent.title) could not finish").font(.system(size: 12, weight: .semibold))
+                Text("\(reviewer.agent.title) could not finish").font(Typography.label)
                 Spacer(minLength: 0)
-                if let dismiss { GlyphButton(icon: "xmark", side: 20, action: dismiss).accessibilityLabel("Hide") }
+                if let dismiss { GlyphButton(icon: "xmark", side: ControlHeight.xs, action: dismiss).accessibilityLabel("Hide") }
             }
             Text(message).foregroundStyle(Theme.warningText.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
             InlineLink(title: "Try again", tint: Theme.warningText, action: retry)
         }
         .foregroundStyle(Theme.warningText)
-        .padding(.leading, 8).padding(.trailing, 4).padding(.vertical, 6)
+        .padding(.leading, Space.md).padding(.trailing, Space.xs).padding(.vertical, Space.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -1134,13 +1134,13 @@ struct SeatPill<Content: View>: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Space.xs) {
             content
             MenuChevron(size: 7)
         }
-        .font(.system(size: 11.5, weight: .semibold))
+        .font(Typography.label)
         .lineLimit(1)
-        .padding(.horizontal, 8).frame(height: 24)
+        .padding(.horizontal, Space.md).frame(height: 24)
         .background(Capsule().fill(hovering ? Theme.border : Theme.field))
         .contentShape(Capsule())
         .fixedSize()
@@ -1164,17 +1164,17 @@ struct SecondOpinionButton: View {
             deals += 1
             action()
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 if !usual.isEmpty {
                     LineupTiles(agents: usual, fanned: hovering, deals: deals)
                         .motion(Motion.hover, value: hovering)
                 }
-                Text("Second opinion").font(.system(size: 12, weight: .semibold))
+                Text("Second opinion").font(Typography.label)
             }
-            .padding(.horizontal, 10).frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? Theme.field : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, Space.md).frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(hovering ? Theme.field : .clear))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Theme.border))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             .fixedSize()
         }
         .buttonStyle(.plain)
@@ -1190,7 +1190,7 @@ struct IndependenceMeter: View {
     let independence: SecondOpinion.Independence
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Space.xxs) {
             ForEach(0..<3, id: \.self) { step in
                 if independence == .unknown {
                     Capsule().strokeBorder(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [2, 1.5]))
@@ -1270,7 +1270,7 @@ struct SendReviewSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             if pendingCount > 0 {
                 callout(icon: "exclamationmark.triangle.fill", tint: Theme.attentionText, fill: Theme.attention.opacity(0.12),
                         bold: "\(counted(pendingCount, "finding")) still to look at.",
@@ -1288,7 +1288,7 @@ struct SendReviewSheet: View {
                     EmptyView()
                 }
             }
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 ChoicePill(title: "Comments \(chosen.count)", selected: !showsPrompt) { showsPrompt = false }
                 ChoicePill(title: "What \(agentTitle) reads", selected: showsPrompt) { showsPrompt = true }
                 Spacer(minLength: 0)
@@ -1301,55 +1301,55 @@ struct SendReviewSheet: View {
             ScrollView {
                 if showsPrompt {
                     Text(chosen.isEmpty ? "Tick at least one comment to send." : prompt(chosen, note))
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
+                        .padding(Space.lg)
                         .onGeometryChange(for: CGFloat.self, of: \.size.height) { listHeight = $0 }
                 } else {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Space.lg) {
                         ForEach(groups, id: \.file) { group in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 6) {
-                                    Text(fileName(group.comments[0])).font(.system(size: 12, weight: .semibold))
+                            VStack(alignment: .leading, spacing: Space.sm) {
+                                HStack(spacing: Space.sm) {
+                                    Text(fileName(group.comments[0])).font(Typography.label)
                                     Text(counted(group.comments.count, "comment"))
-                                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                                        .font(Typography.caption).foregroundStyle(.tertiary)
                                 }
                                 ForEach(group.comments) { comment in row(comment) }
                             }
                         }
                     }
-                    .padding(12)
+                    .padding(Space.lg)
                     .onGeometryChange(for: CGFloat.self, of: \.size.height) { listHeight = $0 }
                 }
             }
             .frame(height: min(300, listHeight))
-            .background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+            .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
             if questionsLeftOut > 0 {
                 Label(questionsLeftOut == 1 ? "Your question and its answer are left out. They stay in Changes."
                       : "Your \(questionsLeftOut) questions and their answers are left out. They stay in Changes.",
                       systemImage: "eye.slash")
-                    .font(.system(size: 11.5)).foregroundStyle(Theme.plan)
+                    .font(Typography.detail).foregroundStyle(Theme.plan)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Anything else for this round?").font(.system(size: 12, weight: .semibold))
+            VStack(alignment: .leading, spacing: Space.sm) {
+                Text("Anything else for this round?").font(Typography.label)
                 TextField("For example: run the tests when you are done", text: $note, axis: .vertical)
                     .lineLimit(1...4)
                     .appTextField()
             }
-            HStack(spacing: 14) {
+            HStack(spacing: Space.lg) {
                 Spacer(minLength: 0)
                 Button { dialogs.dismiss() } label: {
-                    Text("Cancel").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                    Text("Cancel").font(Typography.label).foregroundStyle(.secondary)
                         .contentShape(Rectangle())
                         .hoverLift()
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 ActionButton(title: "\(busy ? "Queue" : "Send") \(counted(chosen.count, "comment"))",
-                             tone: .green, height: 32, size: 12.5, icon: "paperplane.fill",
+                             tone: .green, height: ControlHeight.lg, size: Typography.Size.body, icon: "paperplane.fill",
                              keyboardShortcut: .defaultAction) {
                     let list = chosen
                     let words = note
@@ -1358,18 +1358,18 @@ struct SendReviewSheet: View {
                 }
                 .disabled(chosen.isEmpty)
             }
-            .padding(.top, 4)
+            .padding(.top, Space.xs)
         }
     }
 
     private func row(_ comment: ReviewComment) -> some View {
         Toggle(isOn: Binding(get: { picked.contains(comment.id) },
                              set: { on in if on { picked.insert(comment.id) } else { picked.remove(comment.id) } })) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
                     ReviewAvatars(comment: comment, size: 16)
-                    Text(comment.authorName).font(.system(size: 11.5, weight: .semibold))
-                    Text(comment.linesLabel).font(.mono(10.5)).foregroundStyle(.secondary)
+                    Text(comment.authorName).font(Typography.label)
+                    Text(comment.linesLabel).font(Typography.data).foregroundStyle(.secondary)
                     if comment.kind == .question { QuestionTag() }
                     if let severity = comment.severity { SeverityChip(severity: severity) }
                 }
@@ -1383,17 +1383,17 @@ struct SendReviewSheet: View {
 
     private func callout<Action: View>(icon: String, tint: Color, fill: Color, bold: String, text: String,
                                        @ViewBuilder action: () -> Action) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: icon).foregroundStyle(tint)
             (Text(bold).fontWeight(.semibold) + Text(" " + text))
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             action()
         }
         .foregroundStyle(tint)
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(fill))
+        .padding(Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(fill))
     }
 }
 
@@ -1413,8 +1413,8 @@ struct ReviewToastView: View {
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            Text(toast.text).font(.system(size: 12.5)).foregroundStyle(.primary).lineLimit(2)
+        HStack(spacing: Space.lg) {
+            Text(toast.text).font(Typography.body).foregroundStyle(.primary).lineLimit(2)
             if let title = toast.actionTitle, let action = toast.action {
                 InlineLink(title: title) {
                     dismiss()
@@ -1422,8 +1422,8 @@ struct ReviewToastView: View {
                 }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .floatingCard(cornerRadius: 10)
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
+        .floatingCard(cornerRadius: Radius.card)
         .accessibilityElement(children: .contain)
     }
 }
@@ -1436,13 +1436,13 @@ struct ReviewStatusChip: View {
     var label: String?
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             Image(systemName: icon).font(.system(size: 9, weight: .bold))
             Text(label ?? status.label).lineLimit(1).fixedSize()
         }
-        .font(.system(size: 11, weight: .semibold))
+        .font(Typography.caption.weight(.semibold))
         .foregroundStyle(ink)
-        .padding(.horizontal, status == .resolved ? 0 : 8).padding(.vertical, 3)
+        .padding(.horizontal, status == .resolved ? 0 : 8).padding(.vertical, Space.xxs)
         .background(Capsule().fill(fill))
     }
 
@@ -1515,8 +1515,8 @@ struct ReviewThreadView: View {
         VStack(alignment: .leading, spacing: 0) {
             bar
             if status != .resolved {
-                if showsQuote, !comment.excerpt.isBlank { quote.padding(.horizontal, 16).padding(.top, 8) }
-                VStack(alignment: .leading, spacing: 12) {
+                if showsQuote, !comment.excerpt.isBlank { quote.padding(.horizontal, Space.xl).padding(.top, Space.md) }
+                VStack(alignment: .leading, spacing: Space.lg) {
                     message(agent: nil, when: nil) {
                         ReviewText(text: comment.body, size: 13)
                     }
@@ -1532,11 +1532,11 @@ struct ReviewThreadView: View {
                     }
                     if round.isAwaitingReply(comment.id) {
                         message(agent: agent, when: Text("replying")) {
-                            LoopSpinner(size: 14).padding(.vertical, 2)
+                            LoopSpinner(size: 14).padding(.vertical, Space.xxs)
                         }
                     }
                 }
-                .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 14)
+                .padding(.horizontal, Space.xl).padding(.top, Space.md).padding(.bottom, Space.lg)
                 if replying { replyBox }
                 if status != .waiting { actions }
             }
@@ -1554,9 +1554,9 @@ struct ReviewThreadView: View {
     }
 
     private var bar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             (Text(fileName).foregroundStyle(.primary).fontWeight(.medium) + Text(lines.isEmpty ? "" : " " + lines))
-                .font(.mono(11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                .font(Typography.data).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             if status == .resolved {
                 ReviewText(text: comment.body, size: 12, lineLimit: 1)
                     .foregroundStyle(.secondary)
@@ -1565,10 +1565,10 @@ struct ReviewThreadView: View {
             Spacer(minLength: 0)
             ReviewStatusChip(status: status)
             if status == .resolved {
-                InlineLink(title: "Reopen", size: 11.5, tint: Color.secondary, action: reopen)
+                InlineLink(title: "Reopen", size: Typography.Size.detail, tint: Color.secondary, action: reopen)
             }
         }
-        .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, status == .resolved ? 12 : 0)
+        .padding(.horizontal, Space.xl).padding(.top, Space.lg).padding(.bottom, status == .resolved ? 12 : 0)
     }
 
     // The quoted code: three lines, with the rest a click away.
@@ -1585,8 +1585,8 @@ struct ReviewThreadView: View {
             if numbered.count > shown.count {
                 Button { showsAllLines = true } label: {
                     Text("Show all \(numbered.count) lines")
-                        .font(.system(size: 11)).foregroundStyle(.tertiary)
-                        .padding(.leading, 52).padding(.vertical, 3)
+                        .font(Typography.caption).foregroundStyle(.tertiary)
+                        .padding(.leading, 52).padding(.vertical, Space.xxs)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
@@ -1600,14 +1600,14 @@ struct ReviewThreadView: View {
     }
 
     private func codeLine(number: Int, text: String, ink: Color, numberInk: Color, fill: Color) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Text("\(number)").foregroundStyle(numberInk).frame(width: 28, alignment: .trailing)
             Text(text).foregroundStyle(ink).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .font(.mono(11))
+        .font(Typography.data)
         .padding(.vertical, 1.5)
-        .padding(.trailing, 12)
+        .padding(.trailing, Space.lg)
         .background(fill)
     }
 
@@ -1615,17 +1615,17 @@ struct ReviewThreadView: View {
     @ViewBuilder private var firstAnswer: some View {
         if !round.isSettled {
             message(agent: agent, when: Text("working on it")) {
-                VStack(alignment: .leading, spacing: 7) {
-                    RoundedRectangle(cornerRadius: 5).fill(Theme.field).frame(width: 280, height: 9)
-                    RoundedRectangle(cornerRadius: 5).fill(Theme.field).frame(width: 190, height: 9)
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.field).frame(width: 280, height: 9)
+                    RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.field).frame(width: 190, height: 9)
                 }
-                .padding(.top, 4)
+                .padding(.top, Space.xs)
                 .accessibilityLabel("\(agent.title) is working on it")
             }
         } else {
             message(agent: agent, when: Text(firstWhen(changedFile: round.outcomes?[comment.id] == .changed))) {
                 Text("No answer of its own. What \(agent.title) said is in the conversation.")
-                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                    .font(Typography.body).foregroundStyle(.secondary)
             }
         }
     }
@@ -1643,7 +1643,7 @@ struct ReviewThreadView: View {
         let first = replies.first?.id == reply.id
         let when = first ? firstWhen(changedFile: reply.changedFile) : reply.changedFile ? "changed the file" : "replied"
         return message(agent: agent, when: Text(when)) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 if !reply.body.isBlank {
                     MarkdownProse(text: reply.body, projectPath: projectPath, textScale: textScale) { segment in
                         MarkdownCodeBlock(segment: segment).equatable()
@@ -1657,13 +1657,13 @@ struct ReviewThreadView: View {
 
     private func diff(_ lines: [ReviewDiffLine]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Text((comment.path as NSString).lastPathComponent)
-                Text("+\(lines.count { $0.kind == .addition })").font(.mono(11)).foregroundStyle(Theme.addition)
-                Text("−\(lines.count { $0.kind == .deletion })").font(.mono(11)).foregroundStyle(Theme.deletion)
+                Text("+\(lines.count { $0.kind == .addition })").font(Typography.data).foregroundStyle(Theme.addition)
+                Text("−\(lines.count { $0.kind == .deletion })").font(Typography.data).foregroundStyle(Theme.deletion)
             }
-            .font(.system(size: 11)).foregroundStyle(.secondary)
-            .padding(.horizontal, 12).padding(.vertical, 5)
+            .font(Typography.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, Space.lg).padding(.vertical, Space.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -1682,23 +1682,23 @@ struct ReviewThreadView: View {
     private func message<Content: View>(agent: AgentKind?, when: Text?,
                                         @ViewBuilder content: () -> Content) -> some View {
         let isYou = agent == nil
-        return HStack(alignment: .top, spacing: 10) {
+        return HStack(alignment: .top, spacing: Space.md) {
             ReviewAvatar(agent: agent, size: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 7) {
-                    Text(isYou ? "You" : agent?.title ?? "").font(.system(size: 12, weight: .semibold))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
+                    Text(isYou ? "You" : agent?.title ?? "").font(Typography.label)
                     if isYou, when == nil {
                         if comment.kind == .question {
                             QuestionTag()
                         } else {
                             Text("Change")
-                                .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.accent)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                                .padding(.horizontal, Space.sm).padding(.vertical, Space.xxs)
                                 .background(Capsule().fill(Theme.accent.opacity(0.09)))
                                 .fixedSize()
                         }
                     }
-                    if let when { when.font(.system(size: 11)).foregroundStyle(.tertiary) }
+                    if let when { when.font(Typography.caption).foregroundStyle(.tertiary) }
                 }
                 .frame(minHeight: 22)
                 content()
@@ -1713,16 +1713,16 @@ struct ReviewThreadView: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             if let suggestion, !replying {
                 Button { reply(suggestion) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                    HStack(spacing: Space.sm) {
+                        Image(systemName: "checkmark").font(Typography.micro)
                         Text(suggestion).lineLimit(1)
                     }
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Theme.plan)
-                    .padding(.horizontal, 11).frame(height: 26)
+                    .padding(.horizontal, Space.lg).frame(height: 26)
                     .background(Capsule().fill(Theme.card))
                     .overlay(Capsule().strokeBorder(Theme.plan.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                     .contentShape(Capsule())
@@ -1733,47 +1733,47 @@ struct ReviewThreadView: View {
                 .accessibilityLabel("Suggested reply: \(suggestion)")
             }
             if !replying {
-                ActionButton(title: "Reply", tone: .outlined, height: 26, size: 11.5) {
+                ActionButton(title: "Reply", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) {
                     replying = true
                     fieldFocused = true
                 }
             }
             if let showInDiff {
-                InlineLink(title: "Show in diff", size: 11.5, tint: Color.secondary, action: showInDiff)
+                InlineLink(title: "Show in diff", size: Typography.Size.detail, tint: Color.secondary, action: showInDiff)
             }
             Spacer(minLength: 0)
-            InlineLink(title: "Resolve", size: 11.5, tint: Color.secondary, action: resolve)
+            InlineLink(title: "Resolve", size: Typography.Size.detail, tint: Color.secondary, action: resolve)
         }
-        .padding(.leading, 48).padding(.trailing, 16).padding(.bottom, 14)
+        .padding(.leading, 48).padding(.trailing, Space.xl).padding(.bottom, Space.lg)
     }
 
     private var replyBox: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             TextField("Reply to \(agent.title) about these lines", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .lineLimit(2...8)
                 .focused($fieldFocused)
                 .onSubmit(send)
                 .onExitCommand(perform: cancel)
                 .accessibilityLabel("Reply to \(agent.title)")
-            HStack(spacing: 10) {
-                HStack(spacing: 4) {
+            HStack(spacing: Space.md) {
+                HStack(spacing: Space.xs) {
                     KeyCap(key: "↩"); Text("send")
                     KeyCap(key: "esc"); Text("cancel")
                 }
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .font(Typography.caption).foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
                 Spacer(minLength: 0)
-                InlineLink(title: "Cancel", size: 11.5, tint: Color.secondary, action: cancel)
-                ActionButton(title: "Send reply", tone: .green, height: 26, size: 11.5, action: send)
+                InlineLink(title: "Cancel", size: Typography.Size.detail, tint: Color.secondary, action: cancel)
+                ActionButton(title: "Send reply", tone: .green, height: ControlHeight.sm, size: Typography.Size.detail, action: send)
                     .disabled(draft.isBlank)
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accent.opacity(0.5)))
-        .padding(.leading, 48).padding(.trailing, 16).padding(.bottom, 14)
+        .padding(.horizontal, Space.md).padding(.vertical, Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.accent.opacity(0.5)))
+        .padding(.leading, 48).padding(.trailing, Space.xl).padding(.bottom, Space.lg)
         .onAppear { fieldFocused = true }
     }
 
@@ -1792,9 +1792,9 @@ struct ReviewThreadView: View {
 
 private extension View {
     func codeBox() -> some View {
-        clipShape(RoundedRectangle(cornerRadius: 8))
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.sunken))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
+        clipShape(RoundedRectangle(cornerRadius: Radius.control))
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.sunken))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.hairline))
     }
 }
 
@@ -1838,28 +1838,28 @@ struct ReviewCard: View {
             }
             if !round.note.isBlank {
                 (Text("Also: ").foregroundStyle(.secondary) + Text(round.note))
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16).padding(.bottom, 12)
+                    .padding(.horizontal, Space.xl).padding(.bottom, Space.lg)
             }
             footer
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .cardSurface(cornerRadius: 12)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .cardSurface(cornerRadius: Radius.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your review, \(counted(round.comments.count, "comment"))")
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             ReviewAvatar(agent: nil, size: 22)
-            Text("Your review").font(.serif(15, .semibold))
-            subtitle.font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+            Text("Your review").font(Typography.title)
+            subtitle.font(Typography.detail).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 0)
             tally
-            InlineLink(title: "Open in Changes", size: 11.5, action: openInChanges)
+            InlineLink(title: "Open in Changes", size: Typography.Size.detail, action: openInChanges)
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        .padding(.horizontal, Space.xl).padding(.vertical, Space.lg)
         .background(Theme.userMessage)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.userMessageRing).frame(height: 1) }
     }
@@ -1874,15 +1874,15 @@ struct ReviewCard: View {
 
     @ViewBuilder private var tally: some View {
         if settling {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 LoopSpinner(size: 10)
                 Text("\(agent.title) is working through it")
             }
-            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            .padding(.horizontal, 8).padding(.vertical, 3)
+            .font(Typography.caption.weight(.semibold)).foregroundStyle(.secondary)
+            .padding(.horizontal, Space.md).padding(.vertical, Space.xxs)
             .background(Capsule().fill(Theme.field))
         } else {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 ForEach([ReviewRound.Status.changed, .answered, .unchanged, .waiting], id: \.label) { status in
                     let count = round.comments.count { round.status($0.id) == status }
                     if count > 0 { ReviewStatusChip(status: status, label: "\(count) " + status.label.lowercased()) }
@@ -1892,23 +1892,23 @@ struct ReviewCard: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
-            ActionButton(title: "Review what changed", tone: .green, height: 30, size: 12,
+        HStack(spacing: Space.md) {
+            ActionButton(title: "Review what changed", tone: .green, height: ControlHeight.md, size: Typography.Size.detail,
                          icon: "plusminus", action: reviewWhatChanged)
             if let checker {
-                ActionButton(title: "Ask \(checker.title) to check the fixes", tone: .outlined, height: 30,
-                             size: 12, icon: "person.2", action: checkFixes)
+                ActionButton(title: "Ask \(checker.title) to check the fixes", tone: .outlined, height: ControlHeight.md,
+                             size: Typography.Size.detail, icon: "person.2", action: checkFixes)
                     .disabled(round.trees.isEmpty)
             }
             Spacer(minLength: 0)
             if let checker {
                 Text("\(checker.title) reads only what changed since you sent the review")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .font(Typography.caption).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .disabled(settling)
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        .padding(.horizontal, Space.xl).padding(.vertical, Space.lg)
         .background(Theme.sunken)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }

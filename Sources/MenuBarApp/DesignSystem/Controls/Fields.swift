@@ -6,11 +6,12 @@ import SwiftUI
 extension View {
     // The app's text field: no system chrome, a quiet fill and a hairline. Applied to a
     // TextField or a SecureField, so a form does not restate the recipe per field.
-    func appTextField(size: CGFloat = 13, cornerRadius: CGFloat = 8) -> some View {
+    func appTextField(size: CGFloat = Typography.Size.body,
+                      cornerRadius: CGFloat = Radius.control) -> some View {
         textFieldStyle(.plain)
             .font(.system(size: size))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.md)
             .fieldSurface(cornerRadius: cornerRadius)
     }
 
@@ -39,19 +40,19 @@ struct AppTextEditor: View {
 
     var body: some View {
         TextEditor(text: $text)
-            .font(.system(size: 13))
+            .font(Typography.body)
             .scrollContentBackground(.hidden)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.md)
             .frame(minHeight: minHeight)
-            .fieldSurface(cornerRadius: 10)
+            .fieldSurface(cornerRadius: Radius.card)
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(placeholder)
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.vertical, Space.md)
                         .allowsHitTesting(false)
                 }
             }

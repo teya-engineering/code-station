@@ -56,11 +56,11 @@ struct TurnHandoffLayoutTests {
         for outcome: TurnEnding.Outcome in [.finished, .stopped, .failed] {
             for reviewed in [false, true] {
                 let wide = measure(width: 600, outcome: outcome, reviewed: reviewed)
-                #expect(abs(wide.height - 44) < 1)
+                #expect(abs(wide.height - 42) < 1)
                 #expect(wide.width <= 600)
                 let narrow = measure(width: 300, outcome: outcome, reviewed: reviewed)
                 #expect(narrow.width <= 300)
-                #expect(narrow.height > 44)
+                #expect(narrow.height > 42)
                 #expect(narrow.height <= 122)
             }
         }
@@ -68,7 +68,7 @@ struct TurnHandoffLayoutTests {
 
     @Test func noChangesStaysCompact() {
         let noChanges = measure(width: 300, changes: false)
-        #expect(abs(noChanges.height - 44) < 1)
+        #expect(abs(noChanges.height - 42) < 1)
         #expect(noChanges.width <= 300)
     }
 

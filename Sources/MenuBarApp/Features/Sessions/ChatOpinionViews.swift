@@ -10,7 +10,7 @@ struct ChatOpinionChoices: View {
 
     var body: some View {
         SecondOpinionSection(title: "What to look for") {
-            FlowRow(spacing: 6) {
+            FlowRow(spacing: Space.sm) {
                 ForEach(ChatSecondOpinion.Focus.allCases, id: \.self) { item in
                     ChoicePill(title: item.title, selected: focus.contains(item)) {
                         if !focus.insert(item).inserted { focus.remove(item) }
@@ -20,7 +20,7 @@ struct ChatOpinionChoices: View {
             }
         }
         SecondOpinionSection(title: "What they read") {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 row(title: "The project's files", note: "Read-only", on: $reading.files)
                 row(title: "The whole conversation", note: "Makes them think like \(authorTitle)",
                     warns: true, on: $reading.conversation)
@@ -30,10 +30,10 @@ struct ChatOpinionChoices: View {
 
     private func row(title: String, note: String, warns: Bool = false, on: Binding<Bool>) -> some View {
         Toggle(isOn: on) {
-            HStack(spacing: 8) {
-                Text(title).font(.system(size: 12, weight: .semibold))
+            HStack(spacing: Space.md) {
+                Text(title).font(Typography.label)
                 Spacer(minLength: 8)
-                Text(note).font(.system(size: 11))
+                Text(note).font(Typography.caption)
                     .foregroundStyle(warns ? Theme.attentionText : Color.secondary)
             }
         }
@@ -59,14 +59,14 @@ struct ChatOpinionCard: View {
     let dismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             header
             if opinion.sent == nil {
                 // Held together so the body folds away as one piece once the points go,
                 // rather than each row dropping out on its own.
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     if opinion.isRunning || opinion.lanes.contains(where: isFailed) {
-                        FlowRow(spacing: 6) {
+                        FlowRow(spacing: Space.sm) {
                             ForEach(opinion.lanes.filter { !isFinished($0) }) { lane in
                                 ReviewLane(reviewer: lane.reviewer, started: lane.started, ended: lane.ended,
                                            activity: lane.activity, state: laneState(lane),
@@ -78,7 +78,7 @@ struct ChatOpinionCard: View {
                     if opinion.isRunning {
                         Label(planPending ? "You can keep chatting. Approving now does not wait for them."
                               : "You can keep chatting while they read.", systemImage: "clock")
-                            .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            .font(Typography.detail).foregroundStyle(.secondary)
                     }
                     verdicts
                     if !opinion.points.isEmpty { points }
@@ -87,9 +87,9 @@ struct ChatOpinionCard: View {
                 .transition(.fold)
             }
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.card, cornerRadius: 12, border: Theme.border)
+        .surface(Theme.card, cornerRadius: Radius.floating, border: Theme.border)
         .smoothlyResizes(when: opinion.sent)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Second opinion on this \(opinion.subject.noun)")
@@ -97,25 +97,25 @@ struct ChatOpinionCard: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             HStack(spacing: -6) {
                 ForEach(Array(opinion.lanes.enumerated()), id: \.offset) { ReviewAvatar(agent: $0.element.reviewer.agent, size: 22) }
             }
-            Text("Second opinion on this \(opinion.subject.noun)").font(.system(size: 13, weight: .semibold))
+            Text("Second opinion on this \(opinion.subject.noun)").font(Typography.body.weight(.semibold))
             Spacer(minLength: 8)
             if let sent = opinion.sent {
                 Label("Sent \(counted(sent, "point")) to \(authorTitle)", systemImage: "checkmark")
-                    .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.dotOnText)
+                    .font(Typography.label).foregroundStyle(Theme.dotOnText)
             } else if opinion.isRunning {
-                Text("Reading on their own").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text("Reading on their own").font(Typography.detail).foregroundStyle(.secondary)
             } else {
                 Text("\(opinion.finishedCount) of \(opinion.lanes.count) finished")
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
-                GlyphButton(icon: "arrow.clockwise", side: 22, action: askAgain)
+                    .font(Typography.detail).foregroundStyle(.secondary)
+                GlyphButton(icon: "arrow.clockwise", side: ControlHeight.xs, action: askAgain)
                     .appTooltip("Ask again")
                     .accessibilityLabel("Ask again")
             }
-            GlyphButton(icon: "xmark", side: 22, action: dismiss)
+            GlyphButton(icon: "xmark", side: ControlHeight.xs, action: dismiss)
                 .appTooltip(opinion.isRunning ? "Stop and put away" : "Put away")
                 .accessibilityLabel(opinion.isRunning ? "Stop the second opinion" : "Put the second opinion away")
         }
@@ -124,28 +124,28 @@ struct ChatOpinionCard: View {
     @ViewBuilder private var verdicts: some View {
         let done = opinion.lanes.filter(isFinished)
         if !done.isEmpty {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top),
-                                     count: min(done.count, 2)), alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.md, alignment: .top),
+                                     count: min(done.count, 2)), alignment: .leading, spacing: Space.md) {
                 ForEach(done) { lane in
                     if case .finished(let verdict, let summary) = lane.state {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            HStack(spacing: Space.sm) {
                                 ReviewAvatar(agent: lane.reviewer.agent, size: 18)
-                                Text(lane.reviewer.agent.title).font(.system(size: 12, weight: .semibold))
+                                Text(lane.reviewer.agent.title).font(Typography.label)
                                 if let seat = lane.reviewer.seatLabel {
-                                    Text(seat).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(seat).font(Typography.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }
                             }
                             VerdictChip(verdict: verdict)
                             if !summary.isEmpty {
-                                Text(summary).font(.system(size: 12)).foregroundStyle(.secondary)
+                                Text(summary).font(Typography.detail).foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .textSelection(.enabled)
                             }
                         }
-                        .padding(10)
+                        .padding(Space.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.field))
+                        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.field))
                         .accessibilityElement(children: .combine)
                     }
                 }
@@ -154,35 +154,35 @@ struct ChatOpinionCard: View {
     }
 
     private var points: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("What they raised").font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.sm) {
+                Text("What they raised").font(Typography.label)
                 Text("Ticked points go to \(authorTitle). The rest stay here.")
-                    .font(.system(size: 11.5)).foregroundStyle(.tertiary)
+                    .font(Typography.detail).foregroundStyle(.tertiary)
             }
             ForEach(opinion.points) { point in
                 Toggle(isOn: Binding(get: { point.ticked }, set: { _ in toggle(point.id) })) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
+                        HStack(spacing: Space.sm) {
                             HStack(spacing: -5) {
                                 ForEach(Array(point.voices.enumerated()), id: \.offset) {
                                     ReviewAvatar(agent: $0.element.reviewer.agent, size: 16)
                                 }
                             }
                             if let step = point.step {
-                                Text("Step \(step)").font(.system(size: 11.5, weight: .semibold))
+                                Text("Step \(step)").font(Typography.label)
                             }
                             SeverityChip(severity: point.severity)
                             if point.raisedByMoreThanOne {
                                 Label(point.voices.count == 2 ? "Both raised this" : "\(point.voices.count) raised this",
                                       systemImage: "checkmark")
-                                    .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.dotOnText)
+                                    .font(Typography.caption.weight(.semibold)).foregroundStyle(Theme.dotOnText)
                             }
                         }
                         ReviewText(text: point.text, size: 12)
                         ForEach(Array(point.voices.dropFirst().enumerated()), id: \.offset) { _, voice in
                             Text("\(voice.reviewer.label()): \(voice.text)")
-                                .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                                .font(Typography.detail).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -196,19 +196,19 @@ struct ChatOpinionCard: View {
 
     private var footer: some View {
         let count = opinion.ticked.count
-        return HStack(spacing: 10) {
+        return HStack(spacing: Space.md) {
             ActionButton(title: count > 0 ? "Send \(counted(count, "point")) to \(authorTitle)" : "Tick a point to send",
-                         tone: .green, height: 28, size: 12, action: send)
+                         tone: .green, height: ControlHeight.md, size: Typography.Size.detail, action: send)
                 .disabled(count == 0)
                 .contentTransition(.numericText(value: Double(count)))
                 .motion(Motion.control, value: count)
             if planPending {
-                ActionButton(title: "Approve plan as is", tone: .outlined, height: 28, size: 12, action: approve)
+                ActionButton(title: "Approve plan as is", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail, action: approve)
             }
             Spacer(minLength: 0)
             if planPending {
                 Text("\(authorTitle) revises the plan. Nothing changes until you approve.")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .font(Typography.caption).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -239,9 +239,9 @@ struct VerdictChip: View {
 
     var body: some View {
         Label(verdict.label, systemImage: verdict.symbol)
-            .font(.system(size: 11, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .foregroundStyle(ink)
-            .padding(.horizontal, 7).padding(.vertical, 2)
+            .padding(.horizontal, Space.sm).padding(.vertical, Space.xxs)
             .background(Capsule().fill(fill))
             .fixedSize()
     }

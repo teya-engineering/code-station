@@ -49,7 +49,7 @@ struct DockerCleanUpView: View {
             HuggingHeight {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        VStack(spacing: 6) {
+                        VStack(spacing: Space.sm) {
                             ForEach(DockerCleanUp.Choice.allCases, id: \.self) { choice in
                                 choiceRow(choice)
                             }
@@ -57,7 +57,7 @@ struct DockerCleanUpView: View {
                         if run.phase == .choosing { notes }
                         if !run.failures.isEmpty { failures }
                     }
-                    .padding(20)
+                    .padding(Space.xxl)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
@@ -73,17 +73,17 @@ struct DockerCleanUpView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Image(systemName: "sparkles")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 36, height: 36)
-                .background(Theme.field, in: RoundedRectangle(cornerRadius: 9))
+                .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.card))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Clean up Docker").font(.serif(22)).accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: Space.sm) {
+                Text("Clean up Docker").font(Typography.display).accessibilityAddTraits(.isHeader)
                 Text("Pick what to remove. Anything a running container uses is left alone.")
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
                     .foregroundStyle(Theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -95,7 +95,7 @@ struct DockerCleanUpView: View {
                 .disabled(run.isWorking)
                 .accessibilityLabel("Close clean up")
         }
-        .padding(.top, 18).padding(.leading, 20).padding(.trailing, 18).padding(.bottom, 16)
+        .padding(.top, Space.xl).padding(.leading, Space.xxl).padding(.trailing, Space.xl).padding(.bottom, Space.xl)
     }
 
     private func choiceRow(_ choice: DockerCleanUp.Choice) -> some View {
@@ -108,14 +108,14 @@ struct DockerCleanUpView: View {
         return Button {
             choices.formSymmetricDifference([choice])
         } label: {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: Space.lg) {
                 stepMark(choice, picked: picked)
                     .frame(width: 18, height: 18)
                     .padding(.top, 1)
                     .motion(Motion.pop, value: run.steps[choice])
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(choice.title).font(.system(size: 13, weight: .semibold))
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    HStack(spacing: Space.sm) {
+                        Text(choice.title).font(Typography.body.weight(.semibold))
                         if choice.losesData { DockerBadge(text: "Data loss", tone: .warning) }
                         if choices.contains(.stoppedContainers), line.freedByStopped > 0 {
                             DockerBadge(text: "+\(line.freedByStopped) from stopped containers", tone: .grey)
@@ -123,35 +123,35 @@ struct DockerCleanUpView: View {
                         }
                     }
                     Text(choice.detail)
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(Theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                VStack(alignment: .trailing, spacing: 3) {
+                VStack(alignment: .trailing, spacing: Space.xxs) {
                     Text(line.isEmpty ? "None" : line.bytes > 0 ? DockerSize.text(line.bytes) : " ")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(line.isEmpty ? Theme.secondaryText : .primary)
                         .contentTransition(.numericText())
                     if !line.isEmpty {
                         Text(line.countText)
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(Theme.secondaryText)
                             .contentTransition(.numericText())
                     }
                 }
             }
-            .padding(12)
-            .background(picked ? Theme.accent.opacity(0.06) : Theme.sunken, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10)
+            .padding(Space.lg)
+            .background(picked ? Theme.accent.opacity(0.06) : Theme.sunken, in: RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(picked ? Theme.accent.opacity(0.35) : Theme.border))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
         .disabled(line.isEmpty || carried || run.phase != .choosing)
         .opacity(skipped ? 0.35 : line.isEmpty ? 0.6 : 1)
-        .hoverFill(cornerRadius: 10)
+        .hoverFill(cornerRadius: Radius.card)
         .motion(Motion.control, value: picked)
         .motion(Motion.reveal, value: plan.line(choice).freedByStopped)
         .accessibilityLabel("\(choice.title), \(line.isEmpty ? "none" : DockerSize.text(line.bytes))")
@@ -183,32 +183,32 @@ struct DockerCleanUpView: View {
     @ViewBuilder private var notes: some View {
         if choices.contains(.unusedVolumes), !plan.line(.unusedVolumes).isEmpty {
             let line = plan.line(.unusedVolumes)
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11))
+            HStack(alignment: .top, spacing: Space.md) {
+                Image(systemName: "exclamationmark.triangle.fill").font(Typography.caption)
                 Text(volumeWarning(line))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .foregroundStyle(Theme.warningText)
-            .padding(10)
+            .padding(Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: 8))
-            .padding(.top, 12)
+            .background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: Radius.control))
+            .padding(.top, Space.lg)
             .transition(.fadeIn)
         }
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             InlineLink(title: showsCommands ? "Hide the commands this runs" : "Show the commands this runs",
-                       size: 11.5) {
+                       size: Typography.Size.detail) {
                 showsCommands.toggle()
             }
             Spacer(minLength: 8)
             Text("Shared layers can make the space freed a little smaller.")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.tertiary)
         }
-        .padding(.top, 12)
+        .padding(.top, Space.lg)
         if showsCommands {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 if steps.isEmpty {
                     Text("# nothing picked").foregroundStyle(Theme.terminalDim)
                 }
@@ -217,28 +217,28 @@ struct DockerCleanUpView: View {
                         + Text((["docker"] + step.command).joined(separator: " ")))
                 }
             }
-            .font(.mono(11))
+            .font(Typography.data)
             .foregroundStyle(Theme.terminalText)
             .textSelection(.enabled)
-            .padding(12)
+            .padding(Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.terminal, in: RoundedRectangle(cornerRadius: 8))
-            .padding(.top, 8)
+            .background(Theme.terminal, in: RoundedRectangle(cornerRadius: Radius.control))
+            .padding(.top, Space.md)
             .transition(.fadeIn)
         }
     }
 
     private var failures: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             ForEach(run.failures, id: \.self) { message in
-                Text(message).font(.mono(10.5)).textSelection(.enabled)
+                Text(message).font(Typography.data).textSelection(.enabled)
             }
         }
         .foregroundStyle(Theme.warningText)
-        .padding(10)
+        .padding(Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: 8))
-        .padding(.top, 12)
+        .background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: Radius.control))
+        .padding(.top, Space.lg)
     }
 
     private func volumeWarning(_ line: DockerCleanUp.Line) -> String {
@@ -248,21 +248,21 @@ struct DockerCleanUpView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Group {
                 switch run.phase {
                 case .choosing:
-                    (Text("Frees about ") + Text(DockerSize.text(total)).font(.system(size: 15, weight: .semibold))
+                    (Text("Frees about ") + Text(DockerSize.text(total)).font(Typography.body.weight(.semibold))
                         .foregroundStyle(.primary))
                 case .running:
-                    (Text("Freed ") + Text(DockerSize.text(run.freed)).font(.system(size: 13, weight: .semibold))
+                    (Text("Freed ") + Text(DockerSize.text(run.freed)).font(Typography.body.weight(.semibold))
                         .foregroundStyle(.primary) + Text(" so far"))
                 case .done:
-                    (Text("Freed ") + Text(DockerSize.text(run.freed)).font(.system(size: 15, weight: .semibold))
+                    (Text("Freed ") + Text(DockerSize.text(run.freed)).font(Typography.body.weight(.semibold))
                         .foregroundStyle(Theme.dotOnText))
                 }
             }
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .foregroundStyle(Theme.secondaryText)
             .monospacedDigit()
             .contentTransition(.numericText())
@@ -288,7 +288,7 @@ struct DockerCleanUpView: View {
                 }
             }
         }
-        .padding(.vertical, 12).padding(.leading, 20).padding(.trailing, 14)
+        .padding(.vertical, Space.lg).padding(.leading, Space.xxl).padding(.trailing, Space.lg)
         .background(Theme.field)
     }
 

@@ -190,9 +190,9 @@ struct GlobalCommandPalette: View {
             footer
         }
         .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 15))
-        .overlay(RoundedRectangle(cornerRadius: 15).stroke(Theme.settingsBorder))
-        .shadow(color: .black.opacity(0.22), radius: 28, y: 10)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.settingsBorder))
+        .elevation(.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Search Code Station")
         .accessibilityAddTraits(.isModal)
@@ -216,7 +216,7 @@ struct GlobalCommandPalette: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: Space.lg) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.tertiary)
@@ -247,19 +247,19 @@ struct GlobalCommandPalette: View {
                 .accessibilityLabel("Clear search")
             }
             Text("ESC")
-                .font(.mono(9))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, Space.sm)
                 .frame(height: 22)
-                .fieldSurface(cornerRadius: 5)
+                .fieldSurface(cornerRadius: Radius.inset)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.xl)
         .frame(height: 58)
         .overlay(alignment: .bottom) { Divider().overlay(Theme.hairline) }
     }
 
     private var categories: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             ForEach(GlobalCommandCategory.allCases) { option in
                 ChoicePill(title: option.title, selected: category == option) {
                     category = option
@@ -268,8 +268,8 @@ struct GlobalCommandPalette: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
     }
 
     private func resultList(_ results: [GlobalCommandItem]) -> some View {
@@ -277,9 +277,9 @@ struct GlobalCommandPalette: View {
         return ScrollViewReader { proxy in
             ScrollView {
                 if results.isEmpty {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Space.lg) {
                         Text("No matching projects, sessions, or actions.")
-                            .font(.system(size: 12.5))
+                            .font(Typography.body)
                             .foregroundStyle(.secondary)
                         if !query.isEmpty {
                             InlineLink(title: "Clear search", action: clearSearch)
@@ -288,17 +288,17 @@ struct GlobalCommandPalette: View {
                     .padding(.vertical, 44)
                     .frame(maxWidth: .infinity)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: Space.xxs) {
                         ForEach(GlobalCommandGroup.allCases, id: \.self) { group in
                             let grouped = visibleResults.filter { $0.group == group }
                             if !grouped.isEmpty {
                                 Text(group.title)
-                                    .font(.mono(9, .semibold))
+                                    .font(Typography.caps)
                                     .kerning(1.1)
                                     .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 10)
-                                    .padding(.top, 8)
-                                    .padding(.bottom, 4)
+                                    .padding(.horizontal, Space.md)
+                                    .padding(.top, Space.md)
+                                    .padding(.bottom, Space.xs)
                                 ForEach(grouped) { item in
                                     resultRow(item)
                                         .id(item.id)
@@ -315,8 +315,8 @@ struct GlobalCommandPalette: View {
                                 .accessibilityHidden(true)
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, Space.md)
+                    .padding(.bottom, Space.md)
                 }
             }
             .onChange(of: scrollTarget) { _, destination in
@@ -333,17 +333,17 @@ struct GlobalCommandPalette: View {
         return Button {
             activate(item)
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 resultIcon(item)
                     .frame(width: 32, height: 32)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(item.title)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Text(item.subtitle)
-                        .font(.mono(9.5))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -352,25 +352,25 @@ struct GlobalCommandPalette: View {
 
                 if let badge = item.badge {
                     Text(badge)
-                        .font(.mono(9, .semibold))
+                        .font(Typography.caps)
                         .foregroundStyle(item.needsAttention ? Theme.attentionText : .secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(
+                        .padding(.horizontal, Space.sm)
+                        .padding(.vertical, Space.xxs)
+                        .background(RoundedRectangle(cornerRadius: Radius.inset).fill(
                             item.needsAttention ? Theme.attention.opacity(0.12) : Theme.field))
                 }
                 if item.activity != .distantPast {
                     Text(RelativeTime.short(item.activity))
-                        .font(.mono(9))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 9)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.md)
+            .background(RoundedRectangle(cornerRadius: Radius.card)
                 .fill(isSelected ? Theme.accent.opacity(0.08) : Color.clear))
             .motion(Motion.hover, value: isSelected)
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -426,36 +426,36 @@ struct GlobalCommandPalette: View {
 
     private func paletteSymbol(_ name: String, tint: Color) -> some View {
         Image(systemName: name)
-            .font(.system(size: 13, weight: .semibold))
+            .font(Typography.body.weight(.semibold))
             .foregroundStyle(tint)
             .frame(width: 32, height: 32)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.field))
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
     }
 
     private var footer: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: Space.xl) {
             keyHint("↑↓", "move")
             keyHint("↵", "open")
             keyHint("esc", query.isEmpty ? "close" : "clear")
             Spacer(minLength: 0)
             Text("⌘K from anywhere")
         }
-        .font(.mono(9))
+        .font(Font.mono(Typography.Size.micro))
         .foregroundStyle(.tertiary)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Space.lg)
         .frame(height: 37)
         .background(Theme.field)
         .overlay(alignment: .top) { Divider().overlay(Theme.hairline) }
     }
 
     private func keyHint(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Space.xs) {
             Text(key)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 5)
+                .padding(.horizontal, Space.xs)
                 .frame(height: 19)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.border))
+                .background(RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: Radius.tag).stroke(Theme.border))
             Text(label)
         }
     }

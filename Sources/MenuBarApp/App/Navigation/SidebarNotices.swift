@@ -82,12 +82,12 @@ struct SidebarBrandBar: View {
     var body: some View {
         Button(action: selectHome) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     brand
                     Spacer(minLength: 0)
                     statusLines
                 }
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     brand
                     HStack {
                         Spacer(minLength: 0)
@@ -95,10 +95,10 @@ struct SidebarBrandBar: View {
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 17)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.xl)
             .frame(maxWidth: .infinity, minHeight: 68)
-            .background(RoundedRectangle(cornerRadius: 8)
+            .background(RoundedRectangle(cornerRadius: Radius.control)
                 .fill(isHome || hovering ? Theme.field : .clear))
             .contentShape(Rectangle())
         }
@@ -124,7 +124,7 @@ struct SidebarBrandBar: View {
     }
 
     private var brand: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Space.md) {
             SidebarBrandMark(input: .init(hovered: hovering,
                                           focused: focused && KeyboardFocusVisibility.shared.isVisible,
                                           pointer: hovering ? pointer : CGPoint(x: 0.6, y: -0.4),
@@ -146,16 +146,16 @@ struct SidebarBrandBar: View {
 
     @ViewBuilder private var statusLines: some View {
         if runningCount > 0 || phone != nil {
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: Space.xs) {
                 if runningCount > 0 {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xs) {
                         RunningDot(size: 5)
                         Text("\(runningCount) running")
                     }
                     .foregroundStyle(Theme.accent)
                 }
                 if let phone {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xs) {
                         Image(systemName: phone.isConnected
                                 ? "iphone.radiowaves.left.and.right" : "iphone")
                         Text(phone.text)
@@ -163,7 +163,7 @@ struct SidebarBrandBar: View {
                     .foregroundStyle(phone.isConnected ? Theme.addition : Theme.accent)
                 }
             }
-            .font(.system(size: 9.5, weight: .semibold))
+            .font(Typography.micro)
             .fixedSize()
         }
     }
@@ -230,9 +230,9 @@ struct SidebarNeedsYouStack: View {
             .frame(maxWidth: .infinity)
             .motion(Self.resize, value: height)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 12)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.lg)
+        .padding(.bottom, Space.lg)
         .onPointerHover(hover)
         .onDisappear { intent?.cancel() }
         .accessibilityElement(children: .contain)
@@ -240,23 +240,23 @@ struct SidebarNeedsYouStack: View {
     }
 
     private var heading: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Circle().fill(Theme.attention).frame(width: 6, height: 6)
             Text("Needs you")
-                .font(.system(size: 11.5, weight: .bold))
+                .font(Typography.label)
             Text(verbatim: "\(waiting.count)")
-                .font(.mono(11.5, .bold))
+                .font(Typography.code.weight(.semibold))
                 .contentTransition(.numericText())
                 .animation(reduceMotion ? nil : Motion.pop, value: waiting.count)
             Spacer(minLength: 6)
             Text("⌘⇧A")
-                .font(.mono(9.5))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
         }
         .foregroundStyle(Theme.attentionText)
-        .padding(.horizontal, 4)
-        .padding(.bottom, 7)
+        .padding(.horizontal, Space.xs)
+        .padding(.bottom, Space.sm)
         .accessibilityElement(children: .combine)
     }
 
@@ -313,36 +313,36 @@ private struct NeedsYouStackCard: View {
     private var answering: Bool { noticed.notice == .needsInput }
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Space.md) {
             tile
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(noticed.session.title)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(noticed.reason)
-                    .font(.mono(10))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(Theme.attentionText)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            ActionButton(title: answering ? "Answer" : "Review", height: 24, size: 11.5) {
+            ActionButton(title: answering ? "Answer" : "Review", height: ControlHeight.sm, size: Typography.Size.detail) {
                 open(noticed.session)
             }
             .accessibilityLabel("\(answering ? "Answer" : "Review") \(noticed.session.title)")
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 9)
+        .padding(.leading, Space.md)
+        .padding(.trailing, Space.md)
         .frame(height: 56)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 11)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .strokeBorder(Theme.attention.opacity(hovering ? 0.8 : 0.5),
                           lineWidth: hovering ? 1.4 : 1.2))
         .shadow(color: .black.opacity(hovering ? 0.08 : 0.05), radius: hovering ? 6 : 1,
                 y: hovering ? 4 : 1)
-        .contentShape(RoundedRectangle(cornerRadius: 11))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         .onTapGesture { open(noticed.session) }
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)

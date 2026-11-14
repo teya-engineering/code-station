@@ -77,7 +77,7 @@ struct CommitHistoryView: View {
                 HStack {
                     InlineLink(title: "Back to history", action: back)
                     Spacer()
-                }.padding(.horizontal, 28).padding(.top, 14)
+                }.padding(.horizontal, Space.xxxl).padding(.top, Space.lg)
             }
             if let commit = selection.commit {
                 summary(commit)
@@ -87,7 +87,7 @@ struct CommitHistoryView: View {
                             .transition(.fadeIn)
                     } else {
                         ChangesLoadingPlaceholder(title: "Reading commit details…", rows: 4)
-                            .padding(28).transition(.fadeIn)
+                            .padding(Space.xxxl).transition(.fadeIn)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -135,10 +135,10 @@ struct CommitHistoryView: View {
     // MARK: - Summary
 
     private func summary(_ commit: GitCommitSummary) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(commit.subject).font(.serif(22)).textSelection(.enabled)
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text(commit.subject).font(Typography.display).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 Text("\(commit.author) · \(commit.relativeDate)").lineLimit(1)
                 Button { copyHash(commit) } label: {
                     Label {
@@ -147,9 +147,9 @@ struct CommitHistoryView: View {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                     }
-                    .font(.mono(11)).foregroundStyle(copied ? Theme.addition : Color.primary)
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 6))
+                    .font(Typography.data).foregroundStyle(copied ? Theme.addition : Color.primary)
+                    .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.inset))
                     .contentShape(Rectangle())
                     .hoverLift()
                 }
@@ -161,8 +161,8 @@ struct CommitHistoryView: View {
                 Spacer(minLength: 0)
                 parentPicker
             }
-            .font(.system(size: 11)).foregroundStyle(.secondary)
-            HStack(spacing: 10) {
+            .font(Typography.caption).foregroundStyle(.secondary)
+            HStack(spacing: Space.md) {
                 if let result, result.note == nil, !result.files.isEmpty {
                     let added = result.files.compactMap(\.added).reduce(0, +)
                     let removed = result.files.compactMap(\.removed).reduce(0, +)
@@ -176,10 +176,10 @@ struct CommitHistoryView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 11))
+            .font(Typography.caption)
             .frame(minHeight: 14)
         }
-        .padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 18)
+        .padding(.horizontal, Space.xxxl).padding(.top, Space.xxl).padding(.bottom, Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
     }
@@ -187,10 +187,10 @@ struct CommitHistoryView: View {
     // A menu when the commit is a merge and there is a parent to choose, plain text when not.
     @ViewBuilder private var parentPicker: some View {
         let parents = result?.parents ?? fileResults["\(selection.commit?.hash ?? "")/"]?.parents ?? []
-        let label = HStack(spacing: 5) {
-            Text(result == nil && selection.parent == nil ? "Reading parent…" : comparison).font(.mono(10))
+        let label = HStack(spacing: Space.xs) {
+            Text(result == nil && selection.parent == nil ? "Reading parent…" : comparison).font(Font.mono(Typography.Size.micro))
             if parents.count > 1 { Image(systemName: "chevron.down").font(.system(size: 9)) }
-        }.padding(6).contentShape(Rectangle())
+        }.padding(Space.sm).contentShape(Rectangle())
         if parents.count > 1 {
             label
                 .appMenu {
@@ -233,7 +233,7 @@ struct CommitHistoryView: View {
                         withAnimation(reduceMotion ? nil : Motion.control) { proxy.scrollTo(file.id, anchor: .top) }
                         announce("Showing \(file.path)")
                     }
-                    .padding(.bottom, 20)
+                    .padding(.bottom, Space.xxl)
                     ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
                         Section {
                             VStack(spacing: 0) {
@@ -246,13 +246,13 @@ struct CommitHistoryView: View {
                                 }
                             }
                             .smoothlyResizes(when: collapsed.contains(file.id))
-                            .padding(.bottom, 16)
+                            .padding(.bottom, Space.xl)
                         } header: {
                             cardHeader(file, position: index + 1, of: files.count).id(file.id)
                         }
                     }
                 }
-                .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 12)
+                .padding(.horizontal, Space.xxxl).padding(.top, Space.xl).padding(.bottom, Space.lg)
             }
         }
         .accessibilityLabel("Changed files and diffs")
@@ -261,28 +261,28 @@ struct CommitHistoryView: View {
     private func fileSummary(_ files: [GitChange], jump: @escaping (GitChange) -> Void) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Changed files").font(.system(size: 12, weight: .semibold))
+                Text("Changed files").font(Typography.label)
                 Spacer()
-                Text("Click a file to jump to it").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                Text("Click a file to jump to it").font(Typography.caption).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 14).frame(height: 36)
+            .padding(.horizontal, Space.lg).frame(height: 36)
             Rectangle().fill(Theme.hairline).frame(height: 1)
             ForEach(files) { file in
                 let current = selection.fileID == file.id
                 Button { jump(file) } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: Space.md) {
                         kindLetter(file).frame(width: 20, alignment: .leading)
-                        HStack(spacing: 8) {
-                            Text(file.fileName).font(.system(size: 11.5, weight: .semibold))
+                        HStack(spacing: Space.md) {
+                            Text(file.fileName).font(Typography.label)
                             let folder = (file.path as NSString).deletingLastPathComponent
                             if !folder.isEmpty {
-                                Text(folder).font(.mono(10.5)).foregroundStyle(.secondary).truncationMode(.head)
+                                Text(folder).font(Typography.data).foregroundStyle(.secondary).truncationMode(.head)
                             }
                         }.lineLimit(1)
                         Spacer(minLength: 8)
                         counts(file)
                     }
-                    .padding(.horizontal, 14).frame(height: 30)
+                    .padding(.horizontal, Space.lg).frame(height: 30)
                     .background(current ? Theme.accent.opacity(0.1) : .clear)
                     .contentShape(Rectangle())
                 }
@@ -295,20 +295,20 @@ struct CommitHistoryView: View {
             }
         }
         .background(Theme.background)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border))
     }
 
     private func cardHeader(_ file: GitChange, position: Int, of count: Int) -> some View {
         let isCollapsed = collapsed.contains(file.id)
-        let shape = UnevenRoundedRectangle(topLeadingRadius: 9, bottomLeadingRadius: isCollapsed ? 9 : 0,
-                                           bottomTrailingRadius: isCollapsed ? 9 : 0, topTrailingRadius: 9)
-        return HStack(spacing: 8) {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: Radius.card, bottomLeadingRadius: isCollapsed ? 9 : 0,
+                                           bottomTrailingRadius: isCollapsed ? 9 : 0, topTrailingRadius: Radius.card)
+        return HStack(spacing: Space.md) {
             Button {
                 if !collapsed.insert(file.id).inserted { collapsed.remove(file.id) }
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10))
+                    .font(Font.system(size: Typography.Size.micro))
                     .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                     .frame(width: 24, height: 30).contentShape(Rectangle())
                     .hoverLift(amount: Motion.smallLift)
@@ -319,17 +319,17 @@ struct CommitHistoryView: View {
             .accessibilityLabel("\(isCollapsed ? "Expand" : "Collapse") \(file.fileName)")
             .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
             kindLetter(file).frame(width: 20, alignment: .leading)
-            Text(file.fileName).font(.system(size: 12, weight: .semibold)).lineLimit(1).layoutPriority(1)
+            Text(file.fileName).font(Typography.label).lineLimit(1).layoutPriority(1)
             Text(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
-                .font(.mono(10.5)).foregroundStyle(.secondary)
+                .font(Typography.data).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.head)
                 .textSelection(.enabled)
             Spacer(minLength: 8)
             counts(file)
-            Text("\(position) of \(count)").font(.system(size: 10.5)).foregroundStyle(.tertiary)
-                .padding(.leading, 8)
+            Text("\(position) of \(count)").font(Typography.caption).foregroundStyle(.tertiary)
+                .padding(.leading, Space.md)
         }
-        .padding(.leading, 6).padding(.trailing, 12)
+        .padding(.leading, Space.sm).padding(.trailing, Space.lg)
         .frame(height: 42)
         .background(Theme.card, in: shape)
         .overlay(shape.stroke(Theme.border))
@@ -338,19 +338,19 @@ struct CommitHistoryView: View {
     }
 
     private func kindLetter(_ file: GitChange) -> some View {
-        Text(file.kind.letter).font(.mono(10, .bold))
+        Text(file.kind.letter).font(Typography.caps)
             .foregroundStyle(file.kind == .added ? Theme.addition : file.kind == .deleted ? Theme.deletion : Theme.accent)
             .accessibilityHidden(true)
     }
 
     @ViewBuilder private func counts(_ file: GitChange) -> some View {
         if file.isBinary {
-            Text("binary").font(.system(size: 10.5)).foregroundStyle(.secondary)
+            Text("binary").font(Typography.caption).foregroundStyle(.secondary)
         } else {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Text("+\(file.added ?? 0)").foregroundStyle(Theme.addition)
                 Text("-\(file.removed ?? 0)").foregroundStyle(Theme.deletion)
-            }.font(.mono(10.5))
+            }.font(Typography.data)
         }
     }
 
@@ -385,18 +385,18 @@ private struct CommitFileDiff: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let note = diff?.note {
-                Text(note).font(.system(size: 11)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 14).padding(.vertical, 18)
+                Text(note).font(Typography.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, Space.lg).padding(.vertical, Space.xl)
             } else if let text {
                 DiffTextView(text: text, scroll: .hold, onExpand: expand, fitsContent: true)
                     .transition(.opacity)
             } else {
-                ChangesLoadingPlaceholder(title: "Reading file diff…", rows: 2).padding(18)
+                ChangesLoadingPlaceholder(title: "Reading file diff…", rows: 2).padding(Space.xl)
             }
             if let diff, diff.truncated {
                 Text("Showing the first \(diff.lines.count - diff.revealed) lines of \(diff.totalLines). Run git show to see the rest.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .font(Typography.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.field)
             }

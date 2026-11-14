@@ -38,28 +38,28 @@ struct NewSessionFooter: View {
     var body: some View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.hairline)
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.lg) {
+                HStack(spacing: Space.md) {
                     if waitingOn != nil { LoopSpinner(size: 14) }
                     Text(waitingOn ?? (chosenAgent == nil ? "No coding agent found on PATH." : note))
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .foregroundStyle(chosenAgent == nil ? Theme.deletion : Theme.accent)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .bottom, spacing: 12) {
+                    HStack(alignment: .bottom, spacing: Space.lg) {
                         selectors
                         Spacer(minLength: 12)
                         actions
                     }
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Space.lg) {
                         selectors
                         HStack { Spacer(); actions }
                     }
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Space.xxl)
+            .padding(.vertical, Space.md)
             .background(Theme.card)
         }
         .task {
@@ -77,10 +77,10 @@ struct NewSessionFooter: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 9) {
-            ActionButton(title: "Cancel", tone: .outlined, height: 38, size: 13,
+        HStack(spacing: Space.md) {
+            ActionButton(title: "Cancel", tone: .outlined, height: ControlHeight.xl, size: Typography.Size.body,
                          keyboardShortcut: .cancelAction, action: dismiss)
-            ActionButton(title: "Create session", tone: .green, height: 38, size: 13,
+            ActionButton(title: "Create session", tone: .green, height: ControlHeight.xl, size: Typography.Size.body,
                          keyboardShortcut: .defaultAction, action: create)
                 .disabled(!canCreate)
         }

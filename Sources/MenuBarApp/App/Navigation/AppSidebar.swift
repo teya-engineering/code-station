@@ -230,18 +230,18 @@ struct AppSidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             if let current = currentItem, isFiltering,
                !orderedItems.contains(where: { $0.id == current.id }) {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     Text("Current \(store.sidebarDestination?.sessionID != nil ? "session" : current.group == .workspaces ? "workspace" : "project") is outside this filter.")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                     Button {
                         filterBox.clear()
                     } label: {
                         Text("Show \(current.name) in sidebar")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(Typography.label)
                             .foregroundStyle(Theme.accent)
                             .lineLimit(1)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, Space.xs)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -249,23 +249,23 @@ struct AppSidebar: View {
                     .sidebarFocusRing()
                     .appTooltip("Clear filter and reveal \(current.name)")
                 }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 10)
+                .padding(.horizontal, Space.xl)
+                .padding(.bottom, Space.md)
             }
             if store.projects.isEmpty && store.workspaces.isEmpty {
                 Text("No projects yet. Add a folder and Claude Code will run right inside it.")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                    .padding(.horizontal, Space.xxl)
+                    .padding(.top, Space.xl)
             } else if orderedItems.isEmpty {
                 Text("Nothing matches \"\(filterQuery)\".")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                    .padding(.horizontal, Space.xxl)
+                    .padding(.top, Space.xl)
             } else {
                 // Grouped once per redraw, since every row below reads from this.
                 let grouped = groupedSessions
@@ -301,8 +301,8 @@ struct AppSidebar: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 8)
+                        .padding(.horizontal, Space.md)
+                        .padding(.bottom, Space.md)
                         // Keyed on what decides whether a session block is on screen, so the
                         // transition plays wherever the change came from: a click on the
                         // project row, or the first session arriving under an open one.
@@ -1237,7 +1237,7 @@ struct AppSidebar: View {
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if appSettings.oldSessionsDeleteOnTheirOwn {
                 CleanupStrip(status: cleanup, onReview: onReviewCleanup) { highlight in
                     cleanupHighlight = highlight
@@ -1256,8 +1256,8 @@ struct AppSidebar: View {
             }
             if showsOrphanedWorktreesStrip { OrphanedWorktreesStrip() }
 
-            HStack(spacing: 8) {
-                ActionButton(title: "Add", height: 38, size: 13, fills: true)
+            HStack(spacing: Space.md) {
+                ActionButton(title: "Add", height: ControlHeight.xl, size: Typography.Size.body, fills: true)
                     .appMenu(edge: .top, matchWidth: true, addMenu)
                     .accessibilityLabel("Add a project, workspace, or task")
 
@@ -1268,13 +1268,13 @@ struct AppSidebar: View {
 
             if !runner.available {
                 Text("\(runner.agent.title) was not found on PATH.")
-                    .font(.system(size: 11))
+                    .font(Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 14)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.lg)
+        .padding(.bottom, Space.lg)
         .motion(Motion.reveal, value: cleanup.parked.isEmpty)
         .motion(Motion.reveal, value: cleanup.deletion == nil)
         .motion(Motion.reveal, value: oldSessions.summary.sessions > 0)
@@ -1577,11 +1577,11 @@ private struct SettingsButton: View {
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(.secondary)
             .frame(width: 38, height: 38)
-            .surface(hovering ? Theme.field : Theme.card, cornerRadius: 9)
+            .surface(hovering ? Theme.field : Theme.card, cornerRadius: Radius.card)
             .overlay(alignment: .topTrailing) {
                 if showsUpdate { UpdateIndicator().offset(x: 3, y: -3) }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
             .hoverLift(hovering, amount: Motion.smallLift)
             .appTooltip("Tools and settings")
             .onPointerHover { hovering = $0 }
@@ -1603,9 +1603,9 @@ private struct SectionHeading: View {
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Text(title.uppercased())
-                    .font(.mono(9, .semibold))
+                    .font(Typography.caps)
                     .kerning(1.2)
                     .foregroundStyle(.secondary)
                 Rectangle()
@@ -1613,7 +1613,7 @@ private struct SectionHeading: View {
                     .frame(height: 1)
                 if collapsed {
                     Text("\(count)")
-                        .font(.mono(9, .semibold))
+                        .font(Typography.caps)
                         .foregroundStyle(.tertiary)
                 }
                 Image(systemName: "chevron.right")
@@ -1623,9 +1623,9 @@ private struct SectionHeading: View {
                     .frame(width: 8)
                     .opacity(hovering || collapsed ? 1 : 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 9)
-            .padding(.bottom, 3)
+            .padding(.horizontal, Space.md)
+            .padding(.top, Space.md)
+            .padding(.bottom, Space.xxs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1691,15 +1691,15 @@ private struct WorkspaceHeaderRow: View {
                     pinned: workspace.isPinned)
                 TextField("Name", text: $draft)
                     .textFieldStyle(.plain)
-                    .padding(4)
-                    .fieldSurface(cornerRadius: 5)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .padding(Space.xs)
+                    .fieldSurface(cornerRadius: Radius.inset)
+                    .font(Typography.body.weight(.semibold))
                     .focused($focused)
                     .onSubmit { onRename(draft) }
                     .onExitCommand(perform: onCancelRename)
             } else {
                 Button(action: onOpen) {
-                    HStack(spacing: 9) {
+                    HStack(spacing: Space.md) {
                         if let checked { SidebarCheckbox(isOn: checked) }
                         SidebarIdentityTile(
                             avatar: workspace.sidebarAvatar,
@@ -1709,7 +1709,7 @@ private struct WorkspaceHeaderRow: View {
                             pinned: workspace.isPinned)
                             .threadNod(running: runningCount)
                         Text(workspace.name)
-                            .font(.system(size: 13.5, weight: .semibold))
+                            .font(Typography.body.weight(.semibold))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -1730,12 +1730,12 @@ private struct WorkspaceHeaderRow: View {
                 // the sidebar is read at a glance, and a row that drops its number
                 // reads as a row with nothing in it.
                 if sessionCount > 0 || runningCount > 0 {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         if !isExpanded, needsYouCount > 0 { NeedsYouChip(count: needsYouCount) }
                         if runningCount > 0 { RunningDot() }
                         if sessionCount > 0 {
                             Text(counted(sessionCount, "session"))
-                                .font(.mono(10))
+                                .font(Font.mono(Typography.Size.micro))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -1778,14 +1778,14 @@ private struct WorkspaceLifeLineRow: View {
 
     // Lines the words up under the workspace name: the row's inset, the disclosure, and
     // the tile with the gaps around it.
-    private static let indent: CGFloat = 8 + SidebarDisclosure.width + 4 + 26 + 9
+    private static let indent: CGFloat = Space.md + SidebarDisclosure.width + Space.xs + 26 + Space.md
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             if let line = lifeLine(context.date) {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Image(systemName: "hourglass")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(line.isFinalHour ? Theme.attentionText : Theme.workspaceTint.ink)
                         .accessibilityHidden(true)
                     Text(line.text)
@@ -1798,11 +1798,11 @@ private struct WorkspaceLifeLineRow: View {
                             .transition(.fadeIn)
                     }
                 }
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(line.isFinalHour ? Theme.attentionText : Color.secondary)
                 .padding(.leading, Self.indent)
-                .padding(.trailing, 8)
-                .padding(.bottom, 7)
+                .padding(.trailing, Space.md)
+                .padding(.bottom, Space.sm)
                 .motion(Motion.control, value: line)
                 .accessibilityElement(children: .contain)
             }
@@ -1819,12 +1819,12 @@ private struct KeepForGoodButton: View {
     var body: some View {
         Button(action: action) {
             Text("Keep for good")
-                .font(.system(size: 11, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(Theme.accent)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
+                .padding(.horizontal, Space.sm)
+                .padding(.vertical, Space.xxs)
                 .background(Theme.accent.opacity(hovering ? 0.1 : 0),
-                            in: RoundedRectangle(cornerRadius: 6))
+                            in: RoundedRectangle(cornerRadius: Radius.inset))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1853,23 +1853,23 @@ private struct TreeRow<Leading: View, Content: View, Trailing: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 leading
-                HStack(spacing: 9) { content }
+                HStack(spacing: Space.md) { content }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
             .overlay(alignment: .trailing) { trailing(fill) }
             if let footer { footer }
         }
-            .background(RoundedRectangle(cornerRadius: 9).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 9)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(selected ? Theme.accent.opacity(0.14) : .clear, lineWidth: 1))
             .overlay(alignment: .leading) {
                 if selected {
                     Capsule().fill(Theme.accent)
                         .frame(width: 3)
-                        .padding(.vertical, 7)
+                        .padding(.vertical, Space.sm)
                         .accessibilityHidden(true)
                 }
             }
@@ -1936,15 +1936,15 @@ private struct ProjectHeaderRow: View {
                     pinned: project.isPinned)
                 TextField("Name", text: $draft)
                     .textFieldStyle(.plain)
-                    .padding(4)
-                    .fieldSurface(cornerRadius: 5)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .padding(Space.xs)
+                    .fieldSurface(cornerRadius: Radius.inset)
+                    .font(Typography.body.weight(.semibold))
                     .focused($focused)
                     .onSubmit { onRename(draft) }
                     .onExitCommand(perform: onCancelRename)
             } else {
                 Button(action: onOpen) {
-                    HStack(spacing: 9) {
+                    HStack(spacing: Space.md) {
                         if let checked { SidebarCheckbox(isOn: checked) }
                         SidebarIdentityTile(
                             avatar: project.sidebarAvatar,
@@ -1953,21 +1953,21 @@ private struct ProjectHeaderRow: View {
                             dashed: project.kind == .adHoc,
                             pinned: project.isPinned)
                             .threadNod(running: runningCount)
-                        HStack(spacing: 5) {
+                        HStack(spacing: Space.xs) {
                             if isMissing {
                                 Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 10))
+                                    .font(Font.system(size: Typography.Size.micro))
                                     .foregroundStyle(.secondary)
                             }
                             Text(project.name)
-                                .font(.system(size: 13.5, weight: .semibold))
+                                .font(Typography.body.weight(.semibold))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             // The only mark a snoozed project carries. Its tooltip gives
                             // the day its sessions come back into the cleanup list.
                             if let snoozedUntil = project.snoozedUntil,
                                ProjectSnooze.isActive(snoozedUntil) {
-                                MonoChip(text: ProjectSnooze.badge(until: snoozedUntil), size: 9.5)
+                                MonoChip(text: ProjectSnooze.badge(until: snoozedUntil), size: Typography.Size.micro)
                                     .appTooltip("Cleanup snoozed until \(ProjectSnooze.wakeDay(snoozedUntil))")
                             }
                             if let schedule = project.task?.schedule, schedule.isActive {
@@ -2040,7 +2040,7 @@ private struct ProjectHeaderRow: View {
     }
 
     private var status: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if showsNeedsYou { NeedsYouChip(count: needsYouCount) }
             if runningCount > 0 { RunningDot() }
         }
@@ -2098,17 +2098,17 @@ private struct RowAction: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 3) {
+            HStack(spacing: Space.xxs) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                 if !compact {
                     Text(title)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                 }
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, compact ? 4 : 7)
-            .padding(.vertical, 4)
+            .padding(.vertical, Space.xs)
             .overlay(Capsule().stroke(hovering ? Theme.border : .clear))
             .contentShape(Capsule())
         }
@@ -2180,11 +2180,11 @@ private struct TrailingRowAction: View {
                 .frame(width: Self.fadeWidth)
                 .accessibilityHidden(true)
             Button(action: action) {
-                HStack(spacing: 4) {
+                HStack(spacing: Space.xs) {
                     Image(systemName: icon)
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                     Text(title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(Typography.label)
                 }
                 .foregroundStyle(tone.colour)
             }
@@ -2196,7 +2196,7 @@ private struct TrailingRowAction: View {
                 Rectangle()
                     .fill(Theme.border)
                     .frame(width: 1)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, Space.md)
                     .opacity(hovering ? 0 : 1)
                     .accessibilityHidden(true)
             }
@@ -2234,7 +2234,7 @@ private struct TrailingActionStyle: ButtonStyle {
 private struct UncommittedMark: View {
     var body: some View {
         Image(systemName: "pencil.circle.fill")
-            .font(.system(size: 11))
+            .font(Typography.caption)
             .foregroundStyle(Theme.attention)
     }
 }
@@ -2242,7 +2242,7 @@ private struct UncommittedMark: View {
 private struct MobileConnectionMark: View {
     var body: some View {
         Image(systemName: "iphone.radiowaves.left.and.right")
-            .font(.system(size: 11, weight: .semibold))
+            .font(Typography.caption.weight(.semibold))
             .foregroundStyle(Theme.addition)
             .appTooltip("Phone connected")
             .accessibilityLabel("Phone connected")
@@ -2353,9 +2353,9 @@ struct SessionCard: View {
             .overlay(alignment: .topTrailing) {
                 SessionSnoozeTag(snoozed: snoozed != nil)
                     .frame(width: 39, height: 66)
-                    .padding(.leading, 10)
-                    .padding(.trailing, 11)
-                    .padding(.top, 4)
+                    .padding(.leading, Space.md)
+                    .padding(.trailing, Space.lg)
+                    .padding(.top, Space.xs)
                     .clipped()
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -2364,7 +2364,7 @@ struct SessionCard: View {
                 TrailingRowAction(
                     visible: checked == nil && !isRenaming && (hovering || cardFocused || deleteFocused),
                     icon: "trash", title: "Delete", tone: .delete,
-                    width: TrailingRowAction.deleteWidth, base: cardFill, cornerRadius: 8,
+                    width: TrailingRowAction.deleteWidth, base: cardFill, cornerRadius: Radius.control,
                     accessibilityLabel: "Delete session \(session.title)",
                     tooltip: "Delete session",
                     focus: $deleteFocused, action: onDelete)
@@ -2384,13 +2384,13 @@ struct SessionCard: View {
                                   removal: .fold.animation(Motion.leave)))
             }
         }
-        .background(RoundedRectangle(cornerRadius: 9).fill(cardFill))
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(cardFill))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
             .stroke(cardStroke, lineWidth: selected ? 1.4 : 1.2))
         .motion(Motion.control, value: [busy, finished, failed, selected])
         .motion(snoozed == nil ? Motion.leave : Motion.reveal, value: snoozed)
-        .contentShape(RoundedRectangle(cornerRadius: 9))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         .onPointerHover { hovering = $0 }
         .onChange(of: isRenaming, initial: true) { _, renaming in
             guard renaming else { return }
@@ -2432,12 +2432,12 @@ struct SessionCard: View {
         let edge: CGFloat = selected ? 9 : 8
         let leading: CGFloat = checked == nil ? 10 : Self.boxInset + 16 + 10
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 StateLight(tone: tone, colour: failed ? Theme.deletion : nil)
                 Text(word)
                     .contentTransition(.opacity)
                     .motion(Motion.control, value: word)
-                    .font(.mono(9, .semibold))
+                    .font(Typography.caps)
                     .kerning(0.9)
                     .foregroundStyle(band?.word ?? tone.colour)
                     .lineLimit(1)
@@ -2446,27 +2446,27 @@ struct SessionCard: View {
                 // in worktrees still shares a folder, so it wears MIXED in the amber of
                 // something that needs a look. The tooltip names which projects share.
                 if worktrees.isComplete {
-                    MonoChip(text: "WT", size: 8.5)
+                    MonoChip(text: "WT", size: Typography.Size.micro)
                 } else if worktrees.isPartial {
-                    MonoChip(text: "MIXED", size: 8.5, tint: Theme.attentionText)
+                    MonoChip(text: "MIXED", size: Typography.Size.micro, tint: Theme.attentionText)
                 }
                 if session.isTroubleshooting {
-                    MonoChip(text: "TROUBLESHOOT", size: 8.5, tint: Theme.secret)
+                    MonoChip(text: "TROUBLESHOOT", size: Typography.Size.micro, tint: Theme.secret)
                 }
                 if uncommitted { UncommittedMark() }
                 if connected { MobileConnectionMark() }
                 // Review threads on this session's pull request still waiting for an answer.
                 if pullRequestReviews.waitingCount(session.id) > 0 {
-                    MonoChip(text: "\(pullRequestReviews.waitingCount(session.id)) REVIEW", size: 8.5, tint: Theme.attentionText)
+                    MonoChip(text: "\(pullRequestReviews.waitingCount(session.id)) REVIEW", size: Typography.Size.micro, tint: Theme.attentionText)
                 }
                 Spacer(minLength: 4)
                 Text(RelativeTime.short(waiting ? waitingSince ?? session.lastActivity
                                                 : session.lastActivity))
-                    .font(.mono(9.5))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.tertiary)
             }
             .padding(.leading, leading)
-            .padding(.trailing, 10)
+            .padding(.trailing, Space.md)
             .padding(.top, band == nil ? edge : 6)
             .padding(.bottom, band == nil ? 0 : 5)
             .background {
@@ -2480,19 +2480,19 @@ struct SessionCard: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 if isRenaming {
                     TextField("Name", text: $draft)
                         .textFieldStyle(.plain)
-                        .padding(4)
-                        .fieldSurface(cornerRadius: 5)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .padding(Space.xs)
+                        .fieldSurface(cornerRadius: Radius.inset)
+                        .font(Typography.body.weight(.semibold))
                         .focused($focused)
                         .onSubmit { onRename(draft) }
                         .onExitCommand(perform: onCancelRename)
                 } else {
                     Text(session.title)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(selected ? 2 : 1)
                         .fixedSize(horizontal: false, vertical: true)
                         .truncationMode(.tail)
@@ -2578,13 +2578,13 @@ private struct SeeMoreCard: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 10)
-                    .fill(hovering ? Color.black.opacity(0.05) : Color.black.opacity(0.02)))
-                .overlay(RoundedRectangle(cornerRadius: 10)
+                .padding(.vertical, Space.sm)
+                .background(RoundedRectangle(cornerRadius: Radius.card)
+                    .fill(hovering ? Theme.field : Theme.sunken))
+                .overlay(RoundedRectangle(cornerRadius: Radius.card)
                     .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                 .contentShape(Rectangle())
         }
@@ -2610,7 +2610,7 @@ private struct ActivityLine: View {
         Group {
             if let shown {
                 Text(shown)
-                    .font(.mono(10))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -2687,9 +2687,9 @@ private struct SidebarCleanupMark: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(RoundedRectangle(cornerRadius: 9)
+            .background(RoundedRectangle(cornerRadius: Radius.card)
                 .fill(colour.opacity(tone == nil ? 0 : 0.14)))
-            .overlay(RoundedRectangle(cornerRadius: 9)
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(colour.opacity(tone == nil ? 0 : 0.5), lineWidth: 1)
                 .allowsHitTesting(false))
             .motion(Motion.hover, value: tone)

@@ -99,16 +99,16 @@ private struct PhonePill: View {
     var body: some View {
         let offering = link == .none
         return Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 lead
                 Text(link.word ?? Self.offer)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                     .fixedSize()
             }
             .foregroundStyle(offering ? Theme.accent : link.tint)
             .padding(.leading, offering ? 11 : 12)
-            .padding(.trailing, 14)
+            .padding(.trailing, Space.lg)
             .frame(height: 32)
             .background(Capsule().fill(link.fill ?? Theme.card))
             .overlay {
@@ -149,7 +149,7 @@ private struct PhonePill: View {
         switch link {
         case .none:
             Image(systemName: "qrcode")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
         case .waiting:
             Circle()
                 .fill(Theme.attention)
@@ -185,7 +185,7 @@ private struct PhonePeek: View {
     static let message = "Scan a code to watch your sessions and answer them from your phone. Works on the same Wi-Fi."
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.lg) {
             Group {
                 if let url = URL(string: "https://code-station.invalid/m"),
                    let image = MobilePairingQRCode.image(for: url) {
@@ -197,21 +197,21 @@ private struct PhonePeek: View {
                 }
             }
             .frame(width: 60, height: 60)
-            .padding(6)
-            .background(RoundedRectangle(cornerRadius: 8).fill(.white))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 4) {
+            .padding(Space.sm)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(.white))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(Self.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(Self.message)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(14)
+        .padding(Space.lg)
     }
 }
 
@@ -231,38 +231,38 @@ struct MobilePairingView: View {
     var body: some View {
         Group {
             if let share = mobileAccess.share {
-                VStack(spacing: 14) {
+                VStack(spacing: Space.lg) {
                     if let image = MobilePairingQRCode.image(for: share.url) {
                         Image(nsImage: image)
                             .interpolation(.none)
                             .resizable()
                             .frame(width: 214, height: 214)
-                            .padding(18)
-                            .surface(.white, cornerRadius: 12)
+                            .padding(Space.xl)
+                            .surface(.white, cornerRadius: Radius.floating)
                     }
 
-                    HStack(spacing: 7) {
+                    HStack(spacing: Space.sm) {
                         Circle()
                             .fill(share.isConnected ? Theme.addition : Color.secondary)
                             .frame(width: 7, height: 7)
                         Text(share.isConnected ? "Phone connected" : "Waiting for the phone")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(Typography.label)
                     }
 
                     Text(share.url.absoluteString)
-                        .font(.mono(9.5))
+                        .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
                         .textSelection(.enabled)
 
                     ActionButton(title: share.isConnected ? "Stop sharing" : "Cancel sharing",
-                                 tone: .danger, height: 38, size: 13, fills: true) {
+                                 tone: .danger, height: ControlHeight.xl, size: Typography.Size.body, fills: true) {
                         mobileAccess.revoke()
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 6)
+                .padding(.top, Space.sm)
                 .transition(.fadeIn)
             } else if confirming {
                 confirmation.transition(.fadeIn)
@@ -274,16 +274,16 @@ struct MobilePairingView: View {
     }
 
     private var idle: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Space.lg) {
             Image(systemName: "iphone.slash")
                 .font(.system(size: 25, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            VStack(spacing: 4) {
+            VStack(spacing: Space.xs) {
                 Text("Sharing is off")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text("Start sharing to create a temporary QR code and allow one phone to connect.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -291,7 +291,7 @@ struct MobilePairingView: View {
 
             if let failure {
                 Text(failure)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(Theme.deletion)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -299,44 +299,44 @@ struct MobilePairingView: View {
             }
 
             ActionButton(title: starting ? "Starting…" : "Start sharing",
-                         tone: .green, height: 38, size: 13, fills: true,
+                         tone: .green, height: ControlHeight.xl, size: Typography.Size.body, fills: true,
                          action: startSharing)
                 .disabled(starting)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 12)
+        .padding(.top, Space.lg)
     }
 
     // The code hands over every project, so that reach is spelled out once more and has to
     // be agreed to before the code exists.
     private var confirmation: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Space.lg) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 25, weight: .medium))
                 .foregroundStyle(Theme.accent)
 
-            VStack(spacing: 4) {
+            VStack(spacing: Space.xs) {
                 Text("This code opens more than one session")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Whoever scans it can browse every project, read any session and start new ones anywhere, all running on this Mac. Only scan it on a phone you trust.")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 8) {
-                ActionButton(title: "Back", tone: .outlined, height: 38, size: 13, fills: true) {
+            HStack(spacing: Space.md) {
+                ActionButton(title: "Back", tone: .outlined, height: ControlHeight.xl, size: Typography.Size.body, fills: true) {
                     confirming = false
                 }
-                ActionButton(title: "Confirm", tone: .green, height: 38, size: 13, fills: true,
+                ActionButton(title: "Confirm", tone: .green, height: ControlHeight.xl, size: Typography.Size.body, fills: true,
                              action: begin)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 12)
+        .padding(.top, Space.lg)
     }
 
     private var contentState: ContentState {

@@ -79,28 +79,28 @@ struct BranchBrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                    .foregroundStyle(Theme.accent).padding(10).background(Theme.field, in: RoundedRectangle(cornerRadius: 9))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.serif(24)).accessibilityAddTraits(.isHeader)
-                    Text(repository).font(.system(size: 12)).foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.accent).padding(Space.md).background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.card))
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text(title).font(Typography.display).accessibilityAddTraits(.isHeader)
+                    Text(repository).font(Typography.detail).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if busy || previewing || loading { ChangesProgressLabel(title: busy ? "Working…" : "Reading repository…") }
                 GlyphButton(icon: "xmark") { dialogs.dismiss() }
                     .disabled(busy).focused($focus, equals: "close")
                     .accessibilityLabel("Close branches").branchFocus(focus == "close")
-            }.padding(20)
+            }.padding(Space.xxl)
             Divider()
             if !message.isEmpty {
                 ScrollView {
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: Space.md) {
                         Image(systemName: failed ? "exclamationmark.triangle" : "checkmark.circle")
-                        Text(message).font(.system(size: 12)).textSelection(.enabled)
+                        Text(message).font(Typography.detail).textSelection(.enabled)
                         Spacer(minLength: 0)
                     }.foregroundStyle(failed ? Theme.deletion : Theme.accent)
-                        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Space.lg).frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityElement(children: .combine)
                 }.frame(maxHeight: 90).fixedSize(horizontal: false, vertical: true).background(Theme.field)
             }
@@ -108,7 +108,7 @@ struct BranchBrowserView: View {
                 if page == .branches { browser.transition(.fadeIn) }
                 else {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: Space.xl) {
                             switch page {
                             case .merge, .mergeBack, .compare, .switchBranch, .rebase: previewContent
                             case .create, .rename, .worktree: nameForm
@@ -116,7 +116,7 @@ struct BranchBrowserView: View {
                             case .recovery: recoveryContent
                             case .branches: EmptyView()
                             }
-                        }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                        }.padding(Space.xxl).frame(maxWidth: .infinity, alignment: .leading)
                     }.frame(maxHeight: .infinity)
                         .id(page).transition(.fadeIn)
                 }
@@ -124,7 +124,7 @@ struct BranchBrowserView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .motion(Motion.reveal, value: page)
             Divider()
-            footer.padding(16).background(Theme.field)
+            footer.padding(Space.xl).background(Theme.field)
         }
         .background(Theme.card)
         .smoothlyResizes(when: message)
@@ -157,56 +157,56 @@ struct BranchBrowserView: View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: Space.md) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                         TextField("Find a branch…", text: $query).textFieldStyle(.plain)
                             .focused($focus, equals: "search").accessibilityLabel("Find a branch")
-                        Text("⌘ B").foregroundStyle(.secondary).font(.system(size: 10))
-                    }.font(.system(size: 12)).padding(10)
-                        .background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(focus == "search" ? Theme.accent : Theme.border, lineWidth: focus == "search" ? 2 : 1))
-                        .padding(14)
+                        Text("⌘ B").foregroundStyle(.secondary).font(Font.system(size: Typography.Size.micro))
+                    }.font(Typography.detail).padding(Space.md)
+                        .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(focus == "search" ? Theme.accent : Theme.border, lineWidth: focus == "search" ? 2 : 1))
+                        .padding(Space.lg)
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 4) {
+                        LazyVStack(alignment: .leading, spacing: Space.xs) {
                             if loading && catalog == nil {
-                                ChangesLoadingPlaceholder(title: "Reading branches…").padding(14)
+                                ChangesLoadingPlaceholder(title: "Reading branches…").padding(Space.lg)
                             } else if visible.isEmpty {
                                 Text("No branches match your search. Try another name or create a branch.")
-                                    .font(.system(size: 12)).foregroundStyle(.secondary).padding(14)
+                                    .font(Typography.detail).foregroundStyle(.secondary).padding(Space.lg)
                             }
                             ForEach([false, true], id: \.self) { remote in
                                 let group = visible.filter { $0.remote == remote }
                                 if !group.isEmpty {
-                                    Text(remote ? "REMOTE" : "LOCAL").font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(.secondary).padding(.top, 12).padding(.horizontal, 10)
+                                    Text(remote ? "REMOTE" : "LOCAL").font(Typography.micro)
+                                        .foregroundStyle(.secondary).padding(.top, Space.lg).padding(.horizontal, Space.md)
                                     ForEach(group) { branch in branchRow(branch) }
                                 }
                             }
-                        }.padding(.horizontal, 10).padding(.bottom, 14)
+                        }.padding(.horizontal, Space.md).padding(.bottom, Space.lg)
                     }
                 }.frame(width: geometry.size.width * 0.44)
                 Divider()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 13) {
+                    VStack(alignment: .leading, spacing: Space.lg) {
                         if let selected {
-                            Text("SELECTED BRANCH").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                            Text(selected.name).font(.system(size: 22, weight: .semibold)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            Text("SELECTED BRANCH").font(Typography.micro).foregroundStyle(.secondary)
+                            Text(selected.name).font(Typography.display).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                             Text(selected.remote ? "Remote-tracking branch" : selected.upstream.isEmpty ? "Local branch · No upstream" : "Tracks " + selected.upstream)
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .font(Typography.detail).foregroundStyle(.secondary)
                             if !selected.worktree.isEmpty && !isCurrent {
-                                Label("Open in " + selected.worktree, systemImage: "folder").font(.system(size: 11)).foregroundStyle(.secondary)
+                                Label("Open in " + selected.worktree, systemImage: "folder").font(Typography.caption).foregroundStyle(.secondary)
                             }
                             if catalog?.policy.protectedNames.contains(selected.name) == true {
-                                Label("Protected or default branch", systemImage: "lock").font(.system(size: 11))
+                                Label("Protected or default branch", systemImage: "lock").font(Typography.caption)
                             }
                             Divider()
                             if isCurrent {
-                                Text("You are working on this branch.").font(.system(size: 12)).foregroundStyle(.secondary)
+                                Text("You are working on this branch.").font(Typography.detail).foregroundStyle(.secondary)
                                 actionRow("Stashes", detail: "Save or restore uncommitted work", icon: "archivebox", id: "stashes") { page = .stashes }
                                 actionRow("New branch from here", detail: "Start from your current commit", icon: "plus", id: "create") { openName(.create) }
                             } else {
                                 Text(preview.map { "\(counted($0.incoming.count, "incoming commit")) · \(counted($0.outgoing, "current-only commit"))" } ?? "Reading branch differences…")
-                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                                    .font(Typography.detail).foregroundStyle(.secondary)
                                 actionRow("Merge into " + current, detail: "Preview changes before merging", icon: "arrow.triangle.merge", id: "merge", emphasis: true) { open(.merge) }
                                 if canMergeBack {
                                     actionRow("Merge \(current) into \(selected.name)", detail: "Runs in " + selected.worktree, icon: "arrow.triangle.merge", id: "mergeBack") { open(.mergeBack) }
@@ -220,7 +220,7 @@ struct BranchBrowserView: View {
                             }
                             HStack {
                                 Spacer()
-                                ActionButton(title: "More actions", tone: .outlined, height: 29, icon: "ellipsis")
+                                ActionButton(title: "More actions", tone: .outlined, height: ControlHeight.md, icon: "ellipsis")
                                     .appMenu {
                                         var entries: [MenuEntry] = [.item("New worktree from here…", icon: "folder") { openName(.worktree) }]
                                         if renamable { entries.append(.item("Rename branch…") { openName(.rename) }) }
@@ -235,12 +235,12 @@ struct BranchBrowserView: View {
                             ChangesLoadingPlaceholder(title: "Reading branch details…")
                         } else {
                             Text("Select a branch to see its actions. Selection does not switch branches.")
-                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                                .font(Typography.body).foregroundStyle(.secondary)
                         }
                         if let policy = catalog?.policy {
-                            Text(policy.note).font(.system(size: 10)).foregroundStyle(.secondary)
+                            Text(policy.note).font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                         }
-                    }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(Space.xxl).frame(maxWidth: .infinity, alignment: .leading)
                         .id(selected?.id).transition(.fadeIn)
                         .motion(Motion.reveal, value: previewing)
                 }.motion(Motion.reveal, value: selected?.id)
@@ -250,17 +250,17 @@ struct BranchBrowserView: View {
 
     private func branchRow(_ branch: GitBranch) -> some View {
         Button { selected = branch } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Image(systemName: branch.remote ? "cloud" : "point.topleft.down.to.point.bottomright.curvepath")
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(branch.name).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text(branch.name).font(Typography.detail.weight(.medium)).lineLimit(1).truncationMode(.middle)
                     Text(branch.ref == "refs/heads/" + current ? "Your current branch" : branch.remote ? "Remote-tracking branch" : branch.upstream.isEmpty ? "Local branch" : "Tracks " + branch.upstream)
-                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if branch.ref == "refs/heads/" + current { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
-            }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(selected?.id == branch.id ? Theme.accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            }.padding(Space.md).frame(maxWidth: .infinity, alignment: .leading)
+                .background(selected?.id == branch.id ? Theme.accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: Radius.control))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).hoverFill().focused($focus, equals: branch.id).branchFocus(focus == branch.id)
             .appTooltip(branch.name).accessibilityLabel(branch.name + (branch.ref == "refs/heads/" + current ? ", current branch" : ""))
@@ -270,22 +270,22 @@ struct BranchBrowserView: View {
     private func actionRow(_ title: String, detail: String, icon: String, id: String, emphasis: Bool = false,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: Space.md) {
                 Image(systemName: icon).frame(width: 20)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.system(size: 12, weight: .semibold))
-                    Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text(title).font(Typography.label)
+                    Text(detail).font(Typography.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-            }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(emphasis ? Theme.accent.opacity(0.10) : Theme.field, in: RoundedRectangle(cornerRadius: 8))
+            }.padding(Space.md).frame(maxWidth: .infinity, alignment: .leading)
+                .background(emphasis ? Theme.accent.opacity(0.10) : Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).hoverFill().focused($focus, equals: id).branchFocus(focus == id)
     }
 
     private var previewContent: some View {
         ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: Space.xl) {
                 previewBody
             }.id(preview != nil).transition(.fadeIn)
         }
@@ -295,66 +295,66 @@ struct BranchBrowserView: View {
 
     @ViewBuilder private var previewBody: some View {
         if let preview {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: Space.lg) {
                 branchCard(page == .rebase || page == .switchBranch || page == .mergeBack ? "From current branch" : "From \(preview.source.remote ? "remote-tracking" : "local") branch",
                            page == .rebase || page == .switchBranch ? preview.destination : preview.source.name)
-                Image(systemName: "arrow.right").foregroundStyle(Theme.accent).padding(.top, 26)
+                Image(systemName: "arrow.right").foregroundStyle(Theme.accent).padding(.top, Space.xxxl)
                 branchCard(page == .rebase ? "Replay onto" : page == .switchBranch ? "Switch to" : page == .mergeBack ? "Into its own checkout" : "Into your current branch",
                            page == .rebase || page == .switchBranch ? preview.source.name : preview.destination)
             }
             if page != .switchBranch {
                 HStack {
-                    Text(counted(preview.incoming.count, "incoming commit")).font(.system(size: 13, weight: .semibold))
+                    Text(counted(preview.incoming.count, "incoming commit")).font(Typography.body.weight(.semibold))
                     Spacer()
                     Label(!preview.remoteVerified ? "Remote status unverified" : preview.conflictNote != nil ? "Conflict check unavailable" : preview.conflicts.isEmpty ? "No conflicts in checked refs" : "\(preview.conflicts.count) conflicts to resolve",
                           systemImage: !preview.remoteVerified || preview.conflictNote != nil || !preview.conflicts.isEmpty ? "exclamationmark.triangle" : "checkmark")
-                        .font(.system(size: 11)).foregroundStyle(preview.remoteVerified && preview.conflicts.isEmpty && preview.conflictNote == nil ? Theme.accent : Theme.deletion)
+                        .font(Typography.caption).foregroundStyle(preview.remoteVerified && preview.conflicts.isEmpty && preview.conflictNote == nil ? Theme.accent : Theme.deletion)
                 }
                 if preview.incoming.isEmpty {
                     Text(page == .rebase ? "\(preview.destination) already has everything on \(preview.source.name), so there is nothing to replay."
                             + (canMergeBack ? " To put your work on \(preview.source.name), go back and choose Merge \(preview.destination) into \(preview.source.name)." : "")
                          : page == .mergeBack ? "\(preview.destination) already has everything on \(preview.source.name)."
-                         : "Nothing to merge. Choose another branch to bring in new work.").font(.system(size: 13))
+                         : "Nothing to merge. Choose another branch to bring in new work.").font(Typography.body)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(preview.incoming) { commit in
-                        HStack(spacing: 10) {
+                        HStack(spacing: Space.md) {
                             Image(systemName: "circle").font(.system(size: 7)).foregroundStyle(Theme.accent)
-                            Text(commit.subject).font(.system(size: 12))
+                            Text(commit.subject).font(Typography.detail)
                             Spacer()
-                            Text(commit.shortID).font(.mono(10)).foregroundStyle(.secondary)
-                        }.padding(10)
+                            Text(commit.shortID).font(Font.mono(Typography.Size.micro)).foregroundStyle(.secondary)
+                        }.padding(Space.md)
                         Divider()
                     }
-                }.overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                }.overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
                 HStack {
                     Text("\(counted(preview.files.count, "file")) changed")
                     Text("+\(preview.files.compactMap(\.added).reduce(0, +))").foregroundStyle(Theme.addition)
                     Text("-\(preview.files.compactMap(\.removed).reduce(0, +))").foregroundStyle(Theme.deletion)
-                }.font(.system(size: 11))
+                }.font(Typography.caption)
                 if page == .compare {
                     ForEach(preview.files) { file in
                         HStack {
-                            Text(file.path).font(.mono(11)).textSelection(.enabled)
+                            Text(file.path).font(Typography.data).textSelection(.enabled)
                             Spacer()
-                            Text(file.isBinary ? "binary" : "+\(file.added ?? 0) -\(file.removed ?? 0)").font(.mono(11))
-                        }.padding(.vertical, 4)
+                            Text(file.isBinary ? "binary" : "+\(file.added ?? 0) -\(file.removed ?? 0)").font(Typography.data)
+                        }.padding(.vertical, Space.xs)
                     }
                 }
-                Text(preview.freshness).font(.system(size: 11)).foregroundStyle(.secondary)
-                if let note = preview.conflictNote { Text(note).font(.system(size: 12)).foregroundStyle(Theme.deletion) }
+                Text(preview.freshness).font(Typography.caption).foregroundStyle(.secondary)
+                if let note = preview.conflictNote { Text(note).font(Typography.detail).foregroundStyle(Theme.deletion) }
                 if !preview.conflicts.isEmpty {
                     Text("Resolve changes in:\n" + preview.conflicts.joined(separator: "\n"))
-                        .font(.system(size: 12)).foregroundStyle(Theme.deletion).textSelection(.enabled)
+                        .font(Typography.detail).foregroundStyle(Theme.deletion).textSelection(.enabled)
                     if page == .mergeBack {
                         Text("Merge \(preview.destination) into \(preview.source.name) first and resolve the conflicts here.")
-                            .font(.system(size: 12)).foregroundStyle(Theme.deletion)
+                            .font(Typography.detail).foregroundStyle(Theme.deletion)
                     }
                 }
             }
             if (page == .merge || page == .mergeBack) && !preview.incoming.isEmpty {
-                Text("How to merge").font(.system(size: 13, weight: .semibold))
-                HStack(spacing: 8) {
+                Text("How to merge").font(Typography.body.weight(.semibold))
+                HStack(spacing: Space.md) {
                     if preview.outgoing == 0 {
                         ChoicePill(title: "Fast-forward", selected: method == .fastForward) { method = .fastForward }
                             .focused($focus, equals: "methodFastForward").branchFocus(focus == "methodFastForward")
@@ -366,76 +366,76 @@ struct BranchBrowserView: View {
                 }
                 Text(method == .fastForward ? "Move \(preview.destination) up to \(preview.source.name) without a new commit."
                      : method == .merge ? "Keep the full history of both branches." : "Combine the incoming changes into one local commit.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(Typography.caption).foregroundStyle(.secondary)
             }
             if page == .rebase {
                 Text("Rewrites \(preview.outgoing) commits on \(preview.destination). Published commits may require a force push. Conflicts pause the rebase for review.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.deletion)
+                    .font(Typography.detail).foregroundStyle(Theme.deletion)
             }
             if preview.dirtyCount > 0 && page == .mergeBack {
                 Label("\(preview.destination) has uncommitted changes in \(selected?.worktree ?? ""). Commit or stash them there first.", systemImage: "archivebox")
-                    .font(.system(size: 12)).foregroundStyle(Theme.deletion)
+                    .font(Typography.detail).foregroundStyle(Theme.deletion)
             } else if preview.dirtyCount > 0 && page != .compare {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("You have uncommitted changes", systemImage: "archivebox").font(.system(size: 12, weight: .semibold))
+                VStack(alignment: .leading, spacing: Space.md) {
+                    Label("You have uncommitted changes", systemImage: "archivebox").font(Typography.label)
                     Toggle(isOn: $consent) {
                         Text(page == .switchBranch
                              ? "Stash my changes and leave them saved for \(preview.destination)"
                              : "Stash my changes, then restore them after \(page == .rebase ? "rebasing" : "merging")")
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                     }.toggleStyle(.appCheckbox).focused($focus, equals: "consent").branchFocus(focus == "consent")
-                }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 9))
+                }.padding(Space.lg).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.card))
             }
         } else if previewing {
             ChangesLoadingPlaceholder(title: "Reading branch tips and checking for conflicts…")
                 .transition(.opacity)
         } else {
             Text("Select a branch or refresh to try again.")
-                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .font(Typography.body).foregroundStyle(.secondary)
         }
     }
 
     private func branchCard(_ label: String, _ name: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
-            Text(name).font(.system(size: 14, weight: .semibold)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.field, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text(label).font(Typography.caption).foregroundStyle(.secondary)
+            Text(name).font(Typography.body.weight(.semibold)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        }.padding(Space.xl).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border))
     }
 
     private var nameForm: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             Text(page == .create ? "Create a branch from \(current) and switch to it." : page == .rename ? "Rename the local branch \(selected?.name ?? ""). Its remote name stays unchanged." : "Create an isolated checkout from \(selected?.name ?? ""). The current checkout stays unchanged.")
-                .font(.system(size: 13))
+                .font(Typography.body)
             TextField("New branch name", text: $branchName).appTextField().focused($focus, equals: "name")
                 .accessibilityLabel("New branch name")
             if page == .worktree {
                 TextField("New worktree folder", text: $worktreePath).appTextField().focused($focus, equals: "path")
                     .accessibilityLabel("New worktree folder")
-                Text("Enter an absolute path to a folder that does not exist.").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Enter an absolute path to a folder that does not exist.").font(Typography.caption).foregroundStyle(.secondary)
             }
         }
     }
 
     private var stashList: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             ActionButton(title: "Stash current changes", tone: .outlined, icon: "archivebox") {
                 run { await GitBranches.stash(at: root) }
             }.disabled(busy).focused($focus, equals: "stash")
-            if catalog?.stashes.isEmpty != false { Text("No saved stashes in this repository.").font(.system(size: 13)).foregroundStyle(.secondary) }
+            if catalog?.stashes.isEmpty != false { Text("No saved stashes in this repository.").font(Typography.body).foregroundStyle(.secondary) }
             ForEach(catalog?.stashes ?? []) { stash in
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(stash.message).font(.system(size: 12)).textSelection(.enabled)
+                VStack(alignment: .leading, spacing: Space.md) {
+                    Text(stash.message).font(Typography.detail).textSelection(.enabled)
                     HStack {
-                        Text(stash.name + " · " + stash.id.prefix(8)).font(.mono(10)).foregroundStyle(.secondary)
+                        Text(stash.name + " · " + stash.id.prefix(8)).font(Font.mono(Typography.Size.micro)).foregroundStyle(.secondary)
                         Spacer()
-                        ActionButton(title: "Restore on " + current, tone: .outlined, height: 28) {
+                        ActionButton(title: "Restore on " + current, tone: .outlined, height: ControlHeight.md) {
                             run { await GitBranches.restore(stash, at: root) }
                         }.disabled(busy).focused($focus, equals: stash.id)
                     }
-                }.padding(12).background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
+                }.padding(Space.lg).background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
             }
         }
     }
@@ -443,9 +443,9 @@ struct BranchBrowserView: View {
     @ViewBuilder private var recoveryContent: some View {
         if let recovery = catalog?.recovery {
             Text(recovery.restoring ? "The branch operation has ended, but restoring local work needs attention." : "\(recovery.kind.rawValue.capitalized) from \(recovery.source) into \(recovery.branch) is paused.")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             if let stash = recovery.stash {
-                Text("Retained stash: " + stash).font(.mono(11)).textSelection(.enabled)
+                Text("Retained stash: " + stash).font(Typography.data).textSelection(.enabled)
             }
             if recovery.kind == .rebase && !recovery.restoring {
                 ActionButton(title: "Skip this commit…", tone: .outlined) {
@@ -459,7 +459,7 @@ struct BranchBrowserView: View {
                     }.disabled(busy).focused($focus, equals: "confirmSkip")
                 }
                 Text("During a rebase, Git's current side is the destination plus replayed commits; the incoming side is the commit being replayed.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(Typography.caption).foregroundStyle(.secondary)
             }
             ForEach(conflictPaths, id: \.self) { path in
                 actionRow(path, detail: "Review both versions or edit the result", icon: "exclamationmark.triangle", id: path) {
@@ -471,8 +471,8 @@ struct BranchBrowserView: View {
                 }
             }
             if let conflictPath, let contents = conflictContents {
-                Text(conflictPath).font(.mono(12, .semibold)).textSelection(.enabled)
-                HStack(alignment: .top, spacing: 12) {
+                Text(conflictPath).font(Typography.code.weight(.semibold)).textSelection(.enabled)
+                HStack(alignment: .top, spacing: Space.lg) {
                     conflictVersion("Current version", text: contents.current)
                     conflictVersion("Incoming version", text: contents.incoming)
                 }
@@ -481,10 +481,10 @@ struct BranchBrowserView: View {
                     ActionButton(title: "Use incoming version", tone: .outlined) { resolve(side: "theirs") }.focused($focus, equals: "theirs")
                 }.disabled(busy)
                 if contents.working != nil {
-                    Text("Edit result").font(.system(size: 12, weight: .semibold))
-                    TextEditor(text: $resolution).font(.mono(11)).scrollContentBackground(.hidden)
-                        .frame(height: 180).padding(8).background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    Text("Edit result").font(Typography.label)
+                    TextEditor(text: $resolution).font(Typography.data).scrollContentBackground(.hidden)
+                        .frame(height: 180).padding(Space.md).background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
                         .focused($focus, equals: "resolution").accessibilityLabel("Edit resolved file " + conflictPath)
                     ActionButton(title: "Save and mark resolved", tone: .outlined) { resolve(text: resolution) }.disabled(busy).focused($focus, equals: "saveResolution")
                 }
@@ -498,11 +498,11 @@ struct BranchBrowserView: View {
                     ActionButton(title: "Mark edited file resolved", tone: .outlined) { resolve() }.disabled(busy).focused($focus, equals: "markResolved")
                 }
             } else if conflictPaths.isEmpty {
-                Text("No unresolved index conflicts. Check any error above before continuing.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("No unresolved index conflicts. Check any error above before continuing.").font(Typography.detail).foregroundStyle(.secondary)
             }
             if recovery.restoring {
                 Text("If restoration stopped before applying all files, recover them from the retained stash. Closing recovery keeps that stash. You can also retry restoration after saving or moving any current work.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
                 ActionButton(title: "Retry stash restoration", tone: .outlined) {
                     run { await GitBranches.retryRestore(at: root) }
                 }.disabled(busy).focused($focus, equals: "retryRestore")
@@ -510,22 +510,22 @@ struct BranchBrowserView: View {
                     .focused($focus, equals: "confirmed")
             }
         } else {
-            Text("No operation needs recovery.").font(.system(size: 13))
+            Text("No operation needs recovery.").font(Typography.body)
         }
     }
 
     private func conflictVersion(_ title: String, text: String?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text(title).font(Typography.label)
             ScrollView([.horizontal, .vertical]) {
                 Text(text ?? "Deleted, binary or too large for an inline preview. Use a version or inspect it in an external editor.")
-                    .font(.mono(10)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    .font(Font.mono(Typography.Size.micro)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
             }.frame(height: 120)
-        }.padding(10).frame(maxWidth: .infinity).background(Theme.field, in: RoundedRectangle(cornerRadius: 8))
+        }.padding(Space.md).frame(maxWidth: .infinity).background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.control))
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             if page == .branches {
                 ActionButton(title: "New branch", tone: .outlined, icon: "plus") { openName(.create) }
                     .disabled(busy || catalog == nil).focused($focus, equals: "new")
@@ -538,7 +538,7 @@ struct BranchBrowserView: View {
                     }.disabled(busy).focused($focus, equals: "recover")
                 }
                 Spacer(minLength: 0)
-                Text("Current: " + current).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                Text("Current: " + current).font(Typography.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             } else {
                 ActionButton(title: "Back", tone: .outlined) { page = .branches; message = "" }
                     .disabled(busy).focused($focus, equals: "back")
@@ -549,10 +549,10 @@ struct BranchBrowserView: View {
                 Spacer(minLength: 0)
                 if page == .merge || page == .mergeBack || page == .rebase || page == .switchBranch {
                     Button { executePreview() } label: {
-                        Text(busy ? "Working…" : primaryTitle).font(.system(size: 12, weight: .semibold))
-                            .lineLimit(2).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.vertical, 9)
-                            .frame(maxWidth: 340).foregroundStyle(.white)
-                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
+                        Text(busy ? "Working…" : primaryTitle).font(Typography.label)
+                            .lineLimit(2).fixedSize(horizontal: false, vertical: true).padding(.horizontal, Space.lg).padding(.vertical, Space.md)
+                            .frame(maxWidth: 340).foregroundStyle(Theme.onFill)
+                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Radius.control)).contentShape(Rectangle())
                             .hoverLift()
                     }.buttonStyle(.plain).opacity(canExecute ? 1 : 0.4)
                         .disabled(!canExecute).focused($focus, equals: "primary").branchFocus(focus == "primary")
@@ -801,6 +801,6 @@ struct BranchBrowserView: View {
 
 private extension View {
     func branchFocus(_ focused: Bool) -> some View {
-        overlay(RoundedRectangle(cornerRadius: 8).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
+        overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(focused ? Theme.accent : .clear, lineWidth: 2))
     }
 }

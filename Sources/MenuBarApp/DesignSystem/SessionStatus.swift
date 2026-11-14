@@ -220,11 +220,11 @@ struct NeedsYouChip: View {
     let count: Int
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 5)
+        let shape = RoundedRectangle(cornerRadius: Radius.inset)
         Text(verbatim: "\(count)")
-            .font(.mono(9.5, .bold))
+            .font(Typography.caps)
             .foregroundStyle(Theme.attentionText)
-            .padding(.horizontal, 5)
+            .padding(.horizontal, Space.xs)
             .frame(minWidth: 20, minHeight: 16)
             .background {
                 ZStack {

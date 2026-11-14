@@ -470,7 +470,7 @@ struct ContextMenuHost: View {
                         usesSharedMarkColumn: usesSharedMarkColumn)
         }
         .frame(minWidth: menuMinimumWidth, alignment: .leading)
-        .floatingCard(cornerRadius: 11)
+        .floatingCard(cornerRadius: Radius.floating)
     }
 
     private func menuContent(hasChecks: Bool,
@@ -507,13 +507,13 @@ struct ContextMenuHost: View {
                 case .separator:
                     Divider()
                         .overlay(Theme.hairline)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, Space.md)
+                        .padding(.vertical, Space.xs)
                         .transition(.fadeIn)
                 }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, Space.sm)
         .onAppear {
             guard presenter.entries.allSatisfy({
                 switch $0 {
@@ -573,7 +573,7 @@ private struct MenuIconGrid: View {
     @FocusState private var focused: Int?
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 5), count: 6), spacing: 5) {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: Space.xs), count: 6), spacing: Space.xs) {
             ForEach(items.indices, id: \.self) { index in
                 let item = items[index]
                 Button { action(item) } label: {
@@ -581,7 +581,7 @@ private struct MenuIconGrid: View {
                         .font(.system(size: 15))
                         .foregroundStyle(item.checked ? .white : Theme.accent)
                         .frame(width: 36, height: 36)
-                        .surface(item.checked ? Theme.accentFill : Theme.field, cornerRadius: 7,
+                        .surface(item.checked ? Theme.accentFill : Theme.field, cornerRadius: Radius.control,
                                  border: focused == index ? Theme.accent : .clear)
                         .contentShape(Rectangle())
                 }
@@ -592,7 +592,7 @@ private struct MenuIconGrid: View {
                 .appTooltip(item.label)
             }
         }
-        .padding(8)
+        .padding(Space.md)
         .onAppear { focused = items.firstIndex(where: \.checked) ?? 0 }
         .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
             guard !items.isEmpty else { return .ignored }
@@ -696,18 +696,18 @@ private struct SearchableMenuItemsView: View {
     var body: some View {
         let groups = groups
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
                 TextField(searchable.prompt, text: $filter)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
                     .focused($filterFocused)
                 if !filter.isEmpty {
                     Button { filter = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(Typography.caption)
                             .foregroundStyle(.tertiary)
                             .contentShape(Rectangle())
                     }
@@ -715,18 +715,18 @@ private struct SearchableMenuItemsView: View {
                     .hoverLift(amount: Motion.smallLift)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
             .fieldSurface()
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.xs)
 
             if groups.allSatisfy({ $0.items.isEmpty }) {
                 Text(searchable.noResults)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.md)
                     .transition(.fadeIn)
             } else {
                 ForEach(groups, id: \.index) { visible in
@@ -773,21 +773,21 @@ private struct SearchableMenuItemsView: View {
         Button {
             if open { expanded.remove(index) } else { expanded.insert(index) }
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(open ? 90 : 0))
                     .frame(width: 10)
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text("\(count)")
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.sm)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -800,18 +800,18 @@ private struct MenuCardGrid: View {
     let action: (MenuCardItem) -> Void
 
     private let columns = [
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8)
+        GridItem(.flexible(), spacing: Space.md),
+        GridItem(.flexible(), spacing: Space.md)
     ]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 8) {
+        LazyVGrid(columns: columns, spacing: Space.md) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 MenuCardItemView(item: item) { action(item) }
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.xxs)
     }
 }
 
@@ -824,28 +824,28 @@ private struct MenuCardItemView: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 6) {
+                HStack(alignment: .top, spacing: Space.sm) {
                     Image(systemName: item.icon)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.accent)
                         .frame(width: 26, height: 26)
-                        .background(RoundedRectangle(cornerRadius: 7)
+                        .background(RoundedRectangle(cornerRadius: Radius.control)
                             .fill(Theme.accent.opacity(0.10)))
                     Spacer(minLength: 4)
                     if item.showsUpdate {
                         UpdateIndicator()
-                            .padding(.top, 2)
+                            .padding(.top, Space.xxs)
                     }
                 }
 
                 Spacer(minLength: 8)
 
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.xxs) {
                     Text(item.label)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                     if item.showsBeta {
                         Text("beta")
-                            .font(.system(size: 8, weight: .semibold))
+                            .font(Typography.micro)
                             .foregroundStyle(.secondary)
                             .baselineOffset(4)
                     }
@@ -853,16 +853,16 @@ private struct MenuCardItemView: View {
                     .lineLimit(1)
 
                 Text(item.detail)
-                    .font(.mono(10))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
                                      ?? AnyShapeStyle(.tertiary))
                     .lineLimit(1)
-                    .padding(.top, 2)
+                    .padding(.top, Space.xxs)
             }
             .foregroundStyle(Color.primary)
             .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
-            .padding(10)
-            .surface(hovering ? Color.primary.opacity(0.055) : Theme.field, cornerRadius: 9)
+            .padding(Space.md)
+            .surface(hovering ? Color.primary.opacity(0.055) : Theme.field, cornerRadius: Radius.card)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -896,7 +896,7 @@ private struct MenuItemRow: View {
     }
 
     private var row: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             // The column is kept for every row once one entry uses it, so a row with
             // nothing to say about where it belongs still lines up with the ones that do.
             if tintColumn {
@@ -904,14 +904,14 @@ private struct MenuItemRow: View {
             }
             if checkColumn && !usesSharedMarkColumn {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                     .frame(width: 12)
                     .opacity(item.checked ? 1 : 0)
             }
             if iconColumn {
                 if usesSharedMarkColumn && item.checked {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .frame(width: 22, height: 22)
                 } else if let image = item.image {
                     menuImage(image)
@@ -920,7 +920,7 @@ private struct MenuItemRow: View {
                         .frame(width: 22, height: 22)
                 } else {
                     Image(systemName: item.icon ?? "square")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .foregroundStyle(item.iconTint ?? Theme.accent)
                         .frame(width: 22, height: 22)
                         .opacity(item.icon == nil ? 0 : 1)
@@ -929,26 +929,26 @@ private struct MenuItemRow: View {
             if let badge = item.badge {
                 let tint = item.badgeTint ?? Color.secondary
                 Text(badge)
-                    .font(.mono(9, .bold))
+                    .font(Typography.caps)
                     .kerning(0.5)
                     .foregroundStyle(tint)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, Space.xxs)
                     // One width for every chip, so the labels line up in a column.
                     .frame(width: 48)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(tint.opacity(0.12)))
-                    .padding(.trailing, 3)
+                    .background(RoundedRectangle(cornerRadius: Radius.inset).fill(tint.opacity(0.12)))
+                    .padding(.trailing, Space.xxs)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
                     Text(item.label)
-                        .font(.system(size: 13, weight: item.subtitle == nil ? .regular : .semibold))
+                        .font(Typography.body.weight(item.subtitle == nil ? .regular : .semibold))
                     if item.showsUpdate {
                         UpdateIndicator()
                     }
                 }
                 if let subtitle = item.subtitle {
                     Text(subtitle)
-                        .font(item.monospacedSubtitle ? .mono(10.5) : .system(size: 11))
+                        .font(item.monospacedSubtitle ? Typography.data : Typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -958,11 +958,11 @@ private struct MenuItemRow: View {
             if let detail = item.detail {
                 Spacer(minLength: 24)
                 if let detailAction {
-                    ActionButton(title: detail, tone: .danger, height: 26, size: 11,
+                    ActionButton(title: detail, tone: .danger, height: ControlHeight.sm, size: Typography.Size.caption,
                                  action: detailAction)
                 } else {
                     Text(detail)
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
                                          ?? AnyShapeStyle(.tertiary))
                 }
@@ -970,11 +970,11 @@ private struct MenuItemRow: View {
         }
         .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.lg)
         .padding(.vertical, item.subtitle == nil ? 6 : 8)
-        .background(RoundedRectangle(cornerRadius: 6)
+        .background(RoundedRectangle(cornerRadius: Radius.inset)
             .fill(action != nil && hovering ? Color.primary.opacity(0.05) : .clear)
-            .padding(.horizontal, 5))
+            .padding(.horizontal, Space.xs))
         .opacity(item.isDisabled ? 0.38 : 1)
         .contentShape(Rectangle())
     }
@@ -991,7 +991,7 @@ private struct MenuItemRow: View {
         case .circle:
             content.clipShape(Circle())
         case .tile:
-            content.clipShape(RoundedRectangle(cornerRadius: 6))
+            content.clipShape(RoundedRectangle(cornerRadius: Radius.inset))
         }
     }
 }

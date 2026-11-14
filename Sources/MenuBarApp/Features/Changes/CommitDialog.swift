@@ -97,12 +97,12 @@ struct CommitDialogView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.title).font(.serif(20, .semibold))
+            VStack(alignment: .leading, spacing: Space.xl) {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text(model.title).font(Typography.display)
                         .accessibilityAddTraits(.isHeader)
-                    Text("To \(Text(branch).font(.mono(12, .medium)).foregroundStyle(.primary)) in \(repository)")
-                        .font(.system(size: 12.5)).foregroundStyle(Theme.secondaryText)
+                    Text("To \(Text(branch).font(Typography.code.weight(.medium)).foregroundStyle(.primary)) in \(repository)")
+                        .font(Typography.body).foregroundStyle(Theme.secondaryText)
                         .lineLimit(1).truncationMode(.middle)
                 }
                 messageField
@@ -110,7 +110,7 @@ struct CommitDialogView: View {
                 if model.canAmend { amendOption }
                 if let error = model.error { failure(error) }
             }
-            .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 18)
+            .padding(.horizontal, Space.xxl).padding(.top, Space.xxl).padding(.bottom, Space.xl)
             footer
         }
         .background(Theme.card)
@@ -133,9 +133,9 @@ struct CommitDialogView: View {
             .accessibilityLabel("Commit message for " + repository)
             .overlay(alignment: .bottomTrailing) {
                 Text("\(model.summaryLength) / \(CommitDialogModel.summaryLimit)")
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(model.summaryTooLong ? Theme.warningText : Theme.secondaryText)
-                    .padding(.trailing, 10).padding(.bottom, 7)
+                    .padding(.trailing, Space.md).padding(.bottom, Space.sm)
                     .allowsHitTesting(false)
                     .appTooltip("Summary line length. Keep it under \(CommitDialogModel.summaryLimit).")
                     .accessibilityLabel("Summary is \(model.summaryLength) characters"
@@ -146,18 +146,18 @@ struct CommitDialogView: View {
     private var includedFiles: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button { showsFiles.toggle() } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.secondaryText)
+                        .font(Typography.micro).foregroundStyle(Theme.secondaryText)
                         .rotationEffect(.degrees(showsFiles ? 90 : 0))
-                    Text(model.includedLabel).font(.system(size: 12.5, weight: .medium))
+                    Text(model.includedLabel).font(Typography.body.weight(.medium))
                     Spacer(minLength: 0)
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         Text("+\(model.added)").foregroundStyle(Theme.addition)
                         Text("−\(model.removed)").foregroundStyle(Theme.deletion)
-                    }.font(.mono(11))
+                    }.font(Typography.data)
                 }
-                .padding(.horizontal, 12).frame(height: 36)
+                .padding(.horizontal, Space.lg).frame(height: 36)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -167,44 +167,44 @@ struct CommitDialogView: View {
             if showsFiles {
                 VStack(spacing: 0) {
                     ForEach(model.files) { file in
-                        HStack(spacing: 10) {
+                        HStack(spacing: Space.md) {
                             StatusChip(kind: file.kind)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(file.fileName).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                                Text(file.fileName).font(Typography.detail.weight(.medium)).lineLimit(1)
                                 Text((file.path as NSString).deletingLastPathComponent)
-                                    .font(.system(size: 10)).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                                    .font(Font.system(size: Typography.Size.micro)).foregroundStyle(Theme.secondaryText).lineLimit(1)
                             }
                             Spacer(minLength: 0)
                             if file.isBinary {
-                                Text("binary").font(.system(size: 11)).foregroundStyle(Theme.secondaryText)
+                                Text("binary").font(Typography.caption).foregroundStyle(Theme.secondaryText)
                             } else {
-                                HStack(spacing: 6) {
+                                HStack(spacing: Space.sm) {
                                     Text("+\(file.added ?? 0)").foregroundStyle(Theme.addition)
                                     Text("−\(file.removed ?? 0)").foregroundStyle(Theme.deletion)
-                                }.font(.mono(11))
+                                }.font(Typography.data)
                             }
                         }
-                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .padding(.horizontal, Space.lg).padding(.vertical, Space.sm)
                         .appTooltip(file.path)
                         .accessibilityElement(children: .combine)
                     }
                 }
-                .padding(.bottom, 6)
+                .padding(.bottom, Space.sm)
                 .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
             }
         }
-        .background(Theme.field.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+        .background(Theme.field.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(Theme.border))
         .motion(Motion.reveal, value: showsFiles)
     }
 
     private var amendOption: some View {
         Toggle(isOn: Binding(get: { model.amend }, set: { model.amend = $0 })) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Amend last commit").font(.system(size: 12.5, weight: .medium))
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("Amend last commit").font(Typography.body.weight(.medium))
                 Text(model.lastSubject.map { "Add these files to “\($0)” instead of making a new commit." }
                      ?? "Add these files to the last commit instead of making a new one.")
-                    .font(.system(size: 11.5)).foregroundStyle(Theme.secondaryText)
+                    .font(Typography.detail).foregroundStyle(Theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -213,31 +213,31 @@ struct CommitDialogView: View {
     }
 
     private func failure(_ error: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text(model.amend ? "Could not amend the commit" : "Could not create the commit")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             ScrollView {
-                Text(error).font(.mono(11)).foregroundStyle(Theme.terminalText)
+                Text(error).font(Typography.data).foregroundStyle(Theme.terminalText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                    .padding(Space.md)
             }
             .frame(maxHeight: 140)
             .fixedSize(horizontal: false, vertical: true)
-            .background(Theme.terminal, in: RoundedRectangle(cornerRadius: 8))
-            Text("Your message is kept. Fix the problem, then commit again.").font(.system(size: 12))
+            .background(Theme.terminal, in: RoundedRectangle(cornerRadius: Radius.control))
+            Text("Your message is kept. Fix the problem, then commit again.").font(Typography.detail)
         }
         .foregroundStyle(Theme.warningText)
-        .padding(12)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: Radius.card))
         .accessibilityElement(children: .combine)
         .accessibilityFocused($errorFocused)
         .transition(.opacity)
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Group {
                 if model.isCommitting {
                     ChangesProgressLabel(title: model.amend ? "Amending…" : "Committing…")
@@ -245,7 +245,7 @@ struct CommitDialogView: View {
                     Label("Stays on this Mac until you push.", systemImage: "lock")
                 }
             }
-            .font(.system(size: 11)).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            .font(Typography.caption).foregroundStyle(Theme.secondaryText).lineLimit(1)
             Spacer(minLength: 0)
             ActionButton(title: "Cancel", tone: .sunken) { dialogs.dismiss() }
                 .disabled(model.isCommitting)
@@ -255,7 +255,7 @@ struct CommitDialogView: View {
                 .disabled(!model.canCommit)
                 .motion(Motion.reveal, value: model.isCommitting)
         }
-        .padding(.vertical, 12).padding(.leading, 22).padding(.trailing, 14)
+        .padding(.vertical, Space.lg).padding(.leading, Space.xxl).padding(.trailing, Space.lg)
         .background(Theme.field)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }

@@ -28,24 +28,24 @@ struct SessionProjectCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: Space.lg) {
+                HStack(spacing: Space.md) {
                     ProjectDot(tint: Theme.projectTint(for: project.name), size: 10)
                     Text(project.name)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(Typography.title)
                         .lineLimit(1)
                     if let lead {
                         if lead {
-                            MonoChip(text: "Lead project", size: 10, tint: Theme.accent)
+                            MonoChip(text: "Lead project", size: Typography.Size.micro, tint: Theme.accent)
                         } else {
-                            Text("Attached").font(.system(size: 12)).foregroundStyle(.secondary)
+                            Text("Attached").font(Typography.detail).foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
                     if let detach {
                         Button(action: detach) {
                             Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(Typography.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 28, height: 28)
                                 .contentShape(Rectangle())
@@ -63,7 +63,7 @@ struct SessionProjectCard: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("Checkout mode for \(project.name)")
             }
-            .padding(16)
+            .padding(Space.xl)
             if reachedOrigin, let report {
                 ReachedOriginRow(report: report)
                     .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
@@ -86,8 +86,8 @@ struct SessionProjectCard: View {
         .overlay(alignment: .leading) {
             if lead == true { Rectangle().fill(Theme.accent).frame(width: 3) }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 13))
-        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Theme.border))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.border))
     }
 }
 
@@ -102,23 +102,23 @@ struct SessionCheckoutPaths: View {
     @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             DisclosureHeader(isExpanded: $expanded, show: "Show branch and checkout paths",
                              hide: "Hide branch and checkout paths") {
-                Text("Branch and checkout paths").font(.system(size: 12))
+                Text("Branch and checkout paths").font(Typography.detail)
             }
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             if expanded {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     ForEach(entries.indices, id: \.self) { index in
                         let entry = entries[index]
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: Space.xs) {
                             if let branch = entry.branch {
                                 Text("\(entry.name): \(branch)")
                             }
                             Text(entry.path)
                         }
-                        .font(.mono(11.5))
+                        .font(Typography.code)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     }
@@ -155,17 +155,17 @@ private struct ReachedOriginRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 12.5))
+                .font(Typography.body)
             Text(text)
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(Theme.addition)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
         .background(Theme.addition.opacity(0.08))
         .accessibilityElement(children: .combine)
         .onAppear { AccessibilityNotification.Announcement(text).post() }

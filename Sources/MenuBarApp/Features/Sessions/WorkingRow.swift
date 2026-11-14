@@ -43,12 +43,12 @@ struct WorkingRow: View {
             let personality = avatar.personality
             let word = completionActivity?.label
                 ?? (waiting ? "Waiting" : words.word(after: context.date.timeIntervalSince(started)))
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 AgentAvatarView(image: avatar.displayImage(for: sessionID), size: 20)
                     .id(avatar.id)
                     .transition(.fadeIn)
                 Text("\(word)…")
-                    .font(.mono(12, .medium))
+                    .font(Typography.code.weight(.medium))
                     .foregroundStyle(.primary)
                     // Each word is a replacement: the old one leaves before the new one
                     // fades in, so it cannot linger as the row moves down the transcript.
@@ -56,20 +56,20 @@ struct WorkingRow: View {
                     .transition(.fadeIn)
                 if let waitingSince {
                     Text("for \(BackgroundTaskPhrase.of(tasks))")
-                        .font(.mono(12))
+                        .font(Typography.code)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     // The same clock the strip runs, so the row and the header agree on
                     // how long this has been going on.
                     Text(RelativeTime.duration(since: waitingSince))
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
                 if quiet >= Self.showQuietAfter, !waiting {
                     Text("silent for \(elapsed(quiet))")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(quiet >= Self.concerningAfter
                                          ? Theme.warningText : .secondary)
                 }

@@ -74,9 +74,9 @@ struct DayRibbonSection: View {
             content(moment(at: context.date))
         }
         .background(FrameAnchorView(anchor: sectionAnchor))
-        .padding(20)
+        .padding(Space.xxl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 16)
+        .cardSurface(cornerRadius: Radius.floating)
         .onAppear { begin() }
         .onChange(of: scanned) { begin() }
         .onDisappear {
@@ -89,14 +89,14 @@ struct DayRibbonSection: View {
     }
 
     private func content(_ moment: Moment) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             ViewThatFits(in: .horizontal) {
                 HStack {
                     title.fixedSize()
                     Spacer()
                     headline(moment).fixedSize()
                 }
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     title
                     headline(moment)
                 }
@@ -114,7 +114,7 @@ struct DayRibbonSection: View {
 
     private var title: some View {
         Text("Your day, at a glance")
-            .font(.serif(20))
+            .font(Typography.display)
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -126,7 +126,7 @@ struct DayRibbonSection: View {
             .font(.mono(RibbonEntrance.headlineSize, .semibold))
             .foregroundStyle(Color.primary.opacity(number))
             + Text(verbatim: scanned ? " of session time in the last 24 hours" : "")
-            .font(.mono(11))
+            .font(Typography.data)
             .foregroundStyle(HierarchicalShapeStyle.tertiary.opacity(rest)))
             .fixedSize(horizontal: false, vertical: true)
             // The total leads the line, so a copy of it laid over the start of the line
@@ -149,7 +149,7 @@ struct DayRibbonSection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 11)
+        .padding(.top, Space.lg)
         .opacity(moment.chartOpacity)
         .contentShape(Rectangle())
         .gesture(TapGesture().onEnded { skip() },
@@ -305,7 +305,7 @@ struct DayRibbonSection: View {
     private var nowMarker: some View {
         VStack(alignment: .trailing, spacing: 0) {
             Text(verbatim: "NOW")
-                .font(.mono(9.5, .semibold))
+                .font(Typography.caps)
                 .foregroundStyle(Theme.accent)
                 .fixedSize()
             Spacer(minLength: 0)
@@ -329,7 +329,7 @@ struct DayRibbonSection: View {
                 if step > 0 { Spacer(minLength: 4) }
                 Text(verbatim: step == 8 ? "now" : hour(ribbon.axis.start.addingTimeInterval(
                     Double(step) * 3 * 3_600)))
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .fixedSize()
@@ -353,9 +353,9 @@ struct DayRibbonSection: View {
 
     private var emptyNote: some View {
         Text("No sessions ran in the last 24 hours")
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
-            .padding(.top, 13)
+            .padding(.top, Space.lg)
     }
 
     // MARK: - Card
@@ -500,7 +500,7 @@ private struct RibbonBar: View {
             Rectangle().frame(height: height * (grown ?? 1))
         }
         .background {
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: Radius.tag)
                 .fill(Theme.sunken)
                 .padding(.horizontal, -2)
                 .padding(.vertical, -4)
@@ -557,7 +557,7 @@ private struct RollingTotal: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xxs) {
             ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
                 switch piece {
                 case .digit(let column):
@@ -566,7 +566,7 @@ private struct RollingTotal: View {
                     Text(verbatim: unit)
                         .font(.mono(18, .medium))
                         .foregroundStyle(.secondary)
-                        .padding(.leading, 3)
+                        .padding(.leading, Space.xxs)
                         .padding(.trailing, last ? 0 : 10)
                 }
             }
@@ -615,65 +615,65 @@ private struct RibbonCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(verbatim: "\(clock(bucket.interval.start)) - \(clock(bucket.interval.end))")
-                        .font(.serif(15))
+                        .font(Typography.title)
                     Text(verbatim: "\(day) · \(counted(bucket.projects.count, "project"))")
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Text(DayRibbon.duration(bucket.spent))
-                    .font(.mono(13, .semibold))
+                    .font(Font.mono(Typography.Size.body, .semibold))
                     .fixedSize()
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 11)
-            .padding(.bottom, 10)
+            .padding(.horizontal, Space.lg)
+            .padding(.top, Space.lg)
+            .padding(.bottom, Space.md)
 
             mix
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Space.lg)
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(bucket.projects.prefix(Self.maxRows)) { share in
-                    HStack(spacing: 9) {
+                    HStack(spacing: Space.md) {
                         ProjectTileView(name: share.subject.name, tint: share.subject.tint, side: 22)
                         Text(share.subject.name)
-                            .font(.system(size: 12))
+                            .font(Typography.detail)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: 6)
                         Text(DayRibbon.duration(share.spent))
-                            .font(.mono(10.5))
+                            .font(Typography.data)
                             .foregroundStyle(.secondary)
                             .fixedSize()
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.xs)
                 }
                 let rest = bucket.projects.count - Self.maxRows
                 if rest > 0 {
                     Text(verbatim: "and \(rest) more")
-                        .font(.system(size: 10.5))
+                        .font(Typography.caption)
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 39)
-                        .padding(.trailing, 8)
-                        .padding(.top, 2)
-                        .padding(.bottom, 4)
+                        .padding(.trailing, Space.md)
+                        .padding(.top, Space.xxs)
+                        .padding(.bottom, Space.xs)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+            .padding(.horizontal, Space.sm)
+            .padding(.top, Space.md)
+            .padding(.bottom, Space.sm)
 
             Rectangle().fill(Theme.hairline).frame(height: 1)
             Text("Click to open one of these sessions")
-                .font(.system(size: 10.5))
+                .font(Typography.caption)
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 14)
-                .padding(.top, 8)
-                .padding(.bottom, 9)
+                .padding(.horizontal, Space.lg)
+                .padding(.top, Space.md)
+                .padding(.bottom, Space.md)
         }
     }
 
@@ -691,7 +691,7 @@ private struct RibbonCard: View {
         }
         .frame(height: 6)
         .background(Theme.field)
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
     }
 
     private var day: String {

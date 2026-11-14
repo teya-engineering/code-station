@@ -10,18 +10,18 @@ struct DispatchTabs<Item: Hashable>: View {
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: Space.xxl) {
             ForEach(items, id: \.self) { item in
                 Button { selection = item } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: Space.xs) {
                         Text(label(item))
                         if let detail = detail(item) {
-                            Text(detail).font(.system(size: 10))
-                                .padding(.horizontal, 4).padding(.vertical, 1)
-                                .background(Theme.field, in: RoundedRectangle(cornerRadius: 3))
+                            Text(detail).font(Font.system(size: Typography.Size.micro))
+                                .padding(.horizontal, Space.xs).padding(.vertical, 1)
+                                .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.tag))
                         }
                     }
-                    .font(.system(size: 12, weight: selection == item ? .semibold : .regular))
+                    .font(Typography.detail.weight(selection == item ? .semibold : .regular))
                     .foregroundStyle(selection == item ? Theme.accent : .secondary)
                     // Lifted before the underline is drawn, so the underline stays still.
                     .hoverLift()
@@ -36,8 +36,8 @@ struct DispatchTabs<Item: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .focusable(isEnabled).focused($focused, equals: item).focusEffectDisabled()
-                .overlay(RoundedRectangle(cornerRadius: 4)
-                    .stroke(focused == item ? Theme.accent : .clear, lineWidth: 2).padding(2))
+                .overlay(RoundedRectangle(cornerRadius: Radius.tag)
+                    .stroke(focused == item ? Theme.accent : .clear, lineWidth: 2).padding(Space.xxs))
                 .onKeyPress(keys: [.leftArrow, .rightArrow, .home, .end]) { key in
                     guard isEnabled, let index = items.firstIndex(of: item), !items.isEmpty else { return .ignored }
                     let next = key.key == .home ? 0 : key.key == .end ? items.count - 1

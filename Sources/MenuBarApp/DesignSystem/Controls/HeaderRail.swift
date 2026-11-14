@@ -113,16 +113,16 @@ struct HeaderRailButton: View {
             Image(systemName: icon)
                 .foregroundStyle(state.tint)
         }
-        .font(.system(size: 13, weight: .semibold))
+        .font(Typography.body.weight(.semibold))
         .actOut(icon, trigger: actOuts)
-        .frame(width: 30, height: 34)
+        .frame(width: ControlHeight.md, height: ControlHeight.md + Space.xxs * 2)
         .background {
             // The seat stands in for the hover fill rather than sitting under it, so a
             // button already saying something does not change colour when pointed at.
             if let seat = state.seat {
-                RoundedRectangle(cornerRadius: 8).fill(seat)
+                RoundedRectangle(cornerRadius: Radius.control).fill(seat)
             } else if hovering {
-                RoundedRectangle(cornerRadius: 8).fill(Theme.field)
+                RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -139,7 +139,7 @@ struct HeaderRailButton: View {
             .offset(x: -3, y: 5)
             .animation(reduceMotion ? Motion.reveal : Motion.pop, value: badge)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.control))
     }
 }
 
@@ -153,11 +153,11 @@ struct HeaderRailDock<Content: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 2) { content }
-            .padding(2)
-            .frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
-            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.hairline))
+        HStack(spacing: Space.xxs) { content }
+            .padding(Space.xxs)
+            .frame(height: ControlHeight.md + Space.xxs * 2)
+            .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.sunken))
+            .overlay(RoundedRectangle(cornerRadius: Radius.floating).strokeBorder(Theme.hairline))
     }
 }
 
@@ -193,8 +193,8 @@ struct HeaderDockSeat: View {
     @State private var actOuts = 0
     @FocusState private var focused: Bool
 
-    private static let height: CGFloat = 30
-    private static let radius: CGFloat = 9
+    private static let height: CGFloat = ControlHeight.md
+    private static let radius: CGFloat = Radius.control
 
     var body: some View {
         HStack(spacing: 0) {
@@ -250,27 +250,27 @@ struct HeaderDockSeat: View {
     }
 
     private var face: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .actOut(icon, trigger: actOuts)
             if isOpen && showsWord {
                 Text(word)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
                     .fixedSize()
                     .transition(.opacity)
             }
             if let count {
                 Text("\(count)")
-                    .font(.mono(10.5, .semibold))
+                    .font(Typography.data.weight(.semibold))
                     .foregroundStyle(isOpen ? Theme.accent.opacity(0.75) : Color(nsColor: .tertiaryLabelColor))
                     .padding(.leading, -2)
             }
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 8)
-        .frame(minWidth: 30, minHeight: Self.height)
+        .padding(.horizontal, Space.md)
+        .frame(minWidth: Self.height, minHeight: Self.height)
         .contentShape(Rectangle())
     }
 
@@ -324,20 +324,20 @@ struct HeaderSplitButton: View {
     @State private var mainHovering = false
     @State private var moreHovering = false
 
-    private static let height: CGFloat = 30
-    private static let radius: CGFloat = 9
+    private static let height: CGFloat = ControlHeight.md
+    private static let radius: CGFloat = Radius.control
 
     var body: some View {
         HStack(spacing: 0) {
             Button(action: action) {
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
                         .frame(width: 16, height: 16)
                     if showsWord {
                         Text(word)
-                            .font(.system(size: 12.5, weight: .semibold))
+                            .font(Typography.body.weight(.semibold))
                             .lineLimit(1)
                             .fixedSize()
                     }

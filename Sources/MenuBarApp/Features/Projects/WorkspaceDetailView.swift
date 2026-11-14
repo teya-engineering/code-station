@@ -49,7 +49,7 @@ struct WorkspaceDetailView: View {
                 ZStack {
                     if let note {
                         HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, 24)
+                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                     }
                 }
@@ -76,14 +76,14 @@ struct WorkspaceDetailView: View {
     // workspace is in - which folder the agent runs in, how its checkouts are doing -
     // on the strip under it.
     private func header(_ workspace: ProjectWorkspace) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Button { store.changeSidebarAvatar(forWorkspace: workspace.id) } label: {
                 SidebarIdentityTile(
                     avatar: workspace.sidebarAvatar,
                     name: workspace.name,
                     tint: Theme.workspaceTint,
                     stacked: true)
-                    .contentShape(RoundedRectangle(cornerRadius: 7))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             }
             .buttonStyle(.plain)
             .hoverLift(amount: Motion.smallLift)
@@ -93,12 +93,12 @@ struct WorkspaceDetailView: View {
             // The title only reads the name. Renaming lives in the sidebar row's
             // context menu, the same place projects and sessions are renamed.
             Text(workspace.name)
-                .font(.serif(17, .semibold))
+                .font(Typography.title)
                 .lineLimit(1)
 
             Spacer(minLength: 12)
 
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 // Both shells land in the lead project, the same folder the drawer uses.
                 TerminalToggle(isOpen: terminals.isOpen(terminalScope),
                                directory: store.project(workspace.leadProjectID)?.path ?? "") {
@@ -108,7 +108,7 @@ struct WorkspaceDetailView: View {
                 .environment(\.showExternalNote, ExternalNote { text, _ in showNote(text) })
                 .opacity(hasMissingProjects(workspace) ? 0.4 : 1)
 
-                ActionButton(title: "New session", tone: .green, size: 12) {
+                ActionButton(title: "New session", tone: .green, size: Typography.Size.detail) {
                     creatingSession = workspace
                 }
                 .disabled(hasMissingProjects(workspace))
@@ -116,7 +116,7 @@ struct WorkspaceDetailView: View {
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Space.xxxl)
         .headerBand()
     }
 
@@ -144,7 +144,7 @@ struct WorkspaceDetailView: View {
 
     private func statusReadings(_ workspace: ProjectWorkspace, lead: Project?,
                                 verdicts: Bool, revealLink: Bool) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.lg) {
             StatusCaps(text: "WORKSPACE · \(workspace.projectIDs.count) PROJECTS",
                        tint: Theme.workspaceTint.ink)
             StatusRule()
@@ -157,7 +157,7 @@ struct WorkspaceDetailView: View {
             Spacer(minLength: 12)
 
             if revealLink, let lead {
-                InlineLink(title: "Reveal lead in Finder", size: 11.5) { reveal(lead) }
+                InlineLink(title: "Reveal lead in Finder", size: Typography.Size.detail) { reveal(lead) }
                     .fixedSize()
                     .layoutPriority(1)
             }
@@ -170,10 +170,10 @@ struct WorkspaceDetailView: View {
     private func leadTag(_ project: Project) -> some View {
         let branch = freshness[project.id]?.currentBranch
         return Button { open(project) } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 ProjectDot(tint: Theme.projectTint(for: project.name), size: 7)
                 Text(project.name)
-                    .font(.mono(11, .semibold))
+                    .font(Typography.data.weight(.semibold))
                     .lineLimit(1)
                     .layoutPriority(1)
                 if let branch {
@@ -227,13 +227,13 @@ struct WorkspaceDetailView: View {
         let sessions = store.sessions(in: workspace.id)
 
         return ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 if hasMissingProjects(workspace) { missingFolders(workspace) }
                 projects(workspace)
                 sessionList(workspace, sessions: sessions)
                 removal(workspace, sessions: sessions)
             }
-            .padding(24)
+            .padding(Space.xxxl)
         }
     }
 
@@ -243,20 +243,20 @@ struct WorkspaceDetailView: View {
             .filter { $0 != workspace.leadProjectID }
             .compactMap(store.project)
 
-        return VStack(alignment: .leading, spacing: 11) {
+        return VStack(alignment: .leading, spacing: Space.lg) {
             SectionRule(title: "PROJECTS") {
                 Text("The lead project is the working directory. Defaults can still be changed per session.")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 if let lead { leadRow(lead, workspace: workspace) }
 
-                VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     Text("ATTACHED TO THE SAME CONVERSATION")
-                        .font(.mono(9, .semibold))
+                        .font(Typography.caps)
                         .kerning(1.2)
                         .foregroundStyle(.tertiary)
                     ForEach(attached) { project in
@@ -266,34 +266,34 @@ struct WorkspaceDetailView: View {
                     addProjectRow(workspace)
                 }
                 .motion(Motion.reveal, value: workspace.projectIDs)
-                .padding(.leading, 18)
+                .padding(.leading, Space.xl)
                 .overlay(alignment: .leading) {
                     Rectangle().fill(Theme.border).frame(width: 1.5)
                 }
-                .padding(.leading, 17)
+                .padding(.leading, Space.xl)
             }
-            .padding(16)
+            .padding(Space.xl)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 12)
+            .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.floating)
                 .stroke(Theme.accent.opacity(0.45), lineWidth: 1.4))
         }
     }
 
     private func leadRow(_ project: Project, workspace: ProjectWorkspace) -> some View {
-        HStack(spacing: 13) {
+        HStack(spacing: Space.lg) {
             ProjectTileView(name: project.name,
                             tint: Theme.projectTint(for: project.name),
                             side: 36)
 
-            VStack(alignment: .leading, spacing: 4) {
-                nameLine(project, workspace: workspace, spacing: 8, isLead: true) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                nameLine(project, workspace: workspace, spacing: Space.md, isLead: true) {
                     Text(project.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(Typography.title)
                         .lineLimit(1)
                 }
                 Text(summary(project, workspace: workspace))
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -301,17 +301,17 @@ struct WorkspaceDetailView: View {
 
             Spacer(minLength: 12)
 
-            checkoutControl(project, workspace: workspace, height: 30)
+            checkoutControl(project, workspace: workspace, height: ControlHeight.md)
             GlyphButton(icon: "ellipsis")
                 .appMenu { projectMenu(project, workspace: workspace, isLead: true) }
         }
         // The hover fill wants room around the row, but the row's place in the card is
         // set by the card's own padding, so the inset is given straight back.
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.card)
             .fill(hoveredProjectID == project.id ? Theme.field : .clear))
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         .onTapGesture { open(project) }
         .motion(Motion.hover, value: hoveredProjectID)
         .onPointerHover { hovering(project, $0) }
@@ -321,19 +321,19 @@ struct WorkspaceDetailView: View {
     }
 
     private func attachedRow(_ project: Project, workspace: ProjectWorkspace) -> some View {
-        HStack(spacing: 13) {
+        HStack(spacing: Space.lg) {
             ProjectTileView(name: project.name,
                             tint: Theme.projectTint(for: project.name),
                             side: 30)
 
-            VStack(alignment: .leading, spacing: 3) {
-                nameLine(project, workspace: workspace, spacing: 7, isLead: false) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                nameLine(project, workspace: workspace, spacing: Space.sm, isLead: false) {
                     Text(project.name)
-                        .font(.system(size: 13.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                 }
                 Text(summary(project, workspace: workspace))
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -342,10 +342,10 @@ struct WorkspaceDetailView: View {
             Spacer(minLength: 12)
 
             checkoutControl(project, workspace: workspace, height: 28)
-            InlineLink(title: "Make lead", size: 11.5) {
+            InlineLink(title: "Make lead", size: Typography.Size.detail) {
                 store.setLeadProject(project.id, inWorkspace: workspace.id)
             }
-            GlyphButton(icon: "xmark", side: 28) {
+            GlyphButton(icon: "xmark", side: ControlHeight.md) {
                 store.removeProject(project.id, fromWorkspace: workspace.id)
             }
             .disabled(workspace.projectIDs.count <= 2)
@@ -354,11 +354,11 @@ struct WorkspaceDetailView: View {
                         ? "A workspace needs at least two projects"
                         : "Remove from workspace")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.card)
             .fill(hoveredProjectID == project.id ? Theme.field : Theme.sunken))
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         .onTapGesture { open(project) }
         .motion(Motion.hover, value: hoveredProjectID)
         .onPointerHover { hovering(project, $0) }
@@ -377,26 +377,26 @@ struct WorkspaceDetailView: View {
             HStack(spacing: spacing) {
                 name
                 if isLead {
-                    MonoChip(text: "LEAD · WORKING DIRECTORY", size: 9, tint: Theme.accent)
+                    MonoChip(text: "LEAD · WORKING DIRECTORY", size: Typography.Size.micro, tint: Theme.accent)
                 }
-                if missing { MonoChip(text: "MISSING", size: 9, tint: Theme.deletion) }
+                if missing { MonoChip(text: "MISSING", size: Typography.Size.micro, tint: Theme.deletion) }
                 freshnessChip(project)
                 uncommittedChip(project, workspace: workspace)
             }
             HStack(spacing: spacing) {
                 name
-                if missing { MonoChip(text: "MISSING", size: 9, tint: Theme.deletion) }
+                if missing { MonoChip(text: "MISSING", size: Typography.Size.micro, tint: Theme.deletion) }
                 freshnessChip(project)
                 uncommittedChip(project, workspace: workspace)
             }
             HStack(spacing: spacing) {
                 name
-                if missing { MonoChip(text: "MISSING", size: 9, tint: Theme.deletion) }
+                if missing { MonoChip(text: "MISSING", size: Typography.Size.micro, tint: Theme.deletion) }
                 freshnessChip(project)
             }
             HStack(spacing: spacing) {
                 name
-                if missing { MonoChip(text: "MISSING", size: 9, tint: Theme.deletion) }
+                if missing { MonoChip(text: "MISSING", size: Typography.Size.micro, tint: Theme.deletion) }
             }
         }
     }
@@ -421,10 +421,10 @@ struct WorkspaceDetailView: View {
     // A chip that has something to complain about opens a menu offering the fix.
     @ViewBuilder private func freshnessChip(_ project: Project) -> some View {
         if updating.contains(project.id) {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 LoopSpinner(size: 10)
                 Text("UPDATING…")
-                    .font(.mono(9, .semibold))
+                    .font(Typography.caps)
                     .kerning(0.6)
                     .foregroundStyle(.secondary)
             }
@@ -432,16 +432,16 @@ struct WorkspaceDetailView: View {
         } else if let report = freshness[project.id] {
             Group {
                 if !report.onDefaultBranch, let expected = report.defaultBranch {
-                    MonoChip(text: "NOT ON \(expected.uppercased())", size: 9,
+                    MonoChip(text: "NOT ON \(expected.uppercased())", size: Typography.Size.micro,
                              tint: Theme.attention)
                         .hoverLift()
                         .appMenu { freshenMenu(project, report: report) }
                 } else if report.behind > 0 {
-                    MonoChip(text: "\(report.behind) BEHIND", size: 9, tint: Theme.attention)
+                    MonoChip(text: "\(report.behind) BEHIND", size: Typography.Size.micro, tint: Theme.attention)
                         .hoverLift()
                         .appMenu { freshenMenu(project, report: report) }
                 } else {
-                    MonoChip(text: "UP TO DATE", size: 9, tint: Theme.addition)
+                    MonoChip(text: "UP TO DATE", size: Typography.Size.micro, tint: Theme.addition)
                 }
             }
             .appTooltip(report.isStale
@@ -461,7 +461,7 @@ struct WorkspaceDetailView: View {
         Group {
             if count > 0 {
                 MonoChip(text: counted(count, "UNCOMMITTED FILE", plural: "UNCOMMITTED FILES"),
-                         size: 9, tint: Theme.attention)
+                         size: Typography.Size.micro, tint: Theme.attention)
                     .appTooltip(workspace.worktreeProjectIDs.contains(project.id)
                                 ? "\(counted(count, "file")) changed in the project folder. A worktree session starts from the last commit, so this work stays behind."
                                 : "\(counted(count, "file")) changed in the project folder. Sessions here run in it, so they start with this work in place.")
@@ -542,7 +542,7 @@ struct WorkspaceDetailView: View {
         if project.isGitRepository {
             let worktree = workspace.worktreeProjectIDs.contains(project.id)
             ActionButton(title: worktree ? "Worktree" : "Project folder",
-                         tone: .sunken, height: height, size: 11.5, disclosure: true)
+                         tone: .sunken, height: height, size: Typography.Size.detail, disclosure: true)
                 .appMenu {
                     [.item("Worktree", checked: worktree,
                            subtitle: "A checkout of its own for each session.") {
@@ -555,7 +555,7 @@ struct WorkspaceDetailView: View {
                 }
         } else {
             Text("Project folder")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(Typography.label)
                 .foregroundStyle(.tertiary)
                 .frame(height: height)
                 .appTooltip("Not a git repository, so there are no worktrees to make.")
@@ -563,21 +563,21 @@ struct WorkspaceDetailView: View {
     }
 
     private func addProjectRow(_ workspace: ProjectWorkspace) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Text("+ Add project")
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .foregroundStyle(Theme.accent)
             Text("from your projects, or attach a folder…")
-                .font(.mono(10.5))
+                .font(Typography.data)
                 .foregroundStyle(.tertiary)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .overlay(RoundedRectangle(cornerRadius: 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
             .stroke(Theme.border, lineWidth: 1.2))
-        .contentShape(RoundedRectangle(cornerRadius: 10))
-        .hoverFill(cornerRadius: 10)
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
+        .hoverFill(cornerRadius: Radius.card)
         .appMenu { addMenu(workspace) }
     }
 
@@ -627,31 +627,31 @@ struct WorkspaceDetailView: View {
 
     private func sessionList(_ workspace: ProjectWorkspace,
                              sessions: [ChatSession]) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             SectionRule(title: "SESSIONS · \(sessions.count)") {
                 if !sessions.isEmpty {
                     Text(sessions.map { tone($0) }.tally)
-                        .font(.mono(10))
+                        .font(Font.mono(Typography.Size.micro))
                         .kerning(0.6)
                         .foregroundStyle(.tertiary)
                 }
             }
 
             if sessions.isEmpty {
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: Space.sm) {
                     Text("No sessions yet")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                     Text("The checkout choices above are what the first session will start with.")
-                        .font(.system(size: 12.5))
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
                 }
-                .padding(16)
+                .padding(Space.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
-                .overlay(RoundedRectangle(cornerRadius: 11)
+                .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.sunken))
+                .overlay(RoundedRectangle(cornerRadius: Radius.floating)
                     .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             } else {
-                LazyVStack(spacing: 9) {
+                LazyVStack(spacing: Space.md) {
                     ForEach(sessions) { session in
                         SessionRow(session: session,
                                    tone: tone(session),
@@ -713,7 +713,7 @@ struct WorkspaceDetailView: View {
         return FooterStrip(
             title: "Delete this workspace",
             detail: "\(counted(sessions.count, "session")) and their worktrees go with it · its \(projects) projects stay") {
-            ActionButton(title: "Delete workspace", tone: .danger, size: 12) {
+            ActionButton(title: "Delete workspace", tone: .danger, size: Typography.Size.detail) {
                 WorkspaceRemoval.confirm(workspace, in: store, runner: runner, dialogs: dialogs)
             }
         }
@@ -736,7 +736,7 @@ struct WorkspaceDetailView: View {
 
     private func missingFolders(_ workspace: ProjectWorkspace) -> some View {
         let names = workspace.projectIDs.compactMap(store.project).filter(store.isMissing).map(\.name)
-        return HStack(alignment: .top, spacing: 8) {
+        return HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: "exclamationmark.triangle.fill")
             Text("Folder not found for \(names.joined(separator: ", ")). Restore it or remove it from the workspace before starting a session.")
                 .fixedSize(horizontal: false, vertical: true)

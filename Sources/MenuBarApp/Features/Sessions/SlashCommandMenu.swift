@@ -44,7 +44,7 @@ struct SlashCommandMenu: View {
                 rows
             }
         }
-        .surface(Theme.card, cornerRadius: 9, border: Theme.border)
+        .surface(Theme.card, cornerRadius: Radius.card, border: Theme.border)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Commands matching what you typed")
     }
@@ -56,34 +56,34 @@ struct SlashCommandMenu: View {
                     .id(index)
             }
         }
-        .padding(4)
+        .padding(Space.xs)
     }
 
     private func row(_ command: AgentCommand, index: Int) -> some View {
         let isSelected = index == selected
         return Button { choose(command) } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Text(command.typed)
-                    .font(.mono(11.5, .semibold))
+                    .font(Typography.code.weight(.semibold))
                     .foregroundStyle(isSelected ? Theme.accent : .primary)
                     .fixedSize()
                 Text(command.summary)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(label(for: command.scope))
-                    .font(.mono(9, .semibold))
+                    .font(Typography.caps)
                     .kerning(0.6)
                     .foregroundStyle(.tertiary)
                     .fixedSize()
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Space.md)
             .frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 7)
+            .background(RoundedRectangle(cornerRadius: Radius.control)
                 .fill(isSelected ? Theme.accent.opacity(0.1) : Color.clear))
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(command.typed). \(command.summary)")

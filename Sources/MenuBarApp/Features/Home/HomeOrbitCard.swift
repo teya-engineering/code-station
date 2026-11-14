@@ -15,7 +15,7 @@ struct OrbitSessionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 SidebarIdentityTile(avatar: live.avatar, name: live.containerName, tint: live.tint,
                                     stacked: live.session.workspaceID != nil, side: 18)
                     .accessibilityHidden(true)
@@ -25,31 +25,31 @@ struct OrbitSessionCard: View {
                 Text(live.session.agent.title)
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 4)
-                GlyphButton(icon: "xmark", side: 22, action: close)
+                GlyphButton(icon: "xmark", side: ControlHeight.xs, action: close)
                     .accessibilityLabel("Close")
             }
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             Text(live.session.title)
-                .font(.serif(15, .semibold))
+                .font(Typography.title)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 8)
+                .padding(.top, Space.md)
             TimelineView(.periodic(from: .now, by: 30)) { _ in
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     MapLight(tone: live.tone)
                     Text(statusLine)
                 }
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
             }
-            .padding(.top, 6)
-            now.padding(.top, 10)
-            facts.padding(.top, 10)
-            actions.padding(.top, 12)
+            .padding(.top, Space.sm)
+            now.padding(.top, Space.md)
+            facts.padding(.top, Space.md)
+            actions.padding(.top, Space.lg)
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(width: Self.width, alignment: .leading)
-        .floatingCard(cornerRadius: 14)
+        .floatingCard(cornerRadius: Radius.floating)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(live.session.title)
     }
@@ -62,7 +62,7 @@ struct OrbitSessionCard: View {
     // What the session is asking, or what it is busy with right now.
     @ViewBuilder private var now: some View {
         if let permission = live.permission {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 if let question = permission.questions.first {
                     Text(question.text).lineLimit(4)
                 } else {
@@ -70,32 +70,32 @@ struct OrbitSessionCard: View {
                     Text(permission.subjectIsMarkdown
                          ? permission.subject.components(separatedBy: .newlines).first ?? ""
                          : permission.subject)
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(.primary)
                         .lineLimit(3)
                 }
             }
-            .font(.system(size: 12))
+            .font(Typography.detail)
             .foregroundStyle(Theme.attentionText)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.attention.opacity(0.12)))
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.md)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.attention.opacity(0.12)))
         } else {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 if let caption {
                     Text(caption)
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
                 Text(live.finished ? "Finished." : live.activity)
-                    .font(.mono(11.5))
+                    .font(Typography.code)
                     .lineLimit(2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.sunken))
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.md)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.sunken))
         }
     }
 
@@ -110,7 +110,7 @@ struct OrbitSessionCard: View {
     private var facts: some View {
         let summary = live.session.summary
         let started = live.session.createdAt
-        return HStack(alignment: .top, spacing: 8) {
+        return HStack(alignment: .top, spacing: Space.md) {
             fact("Started") {
                 Text(Calendar.current.isDateInToday(started)
                      ? started.formatted(date: .omitted, time: .shortened)
@@ -118,7 +118,7 @@ struct OrbitSessionCard: View {
             }
             fact("Working for") { Text(Self.duration(workTime)) }
             fact("Changes") {
-                DiffPair(added: summary.added, removed: summary.removed, size: 12, spacing: 4)
+                DiffPair(added: summary.added, removed: summary.removed, size: Typography.Size.detail, spacing: Space.xs)
             }
         }
     }
@@ -126,10 +126,10 @@ struct OrbitSessionCard: View {
     private func fact(_ label: String, @ViewBuilder value: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label)
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.tertiary)
             value()
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -146,23 +146,23 @@ struct OrbitSessionCard: View {
     @ViewBuilder private var actions: some View {
         let quick = live.quickAnswers
         let primary = live.primaryAction(hasChanges: hasChanges)
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if !quick.isEmpty || primary.destination != live.destination {
-                ActionButton(title: "Open session", tone: .outlined, height: 26, size: 12) {
+                ActionButton(title: "Open session", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) {
                     open(live.destination)
                 }
             }
             if !quick.isEmpty {
                 ForEach(quick.indices, id: \.self) { index in
                     ActionButton(title: quick[index].title, tone: index == 0 ? .green : .outlined,
-                                 height: 26, size: 12) { answer(quick[index].answer) }
+                                 height: ControlHeight.sm, size: Typography.Size.detail) { answer(quick[index].answer) }
                 }
             } else {
-                ActionButton(title: primary.title, tone: .green, height: 26, size: 12) {
+                ActionButton(title: primary.title, tone: .green, height: ControlHeight.sm, size: Typography.Size.detail) {
                     open(primary.destination)
                 }
                 if !live.needsAttention {
-                    ActionButton(title: "Show in sidebar", tone: .outlined, height: 26, size: 12, action: reveal)
+                    ActionButton(title: "Show in sidebar", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail, action: reveal)
                 }
             }
             Spacer(minLength: 0)

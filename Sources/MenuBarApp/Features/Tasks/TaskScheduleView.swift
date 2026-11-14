@@ -16,9 +16,9 @@ struct TaskScheduleCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Text("Schedule")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Spacer(minLength: 8)
                 if draft == nil {
                     stateCaps
@@ -36,9 +36,9 @@ struct TaskScheduleCard: View {
                     .transition(.fadeIn)
             }
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 12)
+        .cardSurface(cornerRadius: Radius.floating)
         .smoothlyResizes(when: layoutState)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Schedule")
@@ -58,13 +58,13 @@ struct TaskScheduleCard: View {
     // MARK: - Summaries
 
     private var offSummary: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             Text(offDetail)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
-            ActionButton(title: "Set a schedule", tone: .outlined, height: 28, size: 12,
+                .padding(.top, Space.sm)
+            ActionButton(title: "Set a schedule", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
                          icon: "clock") {
                 startEditing()
             }
@@ -81,23 +81,23 @@ struct TaskScheduleCard: View {
     }
 
     private func onSummary(_ schedule: TaskSchedule) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(schedule.summary)
-                    .font(.serif(17, .semibold))
+                    .font(Typography.title)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(nextLine(schedule))
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(schedule.isWaitingForConfirmation
                                      ? Theme.attentionText : Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(12)
+            .padding(Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.sunken))
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.sunken))
 
-            HStack(spacing: 8) {
-                ActionButton(title: "Change schedule", tone: .outlined, height: 28, size: 12) {
+            HStack(spacing: Space.md) {
+                ActionButton(title: "Change schedule", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
                     startEditing()
                 }
                 .fixedSize()
@@ -111,11 +111,11 @@ struct TaskScheduleCard: View {
 
             Text("Runs only while Teya Code Station is open. A missed time runs once when "
                  + "the app is open again.")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.top, 12)
+        .padding(.top, Space.lg)
     }
 
     private func nextLine(_ schedule: TaskSchedule) -> String {
@@ -139,8 +139,8 @@ struct TaskScheduleCard: View {
     private func editor(_ current: Draft) -> some View {
         let draft = Binding(get: { self.draft ?? current }, set: { self.draft = $0 })
         let issue = issue(for: current)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
+        return VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.sm) {
                 ChoicePill(title: "At a time", selected: current.timing == .timeOfDay) {
                     draft.wrappedValue.timing = .timeOfDay
                 }
@@ -156,46 +156,46 @@ struct TaskScheduleCard: View {
             }
 
             if let issue {
-                HStack(alignment: .top, spacing: 7) {
+                HStack(alignment: .top, spacing: Space.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .accessibilityHidden(true)
                     Text(issue)
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(Theme.attentionText)
                 .transition(.fadeIn)
             } else if let rule = current.schedule {
                 Text("\(rule.summary). Runs only while Teya Code Station is open.")
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Spacer(minLength: 0)
-                ActionButton(title: "Cancel", tone: .outlined, height: 28, size: 12) {
+                ActionButton(title: "Cancel", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
                     self.draft = nil
                 }
                 ActionButton(title: isOn ? "Save schedule" : "Turn on schedule", tone: .green,
-                             height: 28, size: 12) {
+                             height: ControlHeight.md, size: Typography.Size.detail) {
                     save(current)
                 }
                 .disabled(issue != nil)
             }
         }
-        .padding(.top, 12)
+        .padding(.top, Space.lg)
     }
 
     private func timeOfDayEditor(_ draft: Binding<Draft>) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             LabeledField("TIME") {
                 numberField("09:00", text: draft.timeText, width: 90)
                     .accessibilityLabel("Time, 24-hour")
             }
             LabeledField("REPEAT") {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     ForEach(TaskSchedule.Recurrence.allCases, id: \.self) { recurrence in
                         ChoicePill(title: recurrence.title,
                                    selected: draft.wrappedValue.recurrence == recurrence) {
@@ -207,7 +207,7 @@ struct TaskScheduleCard: View {
             if draft.wrappedValue.recurrence == .weekly {
                 // Seven pills do not fit across the side column, so the week wraps after
                 // Thursday.
-                Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
+                Grid(alignment: .leading, horizontalSpacing: Space.sm, verticalSpacing: Space.sm) {
                     ForEach(weekRows, id: \.self) { row in
                         GridRow {
                             ForEach(row, id: \.self) { weekday in
@@ -229,13 +229,13 @@ struct TaskScheduleCard: View {
     }
 
     private func intervalEditor(_ draft: Binding<Draft>) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .bottom, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(alignment: .bottom, spacing: Space.md) {
                 LabeledField("EVERY") {
                     numberField("30", text: draft.intervalText, width: 72)
                         .accessibilityLabel("Every")
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     ForEach(TaskSchedule.IntervalUnit.allCases, id: \.self) { unit in
                         ChoicePill(title: unit.label(for: 2).capitalized,
                                    selected: draft.wrappedValue.intervalUnit == unit) {
@@ -251,11 +251,11 @@ struct TaskScheduleCard: View {
             }
 
             Toggle(isOn: draft.requiresConfirmation) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text("Ask before each run")
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(Typography.body.weight(.medium))
                     Text("When a run is due, choose to run it, skip it, or turn the schedule off.")
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -268,7 +268,7 @@ struct TaskScheduleCard: View {
     private func numberField(_ placeholder: String, text: Binding<String>,
                              width: CGFloat) -> some View {
         TextField(placeholder, text: text)
-            .font(.mono(12))
+            .font(Typography.code)
             .appTextField(size: 12)
             .frame(width: width)
     }

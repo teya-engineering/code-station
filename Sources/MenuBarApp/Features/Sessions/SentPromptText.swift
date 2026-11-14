@@ -32,7 +32,7 @@ struct SentPromptText: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             ForEach(SentPrompt.segments(text)) { segment in
                 if segment.isCode {
                     MarkdownCodeBlock(segment: segment)
@@ -50,7 +50,7 @@ struct SentPromptText: View {
                             // text take the bubble's own text colour rather than the accent.
                             prose
                                 .opacity(0.75)
-                                .padding(.leading, 11)
+                                .padding(.leading, Space.lg)
                                 .overlay(alignment: .leading) {
                                     RoundedRectangle(cornerRadius: 1.5)
                                         .fill(.primary.opacity(0.3))

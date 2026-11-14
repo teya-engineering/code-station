@@ -124,9 +124,9 @@ struct HTMLPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 Label(reference.label, systemImage: "globe")
-                    .scaledText(11, .medium)
+                    .scaledText(Typography.Size.caption, .medium)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
@@ -144,32 +144,32 @@ struct HTMLPreview: View {
                     .hoverLift()
                 }
             }
-            .scaledText(11, .medium)
+            .scaledText(Typography.Size.caption, .medium)
             .foregroundStyle(Theme.accent)
-            .padding(12)
+            .padding(Space.lg)
             .background(Theme.card)
             Rectangle().fill(Theme.hairline).frame(height: 1)
             if let failure {
                 Text(failure)
-                    .scaledText(12)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(Theme.warningText)
                     .textSelection(.enabled)
-                    .padding(16)
+                    .padding(Space.xl)
             } else if let document {
                 HTMLPreviewWebContent(html: document.html, onHeight: { height = $0 },
                                       onFailure: { failure = $0 }, onOpen: linkOpened?.perform)
                     .frame(height: min(max(height, 96), reference.mode == "wide" ? 720 : 560))
             } else {
                 Text("Loading preview…")
-                    .scaledText(12)
+                    .scaledText(Typography.Size.detail)
                     .foregroundStyle(.secondary)
-                    .padding(16)
+                    .padding(Space.xl)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.background)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border))
         .task(id: "\(projectPath):\(reference.path):\(reloadGeneration)") {
             document = nil
             failure = nil

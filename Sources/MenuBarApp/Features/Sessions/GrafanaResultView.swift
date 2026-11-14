@@ -67,48 +67,48 @@ struct GrafanaResultView: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(Theme.sunken, cornerRadius: 8, border: Theme.border)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .surface(Theme.sunken, cornerRadius: Radius.control, border: Theme.border)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(spacing: Space.md) {
                 Text(source.kindName.uppercased())
-                    .scaledMono(10.5, .bold)
+                    .scaledMono(Typography.Size.caption, .bold)
                     .foregroundStyle(.secondary)
                 if let instance = source.instance {
                     Text(instance)
-                        .scaledMono(10.5)
+                        .scaledMono(Typography.Size.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
                 Text(summary)
-                    .scaledMono(10.5)
+                    .scaledMono(Typography.Size.caption)
                     .foregroundStyle(result.isTruncated ? AnyShapeStyle(Theme.attention)
                                                         : AnyShapeStyle(.secondary))
             }
             if let title = source.title {
-                Text(title).scaledText(12.5, .semibold)
+                Text(title).scaledText(Typography.Size.body, .semibold)
             }
             if let query = source.query {
                 Text(query)
-                    .scaledMono(11.5)
+                    .scaledMono(Typography.Size.detail)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let window {
                 Text(window)
-                    .scaledMono(10.5)
+                    .scaledMono(Typography.Size.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
     }
 
     private var followUps: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.lg) {
             if !source.isInstant {
                 ForEach(Self.widerWindows, id: \.self) { window in
                     InlineAskButton(title: "Last \(window)") { ask(Self.widen(source, to: window)) }
@@ -118,8 +118,8 @@ struct GrafanaResultView: View {
                 InlineAskButton(title: "Fetch the rest") { ask(Self.fetchRest(source)) }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Space.lg)
+        .padding(.bottom, Space.md)
     }
 
     @ViewBuilder private var content: some View {
@@ -136,25 +136,25 @@ struct GrafanaResultView: View {
             .frame(maxHeight: 320 * textScale)
         case .samples(let samples, _):
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     ForEach(samples) { sample in
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.lg) {
                             Text(Self.labelText(sample.labels))
-                                .scaledMono(11)
+                                .scaledMono(Typography.Size.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(sample.value)
-                                .scaledMono(11.5, .semibold)
+                                .scaledMono(Typography.Size.detail, .semibold)
                         }
                         .textSelection(.enabled)
                     }
                 }
-                .padding(12)
+                .padding(Space.lg)
             }
             .frame(maxHeight: 260 * textScale)
         case .series(let series, _):
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.md) {
+                HStack(spacing: Space.sm) {
                     ChoicePill(title: "Chart", selected: !showsTable) { showsTable = false }
                     ChoicePill(title: "Table", selected: showsTable) { showsTable = true }
                 }
@@ -168,52 +168,52 @@ struct GrafanaResultView: View {
                 .id(showsTable)
                 .transition(.fadeIn)
             }
-            .padding(12)
+            .padding(Space.lg)
             .motion(Motion.reveal, value: showsTable)
         case .empty:
             Text("The query returned nothing.")
-                .scaledMono(11.5)
+                .scaledMono(Typography.Size.detail)
                 .foregroundStyle(.secondary)
-                .padding(12)
+                .padding(Space.lg)
         }
     }
 
     private func logRow(_ entry: GrafanaToolResult.LogEntry) -> some View {
         let isOpen = expanded.contains(entry.id)
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: Space.sm) {
             Button {
                 if isOpen { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                     Text(entry.date.map { Self.clock($0) } ?? entry.rawTimestamp)
-                        .scaledMono(11)
+                        .scaledMono(Typography.Size.caption)
                         .foregroundStyle(.secondary)
                     Text(entry.level ?? "")
-                        .scaledMono(11, .bold)
+                        .scaledMono(Typography.Size.caption, .bold)
                         .foregroundStyle(Self.levelColour(entry.level))
                         .frame(minWidth: 44 * textScale, alignment: .leading)
                     if let service = entry.labels["service"] {
                         Text(service)
-                            .scaledMono(11)
+                            .scaledMono(Typography.Size.caption)
                             .foregroundStyle(.secondary)
                     }
                     Text(entry.message)
-                        .scaledMono(11.5)
+                        .scaledMono(Typography.Size.detail)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverFill(cornerRadius: 6)
+            .hoverFill(cornerRadius: Radius.inset)
             if isOpen {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     detail("LINE", entry.line)
                     if !entry.labels.isEmpty { detail("LABELS", Self.fieldText(entry.labels)) }
                     if !entry.fields.isEmpty { detail("FIELDS", Self.fieldText(entry.fields)) }
                     if !entry.metadata.isEmpty { detail("METADATA", Self.fieldText(entry.metadata)) }
                     if askAgent != nil, let date = entry.date {
-                        HStack(spacing: 14) {
+                        HStack(spacing: Space.lg) {
                             InlineAskButton(title: "Lines around this") {
                                 ask(Self.around(source, entry: entry, at: date))
                             }
@@ -225,23 +225,23 @@ struct GrafanaResultView: View {
                         }
                     }
                 }
-                .padding(.leading, 8)
+                .padding(.leading, Space.md)
                 .transition(.fold)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.xs)
     }
 
     private func ask(_ text: String) { askAgent?(text) }
 
     private func detail(_ title: String, _ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)
-                .scaledMono(10, .bold)
+                .scaledMono(Typography.Size.micro, .bold)
                 .foregroundStyle(.secondary)
             Text(text)
-                .scaledMono(11)
+                .scaledMono(Typography.Size.caption)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -249,17 +249,17 @@ struct GrafanaResultView: View {
 
     private func seriesTable(_ series: [GrafanaToolResult.Series]) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 ForEach(series) { one in
                     Text(Self.labelText(one.labels))
-                        .scaledMono(11, .semibold)
+                        .scaledMono(Typography.Size.caption, .semibold)
                     ForEach(Array(one.points.enumerated()), id: \.offset) { _, point in
-                        HStack(spacing: 12) {
+                        HStack(spacing: Space.lg) {
                             Text(Self.clock(Date(timeIntervalSince1970: point.seconds)))
-                                .scaledMono(11)
+                                .scaledMono(Typography.Size.caption)
                                 .foregroundStyle(.secondary)
                             Text(point.raw)
-                                .scaledMono(11)
+                                .scaledMono(Typography.Size.caption)
                         }
                     }
                 }

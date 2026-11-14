@@ -14,14 +14,14 @@ struct SectionRule<Trailing: View>: View {
     @ViewBuilder let trailing: Trailing
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Space.md) {
             if pulses {
                 RunningDot()
             } else if let dot {
                 Circle().fill(dot).frame(width: 6, height: 6)
             }
             Text(title)
-                .font(.mono(9.5, .semibold))
+                .font(Typography.caps)
                 .kerning(1.3)
                 .foregroundStyle(tint ?? Color.secondary)
                 .fixedSize()
@@ -56,16 +56,16 @@ struct SectionLabel: View {
     var body: some View {
         switch style {
         case .section:
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 RunningDot(size: 5)
                 Text(text)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .kerning(0.6)
                     .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
             }
         case .field:
             Text(text)
-                .font(.mono(10, .semibold))
+                .font(Typography.caps)
                 .kerning(0.6)
                 .foregroundStyle(.tertiary)
         }
@@ -158,14 +158,14 @@ struct SidebarRailRow<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             ZStack {
                 if pinned && thread == .idle {
                     Circle()
                         .fill(Theme.sidebar)
                         .frame(width: 16, height: 16)
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(Theme.accent)
                 } else {
                     ThreadNode(phase: thread,
@@ -196,21 +196,21 @@ struct FooterStrip<Trailing: View>: View {
     @ViewBuilder let trailing: Trailing
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .fixedSize()
             Text(detail)
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
             trailing
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.sunken))
     }
 }
 

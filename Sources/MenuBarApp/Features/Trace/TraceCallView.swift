@@ -14,7 +14,7 @@ struct TraceCallView: View {
         case .trace(_, let trace):
             TraceWaterfallView(trace: trace, maxHeight: 460)
         case .truncated(let call):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 ToolOutputCard(label: "OUTPUT", text: output, isFailure: false, runInShell: nil)
                 if let askAgent, let traceID = call.traceID {
                     InlineAskButton(title: "Ask the agent to draw this trace") {

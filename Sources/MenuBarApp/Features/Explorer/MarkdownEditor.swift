@@ -45,13 +45,13 @@ struct MarkdownEditor: View {
                 toolbar.transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
             }
             if mode != .preview && writing == nil {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Image(systemName: "curlybraces")
                     Text("Edit is off for this file. It uses Windows line endings, which Edit would change. Change it in Source.")
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: 11)).foregroundStyle(.secondary).padding(12)
+                .font(Typography.caption).foregroundStyle(.secondary).padding(Space.lg)
             }
             GeometryReader { geometry in
                 HStack(spacing: 0) {
@@ -90,13 +90,13 @@ struct MarkdownEditor: View {
 
     private var toolbar: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) { formatting; Spacer(minLength: 8); if canEdit == nil { modes } }
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: Space.md) { formatting; Spacer(minLength: 8); if canEdit == nil { modes } }
+            VStack(alignment: .leading, spacing: Space.xs) {
                 if canEdit == nil { HStack { Spacer(); modes } }
                 formatting
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 7)
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.sm)
         .background(Theme.card)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
@@ -106,8 +106,8 @@ struct MarkdownEditor: View {
     }
 
     private var formatting: some View {
-        HStack(spacing: 3) {
-            ActionButton(title: editor.block.title, tone: .outlined, height: 28, size: 10, disclosure: true)
+        HStack(spacing: Space.xxs) {
+            ActionButton(title: editor.block.title, tone: .outlined, height: ControlHeight.md, size: Typography.Size.micro, disclosure: true)
                 .appMenu {
                     NoteDocument.Block.styles.map { block in
                         .item(block.title, checked: editor.block == block) { editor.setBlock(block) }
@@ -128,7 +128,7 @@ struct MarkdownEditor: View {
     }
 
     private func tool(_ icon: String, _ label: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
-        GlyphButton(icon: icon, side: 28, active: selected, action: action)
+        GlyphButton(icon: icon, side: ControlHeight.md, active: selected, action: action)
             .accessibilityLabel(label).accessibilityAddTraits(selected ? .isSelected : []).appTooltip(label)
     }
 
@@ -149,9 +149,9 @@ struct MarkdownEditor: View {
         switch activeMode {
         case .edit:
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: Space.xxxl) {
                     Label("Project document · In this working tree", systemImage: "doc.text")
-                        .font(.system(size: 11)).foregroundStyle(Theme.accent)
+                        .font(Typography.caption).foregroundStyle(Theme.accent)
                     if let writing {
                         NoteTextEditor(document: writing.document, controller: editor, editable: editable,
                                        onChange: { edited in
@@ -179,7 +179,7 @@ struct MarkdownEditor: View {
                 Group {
                     if source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("This document is empty. Switch to \(writing == nil ? "Source" : "Edit") to start writing.")
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                            .font(Typography.body).foregroundStyle(.secondary)
                     } else {
                         MarkdownDocumentView(text: source, basePath: basePath, textScale: 1)
                             .equatable()
@@ -192,21 +192,21 @@ struct MarkdownEditor: View {
     }
 
     private var outline: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("On this page").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Space.xl) {
+            Text("On this page").font(Typography.caption.weight(.semibold)).foregroundStyle(.secondary)
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Space.xs) {
                     ForEach(MarkdownHeading.read(source)) { heading in
                         Button { showHeading(heading) } label: {
-                            Text(heading.title).font(.system(size: 11)).foregroundStyle(Theme.accent)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(7).contentShape(Rectangle())
+                            Text(heading.title).font(Typography.caption).foregroundStyle(Theme.accent)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(Space.sm).contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain).hoverFill(cornerRadius: 5)
+                        .buttonStyle(.plain).hoverFill(cornerRadius: Radius.inset)
                         .accessibilityHint(activeMode == .edit ? "Jump to heading" : "Show heading in Markdown source")
                     }
                 }
             }
-        }.padding(18).overlay(alignment: .leading) { Rectangle().fill(Theme.hairline).frame(width: 1) }
+        }.padding(Space.xl).overlay(alignment: .leading) { Rectangle().fill(Theme.hairline).frame(width: 1) }
     }
 
     private func showHeading(_ heading: MarkdownHeading) {
@@ -252,7 +252,7 @@ struct MarkdownModeMenu: View {
 
     var body: some View {
         let active = mode == .edit && !canEdit ? .source : mode
-        ActionButton(title: active.rawValue, tone: .outlined, height: 30, size: 12,
+        ActionButton(title: active.rawValue, tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
                      icon: icon(active), disclosure: true)
             .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
             .appMenu(showsFocusRing: true) {

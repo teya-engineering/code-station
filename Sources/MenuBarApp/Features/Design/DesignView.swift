@@ -97,7 +97,7 @@ struct DesignView: View {
             DesignCanvasBar(canvas: canvas) {
                 if canvas.revision != nil {
                     Text(canvas.selectedScreen?.path ?? "index.html")
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -105,7 +105,7 @@ struct DesignView: View {
                 }
             } tools: {
                 if canvas.revision != nil {
-                    GlyphButton(icon: selectionEnabled ? "scope" : "cursorarrow", side: 28,
+                    GlyphButton(icon: selectionEnabled ? "scope" : "cursorarrow", side: ControlHeight.md,
                                 active: selectionEnabled, tint: Theme.accent) {
                         selectionEnabled.toggle()
                         // A pick lands in the composer, so the panel has to be open to show it.
@@ -116,7 +116,7 @@ struct DesignView: View {
                         : "Select an element to refine")
                     .accessibilityLabel("Select an element to refine")
 
-                    GlyphButton(icon: "arrow.up.left.and.arrow.down.right", side: 28,
+                    GlyphButton(icon: "arrow.up.left.and.arrow.down.right", side: ControlHeight.md,
                                 active: designWindow.isOpen, tint: Theme.accent) {
                         openDesignWindow(session, directory: directory)
                     }
@@ -128,7 +128,7 @@ struct DesignView: View {
                     if let implementation {
                         if onOpenImplementation == nil {
                             ActionButton(title: "Build", tone: .outlined,
-                                         height: 28, size: 11,
+                                         height: ControlHeight.md, size: Typography.Size.caption,
                                          icon: "arrow.right") {
                                 openImplementation(implementation)
                             }
@@ -137,7 +137,7 @@ struct DesignView: View {
                         if needsImplementationUpdate {
                             ActionButton(
                                 title: preparingHandoff ? "Preparing…" : "Update build",
-                                tone: .green, height: 28, size: 11,
+                                tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
                                 icon: preparingHandoff ? "hourglass" : "arrow.triangle.2.circlepath") {
                                     implement()
                                 }
@@ -145,12 +145,12 @@ struct DesignView: View {
                                 .motion(Motion.reveal, value: preparingHandoff)
                                 .disabled(preparingHandoff || busy)
                         } else {
-                            MonoChip(text: "BUILD UP TO DATE", size: 8.5,
+                            MonoChip(text: "BUILD UP TO DATE", size: Typography.Size.micro,
                                      tint: Theme.accent)
                         }
                     } else {
                         ActionButton(title: preparingHandoff ? "Preparing…" : "Implement",
-                                     tone: .green, height: 28, size: 11,
+                                     tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
                                      icon: preparingHandoff ? "hourglass" : "hammer.fill") {
                             showImplementationDialog()
                         }
@@ -436,7 +436,7 @@ private struct DesignImplementationContextEditor: View {
     @Bindable var draft: DesignImplementationDraft
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             SectionLabel("ADDITIONAL CONTEXT", style: .field)
             AppTextEditor(
                 text: $draft.text,
@@ -444,7 +444,7 @@ private struct DesignImplementationContextEditor: View {
                 minHeight: 96)
                 .frame(height: 96)
         }
-        .padding(.top, 6)
+        .padding(.top, Space.sm)
     }
 }
 
@@ -462,19 +462,19 @@ struct DesignReferenceView: View {
             VStack(spacing: 0) {
                 DesignCanvasBar(canvas: canvas) {
                     Image(systemName: "paintbrush.pointed.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Typography.caption.weight(.semibold))
                         .foregroundStyle(Theme.accent)
                     Text("APPROVED DESIGN")
-                        .font(.mono(10, .semibold))
+                        .font(Typography.caps)
                         .kerning(1)
                     if let title = revisionTitle(session) {
-                        MonoChip(text: title.uppercased(), size: 8.5, tint: Theme.accent)
+                        MonoChip(text: title.uppercased(), size: Typography.Size.micro, tint: Theme.accent)
                     }
                 } tools: {
                     if let sourceID = session.sourceDesignSessionID,
                        store.session(sourceID) != nil {
                         ActionButton(title: "Edit Design", tone: .outlined,
-                                     height: 28, size: 11, icon: "arrow.up.right") {
+                                     height: ControlHeight.md, size: Typography.Size.caption, icon: "arrow.up.right") {
                             store.selectSession(sourceID)
                         }
                     }
@@ -482,7 +482,7 @@ struct DesignReferenceView: View {
                     if canvas.revision != nil {
                         ActionButton(title: "Full Screen",
                                      tone: designWindow.isOpen ? .sunken : .outlined,
-                                     height: 28, size: 11, icon: "macwindow") {
+                                     height: ControlHeight.md, size: Typography.Size.caption, icon: "macwindow") {
                             openDesignWindow(session, directory: directory)
                         }
                         .appTooltip(designWindow.isOpen
@@ -535,7 +535,7 @@ struct DesignReferenceView: View {
                 ActionButton(title: "Open Design", tone: .outlined, icon: "arrow.up.right") {
                     store.selectSession(sourceID)
                 }
-                .padding(.top, 4)
+                .padding(.top, Space.xs)
             }
         } else {
             PaneMessage(
@@ -623,7 +623,7 @@ struct DesignCanvasBar<Leading: View, Tools: View>: View {
     @ViewBuilder let tools: Tools
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             leading
             Spacer(minLength: 10)
             if canvas.manifest.screens.count > 1 {
@@ -634,7 +634,7 @@ struct DesignCanvasBar<Leading: View, Tools: View>: View {
             }
             tools
             if canvas.revision != nil {
-                GlyphButton(icon: "arrow.clockwise", side: 28, tint: Theme.accent) {
+                GlyphButton(icon: "arrow.clockwise", side: ControlHeight.md, tint: Theme.accent) {
                     canvas.reload()
                 }
                 .appTooltip("Reload canvas")

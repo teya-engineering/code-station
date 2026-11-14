@@ -93,20 +93,20 @@ struct DesignWindowView: View {
         VStack(spacing: 0) {
             DesignCanvasBar(canvas: canvas) {
                 Image(systemName: "paintbrush.pointed.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(Theme.accent)
                 Text(label.uppercased())
-                    .font(.mono(10, .semibold))
+                    .font(Typography.caps)
                     .kerning(1)
                     .lineLimit(1)
                 if canvas.revision != nil {
                     StatusDot()
                     Text(canvas.selectedScreen?.path ?? "index.html")
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                 }
             } tools: {
-                GlyphButton(icon: "xmark", side: 28,
+                GlyphButton(icon: "xmark", side: ControlHeight.md,
                             tint: Theme.accent, action: onClose)
                     .appTooltip("Close design window")
             }

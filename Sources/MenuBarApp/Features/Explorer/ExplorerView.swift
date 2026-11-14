@@ -233,7 +233,7 @@ struct ExplorerView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, 50).padding(.trailing, 14)
+                        .padding(.top, 50).padding(.trailing, Space.lg)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -385,22 +385,22 @@ struct ExplorerView: View {
     }
 
     private var navigatorFooter: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             Image(systemName: "folder").accessibilityHidden(true)
             Text(repositories.isEmpty ? "In \(rootURL.lastPathComponent)" : "In this workspace")
                 .lineLimit(1).truncationMode(.middle)
                 .appTooltip("Find searches \(root)")
             Spacer(minLength: 0)
         }
-        .font(.system(size: 10)).foregroundStyle(.secondary)
-        .padding(12)
+        .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
+        .padding(Space.lg)
         .background(Theme.background)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
 
     private func sectionLabel(_ title: String) -> some View {
-        Text(title).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 7).padding(.vertical, 9)
+        Text(title).font(Typography.micro).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Space.sm).padding(.vertical, Space.md)
     }
 
     // MARK: - Tree
@@ -443,26 +443,26 @@ struct ExplorerView: View {
 
     @ViewBuilder private var tree: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 ChoicePill(title: "All files", selected: !markdownOnly) { markdownOnly = false }
                 ChoicePill(title: "Markdown", selected: markdownOnly) { markdownOnly = true }
                 Spacer(minLength: 0)
-            }.padding(12)
+            }.padding(Space.lg)
             if !repositories.isEmpty {
                 HStack {
-                    Text("Workspace").font(.system(size: 13, weight: .semibold))
+                    Text("Workspace").font(Typography.body.weight(.semibold))
                     Spacer()
                     Text(counted(projectRoots.filter { $0.root != designFilesRoot }.count, "project"))
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(Typography.caption).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, Space.xxl)
                 .headerBand(height: Theme.headerHeight)
             }
             if let error = folderErrors[root] {
-                VStack(spacing: 10) {
+                VStack(spacing: Space.md) {
                     PaneMessage(icon: "exclamationmark.triangle", title: "Folder unavailable", detail: error)
-                    ActionButton(title: "Try again", tone: .outlined, height: 28, size: 12) { Task { await reopenFolders() } }
-                }.padding(12)
+                    ActionButton(title: "Try again", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) { Task { await reopenFolders() } }
+                }.padding(Space.lg)
                 .transition(AnyTransition.fadeIn.animation(Motion.reveal))
             } else if loadingFolders.contains(root) && children[root] == nil {
                 ChangesProgressLabel(title: "Reading files…").foregroundStyle(Theme.secondaryText).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -491,7 +491,7 @@ struct ExplorerView: View {
                                     ForEach(rows(in: project.root)) { row in
                                         treeRow(row).id(row.id).transition(.fold)
                                         if let error = folderErrors[row.node.path], expanded.contains(row.node.path) {
-                                            Text(error).font(.system(size: 11)).foregroundStyle(Theme.attention).padding(8)
+                                            Text(error).font(Typography.caption).foregroundStyle(Theme.attention).padding(Space.md)
                                                 .transition(AnyTransition.fadeIn.animation(Motion.reveal))
                                             InlineLink(title: "Try again") { Task { await load(row.node.path) } }
                                                 .transition(AnyTransition.fadeIn.animation(Motion.reveal))
@@ -516,8 +516,8 @@ struct ExplorerView: View {
         .background(Theme.background)
         .overlay {
             if dropHover?.folder == root {
-                RoundedRectangle(cornerRadius: 6).stroke(Theme.accent.opacity(0.65), lineWidth: 1.5)
-                    .padding(2)
+                RoundedRectangle(cornerRadius: Radius.inset).stroke(Theme.accent.opacity(0.65), lineWidth: 1.5)
+                    .padding(Space.xxs)
             }
         }
         .contentShape(Rectangle())
@@ -562,7 +562,7 @@ struct ExplorerView: View {
             requestSelect(node)
             if node.isDirectory { toggle(node) }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.secondary)
@@ -575,13 +575,13 @@ struct ExplorerView: View {
                     LoopSpinner(size: 10).frame(width: 14, height: 14)
                 } else {
                     Image(systemName: icon(node))
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(node.isDirectory ? Theme.accent : .secondary)
                         .frame(width: 14)
                 }
 
                 Text(row.name)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .font(Typography.detail.weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -590,31 +590,31 @@ struct ExplorerView: View {
 
                 if !node.isDirectory {
                     if hasUnsavedEdit(node) {
-                        Text("●").font(.system(size: 9)).foregroundStyle(Theme.attention).accessibilityLabel("Unsaved edits")
+                        Text("●").font(Font.system(size: Typography.Size.micro)).foregroundStyle(Theme.attention).accessibilityLabel("Unsaved edits")
                             .transition(markLands)
                     }
                     if isPinned(node) {
-                        Image(systemName: "pin").font(.system(size: 10)).foregroundStyle(.secondary).accessibilityLabel("Pinned")
+                        Image(systemName: "pin").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).accessibilityLabel("Pinned")
                             .transition(markLands)
                     }
                     if let status = git.statuses[node.path] { ExplorerStatusMark(status: status) }
                 }
             }
-            .padding(.vertical, 6)
-            .padding(.trailing, 8)
+            .padding(.vertical, Space.sm)
+            .padding(.trailing, Space.md)
             .padding(.leading, CGFloat(row.depth) * 13 + 6)
             .surface(isDropTarget ? Theme.accent.opacity(0.12) : (isSelected ? Theme.accent.opacity(0.1) : .clear),
-                     cornerRadius: 6,
+                     cornerRadius: Radius.inset,
                      border: isDropTarget ? Theme.accent.opacity(0.65) : (isSelected ? Theme.border : .clear))
             .overlay {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: Radius.inset)
                     .stroke(isSelected && treeFocused && treeCursorVisible && projectCursor == nil ? Theme.accent : .clear,
                             lineWidth: 2)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 6)
+        .hoverFill(cornerRadius: Radius.inset)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityLabel(row.name)
         .accessibilityValue(node.isDirectory ? (isOpen ? "Expanded" : "Collapsed") : (git.statuses[node.path]?.label ?? "Unchanged"))
@@ -650,18 +650,18 @@ struct ExplorerView: View {
     // way Finder does, and Escape is the only way to throw it away.
     private func renameRow(_ row: Row) -> some View {
         let node = row.node
-        return HStack(spacing: 5) {
+        return HStack(spacing: Space.xs) {
             Color.clear.frame(width: 10)
             Image(systemName: icon(node))
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(node.isDirectory ? Theme.accent : .secondary)
                 .frame(width: 14)
             TextField("Name", text: $renameDraft, selection: $renameSelection)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .padding(.horizontal, 4)
+                .font(Typography.detail)
+                .padding(.horizontal, Space.xs)
                 .padding(.vertical, 1)
-                .fieldSurface(cornerRadius: 4)
+                .fieldSurface(cornerRadius: Radius.tag)
                 .focused($renameFocused)
                 .onSubmit { commitRename(node) }
                 .onExitCommand {
@@ -674,8 +674,8 @@ struct ExplorerView: View {
                     commitRename(node)
                 }
         }
-        .padding(.vertical, 2)
-        .padding(.trailing, 8)
+        .padding(.vertical, Space.xxs)
+        .padding(.trailing, Space.md)
         .padding(.leading, CGFloat(row.depth) * 13 + 6)
     }
 
@@ -711,8 +711,8 @@ struct ExplorerView: View {
                     if let node = selected {
                         breadcrumbs(node, inset: inset)
                         let header = compact
-                            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 3))
-                            : AnyLayout(HStackLayout(spacing: 16))
+                            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: Space.xxs))
+                            : AnyLayout(HStackLayout(spacing: Space.xl))
                         header {
                             fileTitle(node, compact: compact)
                             fileActions(node, compact: compact)
@@ -720,7 +720,7 @@ struct ExplorerView: View {
                         .padding(.horizontal, inset)
                         .padding(.vertical, node.supportsMarkdownPreview ? 10 : compact ? 5 : 4)
                         .frame(minWidth: 0, maxWidth: .infinity,
-                               minHeight: node.supportsMarkdownPreview ? (compact ? 80 : 52) : (compact ? 65 : 36),
+                               minHeight: node.supportsMarkdownPreview ? (compact ? 80 : 52) : (compact ? 64 : 36),
                                alignment: .leading)
                         if findPresented {
                             findBar.transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
@@ -772,18 +772,18 @@ struct ExplorerView: View {
     }
 
     private func editorTabs(navigatorVisible: Bool) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Space.xs) {
             ExplorerIcon(symbol: "sidebar.left", label: "Toggle file navigator") {
                 focusEditor = navigatorVisible
                 narrowNavigator = !navigatorVisible
             }
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
-                    HStack(spacing: 2) {
+                    HStack(spacing: Space.xxs) {
                         ForEach(documents.tabs) { node in
-                            HStack(spacing: 5) {
+                            HStack(spacing: Space.xs) {
                                 Button { requestSelect(node) } label: {
-                                    HStack(spacing: 6) {
+                                    HStack(spacing: Space.sm) {
                                         Image(systemName: icon(node)).foregroundStyle(Theme.accent)
                                         Text(node.name).lineLimit(1).truncationMode(.middle)
                                         if hasUnsavedEdit(node) {
@@ -794,8 +794,8 @@ struct ExplorerView: View {
                                                 .transition(markLands)
                                         }
                                     }
-                                    .font(.system(size: 11, weight: node.path == selected?.path ? .semibold : .regular))
-                                    .padding(.leading, 10).frame(height: 40).contentShape(Rectangle())
+                                    .font(Typography.caption.weight(node.path == selected?.path ? .semibold : .regular))
+                                    .padding(.leading, Space.md).frame(height: 40).contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityAddTraits(node.path == selected?.path ? .isSelected : [])
@@ -825,14 +825,14 @@ struct ExplorerView: View {
                 narrowNavigator = false
             }
         }
-        .padding(.horizontal, 6).frame(height: 42)
+        .padding(.horizontal, Space.sm).frame(height: 42)
         .background(Theme.sidebar)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
 
     private func breadcrumbs(_ node: FileNode, inset: CGFloat) -> some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 let parts = relativePath(node).split(separator: "/").map(String.init)
                 ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                     if index > 0 { Image(systemName: "chevron.right").font(.system(size: 8)).accessibilityHidden(true) }
@@ -840,7 +840,7 @@ struct ExplorerView: View {
                 }
                 if let target = node.linkDestination { Text("→ \(target)").foregroundStyle(.secondary) }
             }
-            .font(.system(size: 11)).padding(.horizontal, inset).frame(height: 36)
+            .font(Typography.caption).padding(.horizontal, inset).frame(height: 36)
         }
         .frame(minWidth: 0, maxWidth: .infinity)
         .scrollIndicators(.hidden)
@@ -849,9 +849,9 @@ struct ExplorerView: View {
     }
 
     private func fileTitle(_ node: FileNode, compact: Bool) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: icon(node)).foregroundStyle(Theme.accent).accessibilityHidden(true)
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 Text(node.name)
                     .font(.system(size: compact ? 14 : 15, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
@@ -867,7 +867,7 @@ struct ExplorerView: View {
                             .transition(.opacity)
                     }
                     if isPinned(node) {
-                        Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                        Image(systemName: "pin.fill").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                             .accessibilityLabel("Pinned").transition(.opacity)
                     }
                 }
@@ -878,8 +878,8 @@ struct ExplorerView: View {
             if let status = git.statuses[node.path] {
                 ExplorerStatusMark(status: status, spelledOut: !compact)
                     .fixedSize()
-                    .padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(Theme.field, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.inset))
             }
             // A narrow header keeps the mode beside the title and the file actions below it.
             if compact { markdownModes(node) }
@@ -936,7 +936,7 @@ struct ExplorerView: View {
         case .text, .empty:
             if node.supportsMarkdownPreview {
                 MarkdownModeMenu(mode: $markdownMode, canEdit: markdownCanEdit)
-                    .padding(.trailing, 6).transition(.fadeIn)
+                    .padding(.trailing, Space.sm).transition(.fadeIn)
             }
         default: EmptyView()
         }
@@ -950,7 +950,7 @@ struct ExplorerView: View {
     }
 
     private func editStatus(_ node: FileNode, width: CGFloat, inset: CGFloat) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.md) {
             Image(systemName: dirty ? "info.circle" : "checkmark.circle").accessibilityHidden(true)
                 .contentTransition(.symbolEffect(.replace))
             Text(editStatusMessage)
@@ -963,7 +963,7 @@ struct ExplorerView: View {
                                          userInfo: [.announcement: message,
                                                     .priority: NSAccessibilityPriorityLevel.medium.rawValue])
                 }
-            HStack(spacing: 14) {
+            HStack(spacing: Space.lg) {
                 if node.supportsMarkdownPreview && width >= 530 {
                     Text("\(draft.split(whereSeparator: \.isWhitespace).count) words")
                         .contentTransition(.numericText())
@@ -974,13 +974,13 @@ struct ExplorerView: View {
                 if width >= 650 { Text("UTF-8").foregroundStyle(Theme.secondaryText) }
                 if saving { LoopSpinner(size: 10).transition(.fadeIn) }
                 Text(node.supportsMarkdownPreview && markdownMode == .preview ? "Read only" : "⌘ S")
-                    .font(.mono(10)).accessibilityLabel(markdownMode == .preview ? "Read only preview" : "Save, Command-S")
+                    .font(Font.mono(Typography.Size.micro)).accessibilityLabel(markdownMode == .preview ? "Read only preview" : "Save, Command-S")
             }
-            .font(.system(size: 10)).fixedSize()
+            .font(Font.system(size: Typography.Size.micro)).fixedSize()
         }
         .motion(Motion.reveal, value: editStatusMessage)
-        .font(.system(size: 11)).foregroundStyle(dirty ? Theme.attention : Theme.accent)
-        .padding(.horizontal, inset).padding(.vertical, 11)
+        .font(Typography.caption).foregroundStyle(dirty ? Theme.attention : Theme.accent)
+        .padding(.horizontal, inset).padding(.vertical, Space.lg)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 46, alignment: .leading)
         .background(Theme.statusBand)
         .overlay(alignment: .top) { Rectangle().fill(Theme.border).frame(height: 1) }
@@ -1097,16 +1097,16 @@ struct ExplorerView: View {
             }
         case .image(let data):
             if let image = NSImage(data: data) {
-                VStack(spacing: 10) {
+                VStack(spacing: Space.md) {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
                         .scaledToFit()
                     Text("\(Int(image.size.width)) × \(Int(image.size.height)) · \(node.size.formatted(.byteCount(style: .file)))")
-                        .font(.mono(11))
+                        .font(Typography.data)
                         .foregroundStyle(.secondary)
                 }
-                .padding(20)
+                .padding(Space.xxl)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 PaneMessage(icon: "photo", title: "Cannot draw this image",
@@ -1119,11 +1119,11 @@ struct ExplorerView: View {
             PaneMessage(icon: "doc.badge.ellipsis", title: "Too big to open",
                         detail: "\(size.formatted(.byteCount(style: .file))). Open it in an editor instead.")
         case .unreadable(let reason):
-            VStack(spacing: 12) {
+            VStack(spacing: Space.lg) {
                 PaneMessage(icon: "exclamationmark.triangle",
                             title: node.isLink ? "Could not follow this link" : "Could not read this file", detail: reason)
-                ActionButton(title: "Try again", tone: .outlined, height: 28, size: 12) { select(node) }
-            }.padding(20)
+                ActionButton(title: "Try again", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) { select(node) }
+            }.padding(Space.xxl)
         case nil:
             if node.isDirectory {
                 PaneMessage(icon: "folder", title: "Folder selected",
@@ -1267,10 +1267,10 @@ struct ExplorerView: View {
     }
 
     private func saveButtons(_ node: FileNode) -> some View {
-        HStack(spacing: 8) {
-            ActionButton(title: "Revert", tone: .outlined, height: 26, size: 12) { revert() }
+        HStack(spacing: Space.md) {
+            ActionButton(title: "Revert", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) { revert() }
                 .disabled(!dirty || saving)
-            ActionButton(title: "Save", tone: .green, height: 26, size: 12,
+            ActionButton(title: "Save", tone: .green, height: ControlHeight.sm, size: Typography.Size.detail,
                          keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) {
                 save(node)
             }
@@ -1283,7 +1283,7 @@ struct ExplorerView: View {
     private func markdownSave(_ node: FileNode) -> some View {
         ZStack {
             if dirty || saving {
-                ActionButton(title: saving ? "Saving…" : "Save", tone: .green, height: 30, size: 12,
+                ActionButton(title: saving ? "Saving…" : "Save", tone: .green, height: ControlHeight.md, size: Typography.Size.detail,
                              shortcut: saving ? nil : "⌘S",
                              keyboardShortcut: KeyboardShortcut("s", modifiers: .command)) { save(node) }
                     .disabled(!dirty)
@@ -1292,7 +1292,7 @@ struct ExplorerView: View {
                     .transition(.opacity)
             } else {
                 Label("Saved", systemImage: "checkmark")
-                    .font(.system(size: 12)).foregroundStyle(Theme.accent)
+                    .font(Typography.detail).foregroundStyle(Theme.accent)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("explorer.saved")
                     .transition(.opacity)

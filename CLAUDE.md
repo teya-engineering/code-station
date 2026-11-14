@@ -1,5 +1,14 @@
 # Project Instructions
 
+## Design system
+
+Read `docs/design-system.md` before building or changing anything a person can see. It lists the steps and the shared parts, and when to use each.
+
+- Never write a raw size, gap, corner, colour or timing in a feature view. Take type from `Typography`, gaps from `Space`, corners from `Radius`, control heights from `ControlHeight`, shadows from `Elevation` (all in `Sources/MenuBarApp/DesignSystem/Tokens.swift`), colour from `Theme` and timing from `Motion`.
+- Use the shared part when one exists (`ActionButton`, `GlyphButton`, `SectionRule`, `PaneMessage`, `SheetFooter`, `.cardSurface()` and the rest listed in the doc). Do not draw a look-alike by hand.
+- If something is missing, add it to `DesignSystem` and to the doc, then use it. Do not build a one-off inside a feature.
+- When you touch a view that still holds raw numbers, move what you touch onto the steps. A value between two steps goes to the nearer one.
+
 ## UI
 
 - Never use native AppKit or SwiftUI controls that draw with the system's chrome. They cannot be styled and look like a piece of another program. This rules out `NSAlert`, `.alert`, `.confirmationDialog`, `.contextMenu`, `Menu`, `Picker` (dropdown and segmented), the built-in `Button` styles (`.bordered`, `.borderedProminent`, or no style at all), the built-in `Toggle` styles (`.switch`, `.checkbox`) and `.textFieldStyle(.roundedBorder)`.

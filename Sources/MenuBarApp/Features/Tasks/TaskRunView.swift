@@ -20,10 +20,10 @@ struct TaskRunView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 heading
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: Space.xl) {
                         ForEach(inputs, id: \.name) { input in
                             TaskInputField(input: input, value: binding(for: input))
                         }
@@ -34,12 +34,12 @@ struct TaskRunView: View {
                         }
                         promptPreview
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, Space.xxs)
                 }
                 .frame(maxHeight: 380)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            .padding(Space.xxl)
 
             SheetFooter(primary: SheetAction(title: "Run task", icon: "play.fill", enabled: ready,
                                              shortcut: .defaultAction, action: run),
@@ -51,35 +51,35 @@ struct TaskRunView: View {
     }
 
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text("Run \(task.name)")
-                .font(.serif(22, .semibold))
+                .font(Typography.display)
             Text(inputs.contains(where: { !$0.required })
                 ? "Fill in what this run needs. A line that only asked for something left blank is left out."
                 : "Fill in what this run needs.")
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var promptPreview: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             DisclosureHeader(isExpanded: $showingPrompt,
                              show: "Show the prompt", hide: "Hide the prompt") {
                 Text(showingPrompt ? "Hide the prompt" : "Show the prompt")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
             }
             .foregroundStyle(Theme.accent)
 
             if showingPrompt {
                 Text(preview.isEmpty ? "Nothing to send yet." : preview)
-                    .font(.mono(11.5))
+                    .font(Typography.code)
                     .foregroundStyle(preview.isEmpty ? .tertiary : .secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .surface(Theme.sunken, cornerRadius: 10)
+                    .padding(Space.lg)
+                    .surface(Theme.sunken, cornerRadius: Radius.card)
                     .transition(.fadeIn)
             }
         }
@@ -129,19 +129,19 @@ private struct TaskInputField: View {
     @Binding var value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.md) {
                 SectionLabel(input.title.uppercased(), style: .field)
                 if !input.required {
                     Text("optional")
-                        .font(.system(size: 10))
+                        .font(Font.system(size: Typography.Size.micro))
                         .foregroundStyle(.tertiary)
                 }
             }
             control
             if let hint = input.hint, !hint.isEmpty {
                 Text(hint)
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -152,7 +152,7 @@ private struct TaskInputField: View {
         switch input.kind {
         case .text:
             TextField(input.title, text: $value)
-                .appTextField(cornerRadius: 10)
+                .appTextField(cornerRadius: Radius.card)
         case .longText:
             AppTextEditor(text: $value, placeholder: input.title, minHeight: 76)
         case .choice:
@@ -173,7 +173,7 @@ private struct TaskInputField: View {
             Toggle(isOn: Binding(get: { value == "on" },
                                  set: { value = $0 ? "on" : "off" })) {
                 Text(value == "on" ? input.onText : "Off")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(value == "on" ? Color.primary : .secondary)
                     .lineLimit(2)
             }
@@ -182,19 +182,19 @@ private struct TaskInputField: View {
     }
 
     private var pathControl: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Text(value.isEmpty ? "Nothing chosen" : value.abbreviatedPath)
-                .font(.mono(11.5))
+                .font(Typography.code)
                 .foregroundStyle(value.isEmpty ? .tertiary : .secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            ActionButton(title: "Choose", tone: .outlined, height: 26, size: 11.5,
+            ActionButton(title: "Choose", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail,
                          action: choosePath)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.lg)
         .frame(height: 36)
-        .fieldSurface(cornerRadius: 10)
+        .fieldSurface(cornerRadius: Radius.card)
     }
 
     // The shared picker asks for a file or a folder, never either, and this input takes

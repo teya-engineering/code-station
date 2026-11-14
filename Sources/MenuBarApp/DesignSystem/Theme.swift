@@ -45,6 +45,9 @@ enum Theme {
     // Filled controls stay deep enough for white labels. The adaptive accent is used on
     // surfaces, where the same deep green would not have enough contrast in dark mode.
     static let accentFill = Color(red: 0.184, green: 0.290, blue: 0.200)
+    // Words and marks on a filled control or a filled status dot. The fills stay deep in
+    // both appearances, so this does not change with them.
+    static let onFill = Color.white
     static let accentNSColor = adaptiveNSColor(
         light: NSColor(srgbRed: 0.184, green: 0.290, blue: 0.200, alpha: 1),
         dark: NSColor(srgbRed: 0.58, green: 0.76, blue: 0.60, alpha: 1))
@@ -340,19 +343,19 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(border))
     }
 
-    func cardSurface(cornerRadius: CGFloat = 10) -> some View {
+    func cardSurface(cornerRadius: CGFloat = Radius.card) -> some View {
         surface(Theme.card, cornerRadius: cornerRadius)
     }
 
-    func fieldSurface(cornerRadius: CGFloat = 8) -> some View {
+    func fieldSurface(cornerRadius: CGFloat = Radius.control) -> some View {
         surface(Theme.field, cornerRadius: cornerRadius)
     }
 
     // A card lifted off the window: what a menu, a hint or a dialog floats on. One
     // shadow for all of them, so they read as the same kind of thing.
-    func floatingCard(cornerRadius: CGFloat = 10) -> some View {
+    func floatingCard(cornerRadius: CGFloat = Radius.card) -> some View {
         cardSurface(cornerRadius: cornerRadius)
-            .shadow(color: .black.opacity(0.16), radius: 18, y: 6)
+            .elevation(.floating)
     }
 }
 
@@ -447,14 +450,14 @@ struct PaneMessage<Action: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Space.md) {
             Image(systemName: icon)
                 .font(.system(size: 26, weight: .light))
                 .foregroundStyle(.secondary)
-            Text(title).font(.serif(17, .semibold))
+            Text(title).font(Typography.title)
             if !detail.isEmpty {
                 Text(detail)
-                    .font(mono ? .mono(11) : .system(size: 13))
+                    .font(mono ? Typography.data : Typography.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)

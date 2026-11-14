@@ -87,7 +87,7 @@ struct Composer<Above: View, Accessory: View>: View {
         let menuShown = !matches.isEmpty && isFocused && !blocked
         let noticeShown = dictationHere?.notice(for: sessionID) != nil
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if let dictation = dictationHere, let notice = dictation.notice(for: sessionID) {
                 DictationFeedback(dictation: dictation, sessionID: sessionID,
                                   draft: runner.composer.draftBinding(sessionID), notice: notice)
@@ -104,7 +104,7 @@ struct Composer<Above: View, Accessory: View>: View {
                     .transition(.fadeIn)
             }
 
-            HStack(alignment: buttonAlignment, spacing: 10) {
+            HStack(alignment: buttonAlignment, spacing: Space.md) {
                 // Typing during a turn is allowed. An agent that can take a prompt
                 // mid-turn gets it at its next step when settings say to steer; otherwise
                 // what is written goes to the back of the queue. A turn parked on a
@@ -129,7 +129,7 @@ struct Composer<Above: View, Accessory: View>: View {
                               onMarkClick: dictationHere == nil ? nil : { showWordMenu($0, at: $1) },
                               link: fieldLink,
                               trailingInset: dictationHere == nil ? 48 : listening ? 134 : 82) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         if let dictation = dictationHere {
                             DictationMicButton(live: listening,
                                                preparing: dictation.isPreparing(sessionID),
@@ -153,7 +153,7 @@ struct Composer<Above: View, Accessory: View>: View {
             .motion(Motion.control, value: state == .stopping)
 
             if let insertion = runner.composer.insertion(sessionID) {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Label("\(insertion.name) inserted", systemImage: "checkmark.circle")
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -166,13 +166,13 @@ struct Composer<Above: View, Accessory: View>: View {
                     } label: {
                         Text("Undo insertion")
                             .foregroundStyle(Theme.accent)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, Space.xs)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .hoverLift()
                 }
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .transition(.fadeIn)
             }
 
@@ -188,12 +188,12 @@ struct Composer<Above: View, Accessory: View>: View {
         .padding(.horizontal, inset)
         // The top matches the stack spacing, so a row above the field sits evenly
         // between the edge of the bar and the field.
-        .padding(.top, 8)
-        .padding(.bottom, 14)
+        .padding(.top, Space.md)
+        .padding(.bottom, Space.lg)
         .background(Theme.card)
-        .overlay(RoundedRectangle(cornerRadius: 10)
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
             .stroke(Theme.accent, lineWidth: dropTargeted ? 2 : 0)
-            .padding(6))
+            .padding(Space.sm))
         .motion(Motion.hover, value: dropTargeted)
         // Saved drafts need the command names too. Refresh as the menu opens or closes,
         // since command files can change between prompts.
@@ -282,19 +282,19 @@ struct Composer<Above: View, Accessory: View>: View {
         } else {
             Text("queues it for when the turn ends.")
         }
-        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+        return HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
             Text("return")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(Typography.caption.weight(.semibold))
                 .foregroundStyle(.primary.opacity(0.75))
-                .padding(.horizontal, 5)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.field))
+                .padding(.horizontal, Space.xs)
+                .background(RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field))
             message
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(Theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
         }
-        .padding(.leading, 2)
+        .padding(.leading, Space.xxs)
         .accessibilityElement(children: .combine)
         .motion(Motion.control, value: steerable)
     }
@@ -321,18 +321,18 @@ struct Composer<Above: View, Accessory: View>: View {
                 Circle().fill(fill)
                 if stopping {
                     Image(systemName: "hourglass")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(Typography.label)
                         .foregroundStyle(.secondary)
                         .transition(.buttonSwap(reduceMotion: reduceMotion))
                 } else if busy {
                     RoundedRectangle(cornerRadius: 2.5)
-                        .fill(.white)
+                        .fill(Theme.onFill)
                         .frame(width: 10, height: 10)
                         .transition(.buttonSwap(reduceMotion: reduceMotion))
                 } else {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
+                        .font(Typography.body.weight(.semibold))
+                        .foregroundStyle(Theme.onFill)
                         .transition(.buttonSwap(reduceMotion: reduceMotion))
                 }
             }
@@ -364,7 +364,7 @@ struct Composer<Above: View, Accessory: View>: View {
     @ViewBuilder private var attachmentStrip: some View {
         if !attachments.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     ForEach(attachments) { attachment in
                         AttachmentChip(url: attachment.url) {
                             runner.composer.editDraft(sessionID) { $0.attachments.removeAll { $0.id == attachment.id } }

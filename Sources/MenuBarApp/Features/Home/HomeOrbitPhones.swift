@@ -67,16 +67,16 @@ struct OrbitPhoneBeacon: View {
     var body: some View {
         let reach = link.reach
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 seat
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(link.state)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .foregroundStyle(link.link.tint)
                     (Text(reach.lead).foregroundStyle(.secondary)
                         + Text(reach.name).fontWeight(.medium).foregroundStyle(.primary)
                         + Text(reach.tail).foregroundStyle(.secondary))
-                        .font(.system(size: 11.5))
+                        .font(Typography.detail)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: reachWidth, alignment: .leading)
@@ -86,10 +86,10 @@ struct OrbitPhoneBeacon: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(hovering ? .secondary : .tertiary)
                     .offset(x: hovering ? 2 : 0)
-                    .padding(.leading, 2)
+                    .padding(.leading, Space.xxs)
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 14)
+            .padding(.leading, Space.sm)
+            .padding(.trailing, Space.lg)
             .frame(height: Self.height)
             .background(Capsule().fill(Theme.card))
             .overlay(Capsule().stroke(Theme.border))

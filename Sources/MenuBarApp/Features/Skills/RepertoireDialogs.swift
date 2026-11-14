@@ -12,7 +12,7 @@ struct AddMarketplaceView: View {
     @State private var loading = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             SourcePicker(repositoryURL: $repository,
                          repositoryTitle: "Git repository", repositoryDetail: "",
                          placeholder: "https://github.com/org/marketplace.git",
@@ -40,14 +40,14 @@ struct AddMarketplaceView: View {
             }
             if let failure { SourceFailure(failure, lineLimit: nil) }
             if let sshAddress {
-                InlineLink(title: "Use SSH address", size: 11.5, icon: "key") {
+                InlineLink(title: "Use SSH address", size: Typography.Size.detail, icon: "key") {
                     useSSH(sshAddress)
                 }
                 .disabled(loading || manager.isBusy)
                 .transition(.fadeIn)
             }
             Text("Adding a marketplace does not install any packages.")
-                .scaledText(12).foregroundStyle(.secondary)
+                .scaledText(Typography.Size.detail).foregroundStyle(.secondary)
         }
         // The link arrives on the reveal curve. Clearing it, on a retry or an edit, also
         // takes the error away, and anything put away leaves on the quicker curve.

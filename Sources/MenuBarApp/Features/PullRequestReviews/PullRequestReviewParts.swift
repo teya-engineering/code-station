@@ -5,7 +5,7 @@ import SwiftUI
 
 struct PullRequestAnsweredTick: View {
     var body: some View {
-        Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Theme.dotOn)
+        Image(systemName: "checkmark.circle.fill").font(Typography.detail).foregroundStyle(Theme.dotOn)
             .accessibilityLabel("Answered")
     }
 }

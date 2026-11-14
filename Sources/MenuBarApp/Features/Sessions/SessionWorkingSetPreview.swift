@@ -19,13 +19,13 @@ struct SessionWorkingSetPreview: View {
         VStack(spacing: 0) {
             currentWork(headline: headline, entries: entries, path: path)
             if groups.isEmpty {
-                VStack(spacing: 4) {
+                VStack(spacing: Space.xs) {
                     Text("Ready when you are").fontWeight(.semibold)
                     Text("Your next prompt will start the working set.")
                         .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 12))
-                .padding(18)
+                .font(Typography.detail)
+                .padding(Space.xl)
                 .frame(maxWidth: .infinity)
             } else {
                 WorkingSetHistory(groups: groups, projectPath: path,
@@ -40,25 +40,25 @@ struct SessionWorkingSetPreview: View {
                              entries: [WorkingSetTimelineEntry], path: String) -> some View {
         let live = LiveConversation.id(of: session.id, store: store, runner: runner)
         if let request = runner.question(live) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Label(request.isQuestion ? request.title : "Permission needed",
                       systemImage: "exclamationmark.circle")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                 Text(request.subject.isBlank ? request.toolName : request.subject)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .lineLimit(2)
-                InlineLink(title: "Review request", size: 11.5, action: reviewRequest)
+                InlineLink(title: "Review request", size: Typography.Size.detail, action: reviewRequest)
             }
             .foregroundStyle(Theme.attentionText)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.attention.opacity(0.1)))
-            .padding(12)
+            .padding(Space.lg)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.attention.opacity(0.1)))
+            .padding(Space.lg)
         } else if let headline, state.tone == .running {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 7) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(spacing: Space.sm) {
                     PulsingDot(size: 6)
-                    Text("Current work").font(.system(size: 11, weight: .semibold))
+                    Text("Current work").font(Typography.caption.weight(.semibold))
                     Spacer()
                     if let started = headline.startedAt {
                         ElapsedTime(since: started, size: 10)
@@ -69,23 +69,23 @@ struct SessionWorkingSetPreview: View {
                    case .call(let call) = entry.content {
                     WorkingSetTimelineRow(call: call, projectPath: path, indent: 0)
                 } else {
-                    Text(headline.title).font(.mono(11)).lineLimit(1)
-                    Text(headline.detail).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(headline.title).font(Typography.data).lineLimit(1)
+                    Text(headline.detail).font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                 }
             }
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.dotOn.opacity(0.09)))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(Space.md)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.dotOn.opacity(0.09)))
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.md)
         } else if !session.messages.isEmpty || state.tone == .running {
-            HStack(spacing: 7) {
+            HStack(spacing: Space.sm) {
                 StateLight(tone: state.tone, size: 7)
                 Text(state.completionActivity?.detail
                      ?? (state.tone == .running ? "Thinking" : state.tone == .idle ? "Finished" : state.spokenWord))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
                 Spacer()
             }
-            .padding(12)
+            .padding(Space.lg)
         }
     }
 }

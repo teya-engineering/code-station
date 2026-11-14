@@ -77,8 +77,8 @@ struct MessageView: View, Equatable {
     private var userBubble: some View {
         HStack(spacing: 0) {
             Spacer(minLength: userBubbleLeadingSpace)
-            VStack(alignment: .trailing, spacing: 6) {
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .trailing, spacing: Space.sm) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     if let paths = message.attachments, !paths.isEmpty {
                         // An image that is still on disk shows itself; anything else - other
                         // files, or an image gone since - keeps the chip and its name.
@@ -97,28 +97,28 @@ struct MessageView: View, Equatable {
                     }
                 }
                 if message.steered == true || message.dictated == true {
-                    HStack(spacing: 10) {
+                    HStack(spacing: Space.md) {
                         if message.steered == true { SteeredTag() }
                         if message.dictated == true { DictatedTag() }
                     }
                 }
             }
             .environment(\.colorScheme, bubble.inverts ? colorScheme.inverted : colorScheme)
-            .padding(.leading, 15)
+            .padding(.leading, Space.xl)
             .padding(.trailing, userBubbleTrailingPadding)
-            .padding(.vertical, 11)
+            .padding(.vertical, Space.lg)
             // The corner nearest the writer is squared off, so the bubble points back at
             // the side of the page it came from.
-            .background(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
-                                               bottomTrailingRadius: 4, topTrailingRadius: 12)
+            .background(UnevenRoundedRectangle(topLeadingRadius: Radius.floating, bottomLeadingRadius: Radius.floating,
+                                               bottomTrailingRadius: Radius.tag, topTrailingRadius: Radius.floating)
                 .fill(bubble.fill))
             // Clipped by the bubble, so the bar follows its rounded top corner and its
             // squared bottom one. A mask only hides pixels, so the bar would still take
             // every click on the bubble, links included, without turning hit testing off.
             .overlay(alignment: .trailing) {
                 if let edge = bubble.edge {
-                    UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
-                                           bottomTrailingRadius: 4, topTrailingRadius: 12)
+                    UnevenRoundedRectangle(topLeadingRadius: Radius.floating, bottomLeadingRadius: Radius.floating,
+                                           bottomTrailingRadius: Radius.tag, topTrailingRadius: Radius.floating)
                         .fill(edge)
                         .mask(alignment: .trailing) {
                             Rectangle().frame(width: Self.edgeWidth)
@@ -126,14 +126,14 @@ struct MessageView: View, Equatable {
                         .allowsHitTesting(false)
                 }
             }
-            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
-                                            bottomTrailingRadius: 4, topTrailingRadius: 12)
+            .overlay(UnevenRoundedRectangle(topLeadingRadius: Radius.floating, bottomLeadingRadius: Radius.floating,
+                                            bottomTrailingRadius: Radius.tag, topTrailingRadius: Radius.floating)
                 .stroke(bubble.ring))
             .modifier(PromptArrival(active: arriving,
                                     ringColour: bubble.inverts ? bubble.fill : bubble.ring,
                                     outline: UnevenRoundedRectangle(
-                                        topLeadingRadius: 12, bottomLeadingRadius: 12,
-                                        bottomTrailingRadius: 4, topTrailingRadius: 12)))
+                                        topLeadingRadius: Radius.floating, bottomLeadingRadius: Radius.floating,
+                                        bottomTrailingRadius: Radius.tag, topTrailingRadius: Radius.floating)))
             // The cap sits outside the background so it only limits how far long text
             // can wrap; the bubble itself hugs the text instead of filling the cap. It
             // grows with the text so a bubble holds about the same number of words at
@@ -149,11 +149,11 @@ struct MessageView: View, Equatable {
     // written before the agent saw it.
     private struct SteeredTag: View {
         var body: some View {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                 Text("Steered into this turn")
-                    .font(.mono(10.5, .medium))
+                    .font(Typography.data.weight(.medium))
             }
             .foregroundStyle(Theme.accent)
             .accessibilityElement(children: .ignore)
@@ -165,11 +165,11 @@ struct MessageView: View, Equatable {
     // than the writer's.
     private struct DictatedTag: View {
         var body: some View {
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "mic")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
                 Text("Dictated")
-                    .font(.mono(10.5, .medium))
+                    .font(Typography.data.weight(.medium))
             }
             .foregroundStyle(.secondary)
             .accessibilityElement(children: .ignore)
@@ -198,14 +198,14 @@ struct MessageView: View, Equatable {
     }
 
     private var userBubbleContentWidth: CGFloat {
-        let horizontalPadding = 15 + userBubbleTrailingPadding
+        let horizontalPadding = Space.xl + userBubbleTrailingPadding
         return max(0, userBubbleWidth - horizontalPadding)
     }
 
     // The turn reads down the page in the order it happened, so a call the model made
     // after saying something sits under those words rather than above them.
     private var assistantBody: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             ForEach(message.blocks) { block in
                 switch block {
                 case .tools(_, let nodes):
@@ -272,11 +272,11 @@ private struct InstructionBubble: View {
     var body: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 80)
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 DisclosureHeader(isExpanded: $expanded,
                                  show: "Show instructions", hide: "Hide instructions") {
                     Text(expanded ? "Instructions" : "Instructions\u{2026} click to expand")
-                        .scaledText(13)
+                        .scaledText(Typography.Size.body)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -285,14 +285,14 @@ private struct InstructionBubble: View {
                     SelectableText(plain: text, size: 13)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 18)
+                        .padding(.leading, Space.xl)
                         .transition(.fadeIn)
                 }
             }
-            .padding(.leading, 14)
+            .padding(.leading, Space.lg)
             .padding(.trailing, 42)
-            .padding(.vertical, 10)
-            .surface(Theme.secret.opacity(0.14), cornerRadius: 12,
+            .padding(.vertical, Space.md)
+            .surface(Theme.secret.opacity(0.14), cornerRadius: Radius.floating,
                      border: Theme.secret.opacity(0.30))
         }
         .smoothlyResizes(when: expanded)
@@ -311,10 +311,10 @@ private struct ThinkingBlock: View {
     @Environment(\.transcriptMessageID) private var messageID
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             DisclosureHeader(isExpanded: $expanded, show: "Show thinking", hide: "Hide thinking") {
                 Text(expanded ? "Thought" : "Thought · \(firstLine)")
-                    .scaledText(12)
+                    .scaledText(Typography.Size.detail)
                     .italic()
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -329,7 +329,7 @@ private struct ThinkingBlock: View {
                                lineSpacing: 3)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 18)
+                    .padding(.leading, Space.xl)
                     .transcriptCopyButton(for: text)
                     .transition(.fadeIn)
             }
@@ -359,8 +359,8 @@ private struct CopyPill: View {
     var body: some View {
         CopyButton(size: TranscriptCopyButton.iconSize) { text }
             .frame(width: TranscriptCopyButton.pillSize, height: TranscriptCopyButton.pillSize)
-            .cardSurface(cornerRadius: 7)
-            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+            .cardSurface(cornerRadius: Radius.control)
+            .elevation(.raised)
             .appTooltip { tooltip }
     }
 }
@@ -415,8 +415,8 @@ private struct TranscriptCopyButton: ViewModifier {
                                     .frame(width: Self.pillSize, height: Self.pillSize)
                                     .appTooltip { copyTooltip }
                             }
-                            .cardSurface(cornerRadius: 7)
-                            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                            .cardSurface(cornerRadius: Radius.control)
+                            .elevation(.raised)
                         } else {
                             CopyPill(text: text, tooltip: copyTooltip)
                         }

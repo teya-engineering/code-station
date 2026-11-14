@@ -120,28 +120,28 @@ struct ComposerField<TrailingAccessory: View>: View {
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(placeholder)
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.leading, 12)
+            .padding(.leading, Space.lg)
             .padding(.trailing, trailingInset)
-            .padding(.vertical, 10)
+            .padding(.vertical, Space.md)
             // The text view only covers the text itself, so the padding around it would
             // swallow a click and leave the box unfocused. The background sits behind the
             // text view and takes only the clicks it does not want, which is the padding.
             .background {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: Radius.card)
                     .fill(isFocused || listening ? Theme.card : Theme.field)
                     .onTapGesture { if isEnabled { isFocused = true } }
             }
-            .overlay(RoundedRectangle(cornerRadius: 10)
+            .overlay(RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(listening ? Theme.listenEdge : isFocused ? Theme.accent : Theme.border,
                         lineWidth: isFocused || listening ? 1.5 : 1))
             .background {
                 if listening {
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: Radius.floating)
                         .stroke(Theme.listenGlow, lineWidth: 3)
                         .padding(-1.5)
                 }
@@ -150,7 +150,7 @@ struct ComposerField<TrailingAccessory: View>: View {
             .motion(Motion.hover, value: isFocused)
             .overlay(alignment: .trailing) {
                 trailingAccessory
-                    .padding(.trailing, 6)
+                    .padding(.trailing, Space.sm)
             }
     }
 }

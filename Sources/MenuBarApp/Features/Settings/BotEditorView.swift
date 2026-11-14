@@ -18,26 +18,26 @@ struct BotEditorView: View {
     private enum Tab: String, CaseIterable { case personality = "Personality", picture = "Picture" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Space.xl) {
             Button(action: cancel) {
                 Label("Your bots", systemImage: "arrow.left")
-                    .font(.system(size: 11.5)).foregroundStyle(Theme.accent)
-                    .padding(.vertical, 3).contentShape(Rectangle())
+                    .font(Typography.detail).foregroundStyle(Theme.accent)
+                    .padding(.vertical, Space.xxs).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .hoverLift()
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text(draft.isNew ? "Make a new friend" : "Edit \(draft.personality.title)").font(.logo(25))
                 Text(draft.isNew ? "Give your next session a little character." : "Fine-tune the face and personality you work with.")
-                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                    .font(Typography.body).foregroundStyle(.secondary)
             }
             if availableWidth >= 650 {
-                HStack(alignment: .top, spacing: 20) {
+                HStack(alignment: .top, spacing: Space.xxl) {
                     choices.frame(maxWidth: .infinity)
                     preview.frame(width: 232)
                 }
             } else {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: Space.xxl) {
                     choices
                     preview
                 }
@@ -47,19 +47,19 @@ struct BotEditorView: View {
     }
 
     private var choices: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.xl) {
+            HStack(spacing: Space.sm) {
                 ForEach(Tab.allCases, id: \.self) { choice in
                     ChoicePill(title: choice.rawValue, selected: tab == choice) { tab = choice }
                         .frame(maxWidth: .infinity)
                         .focused($focusedTab, equals: choice)
-                        .overlay(RoundedRectangle(cornerRadius: 8)
+                        .overlay(RoundedRectangle(cornerRadius: Radius.control)
                             .stroke(focusedTab == choice ? Theme.accent : .clear, lineWidth: 2))
                         .accessibilityLabel("\(choice.rawValue) tab")
                         .accessibilityValue(tab == choice ? "Selected" : "Not selected")
                 }
             }
-            .padding(4).surface(Theme.field, cornerRadius: 10)
+            .padding(Space.xs).surface(Theme.field, cornerRadius: Radius.card)
             .onMoveCommand { direction in
                 guard direction == .left || direction == .right else { return }
                 tab = tab == .personality ? .picture : .personality
@@ -75,13 +75,13 @@ struct BotEditorView: View {
     }
 
     private var personalities: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("What's their personality?").font(.system(size: 14, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text("What's their personality?").font(Typography.body.weight(.semibold))
                 Text("A different voice for the little moments between prompts.")
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: Space.md)], spacing: Space.md) {
                 ForEach(AgentPersonality.allCases, id: \.self) { personality in
                     personalityChoice(personality)
                 }
@@ -94,7 +94,7 @@ struct BotEditorView: View {
                 focusedPersonality = next
             }
             Label("Personality changes working messages. Your agent's capabilities and instructions stay the same.", systemImage: "info.circle")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(Typography.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .contain)
@@ -104,7 +104,7 @@ struct BotEditorView: View {
     private func personalityChoice(_ personality: AgentPersonality) -> some View {
         let selected = draft.personality == personality
         return Button { draft.personality = personality } label: {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 HStack {
                     BotPortrait(image: AgentAvatarArt.image(for: personality), size: 30)
                     Spacer()
@@ -112,20 +112,20 @@ struct BotEditorView: View {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent)
                     }
                 }
-                Text(personality.title).font(.system(size: 11.5, weight: .semibold))
-                Text(personality.detail).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                Text(personality.title).font(Typography.label)
+                Text(personality.detail).font(Typography.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
-            .padding(10)
+            .padding(Space.md)
             .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
-            .surface(selected ? Theme.botSelection : Theme.card, cornerRadius: 11,
+            .surface(selected ? Theme.botSelection : Theme.card, cornerRadius: Radius.floating,
                      border: selected ? Theme.accent.opacity(0.65) : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: 11))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         }
         .buttonStyle(.plain)
         .focused($focusedPersonality, equals: personality)
-        .overlay(RoundedRectangle(cornerRadius: 11)
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(focusedPersonality == personality ? Theme.accent : .clear, lineWidth: 2))
         .accessibilityLabel("\(personality.title). \(personality.detail)")
         .accessibilityValue(selected ? "Selected" : "Not selected")
@@ -134,13 +134,13 @@ struct BotEditorView: View {
     }
 
     private var pictures: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("A face to put to the personality").font(.system(size: 14, weight: .semibold))
+        VStack(alignment: .leading, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text("A face to put to the personality").font(Typography.body.weight(.semibold))
                 Text("Choose a character, or make it personal with a photo.")
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    .font(Typography.detail).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: Space.md)], spacing: Space.md) {
                 ForEach(Array(AgentAvatarArt.gallery.enumerated()), id: \.element) { position, index in
                     characterChoice(index, position: position)
                 }
@@ -153,25 +153,25 @@ struct BotEditorView: View {
                 focusedCharacter = next
             }
             Button(action: choosePhoto) {
-                HStack(spacing: 12) {
+                HStack(spacing: Space.lg) {
                     Image(systemName: "square.and.arrow.up").font(.system(size: 22)).foregroundStyle(Theme.accent)
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         Text(draft.picture == .photo ? "Replace your photo" : "Upload a photo")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(Typography.label)
                         Text("Drop a picture here or choose a file")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .font(Typography.caption).foregroundStyle(.secondary)
                         Text("JPG, PNG, WebP · Up to 10 MB")
-                            .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                            .font(Typography.caption).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(16)
+                .padding(Space.xl)
                 .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
                 .background(dragging ? Theme.botSelection : Theme.card)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+                .overlay(RoundedRectangle(cornerRadius: Radius.floating)
                     .stroke(Theme.accent.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [5])))
-                .contentShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
                 .motion(Motion.hover, value: dragging)
             }
             .buttonStyle(.plain)
@@ -182,12 +182,12 @@ struct BotEditorView: View {
                 return true
             } isTargeted: { dragging = $0 }
             if let imageError {
-                Text(imageError).font(.system(size: 12)).foregroundStyle(Theme.warningText)
+                Text(imageError).font(Typography.detail).foregroundStyle(Theme.warningText)
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.fadeIn)
             }
             HStack {
-                Text("Your picture stays on this Mac.").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                Text("Your picture stays on this Mac.").font(Typography.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 if draft.picture == .photo {
                     InlineLink(title: "Adjust crop") {
@@ -210,8 +210,8 @@ struct BotEditorView: View {
             imageError = nil
         } label: {
             BotPortrait(image: AgentAvatarArt.image(character: index), size: 52)
-                .padding(4)
-                .overlay(RoundedRectangle(cornerRadius: 15)
+                .padding(Space.xs)
+                .overlay(RoundedRectangle(cornerRadius: Radius.floating)
                     .stroke(selected || focusedCharacter == index ? Theme.accent : .clear, lineWidth: 2))
                 .overlay(alignment: .bottomTrailing) {
                     if selected {
@@ -219,7 +219,7 @@ struct BotEditorView: View {
                             .background(Circle().fill(Theme.card)).accessibilityHidden(true)
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 15))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         }
         .buttonStyle(.plain)
         .focused($focusedCharacter, equals: index)
@@ -231,7 +231,7 @@ struct BotEditorView: View {
     }
 
     private var preview: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Space.lg) {
             VStack(spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     BotPortraitStage(image: draft.image, size: 110, portraits: portraits,
@@ -241,14 +241,14 @@ struct BotEditorView: View {
                         // from a slight scale without upsetting AppKit layout.
                         .transition(reduceMotion ? .opacity.animation(Motion.reveal)
                                                  : .opacity.combined(with: .scale(scale: 0.94)))
-                    Text("Live preview").font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white).padding(12)
+                    Text("Live preview").font(Font.system(size: Typography.Size.micro, weight: .medium))
+                        .foregroundStyle(Theme.onFill).padding(Space.lg)
                 }
                 .frame(height: 186)
                 .motion(Motion.reveal, value: previewIdentity)
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     Text(draft.personality.title).font(.logo(16))
-                    Text("While your bot is working").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    Text("While your bot is working").font(Typography.caption).foregroundStyle(.secondary)
                     BotWorkingLine(personality: draft.personality)
                     Divider().overlay(Theme.border)
                     HStack {
@@ -256,16 +256,16 @@ struct BotEditorView: View {
                         Spacer()
                         Text("Actual size")
                     }
-                    .font(.system(size: 10.5)).foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
+                    .font(Typography.caption).foregroundStyle(.secondary)
+                    HStack(spacing: Space.md) {
                         AgentAvatarView(image: draft.image, size: 30).accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Polish the settings screen").font(.system(size: 10.5, weight: .medium))
-                            Text(draft.personality.title).font(.system(size: 10)).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: Space.xxs) {
+                            Text("Polish the settings screen").font(Typography.caption.weight(.medium))
+                            Text(draft.personality.title).font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                         }
                     }
-                    .padding(8).surface(Theme.field, cornerRadius: 8)
-                    HStack(spacing: 12) {
+                    .padding(Space.md).surface(Theme.field, cornerRadius: Radius.control)
+                    HStack(spacing: Space.lg) {
                         ForEach([40.0, 28, 18], id: \.self) { size in
                             AgentAvatarView(image: draft.image, size: size)
                                 .accessibilityLabel("Avatar at \(Int(size)) points")
@@ -273,11 +273,11 @@ struct BotEditorView: View {
                         Spacer(minLength: 0)
                     }
                 }
-                .padding(15)
+                .padding(Space.xl)
             }
             .background(Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.border))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
+            .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(Theme.border))
             SettingsToggleRow("Default for new sessions", detail: "Start your next session with this bot.", isOn: $draft.isDefault)
         }
         .accessibilityElement(children: .contain)

@@ -24,11 +24,11 @@ struct AgentConfiguredServerDetailView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: Space.xxl) {
                     if server.hasDifferentConfigurations {
                         differenceCard
                     }
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Space.lg) {
                         HStack {
                             SectionLabel("AGENT CONFIGURATIONS")
                             Spacer()
@@ -38,7 +38,7 @@ struct AgentConfiguredServerDetailView: View {
                     }
                     ownershipLine
                 }
-                .padding(28)
+                .padding(Space.xxxl)
                 .frame(maxWidth: 820, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -54,27 +54,27 @@ struct AgentConfiguredServerDetailView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(server.name)
-                    .font(.serif(24, .semibold))
+                    .font(Typography.display)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text("Configured in \(owners)")
-                    .font(.system(size: 12.5))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
             if let status = server.worstStatus {
                 AgentStatusPill(status: status)
             }
-            ActionButton(title: "Check again", tone: .outlined, size: 13,
+            ActionButton(title: "Check again", tone: .outlined, size: Typography.Size.body,
                          icon: "arrow.clockwise", action: checkAgain)
                 .disabled(isChecking)
                 .appTooltip("Ask \(owners) how this server is doing")
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Space.xxxl)
+        .padding(.vertical, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card)
         .overlay(alignment: .bottom) {
@@ -96,12 +96,12 @@ struct AgentConfiguredServerDetailView: View {
     @ViewBuilder private var checkedLabel: some View {
         if isChecking {
             Text("Checking…")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
         } else if let checkedAt {
             TimelineView(.periodic(from: .now, by: 5)) { context in
                 Text("Checked \(Self.checkedPhrase(since: checkedAt, now: context.date))")
-                    .font(.system(size: 12))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
             }
         }
@@ -130,7 +130,7 @@ struct AgentConfiguredServerDetailView: View {
 
     private var differenceCard: some View {
         WarningStrip("The agents use different connection details for this server name.")
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
     }
 
     // MARK: - Agent card
@@ -139,21 +139,21 @@ struct AgentConfiguredServerDetailView: View {
         let status = registration.status
         let source = registration.source
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: Space.lg) {
                 AgentMarkTile(source: source)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(source.title).font(.system(size: 14, weight: .semibold))
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    HStack(spacing: Space.md) {
+                        Text(source.title).font(Typography.body.weight(.semibold))
                         AgentStatusDot(status: status)
                         Text(status.word)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(Typography.label)
                             .foregroundStyle(status.tint)
                     }
                     .accessibilityElement(children: .combine)
 
                     Text(caption(registration))
-                        .font(.system(size: 12.5))
+                        .font(Typography.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -164,15 +164,15 @@ struct AgentConfiguredServerDetailView: View {
                 actions(registration)
                     .fixedSize()
             }
-            .padding(16)
+            .padding(Space.xl)
 
             Divider().overlay(Theme.hairline)
 
             connectionRows(registration)
-                .padding(.vertical, 8)
+                .padding(.vertical, Space.md)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(cornerRadius: 12)
+        .cardSurface(cornerRadius: Radius.floating)
     }
 
     private func caption(_ registration: Registration) -> String {
@@ -201,12 +201,12 @@ struct AgentConfiguredServerDetailView: View {
         let source = registration.source
         if copied == source, let command = signInCommand(registration) {
             Text("Copied: \(command)")
-                .font(.mono(11))
+                .font(Typography.data)
                 .fixedSize(horizontal: false, vertical: true)
         }
         if let error = work(for: source).errors[server.name] {
             Text(error)
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(Theme.deletion)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -221,25 +221,25 @@ struct AgentConfiguredServerDetailView: View {
 
     private func note(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11.5))
+            .font(Typography.detail)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder private func actions(_ registration: Registration) -> some View {
         let source = registration.source
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             if registration.work == .signingIn {
                 LoopSpinner(size: 14)
                 InlineLink(title: "Cancel") { work(for: source).cancel(server.name) }
             } else if registration.work != nil {
                 LoopSpinner(size: 14)
             } else if registration.status == .needsSignIn, registration.offersSignIn {
-                ActionButton(title: "Sign in", tone: .green, height: 28, size: 12) {
+                ActionButton(title: "Sign in", tone: .green, height: ControlHeight.md, size: Typography.Size.detail) {
                     signIn(registration)
                 }
             } else if registration.status == .cantConnect {
-                ActionButton(title: "Check again", tone: .outlined, height: 28, size: 12,
+                ActionButton(title: "Check again", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
                              action: checkAgain)
             }
 
@@ -254,7 +254,7 @@ struct AgentConfiguredServerDetailView: View {
             }
 
             if registration.offersSignIn {
-                GlyphButton(icon: "ellipsis", side: 28)
+                GlyphButton(icon: "ellipsis", side: ControlHeight.md)
                     .appMenu { menuEntries(registration) }
                     .accessibilityLabel("More for \(source.title)")
             }
@@ -281,17 +281,17 @@ struct AgentConfiguredServerDetailView: View {
     // MARK: - Connection
 
     private func connectionRows(_ registration: Registration) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             detailRow("TRANSPORT") {
-                MonoChip(text: registration.transport, size: 13, bordered: true)
+                MonoChip(text: registration.transport, size: Typography.Size.body, bordered: true)
             }
             if let command = registration.command {
                 detailRow("COMMAND") {
-                    HStack(spacing: 8) {
-                        MonoChip(text: command, size: 13, bordered: true)
+                    HStack(spacing: Space.md) {
+                        MonoChip(text: command, size: Typography.Size.body, bordered: true)
                         if !registration.args.isEmpty {
                             Text(counted(registration.args.count, "argument"))
-                                .font(.system(size: 12))
+                                .font(Typography.detail)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -299,7 +299,7 @@ struct AgentConfiguredServerDetailView: View {
             } else if let url = registration.url {
                 detailRow("URL") {
                     Text(displayURL(url))
-                        .font(.mono(12.5))
+                        .font(Font.mono(Typography.Size.body))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .lineLimit(1)
@@ -322,19 +322,19 @@ struct AgentConfiguredServerDetailView: View {
     private func detailRow(_ label: String,
                            @ViewBuilder content: () -> some View) -> some View {
         LabeledRow(label, content: content)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Space.xl)
+            .padding(.vertical, Space.sm)
     }
 
     private func hiddenValues(_ keys: [String]) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Text(keys.joined(separator: ", "))
-                .font(.mono(12))
+                .font(Typography.code)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Text("values hidden")
-                .font(.system(size: 10, weight: .semibold))
+                .font(Typography.micro)
                 .foregroundStyle(Theme.secret)
                 .fixedSize()
         }
@@ -352,13 +352,13 @@ struct AgentConfiguredServerDetailView: View {
     // MARK: - Ownership
 
     private var ownershipLine: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: "info.circle")
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.tertiary)
                 .padding(.top, 1)
             Text(ownershipText)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -478,14 +478,14 @@ private struct AgentStatusPill: View {
     let status: AgentConfiguredServer.Status
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             AgentStatusDot(status: status, size: 7)
             Text(status.word)
-                .font(.system(size: 13, weight: .medium))
+                .font(Typography.body.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(Capsule().fill(Color.black.opacity(0.04)))
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
+        .background(Capsule().fill(Theme.sunken))
         .accessibilityElement(children: .combine)
     }
 }
@@ -498,7 +498,7 @@ private struct AgentMarkTile: View {
             .font(.system(size: 15, weight: .medium))
             .foregroundStyle(.primary)
             .frame(width: 34, height: 34)
-            .surface(Theme.field, cornerRadius: 9)
+            .surface(Theme.field, cornerRadius: Radius.card)
             .accessibilityHidden(true)
     }
 }

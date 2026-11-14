@@ -18,12 +18,12 @@ struct PullRequestReviewerGroupView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             DisclosureHeader(isExpanded: isUnfolded) { headerLabel }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .surface(Theme.sunken, cornerRadius: 10, border: Theme.hairline)
+                .surface(Theme.sunken, cornerRadius: Radius.card, border: Theme.hairline)
             if isUnfolded.wrappedValue {
                 ForEach(group.reviews) { review in
                     PullRequestReviewCard(review: review, entry: entry, sessionID: sessionID,
@@ -39,13 +39,13 @@ struct PullRequestReviewerGroupView: View {
     }
 
     private var headerLabel: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Space.md) {
             PullRequestReviewerAvatar(reviewer: group.author, side: 24)
-            Text(group.author.login).font(.system(size: 13, weight: .semibold))
-            if group.author.isAutomated { MonoChip(text: "AI", size: 9.5, tint: Theme.botStage) }
-            MonoChip(text: group.latest.kind.title, size: 9.5, tint: group.latest.kind.ink)
+            Text(group.author.login).font(Typography.body.weight(.semibold))
+            if group.author.isAutomated { MonoChip(text: "AI", size: Typography.Size.micro, tint: Theme.botStage) }
+            MonoChip(text: group.latest.kind.title, size: Typography.Size.micro, tint: group.latest.kind.ink)
             Spacer(minLength: 6)
-            Text(summary).font(.mono(10.5)).lineLimit(1).layoutPriority(1)
+            Text(summary).font(Typography.data).lineLimit(1).layoutPriority(1)
                 .foregroundStyle(open == 0 ? Color.secondary : Theme.attentionText)
             if open == 0, !group.threads.isEmpty { PullRequestAnsweredTick() }
         }
@@ -78,13 +78,13 @@ struct PullRequestReviewCard: View {
     @State private var unfoldedThreads: Set<Int> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             DisclosureHeader(isExpanded: $isUnfolded) {
-                HStack(spacing: 9) {
-                    MonoChip(text: review.kind.title, size: 9.5, tint: review.kind.ink)
-                    Text(RelativeTime.short(review.submittedAt)).font(.mono(10.5)).foregroundStyle(.secondary)
+                HStack(spacing: Space.md) {
+                    MonoChip(text: review.kind.title, size: Typography.Size.micro, tint: review.kind.ink)
+                    Text(RelativeTime.short(review.submittedAt)).font(Typography.data).foregroundStyle(.secondary)
                     if !isUnfolded, !review.threads.isEmpty {
-                        Text(counted(review.threads.count, "thread")).font(.mono(10.5)).foregroundStyle(.secondary)
+                        Text(counted(review.threads.count, "thread")).font(Typography.data).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -104,8 +104,8 @@ struct PullRequestReviewCard: View {
         // The prose inside measures itself against the width it is offered. Without a
         // definite one it falls back to its own idea of a line, and draws wrong.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 24)
-        .padding(.trailing, 4)
+        .padding(.leading, Space.xxxl)
+        .padding(.trailing, Space.xs)
     }
 
     private func toggle(_ id: Int) {

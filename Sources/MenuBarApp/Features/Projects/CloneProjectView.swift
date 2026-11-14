@@ -34,11 +34,11 @@ struct CloneProjectView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 Text("Clone repository")
-                    .font(.serif(22, .semibold))
+                    .font(Typography.display)
                 Text("Copy a repository to this Mac and add it as a project.")
-                    .font(.system(size: 13))
+                    .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -49,18 +49,18 @@ struct CloneProjectView: View {
                         Text("Repository URL")
                     }
                         .textFieldStyle(.plain)
-                        .font(.mono(12.5))
+                        .font(Font.mono(Typography.Size.body))
                         .focused($remoteFocused)
                 }
-                .padding(.top, 6)
+                .padding(.top, Space.sm)
 
                 fieldRow("FOLDER") {
                     Text(folder.path.abbreviatedPath)
-                        .font(.mono(12.5))
+                        .font(Font.mono(Typography.Size.body))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    ActionButton(title: "Choose…", tone: .outlined, height: 26, size: 11,
+                    ActionButton(title: "Choose…", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption,
                                  action: chooseFolder)
                 }
 
@@ -69,7 +69,7 @@ struct CloneProjectView: View {
                         get: { name },
                         set: { name = $0; nameEdited = !$0.isBlank }))
                         .textFieldStyle(.plain)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                 }
 
                 // Tall enough for every state but a long failure, so typing the first
@@ -79,7 +79,7 @@ struct CloneProjectView: View {
                     .motion(Motion.reveal, value: status)
             }
             .disabled(isCloning)
-            .padding(20)
+            .padding(Space.xxl)
 
             SheetFooter(title: "The project opens when the clone finishes.",
                         primary: SheetAction(title: "Clone", enabled: canClone,
@@ -99,14 +99,14 @@ struct CloneProjectView: View {
 
     private func fieldRow<Field: View>(_ label: String,
                                        @ViewBuilder field: () -> Field) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             SectionLabel(label, style: .field)
                 .frame(width: 50, alignment: .leading)
             field()
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, Space.lg)
         .frame(height: 44)
-        .fieldSurface(cornerRadius: 10)
+        .fieldSurface(cornerRadius: Radius.card)
     }
 
     @ViewBuilder
@@ -114,12 +114,12 @@ struct CloneProjectView: View {
         switch status {
         case .empty:
             Text("Paste the address from the repository's Clone button.")
-                .font(.system(size: 11))
+                .font(Typography.caption)
                 .foregroundStyle(.tertiary)
                 .transition(.fadeIn)
         case .ready(let path):
             Text("Clones into \(path)")
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(.tertiary)
                 .lineLimit(2)
                 .transition(.fadeIn)
@@ -128,23 +128,23 @@ struct CloneProjectView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .warningCard()
         case .cloning:
-            HStack(spacing: 8) {
+            HStack(spacing: Space.md) {
                 LoopSpinner()
                 Text(progressText)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
                     .foregroundStyle(.secondary)
                     .contentTransition(.numericText())
                     .motion(Motion.control, value: progress)
             }
             .transition(.fadeIn)
         case .failed(let failure):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 Text(failure.message)
                     .fixedSize(horizontal: false, vertical: true)
                 if let sshAddress = failure.sshAddress {
                     Button { remote = sshAddress } label: {
                         Text("Use \(sshAddress)")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(Typography.label)
                             .foregroundStyle(Theme.accent)
                             .contentShape(Rectangle())
                     }

@@ -76,13 +76,13 @@ struct DictationMicButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 if live {
                     DictationLevelBars(level: level)
                     DictationClock(startedAt: startedAt)
                 } else {
                     Image(systemName: blocked ? "mic.slash" : "mic")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(Typography.body)
                         .opacity(preparing ? 0.35 : 1)
                         .overlay {
                             if preparing { DownloadRing(fraction: download ?? 0) }
@@ -94,15 +94,15 @@ struct DictationMicButton: View {
                              : hovering ? Color.primary : Color.secondary)
             .padding(.horizontal, live ? 8 : 0)
             .frame(minWidth: live ? 74 : 28, minHeight: 28)
-            .background(RoundedRectangle(cornerRadius: 8)
+            .background(RoundedRectangle(cornerRadius: Radius.control)
                 .fill(live ? Theme.listenFill : hovering && isEnabled ? Theme.field : .clear))
             .overlay {
                 if live {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .strokeBorder(Theme.listenOnFill.opacity(0.18))
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             // Lifted inside the button, since the tooltip on the button is an AppKit view
             // that cannot be laid out under a scale.
             .hoverLift(hovering)
@@ -125,7 +125,7 @@ private struct DictationLevelBars: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Space.xxs) {
             ForEach(0..<5, id: \.self) { index in
                 // The middle bar moves most, so the row reads as one shape.
                 let shape = 1 - abs(Double(index) - 2) / 5
@@ -146,7 +146,7 @@ private struct DictationClock: View {
     var body: some View {
         TimelineView(.periodic(from: startedAt ?? .now, by: 1)) { context in
             Text(Self.format(context.date.timeIntervalSince(startedAt ?? context.date)))
-                .font(.mono(11, .semibold))
+                .font(Typography.data.weight(.semibold))
                 .monospacedDigit()
         }
         .accessibilityHidden(true)
@@ -187,15 +187,15 @@ struct DictationNoticeRow: View {
     let undo: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             content
         }
-        .font(.system(size: 12))
-        .padding(.leading, 10)
-        .padding(.trailing, 8)
-        .padding(.vertical, 6)
+        .font(Typography.detail)
+        .padding(.leading, Space.md)
+        .padding(.trailing, Space.md)
+        .padding(.vertical, Space.sm)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(background))
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(background))
         .foregroundStyle(ink)
         .accessibilityElement(children: .contain)
         .transition(.opacity)
@@ -220,12 +220,12 @@ struct DictationNoticeRow: View {
     @ViewBuilder private var content: some View {
         switch notice {
         case .listening:
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 BreathingDot()
                 Text("Listening in \(languageName)").fontWeight(.semibold)
             }
             Spacer(minLength: 8)
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 keyHint("return", "Stop")
                 keyHint("esc", "Throw away")
                 Text("Say “new line” or “full stop”")
@@ -240,7 +240,7 @@ struct DictationNoticeRow: View {
             Meter(fraction: download?.fraction ?? 0, colour: Theme.listenInk, height: 4)
                 .frame(width: 140)
             Text(Self.progress(download))
-                .font(.mono(11, .medium))
+                .font(Typography.data.weight(.medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             languageButton
@@ -250,14 +250,14 @@ struct DictationNoticeRow: View {
                 + Text(". Check it is not muted, or pick another."))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 Text(inputName ?? input).fontWeight(.semibold)
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
             }
             .foregroundStyle(Color.primary)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, Space.md)
             .frame(height: 24)
-            .surface(Theme.card, cornerRadius: 7)
+            .surface(Theme.card, cornerRadius: Radius.control)
             .hoverLift()
             .appMenu(edge: .top, inputMenu)
             .accessibilityLabel("Listen through \(inputName ?? input)")
@@ -283,25 +283,25 @@ struct DictationNoticeRow: View {
             // the keyboard.
             ForEach(Array(unsure.prefix(3).enumerated()), id: \.offset) { _, word in
                 Text(word.heard)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Color.primary)
                     .underline(pattern: .dot, color: Theme.listenEdge)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, Space.md)
                     .frame(height: 24)
-                    .surface(Theme.card, cornerRadius: 7)
+                    .surface(Theme.card, cornerRadius: Radius.control)
                     .hoverLift()
                     .appMenu(edge: .top) { wordMenu(word) }
                     .accessibilityLabel("Check “\(word.heard)”")
             }
             Text("\(DictationClock.format(TimeInterval(seconds))) spoken")
-                .font(.mono(11, .medium))
+                .font(Typography.data.weight(.medium))
                 .foregroundStyle(.secondary)
                 .fixedSize()
         case .thrownAway:
             Text("Threw away that take.")
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            InlineLink(title: "Undo", size: 12.5, action: undo)
+            InlineLink(title: "Undo", size: Typography.Size.body, action: undo)
         case .failed(let message):
             Image(systemName: "exclamationmark.triangle")
             Text(message)
@@ -319,7 +319,7 @@ struct DictationNoticeRow: View {
                 + Text("Turn it on in System Settings, then click the mic again."))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ActionButton(title: "Open Privacy Settings", tone: .outlined, height: 24, size: 12) {
+            ActionButton(title: "Open Privacy Settings", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) {
                 openSettings(failure)
             }
         case .modelMissing:
@@ -344,7 +344,7 @@ struct DictationNoticeRow: View {
 
     private var languageButton: some View {
         Text("Change language")
-            .font(.system(size: 12.5, weight: .semibold))
+            .font(Typography.body.weight(.semibold))
             .foregroundStyle(Theme.accent)
             .fixedSize()
             .hoverLift()
@@ -352,7 +352,7 @@ struct DictationNoticeRow: View {
     }
 
     private func keyHint(_ key: String, _ title: String) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Space.xs) {
             KeyCap(key: key)
             Text(title)
         }

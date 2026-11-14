@@ -205,23 +205,23 @@ struct PromptSuggestionStrip: View {
     private let pillHeight: CGFloat = 26
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             // The widest target does the safest thing, so a mis-click reaches the composer
             // rather than starting a turn. Everything left of the pills is one target,
             // label and gap included, since a reader aiming at the row means the offer.
             Button(action: edit) {
-                HStack(spacing: 8) {
-                    HStack(spacing: 6) {
+                HStack(spacing: Space.md) {
+                    HStack(spacing: Space.sm) {
                         Image(systemName: "arrow.turn.down.right")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(Typography.micro)
                         Text("SUGGESTED")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(Typography.caption.weight(.semibold))
                             .kerning(1.2)
                     }
                     .foregroundStyle(Theme.accent)
 
                     Text(suggestion)
-                        .font(.system(size: 13))
+                        .font(Typography.body)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundStyle(.primary)
@@ -232,22 +232,22 @@ struct PromptSuggestionStrip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .hoverFill(cornerRadius: 8)
+            .hoverFill(cornerRadius: Radius.control)
             .appTooltip("Put this in the composer to change before sending")
             .accessibilityHidden(true)
 
-            ActionButton(title: "Edit", tone: .outlined, height: pillHeight, size: 11.5,
+            ActionButton(title: "Edit", tone: .outlined, height: pillHeight, size: Typography.Size.detail,
                          shortcut: "⇥", action: edit)
                 .appTooltip("Put this in the composer to change before sending")
                 .accessibilityLabel("Edit the suggested prompt: \(suggestion)")
 
             if hasDraft {
-                ActionButton(title: "Append", tone: .outlined, height: pillHeight, size: 11.5,
+                ActionButton(title: "Append", tone: .outlined, height: pillHeight, size: Typography.Size.detail,
                              action: edit)
                     .appTooltip("Add this to the end of what you have typed")
                     .accessibilityLabel("Append the suggested prompt to the draft: \(suggestion)")
             } else {
-                ActionButton(title: "Send", tone: .green, height: pillHeight, size: 11.5,
+                ActionButton(title: "Send", tone: .green, height: pillHeight, size: Typography.Size.detail,
                              shortcut: "⌘⏎", action: send)
                     .appTooltip("Send this as the next turn")
                     .accessibilityLabel("Send the suggested prompt: \(suggestion)")
@@ -255,9 +255,9 @@ struct PromptSuggestionStrip: View {
 
             Button(action: dismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .padding(2)
+                    .padding(Space.xxs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -265,13 +265,13 @@ struct PromptSuggestionStrip: View {
             .appTooltip("Cancel this suggestion")
             .accessibilityLabel("Cancel the suggested prompt")
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
-        .padding(.vertical, 6)
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.md)
+        .padding(.vertical, Space.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         // A card rather than a field, so the row reads as an offer sitting on the pane
         // instead of as a second place to type.
-        .surface(Theme.card, cornerRadius: 9, border: Theme.border)
+        .surface(Theme.card, cornerRadius: Radius.card, border: Theme.border)
         .opacity(shown ? 1 : 0)
         // Under Reduce Motion the row only fades in, it does not rise.
         .offset(y: shown || reduceMotion ? 0 : 5)

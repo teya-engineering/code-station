@@ -34,10 +34,10 @@ struct AddServerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 22) {
-                Text(group.addTitle).font(.serif(26, .semibold))
+            VStack(alignment: .leading, spacing: Space.xxl) {
+                Text(group.addTitle).font(Typography.display)
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     SectionLabel("PRESET")
                     ActionButton(title: preset?.label ?? "Choose a preset",
                                  tone: .sunken,
@@ -59,7 +59,7 @@ struct AddServerView: View {
                     let environment = requiredValues(in: preset.env)
                     let headers = requiredValues(in: preset.headers)
                     if !environment.isEmpty || !headers.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: Space.lg) {
                             SectionLabel("REQUIRED VALUES")
                             ForEach(environment) { value in
                                 valueField(value,
@@ -74,7 +74,7 @@ struct AddServerView: View {
                         }
                     }
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         SectionLabel("PREVIEW")
                         labeled("name", preset.name)
                         labeled("transport", preset.isRemote ? (preset.type ?? "http") : "stdio")
@@ -85,19 +85,19 @@ struct AddServerView: View {
                         labeled("environment",
                                 ServerEnvironmentChoice.title(for: preset.environmentTag))
                     }
-                    .padding(14)
+                    .padding(Space.lg)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .fieldSurface(cornerRadius: 10)
+                    .fieldSurface(cornerRadius: Radius.card)
                 }
 
                 if exists {
                     Label("A server with this name already exists. Adding will replace its configuration.",
                           systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .foregroundStyle(Theme.secret)
                 }
             }
-            .padding(28)
+            .padding(Space.xxxl)
 
             SheetFooter(primary: SheetAction(title: exists ? "Replace" : "Add",
                                              enabled: !incomplete,
@@ -130,7 +130,7 @@ struct AddServerView: View {
 
     private func valueField(_ value: SiteDefaults.MCP.Value,
                             text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             SectionLabel(value.key)
             Group {
                 if EnvVar.isSecretKey(value.key) {
@@ -140,8 +140,8 @@ struct AddServerView: View {
                 }
             }
             // Set before the field chrome, so the mono face wins over the chrome's own.
-            .font(.mono(13))
-            .appTextField(cornerRadius: 9)
+            .font(Font.mono(Typography.Size.body))
+            .appTextField(cornerRadius: Radius.card)
         }
     }
 
@@ -152,12 +152,12 @@ struct AddServerView: View {
     }
 
     private func labeled(_ key: String, _ value: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             Text(key)
-                .font(.mono(12, .semibold))
+                .font(Typography.code.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 84, alignment: .leading)
-            Text(value).font(.mono(12)).textSelection(.enabled)
+            Text(value).font(Typography.code).textSelection(.enabled)
         }
     }
 }

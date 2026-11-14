@@ -92,8 +92,8 @@ struct SourcePicker: View {
     }
 
     private var selectedSource: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.sm) {
                 ChoicePill(title: repositoryChoice, selected: source == .repository,
                            enabled: !isLoading) { source = .repository; onSourceChange() }
                     .accessibilityAddTraits(source == .repository ? [.isSelected] : [])
@@ -105,8 +105,8 @@ struct SourcePicker: View {
             .accessibilityLabel("Configuration source")
 
             if source == .repository {
-                Text("Repository URL").font(.system(size: 11, weight: .semibold))
-                HStack(spacing: 9) {
+                Text("Repository URL").font(Typography.caption.weight(.semibold))
+                HStack(spacing: Space.md) {
                     repositoryField
                     ActionButton(title: isLoading ? "Loading…" : repositoryButton,
                                  tone: .outlined, action: loadRepository)
@@ -114,21 +114,21 @@ struct SourcePicker: View {
                 }
                 InlineLink(title: showsRepositoryHelp
                            ? "Hide repository details" : "What should the repository contain?",
-                           size: 11) { showsRepositoryHelp.toggle() }
+                           size: Typography.Size.caption) { showsRepositoryHelp.toggle() }
                     .accessibilityValue(showsRepositoryHelp ? "Expanded" : "Collapsed")
                 if showsRepositoryHelp {
                     Text(repositoryHelp)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                HStack(spacing: 12) {
+                HStack(spacing: Space.lg) {
                     ActionButton(title: fileButton, tone: .outlined, icon: "folder",
                                  action: chooseFile)
                         .disabled(isLoading)
                     Text(localFileHelp)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -138,9 +138,9 @@ struct SourcePicker: View {
     private var repositoryField: some View {
         TextField(placeholder, text: $repositoryURL)
             .textFieldStyle(.plain)
-            .font(.mono(11.5))
-            .padding(.horizontal, 10)
-            .frame(height: 34)
+            .font(Typography.code)
+            .padding(.horizontal, Space.md)
+            .frame(height: ControlHeight.lg)
             .fieldSurface()
             .accessibilityLabel("GitHub repository URL")
             .disabled(isLoading)
@@ -151,10 +151,10 @@ struct SourcePicker: View {
     }
 
     private var sourceCards: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             SourceCard(icon: "arrow.triangle.branch", title: repositoryTitle,
                        detail: repositoryDetail) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     repositoryField
                     ActionButton(title: isLoading ? "Loading…" : "Load repository",
                                  tone: .outlined,
@@ -187,25 +187,25 @@ private struct SourceCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 34, height: 34)
                 .background(Circle().fill(Theme.accent.opacity(0.09)))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.serif(16))
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(title).font(Typography.title)
                 Text(detail)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             content
         }
-        .padding(14)
+        .padding(Space.lg)
         .frame(maxWidth: .infinity, minHeight: 178, alignment: .topLeading)
-        .cardSurface(cornerRadius: 11)
+        .cardSurface(cornerRadius: Radius.floating)
     }
 }
 
@@ -216,14 +216,14 @@ struct SourceLoaded: View {
     let detail: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(Theme.addition)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(title)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(Typography.body.weight(.semibold))
                 Text(detail)
-                    .font(.system(size: 11.5))
+                    .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -242,11 +242,11 @@ struct SourceFailure: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
+        HStack(alignment: .top, spacing: Space.md) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Theme.deletion)
             Text(message)
-                .font(.system(size: 11.5))
+                .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(lineLimit)
@@ -260,6 +260,6 @@ extension View {
     func sourceResult(_ tint: Color) -> some View {
         padding(11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(tint.opacity(0.08), cornerRadius: 9, border: tint.opacity(0.28))
+            .surface(tint.opacity(0.08), cornerRadius: Radius.card, border: tint.opacity(0.28))
     }
 }

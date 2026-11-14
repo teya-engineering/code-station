@@ -51,7 +51,7 @@ struct TroubleshootTabView: View {
         if let session = store.session(sessionID) {
             let readiness = readiness(session)
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     heading
                     briefCard(session)
                     readinessLine(readiness)
@@ -91,14 +91,14 @@ struct TroubleshootTabView: View {
     }
 
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("What’s going wrong?").font(.serif(28))
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text("What’s going wrong?").font(Typography.display)
             Text("Say it the way you would to a colleague. A trace id, a Grafana link or a time in the text is picked up and the agent starts there.")
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.bottom, 10)
+        .padding(.bottom, Space.md)
     }
 
     private func briefCard(_ session: ChatSession) -> some View {
@@ -127,15 +127,15 @@ struct TroubleshootTabView: View {
     // short the longest pill titles truncate, so a long skill or server name never pushes
     // the button onto a line of its own.
     private func setupBar(_ session: ChatSession) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             pills(session)
             Spacer(minLength: 12)
             startButton(session)
                 .fixedSize()
                 .layoutPriority(1)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
     }
 
     @ViewBuilder private func pills(_ session: ChatSession) -> some View {
@@ -147,7 +147,7 @@ struct TroubleshootTabView: View {
 
     private func startButton(_ session: ChatSession) -> some View {
         ActionButton(title: isStarting ? "Preparing diagnosis" : "Start diagnosis",
-                     tone: .green, height: 32, size: 12.5, shortcut: "⌘↩",
+                     tone: .green, height: ControlHeight.lg, size: Typography.Size.body, shortcut: "⌘↩",
                      keyboardShortcut: KeyboardShortcut(.return, modifiers: .command)) {
             startDiagnosis(session)
         }
@@ -203,22 +203,22 @@ struct TroubleshootTabView: View {
     private var timePill: some View {
         Group {
             if editingTime {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Image(systemName: "clock")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.micro)
                         .foregroundStyle(.secondary)
                     TextField("Your own words: yesterday 09:00 to 09:30", text: entry(\.incidentTime))
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(Typography.detail)
                         .focused($timeFocused)
                         .onSubmit { editingTime = false }
                         .onExitCommand { editingTime = false }
                         .accessibilityLabel("When did it happen?")
                         .accessibilityHint("Use your own words. No timezone is assumed.")
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Space.md)
                 .frame(width: 280, height: 28)
-                .surface(Theme.field, cornerRadius: 8, border: Theme.accent)
+                .surface(Theme.field, cornerRadius: Radius.control, border: Theme.accent)
                 .transition(.fadeIn)
                 .onAppear { timeFocused = true }
                 .onChange(of: timeFocused) { _, focused in
@@ -389,32 +389,32 @@ struct TroubleshootTabView: View {
     }
 
     private func readinessLine(_ readiness: Readiness) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 9) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.md) {
             switch readiness.mood {
             case .ready:
                 Image(systemName: "checkmark.circle")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Theme.plan)
             case .waiting:
                 Image(systemName: "text.cursor")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(.tertiary)
             case .checking:
                 LoopSpinner(size: 10)
             case .blocked:
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Typography.label)
                     .foregroundStyle(Theme.attentionText)
             }
             (Text(readiness.lead)
                 .fontWeight(.semibold)
                 .foregroundStyle(readiness.mood == .blocked ? Theme.attentionText : Color.primary)
                 + Text(readiness.rest.isEmpty ? "" : " " + readiness.rest))
-                .font(.system(size: 12.5))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Space.xs)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(readiness.spoken)
         .accessibilityAddTraits(.updatesFrequently)
@@ -538,32 +538,32 @@ private struct SetupPill: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             if let dot {
                 Circle().fill(dot).frame(width: 6, height: 6)
             }
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Typography.micro)
                     .foregroundStyle(.secondary)
             }
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.label)
                 .lineLimit(1)
                 .truncationMode(.middle)
             if let extra {
                 Text(extra)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.detail.weight(.medium))
                     .foregroundStyle(.secondary)
                     .fixedSize()
             }
             MenuChevron(size: 8)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Space.md)
         .frame(height: 28)
-        .surface(hovering ? Theme.field : Theme.card, cornerRadius: 8,
+        .surface(hovering ? Theme.field : Theme.card, cornerRadius: Radius.control,
                  border: live ? Theme.attention.opacity(0.45) : Theme.border)
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         .hoverLift(hovering)
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)

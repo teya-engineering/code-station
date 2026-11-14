@@ -31,10 +31,10 @@ struct SessionHeaderTitle: View {
         TextField("Session title", text: Binding(get: { draft?.text ?? "" },
                                                  set: { draft?.text = $0 }))
             .textFieldStyle(.plain)
-            .font(.system(size: 12.5))
+            .font(Typography.body)
             .padding(.horizontal, Self.inset)
-            .padding(.vertical, 3)
-            .fieldSurface(cornerRadius: 5)
+            .padding(.vertical, Space.xxs)
+            .fieldSurface(cornerRadius: Radius.inset)
             // Laid out like the label, inset left out and at the same ideal width, so
             // opening the field never makes the header trade its fit for a narrower one
             // under the cursor.
@@ -57,14 +57,14 @@ struct SessionHeaderTitle: View {
         // as one: the same family, a step down in size, and a step back in
         // contrast from the name it qualifies.
         Text(title)
-            .font(.system(size: 12.5))
+            .font(Typography.body)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
             .changingName(title)
             .padding(.horizontal, Self.inset)
-            .padding(.vertical, 3)
-            .hoverFill(cornerRadius: 5)
+            .padding(.vertical, Space.xxs)
+            .hoverFill(cornerRadius: Radius.inset)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { startEditing() }
             .appTooltip { Tooltip(title: title, subtitle: "Double-click to rename") }

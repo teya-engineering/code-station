@@ -137,7 +137,7 @@ private struct BadgedAvatar: View {
                     ReviewerSpinner(size: max(9, size * 0.45)).offset(x: size * 0.15, y: size * 0.15)
                 case .done:
                     Image(systemName: "checkmark").font(.system(size: size * 0.24, weight: .heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.onFill)
                         .frame(width: size * 0.44, height: size * 0.44)
                         .background(Circle().fill(Theme.dotOn))
                         .overlay(Circle().stroke(Theme.card, lineWidth: 2))
@@ -166,21 +166,21 @@ private struct DialogFrame<Trailing: View, Content: View, Footer: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.serif(20, .semibold))
+            HStack(alignment: .top, spacing: Space.lg) {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text(title).font(Typography.display)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
-                    Text(message).font(.system(size: 12.5)).foregroundStyle(Theme.secondaryText)
+                    Text(message).font(Typography.body).foregroundStyle(Theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 trailing()
             }
-            .padding(.horizontal, 22).padding(.top, 20)
+            .padding(.horizontal, Space.xxl).padding(.top, Space.xxl)
             content()
-            HStack(spacing: 8) { footer() }
-                .padding(.leading, 22).padding(.trailing, 14).padding(.vertical, 12)
+            HStack(spacing: Space.md) { footer() }
+                .padding(.leading, Space.xxl).padding(.trailing, Space.lg).padding(.vertical, Space.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.field)
                 .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
@@ -201,7 +201,7 @@ private struct DialogFrame<Trailing: View, Content: View, Footer: View>: View {
 private struct SectionTitle: View {
     let title: String
     var body: some View {
-        Text(title).font(.system(size: 12.5, weight: .semibold))
+        Text(title).font(Typography.body.weight(.semibold))
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -242,17 +242,17 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
         DialogFrame(title: "Ask for a second opinion", message: message) {
             EmptyView()
         } content: {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: Space.xl) {
                 subject
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     HStack(alignment: .firstTextBaseline) {
                         SectionTitle(title: "Reviewers")
                         Spacer(minLength: 0)
                         if !lineup.isEmpty && lineup == usual {
                             Label("Your usual reviewers", systemImage: "checkmark")
-                                .font(.system(size: 11.5)).foregroundStyle(Theme.secondaryText)
+                                .font(Typography.detail).foregroundStyle(Theme.secondaryText)
                         } else if !lineup.isEmpty {
-                            InlineLink(title: "Make this my usual", size: 11.5) {
+                            InlineLink(title: "Make this my usual", size: Typography.Size.detail) {
                                 Preferences.setSecondOpinionLineup(lineup)
                                 usual = lineup
                             }
@@ -262,17 +262,17 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
                     reviewers
                 }
                 choices
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "checkmark.shield").font(.system(size: 12)).foregroundStyle(Theme.accent)
+                HStack(alignment: .top, spacing: Space.md) {
+                    Image(systemName: "checkmark.shield").font(Typography.detail).foregroundStyle(Theme.accent)
                         .accessibilityHidden(true)
                     Text(safety)
-                        .font(.system(size: 11.5)).foregroundStyle(Theme.secondaryText)
+                        .font(Typography.detail).foregroundStyle(Theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
-                .padding(.top, 2)
+                .padding(.top, Space.xxs)
             }
-            .padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 18)
+            .padding(.horizontal, Space.xxl).padding(.top, Space.xl).padding(.bottom, Space.xl)
         } footer: {
             footer
         }
@@ -301,17 +301,17 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
             if installed.isEmpty {
                 (Text("No agent is installed to ask. ").fontWeight(.semibold).foregroundColor(.primary)
                  + Text("Install \(otherAgents), then open this again."))
-                    .font(.system(size: 12)).foregroundStyle(Theme.secondaryText)
+                    .font(Typography.detail).foregroundStyle(Theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12).padding(.vertical, 14)
+                    .padding(.horizontal, Space.lg).padding(.vertical, Space.lg)
             } else {
                 addReviewer
             }
         }
-        .background(Theme.field.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+        .background(Theme.field.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.card))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(Theme.border))
     }
 
     private var hairline: some View {
@@ -325,16 +325,16 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
     }
 
     private var authorRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             ReviewAvatar(agent: author.agent, size: 22).opacity(0.8)
                 .frame(width: 26)
             (Text(author.agent.title).fontWeight(.semibold).foregroundColor(.primary) + Text(" " + authorDid))
-                .font(.system(size: 12)).foregroundStyle(Theme.secondaryText)
+                .font(Typography.detail).foregroundStyle(Theme.secondaryText)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            Text(authorSetting).font(.system(size: 11.5)).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            Text(authorSetting).font(Typography.detail).foregroundStyle(Theme.secondaryText).lineLimit(1)
         }
-        .padding(.horizontal, 12).frame(height: 42)
+        .padding(.horizontal, Space.lg).frame(height: 42)
         .background(Theme.sunken)
         .accessibilityElement(children: .combine)
         .appTooltip("Each reviewer's independence is measured against this")
@@ -350,22 +350,22 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
         let independence = SecondOpinion.independence(of: seat, from: author)
         let busy = running.contains(seat)
         let flagged = independence == .sameModel
-        return HStack(spacing: 10) {
+        return HStack(spacing: Space.md) {
             ReviewAvatar(agent: seat.agent, size: 26)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(seat.agent.title).font(.system(size: 12.5, weight: .semibold))
+            VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                    Text(seat.agent.title).font(Typography.body.weight(.semibold))
                     if seat.agent == author.agent {
                         Text("fresh start, without this conversation")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.secondaryText)
+                            .font(Typography.caption.weight(.medium)).foregroundStyle(Theme.secondaryText)
                             .truncationMode(.tail)
                     }
                 }
                 .lineLimit(1)
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     IndependenceMeter(independence: independence)
                     Text(independence.line)
-                        .font(.system(size: 11))
+                        .font(Typography.caption)
                         .foregroundStyle(flagged ? Theme.attentionText : Theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -373,18 +373,18 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
             }
             Spacer(minLength: 6)
             if busy {
-                Text("Reviewing now").font(.system(size: 11)).foregroundStyle(.tertiary)
+                Text("Reviewing now").font(Typography.caption).foregroundStyle(.tertiary)
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     modelMenu(seat, at: index)
                     effortMenu(seat, at: index)
-                    GlyphButton(icon: "xmark", side: 22) { lineup.remove(at: index) }
+                    GlyphButton(icon: "xmark", side: ControlHeight.xs) { lineup.remove(at: index) }
                         .appTooltip("Remove")
                         .accessibilityLabel("Remove \(seat.label(modelTitle: runner.modelTitle))")
                 }
             }
         }
-        .padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 10)
+        .padding(.leading, Space.lg).padding(.trailing, Space.md).padding(.vertical, Space.md)
         .background(flagged ? Theme.attention.opacity(0.08) : .clear)
         .opacity(busy ? 0.6 : 1)
         .accessibilityElement(children: .contain)
@@ -441,19 +441,19 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
     // its label.
     private var addReviewer: some View {
         let full = lineup.count >= SecondOpinion.Reviewer.maxSeats
-        return HStack(spacing: 10) {
-            Image(systemName: "plus").font(.system(size: 10, weight: .bold))
+        return HStack(spacing: Space.md) {
+            Image(systemName: "plus").font(Typography.micro)
                 .frame(width: 26)
-            Text(full ? "Four reviewers at most" : "Add a reviewer").font(.system(size: 12, weight: .semibold))
+            Text(full ? "Four reviewers at most" : "Add a reviewer").font(Typography.label)
             Spacer(minLength: 8)
             if !full {
                 Text(lineup.count > 1 ? "They read side by side, so more costs no extra time" : "Up to four")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .font(Typography.caption).foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
         }
         .foregroundStyle(full ? Color.secondary.opacity(0.7) : Theme.accent)
-        .padding(.horizontal, 12).frame(height: 38)
+        .padding(.horizontal, Space.lg).frame(height: 38)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .hoverFill(cornerRadius: 0)
@@ -493,11 +493,11 @@ struct SecondOpinionAskView<Subject: View, Choices: View>: View {
         let minutes = chosen.map { SecondOpinion.minutes(for: $0.effort) }.max() ?? 0
         Text(installed.isEmpty ? "Install an agent to ask for a review."
              : minutes > 0 ? "About \(minutes) min. You can keep working." : "You can keep working while they read.")
-            .font(.system(size: 11)).foregroundStyle(Theme.secondaryText)
+            .font(Typography.caption).foregroundStyle(Theme.secondaryText)
             .lineLimit(1)
         Spacer(minLength: 0)
-        ActionButton(title: "Cancel", tone: .sunken, height: 32, size: 12.5) { dialogs.dismiss() }
-        ActionButton(title: needsFocus ? "Pick what to look for" : askTitle, tone: .green, height: 32, size: 12.5,
+        ActionButton(title: "Cancel", tone: .sunken, height: ControlHeight.lg, size: Typography.Size.body) { dialogs.dismiss() }
+        ActionButton(title: needsFocus ? "Pick what to look for" : askTitle, tone: .green, height: ControlHeight.lg, size: Typography.Size.body,
                      shortcut: "↩", keyboardShortcut: .defaultAction, action: ask)
             .disabled(chosen.isEmpty || needsFocus)
     }
@@ -516,7 +516,7 @@ struct SecondOpinionSection<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             SectionTitle(title: title)
             content
         }
@@ -538,13 +538,13 @@ struct ChangesOpinionChoices: View {
         // Several can be ticked at once, so these are checkboxes; filled pills would read
         // as a choice of one.
         SecondOpinionSection(title: "What to look for") {
-            Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 9) {
+            Grid(alignment: .leading, horizontalSpacing: Space.xxl, verticalSpacing: Space.md) {
                 ForEach(Array(stride(from: 0, to: SecondOpinion.Focus.allCases.count, by: 3)), id: \.self) { start in
                     GridRow {
                         ForEach(SecondOpinion.Focus.allCases.dropFirst(start).prefix(3), id: \.self) { item in
                             Toggle(isOn: Binding(get: { focus.contains(item) },
                                                  set: { on in if on { focus.insert(item) } else { focus.remove(item) } })) {
-                                Text(item.title).font(.system(size: 12.5))
+                                Text(item.title).font(Typography.body)
                             }
                             .toggleStyle(.appCheckbox)
                         }
@@ -553,22 +553,22 @@ struct ChangesOpinionChoices: View {
             }
         }
         SecondOpinionSection(title: "Which changes") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.md) {
+                HStack(spacing: Space.xxs) {
                     scopePill("All \(counted(fileCount, "file"))", .all)
                     if let fileName { scopePill(fileName, .file) }
                     scopePill("Since your last review", .sinceReview, enabled: canReadSince)
                         .appTooltip(canReadSince ? "Only what changed after the last review was sent"
                                     : "Once you have sent a review, a reviewer can read only what changed after it")
                 }
-                .padding(2)
-                .fieldSurface(cornerRadius: 10)
+                .padding(Space.xxs)
+                .fieldSurface(cornerRadius: Radius.card)
                 .fixedSize()
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Which changes")
                 if !canReadSince {
                     Text("Since your last review opens up once you send one.")
-                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                        .font(Typography.caption).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -605,28 +605,28 @@ struct SecondOpinionProgressView: View {
                         : "Nothing is waiting to be looked at.") {
             EmptyView()
         } content: {
-            VStack(spacing: 8) {
+            VStack(spacing: Space.md) {
                 if runs.isEmpty {
-                    Text("No reviewer is at work.").font(.system(size: 12)).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 16)
+                    Text("No reviewer is at work.").font(Typography.detail).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, Space.xl)
                 }
                 ForEach(runs) { run in lane(run, findings: findings) }
             }
-            .padding(.horizontal, 22).padding(.vertical, 16)
+            .padding(.horizontal, Space.xxl).padding(.vertical, Space.xl)
         } footer: {
             if running.count > 1 {
                 InlineLink(title: "Stop all", tint: Color.secondary, action: stopAll)
             }
             Spacer(minLength: 0)
             if !running.isEmpty {
-                Text("The review bar keeps count while you work.").font(.system(size: 11.5)).foregroundStyle(.tertiary)
-                ActionButton(title: "Keep working", tone: .outlined, height: 32, size: 12.5,
+                Text("The review bar keeps count while you work.").font(Typography.detail).foregroundStyle(.tertiary)
+                ActionButton(title: "Keep working", tone: .outlined, height: ControlHeight.lg, size: Typography.Size.body,
                              keyboardShortcut: .defaultAction) { dialogs.dismiss() }
             } else if pending > 0 {
-                ActionButton(title: "Look at \(counted(pending, "finding"))", tone: .green, height: 32, size: 12.5,
+                ActionButton(title: "Look at \(counted(pending, "finding"))", tone: .green, height: ControlHeight.lg, size: Typography.Size.body,
                              keyboardShortcut: .defaultAction) { lookAt(nil) }
             } else {
-                ActionButton(title: "Close", tone: .outlined, height: 32, size: 12.5,
+                ActionButton(title: "Close", tone: .outlined, height: ControlHeight.lg, size: Typography.Size.body,
                              keyboardShortcut: .defaultAction) { dialogs.dismiss() }
             }
         }
@@ -638,16 +638,16 @@ struct SecondOpinionProgressView: View {
         case .running:
             laneCard(fill: Theme.card, border: Theme.border) {
                 BadgedAvatar(agent: run.agent, size: 36, badge: .working)
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(name).font(.system(size: 13, weight: .semibold))
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                        Text(name).font(Typography.body.weight(.semibold))
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(clock(from: run.started, to: context.date)).font(.mono(11)).foregroundStyle(.tertiary)
+                            Text(clock(from: run.started, to: context.date)).font(Typography.data).foregroundStyle(.tertiary)
                         }
                     }
                     VStack(alignment: .leading, spacing: 1) {
                         ForEach(Array(run.recent.enumerated()), id: \.offset) { index, line in
-                            Text(line).font(.mono(11.5))
+                            Text(line).font(Typography.code)
                                 .foregroundStyle(index == run.recent.count - 1 ? Color.primary : Color.secondary)
                                 .opacity(index == run.recent.count - 1 ? 1 : 0.55)
                                 .lineLimit(1).truncationMode(.middle)
@@ -655,7 +655,7 @@ struct SecondOpinionProgressView: View {
                     }
                 }
                 Spacer(minLength: 0)
-                ActionButton(title: "Stop", tone: .sunken, height: 26, size: 11.5, icon: "stop.fill") { stop(run.reviewer) }
+                ActionButton(title: "Stop", tone: .sunken, height: ControlHeight.sm, size: Typography.Size.detail, icon: "stop.fill") { stop(run.reviewer) }
                     .accessibilityLabel("Stop \(name)")
             }
             .accessibilityElement(children: .contain)
@@ -664,29 +664,29 @@ struct SecondOpinionProgressView: View {
             let mine = findings.filter { $0.raised(by: run.reviewer) }
             laneCard(fill: Theme.dotOn.opacity(0.05), border: Theme.dotOn.opacity(0.25)) {
                 BadgedAvatar(agent: run.agent, size: 36, badge: .done)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(name).font(.system(size: 13, weight: .semibold))
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                        Text(name).font(Typography.body.weight(.semibold))
                         Text("took " + clock(from: run.started, to: run.ended ?? Date()))
-                            .font(.mono(11)).foregroundStyle(.tertiary)
+                            .font(Typography.data).foregroundStyle(.tertiary)
                     }
                     Group {
                         if found > 0 { Text("Found ") + Text("\(found)").fontWeight(.semibold).foregroundColor(.primary) + Text(" worth raising") }
                         else { Text("Nothing worth raising") }
                     }
-                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                    .font(Typography.body).foregroundStyle(.secondary)
                     let tally = ReviewComment.Severity.allCases.map { severity in (severity, mine.count { $0.severity == severity }) }
                         .filter { $0.1 > 0 }
                     if !tally.isEmpty {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Space.xs) {
                             ForEach(tally, id: \.0) { severity, count in SeverityChip(severity: severity, count: count) }
                         }
-                        .padding(.top, 4)
+                        .padding(.top, Space.xs)
                     }
                 }
                 Spacer(minLength: 0)
                 if found > 0 {
-                    ActionButton(title: "Look at them", tone: .outlined, height: 26, size: 11.5) { lookAt(run.reviewer) }
+                    ActionButton(title: "Look at them", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) { lookAt(run.reviewer) }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -694,13 +694,13 @@ struct SecondOpinionProgressView: View {
         case .failed(let message):
             laneCard(fill: Theme.warningBackground, border: Theme.warningText.opacity(0.25)) {
                 ReviewAvatar(agent: run.agent, size: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(name) could not finish").font(.system(size: 13, weight: .semibold))
-                    Text(message).font(.system(size: 12.5)).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text("\(name) could not finish").font(Typography.body.weight(.semibold))
+                    Text(message).font(Typography.body).fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(Theme.warningText)
                 Spacer(minLength: 0)
-                ActionButton(title: "Try again", tone: .outlined, height: 26, size: 11.5, icon: "arrow.clockwise") {
+                ActionButton(title: "Try again", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail, icon: "arrow.clockwise") {
                     review.reviews.retrySecondOpinion(review.sessionID, reviewer: run.reviewer)
                 }
             }
@@ -710,10 +710,10 @@ struct SecondOpinionProgressView: View {
     }
 
     private func laneCard<Content: View>(fill: Color, border: Color, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .top, spacing: 12, content: content)
-            .padding(12)
+        HStack(alignment: .top, spacing: Space.lg, content: content)
+            .padding(Space.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(fill, cornerRadius: 12, border: border)
+            .surface(fill, cornerRadius: Radius.floating, border: border)
     }
 }
 
@@ -772,7 +772,7 @@ struct SecondOpinionFindingsView: View {
                                     .id(finding.id)
                             }
                         }
-                        .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 14)
+                        .padding(.horizontal, Space.md).padding(.top, Space.md).padding(.bottom, Space.lg)
                     }
                     .onChange(of: selected) { _, id in
                         if let id { withAnimation(reduceMotion ? nil : Motion.reveal) { proxy.scrollTo(id) } }
@@ -787,14 +787,14 @@ struct SecondOpinionFindingsView: View {
             }
             .frame(height: 470)
             .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-            .padding(.top, 16)
+            .padding(.top, Space.xl)
         } footer: {
             Text(left > 0 ? "\(kept) kept, \(gone) dismissed, \(left) left. Anything left stays here for later."
                  : "\(kept) kept and added to your review. \(gone) dismissed.")
-                .font(.system(size: 11.5)).foregroundStyle(.tertiary)
+                .font(Typography.detail).foregroundStyle(.tertiary)
             Spacer(minLength: 0)
             ActionButton(title: left > 0 ? "Finish later" : "Done", tone: left > 0 ? .outlined : .green,
-                         height: 32, size: 12.5) { dialogs.dismiss() }
+                         height: ControlHeight.lg, size: Typography.Size.body) { dialogs.dismiss() }
         }
         .background(WindowKeyAnchor(handler: keys))
         .onAppear {
@@ -814,13 +814,13 @@ struct SecondOpinionFindingsView: View {
     }
 
     private func progress(_ list: [ReviewComment], dismissed: Set<UUID>, decided: Int) -> some View {
-        HStack(spacing: 10) {
-            Text("\(decided) of \(list.count) looked at").font(.system(size: 12)).foregroundStyle(.secondary)
+        HStack(spacing: Space.md) {
+            Text("\(decided) of \(list.count) looked at").font(Typography.detail).foregroundStyle(.secondary)
                 .contentTransition(.numericText())
             if list.count <= 12 {
-                HStack(spacing: 3) {
+                HStack(spacing: Space.xxs) {
                     ForEach(list) { finding in
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: Radius.tag)
                             .fill(segmentColour(decision(finding, dismissed: dismissed)))
                             .frame(width: 18, height: 5)
                     }
@@ -828,7 +828,7 @@ struct SecondOpinionFindingsView: View {
                 .accessibilityHidden(true)
             }
         }
-        .padding(.top, 6)
+        .padding(.top, Space.sm)
         .fixedSize()
         .motion(Motion.control, value: decided)
     }
@@ -842,29 +842,29 @@ struct SecondOpinionFindingsView: View {
     }
 
     private func waitingNote(_ running: [AgentKind]) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             ReviewerSpinner(size: 11)
             Text(running.count == 1 ? "\(running[0].title) is still reading. Its findings will show up here."
                  : "\(names(running)) are still reading. Their findings will show up here.")
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.system(size: 11.5)).foregroundStyle(.secondary)
-        .padding(.horizontal, 10).padding(.vertical, 9)
+        .font(Typography.detail).foregroundStyle(.secondary)
+        .padding(.horizontal, Space.md).padding(.vertical, Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.sunken))
-        .padding(.horizontal, 4).padding(.top, 4).padding(.bottom, 8)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.sunken))
+        .padding(.horizontal, Space.xs).padding(.top, Space.xs).padding(.bottom, Space.md)
     }
 
     private func groupHeader(_ finding: ReviewComment) -> some View {
         let folder = (finding.path as NSString).deletingLastPathComponent
-        return HStack(spacing: 6) {
-            Text((finding.path as NSString).lastPathComponent).font(.system(size: 11, weight: .semibold))
+        return HStack(spacing: Space.sm) {
+            Text((finding.path as NSString).lastPathComponent).font(Typography.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             if !folder.isEmpty {
-                Text(folder).font(.mono(10.5)).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                Text(folder).font(Typography.data).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
             }
         }
-        .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 4)
+        .padding(.horizontal, Space.md).padding(.top, Space.md).padding(.bottom, Space.xs)
         .accessibilityAddTraits(.isHeader)
     }
 
@@ -874,31 +874,31 @@ struct SecondOpinionFindingsView: View {
             selected = finding.id
             editing = false
         } label: {
-            HStack(alignment: .top, spacing: 8) {
-                severityIcon(finding.severity).frame(width: 16).padding(.top, 2)
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: Space.md) {
+                severityIcon(finding.severity).frame(width: 16).padding(.top, Space.xxs)
+                VStack(alignment: .leading, spacing: Space.xxs) {
                     Text(finding.body.replacingOccurrences(of: "`", with: ""))
-                        .font(.system(size: 12)).lineLimit(2)
+                        .font(Typography.detail).lineLimit(2)
                         .strikethrough(decision == .dismissed, color: Color.secondary.opacity(0.5))
                         .foregroundStyle(decision == .dismissed ? Color.secondary : Color.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(finding.onFile ? "whole file" : "line \(finding.line)").font(.mono(10.5)).foregroundStyle(.tertiary)
+                    Text(finding.onFile ? "whole file" : "line \(finding.line)").font(Typography.data).foregroundStyle(.tertiary)
                 }
                 Text(decision == .kept ? "Kept" : decision == .dismissed ? "Dismissed" : "")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(Typography.caption.weight(.semibold))
                     .foregroundStyle(decision == .kept ? Theme.dotOn : Color.secondary)
                     .padding(.top, 1)
             }
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Theme.accent.opacity(0.09) : .clear))
+            .padding(Space.md)
+            .background(RoundedRectangle(cornerRadius: Radius.control).fill(isSelected ? Theme.accent.opacity(0.09) : .clear))
             .overlay(alignment: .leading) {
-                if isSelected { Rectangle().fill(Theme.accent).frame(width: 2).padding(.vertical, 2) }
+                if isSelected { Rectangle().fill(Theme.accent).frame(width: 2).padding(.vertical, Space.xxs) }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             .motion(Motion.control, value: decision)
         }
         .buttonStyle(.plain)
-        .hoverFill(cornerRadius: 8)
+        .hoverFill(cornerRadius: Radius.control)
         .accessibilityLabel(finding.spokenName + ". " + finding.body
                             + (decision == .kept ? ". Kept" : decision == .dismissed ? ". Dismissed" : ""))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -906,10 +906,10 @@ struct SecondOpinionFindingsView: View {
 
     @ViewBuilder private func severityIcon(_ severity: ReviewComment.Severity?) -> some View {
         switch severity {
-        case .must: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Theme.warningText)
+        case .must: Image(systemName: "exclamationmark.triangle.fill").font(Typography.caption).foregroundStyle(Theme.warningText)
         case .should: Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Theme.attention)
-        case .look: Image(systemName: "eye").font(.system(size: 10)).foregroundStyle(.tertiary)
-        case nil: Image(systemName: "text.bubble").font(.system(size: 10)).foregroundStyle(.tertiary)
+        case .look: Image(systemName: "eye").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.tertiary)
+        case nil: Image(systemName: "text.bubble").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.tertiary)
         }
     }
 
@@ -917,22 +917,22 @@ struct SecondOpinionFindingsView: View {
         if let finding = list.first(where: { $0.id == selected }) {
             let decided = decision(finding, dismissed: dismissed)
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    HStack(spacing: Space.md) {
                         ReviewAvatars(comment: finding, size: 24)
-                        Text(finding.voices.first?.name ?? "").font(.system(size: 13, weight: .semibold))
+                        Text(finding.voices.first?.name ?? "").font(Typography.body.weight(.semibold))
                         if let other = finding.also.first {
-                            Text("and \(other.name) raised this").font(.system(size: 12)).foregroundStyle(.secondary)
+                            Text("and \(other.name) raised this").font(Typography.detail).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         if let severity = finding.severity { SeverityChip(severity: severity) }
                     }
-                    HStack(spacing: 6) {
+                    HStack(spacing: Space.sm) {
                         Image(systemName: "doc.text")
                         Text(finding.path)
                         Text(finding.onFile ? "whole file" : "line \(finding.line)").foregroundStyle(.tertiary)
                     }
-                    .font(.mono(11.5)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    .font(Typography.code).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     codeExcerpt(finding)
                     if editing {
                         TextField("What should change", text: $draft, axis: .vertical)
@@ -946,68 +946,68 @@ struct SecondOpinionFindingsView: View {
                             .textSelection(.enabled)
                     }
                     ForEach(Array(finding.also.enumerated()), id: \.offset) { _, voice in
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: Space.xxs) {
+                            HStack(spacing: Space.sm) {
                                 ReviewAvatar(agent: voice.agent, size: 16)
                                 Text(voice.name).fontWeight(.semibold).foregroundStyle(.primary)
                                 Text("on the same lines")
                             }
-                            .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            .font(Typography.detail).foregroundStyle(.secondary)
                             ReviewText(text: voice.body, size: 12.5).foregroundStyle(.secondary)
                         }
-                        .padding(.leading, 10)
+                        .padding(.leading, Space.md)
                         .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 2) }
                     }
                     actions(finding, decision: decided, list: list)
                 }
-                .padding(.horizontal, 24).padding(.vertical, 20)
+                .padding(.horizontal, Space.xxxl).padding(.vertical, Space.xxl)
             }
         } else {
-            VStack(spacing: 6) {
+            VStack(spacing: Space.sm) {
                 if list.isEmpty && !running.isEmpty {
                     ReviewerSpinner(size: 22)
-                    Text("Waiting for the first findings").font(.serif(17, .semibold))
+                    Text("Waiting for the first findings").font(Typography.title)
                     Text("They show up here as soon as a reviewer finishes.")
                 } else {
                     Image(systemName: "checkmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(Theme.dotOn)
                         .frame(width: 44, height: 44).background(Circle().fill(Theme.dotOn.opacity(0.12)))
-                    Text("Nothing left to look at").font(.serif(17, .semibold)).foregroundStyle(.primary).padding(.top, 4)
+                    Text("Nothing left to look at").font(Typography.title).foregroundStyle(.primary).padding(.top, Space.xs)
                     Text("Kept findings are in your review, next to your own comments.")
                 }
             }
-            .font(.system(size: 12.5)).foregroundStyle(.secondary)
+            .font(Typography.body).foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
-            .padding(24)
+            .padding(Space.xxxl)
         }
     }
 
     @ViewBuilder private func actions(_ finding: ReviewComment, decision: Decision?, list: [ReviewComment]) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             // The outcome and the buttons it replaces swap places: the old set goes at
             // once and the new one fades in, so the two are never drawn over each other.
             Group {
                 if let decision {
                     Label(decision == .kept ? "Kept. It is in your review." : "Dismissed. It will not be sent.",
                           systemImage: decision == .kept ? "checkmark" : "xmark")
-                        .font(.system(size: 12.5))
+                        .font(Typography.body)
                     Spacer(minLength: 0)
                     InlineLink(title: "Undo", tint: decision == .kept ? Theme.dotOn : Color.secondary) { undo(finding, decision) }
                 } else if editing {
-                    ActionButton(title: "Keep my version", tone: .green, height: 30, size: 12, icon: "checkmark",
+                    ActionButton(title: "Keep my version", tone: .green, height: ControlHeight.md, size: Typography.Size.detail, icon: "checkmark",
                                  shortcut: "⌘↩", keyboardShortcut: KeyboardShortcut(.return, modifiers: .command)) {
                         saveEdit(finding)
                     }
                     .disabled(draft.isBlank)
                     InlineLink(title: "Cancel", tint: Color.secondary) { editing = false }
                 } else {
-                    ActionButton(title: "Keep", tone: .green, height: 30, size: 12, icon: "checkmark", shortcut: "K") { keep(finding) }
-                    ActionButton(title: "Edit and keep", tone: .outlined, height: 30, size: 12, shortcut: "E") { startEdit(finding) }
-                    ActionButton(title: "Dismiss", tone: .sunken, height: 30, size: 12, shortcut: "D") { dismiss(finding) }
+                    ActionButton(title: "Keep", tone: .green, height: ControlHeight.md, size: Typography.Size.detail, icon: "checkmark", shortcut: "K") { keep(finding) }
+                    ActionButton(title: "Edit and keep", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail, shortcut: "E") { startEdit(finding) }
+                    ActionButton(title: "Dismiss", tone: .sunken, height: ControlHeight.md, size: Typography.Size.detail, shortcut: "D") { dismiss(finding) }
                     Spacer(minLength: 0)
-                    GlyphButton(icon: "chevron.up", side: 26) { move(-1, in: list) }
+                    GlyphButton(icon: "chevron.up", side: ControlHeight.sm) { move(-1, in: list) }
                         .appTooltip("Previous finding  ↑")
                         .accessibilityLabel("Previous finding")
-                    GlyphButton(icon: "chevron.down", side: 26) { move(1, in: list) }
+                    GlyphButton(icon: "chevron.down", side: ControlHeight.sm) { move(1, in: list) }
                         .appTooltip("Next finding  ↓")
                         .accessibilityLabel("Next finding")
                 }
@@ -1016,9 +1016,9 @@ struct SecondOpinionFindingsView: View {
         }
         .padding(decision == nil ? 0 : 10)
         .foregroundStyle(decision == .kept ? Theme.dotOn : Color.secondary)
-        .background(RoundedRectangle(cornerRadius: 9).fill(decision == .kept ? Theme.dotOn.opacity(0.08)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(decision == .kept ? Theme.dotOn.opacity(0.08)
                                                              : decision == .dismissed ? Theme.field : .clear))
-        .padding(.top, 4)
+        .padding(.top, Space.xs)
         .motion(Motion.control, value: decision)
     }
 
@@ -1029,11 +1029,11 @@ struct SecondOpinionFindingsView: View {
             ForEach(lines, id: \.number) { line in
                 HStack(spacing: 0) {
                     Text("\(line.number)").foregroundStyle(.tertiary)
-                        .frame(width: 44, alignment: .trailing).padding(.trailing, 12)
+                        .frame(width: 44, alignment: .trailing).padding(.trailing, Space.lg)
                     Text(line.text.isEmpty ? " " : line.text).lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 0)
                 }
-                .font(.mono(11.5))
+                .font(Typography.code)
                 .frame(height: 19)
                 .background(line.number == finding.line ? Theme.attention.opacity(0.16) : .clear)
                 .overlay(alignment: .leading) {
@@ -1041,9 +1041,9 @@ struct SecondOpinionFindingsView: View {
                 }
             }
         }
-        .padding(.vertical, 6)
-        .surface(Theme.field, cornerRadius: 10)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(.vertical, Space.sm)
+        .surface(Theme.field, cornerRadius: Radius.card)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Code at line \(finding.line): \(finding.excerpt)")
     }

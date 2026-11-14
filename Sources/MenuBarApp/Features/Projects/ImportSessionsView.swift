@@ -65,7 +65,7 @@ struct ImportSessionsView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: Space.md) {
                     if request.candidates.isEmpty {
                         emptyCard
                     } else {
@@ -78,17 +78,17 @@ struct ImportSessionsView: View {
                         }
                         if visible.isEmpty {
                             Text("No session matches \"\(query)\".")
-                                .font(.system(size: 12))
+                                .font(Typography.detail)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 20)
+                                .padding(.vertical, Space.xxl)
                         }
                     }
                     ForEach(request.failures, id: \.self) { notice($0) }
                     if let failure { notice(failure) }
                 }
                 .disabled(progress != nil || rescanning)
-                .padding(20)
+                .padding(Space.xxl)
             }
             .frame(maxHeight: 420)
 
@@ -97,7 +97,7 @@ struct ImportSessionsView: View {
                                              action: confirm),
                         dismiss: { if progress == nil { dismiss() } }) {
                 historyFolderMenu
-                InlineLink(title: rescanning ? "Refreshing…" : "Refresh", size: 11, action: refresh)
+                InlineLink(title: rescanning ? "Refreshing…" : "Refresh", size: Typography.Size.caption, action: refresh)
                     .disabled(rescanning)
             }
             .disabled(progress != nil)
@@ -111,86 +111,86 @@ struct ImportSessionsView: View {
 
     private var header: some View {
         // The band has a fixed height, so this stays at two short lines.
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.xxs) {
             Text(request.addsProject ? "Add \(folderName)" : "Import sessions")
-                .font(.serif(16))
+                .font(Typography.title)
                 .lineLimit(1)
             Text(request.folder.abbreviatedPath)
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Space.xxl)
         .headerBand()
     }
 
     private var emptyCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text("No sessions found")
-                .font(.system(size: 14, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text("Choose a history folder if your sessions are stored elsewhere.")
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             historyFolderMenu
-                .padding(.top, 2)
+                .padding(.top, Space.xxs)
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 11)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.sunken))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("Find a session", text: $query)
                 .textFieldStyle(.plain)
                 .accessibilityLabel("Find a session")
             if !query.isEmpty {
-                GlyphButton(icon: "xmark.circle.fill", side: 32, tint: .secondary) { query = "" }
+                GlyphButton(icon: "xmark.circle.fill", side: ControlHeight.lg, tint: .secondary) { query = "" }
                     .accessibilityLabel("Clear search")
             }
         }
-        .font(.system(size: 12))
-        .padding(.leading, 11)
-        .padding(.trailing, 5)
+        .font(Typography.detail)
+        .padding(.leading, Space.lg)
+        .padding(.trailing, Space.xs)
         .frame(height: 37)
-        .fieldSurface(cornerRadius: 8)
+        .fieldSurface(cornerRadius: Radius.control)
     }
 
     private var selectionBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Text(counted(request.candidates.count, "session"))
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
             // One link that does whichever is the change: all, or none once all are in.
             let ids = visible.map(\.id)
             let allTicked = !ids.isEmpty && ids.allSatisfy(ticked.contains)
-            InlineLink(title: allTicked ? "Select none" : "Select all", size: 11) {
+            InlineLink(title: allTicked ? "Select none" : "Select all", size: Typography.Size.caption) {
                 if allTicked { ticked.subtract(ids) } else { ticked.formUnion(ids) }
             }
         }
-        .padding(.horizontal, 2)
+        .padding(.horizontal, Space.xxs)
     }
 
     private func notice(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(Theme.deletion)
             Text(message)
-                .font(.system(size: 12))
+                .font(Typography.detail)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .surface(Theme.deletion.opacity(0.07), cornerRadius: 10,
+        .padding(Space.lg)
+        .surface(Theme.deletion.opacity(0.07), cornerRadius: Radius.card,
                  border: Theme.deletion.opacity(0.25))
     }
 
@@ -244,9 +244,9 @@ struct ImportSessionsView: View {
 
     private var historyFolderMenu: some View {
         Text("History folders…")
-            .font(.system(size: 11, weight: .medium))
+            .font(Typography.caption.weight(.medium))
             .foregroundStyle(Theme.accent)
-            .padding(.vertical, 6)
+            .padding(.vertical, Space.sm)
             .contentShape(Rectangle())
             .appMenu {
                 AgentKind.allCases.map { agent in
@@ -332,14 +332,14 @@ private struct CandidateRow: View {
     let toggle: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             Toggle(isOn: Binding(get: { ticked }, set: { _ in toggle() })) {
                 EmptyView()
             }
             .toggleStyle(.appCheckbox)
 
             Text(candidate.displayTitle)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -350,17 +350,17 @@ private struct CandidateRow: View {
                 MonoChip(text: branch)
             }
             Text(SessionAge.phrase(since: candidate.lastActivity))
-                .font(.mono(11))
+                .font(Typography.data)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .surface(Theme.card, cornerRadius: 10, border: ticked ? Theme.accent.opacity(0.45) : Theme.border)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .surface(Theme.card, cornerRadius: Radius.card, border: ticked ? Theme.accent.opacity(0.45) : Theme.border)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggle)
-        .hoverFill(cornerRadius: 10)
+        .hoverFill(cornerRadius: Radius.card)
         .motion(Motion.control, value: ticked)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(ticked ? .isSelected : [])

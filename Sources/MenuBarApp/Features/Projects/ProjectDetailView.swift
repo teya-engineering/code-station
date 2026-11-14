@@ -66,7 +66,7 @@ struct ProjectDetailView: View {
                 ZStack {
                     if let note {
                         HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, 24)
+                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                     }
                 }
@@ -113,20 +113,20 @@ struct ProjectDetailView: View {
     private func header(_ project: Project) -> some View {
         // Asked once for the whole row: it is a stat call, and the row redraws often.
         let missing = store.isMissing(project)
-        return HStack(spacing: 12) {
+        return HStack(spacing: Space.lg) {
             Button { store.changeSidebarAvatar(forProject: project.id) } label: {
                 SidebarIdentityTile(
                     avatar: project.sidebarAvatar,
                     name: project.name,
                     tint: Theme.projectTint(for: project.name))
-                    .contentShape(RoundedRectangle(cornerRadius: 7))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.control))
             }
             .buttonStyle(.plain)
             .hoverLift(amount: Motion.smallLift)
             .accessibilityLabel("Change \(project.name) icon")
             .appTooltip("Change icon")
             Text(project.name)
-                .font(.serif(17, .semibold))
+                .font(Typography.title)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .appTooltip(project.collapsedPath)
@@ -135,7 +135,7 @@ struct ProjectDetailView: View {
 
             // Held at their natural width so a long project name is what gives way,
             // rather than the controls shrinking until their labels wrap.
-            HStack(spacing: 12) {
+            HStack(spacing: Space.lg) {
                 HeaderTabToggle(selection: $tab,
                                 options: [("Sessions", .sessions),
                                           ("Changes", .changes),
@@ -149,7 +149,7 @@ struct ProjectDetailView: View {
                 .opacity(missing ? 0.4 : 1)
 
                 if importableCount > 0 {
-                    ActionButton(title: "Import sessions", tone: .outlined, size: 12,
+                    ActionButton(title: "Import sessions", tone: .outlined, size: Typography.Size.detail,
                                  icon: "square.and.arrow.down") {
                         requestSessionImport(project)
                     }
@@ -157,7 +157,7 @@ struct ProjectDetailView: View {
                     .help("Bring in \(counted(importableCount, "session")) the agents ran in this folder")
                 }
 
-                ActionButton(title: "New session", tone: .green, size: 12) {
+                ActionButton(title: "New session", tone: .green, size: Typography.Size.detail) {
                     requestNewSession(in: project)
                 }
                 .disabled(missing)
@@ -165,7 +165,7 @@ struct ProjectDetailView: View {
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(1)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Space.xxxl)
         .headerBand()
     }
 
@@ -185,7 +185,7 @@ struct ProjectDetailView: View {
     // Repository state stays beside the project name so the session list remains above
     // the fold.
     private func statusStrip(_ project: Project) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.lg) {
             if let git, git.state == .ready {
                 checkout(git)
             } else {
@@ -199,7 +199,7 @@ struct ProjectDetailView: View {
             Spacer(minLength: 12)
 
             if let git, git.state == .ready { lastCommit(git) }
-            InlineLink(title: "Reveal in Finder", size: 11.5) { reveal(project) }
+            InlineLink(title: "Reveal in Finder", size: Typography.Size.detail) { reveal(project) }
                 .fixedSize()
                 .layoutPriority(1)
         }
@@ -213,13 +213,13 @@ struct ProjectDetailView: View {
     private func checkout(_ git: GitSnapshot) -> some View {
         let dirty = git.files.count
         return Button { tab = .changes } label: {
-            HStack(spacing: 9) {
-                HStack(spacing: 5) {
+            HStack(spacing: Space.md) {
+                HStack(spacing: Space.xs) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Text(git.branch.isEmpty ? "detached" : git.branch)
-                        .font(.mono(11, .semibold))
+                        .font(Typography.data.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -239,11 +239,11 @@ struct ProjectDetailView: View {
     }
 
     private func drift(_ icon: String, count: Int) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: Space.xxs) {
             Image(systemName: icon)
                 .font(.system(size: 8, weight: .bold))
             Text("\(count)")
-                .font(.mono(10.5, .semibold))
+                .font(Typography.data.weight(.semibold))
         }
         .foregroundStyle(.secondary)
     }
@@ -258,7 +258,7 @@ struct ProjectDetailView: View {
     // The line that says the folder has moved on since you last looked, so it is worth
     // reading before starting a session in it.
     private func lastCommit(_ git: GitSnapshot) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Space.sm) {
             if let subject = git.lastCommitSubject {
                 if let date = git.lastCommitDate {
                     StatusCaps(text: age(date), tint: Color.secondary.opacity(0.75))
@@ -288,17 +288,17 @@ struct ProjectDetailView: View {
         let running = shortcuts.runningCount(of: saved)
         let failed = shortcuts.failureCount(of: saved)
         let tint = running > 0 ? Theme.accent : failed > 0 ? Theme.deletion : Color.secondary
-        return HStack(spacing: 6) {
+        return HStack(spacing: Space.sm) {
             Image(systemName: "bolt.fill")
                 .font(.system(size: 9, weight: .semibold))
             Text(saved.isEmpty ? "Add" : "\(saved.count)")
-                .font(.mono(10.5, .semibold))
+                .font(Typography.data.weight(.semibold))
             if running > 0 { RunningDot(size: 5) }
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Space.md)
         .frame(height: 20)
-        .surface(Theme.card, cornerRadius: 6,
+        .surface(Theme.card, cornerRadius: Radius.inset,
                  border: running > 0 || failed > 0 ? tint.opacity(0.5) : Theme.border)
         .appMenu { shortcutMenu(project, saved: saved) }
         .appTooltip(saved.isEmpty
@@ -386,10 +386,10 @@ struct ProjectDetailView: View {
     private func sessions(_ project: Project) -> some View {
         let available = store.standaloneSessions(for: project.id)
         return ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 sessionList(project, sessions: available)
             }
-            .padding(24)
+            .padding(Space.xxxl)
         }
     }
 
@@ -414,11 +414,11 @@ struct ProjectDetailView: View {
     }
 
     private func sessionList(_ project: Project, sessions: [ChatSession]) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: Space.lg) {
             SectionRule(title: "SESSIONS · \(sessions.count)") {
                 if !sessions.isEmpty {
                     Text(sessions.map { tone($0) }.tally)
-                        .font(.mono(10))
+                        .font(Font.mono(Typography.Size.micro))
                         .kerning(0.6)
                         .foregroundStyle(.tertiary)
                 }
@@ -429,7 +429,7 @@ struct ProjectDetailView: View {
             if sessions.isEmpty {
                 emptySessions(project)
             } else {
-                LazyVStack(spacing: 9) {
+                LazyVStack(spacing: Space.md) {
                     ForEach(sessions) { session in
                         SessionRow(session: session,
                                    tone: tone(session),
@@ -446,13 +446,13 @@ struct ProjectDetailView: View {
     }
 
     private func emptySessions(_ project: Project) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text("No sessions yet")
-                .font(.system(size: 14, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
             Text("Start a session when you are ready to work in this project.")
-                .font(.system(size: 13))
+                .font(Typography.body)
                 .foregroundStyle(.secondary)
-            HStack(spacing: 14) {
+            HStack(spacing: Space.lg) {
                 ActionButton(title: "Start a new session", tone: .green) {
                     requestNewSession(in: project)
                 }
@@ -464,12 +464,12 @@ struct ProjectDetailView: View {
                     .disabled(store.isMissing(project))
                 }
             }
-            .padding(.top, 2)
+            .padding(.top, Space.xxs)
         }
-        .padding(16)
+        .padding(Space.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 11)
+        .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.sunken))
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
     }
 
@@ -515,30 +515,30 @@ struct ProjectDetailView: View {
     private func orphanedStrip(_ project: Project) -> some View {
         let count = orphanedWorktrees.count
         let pruning = pruningOrphans || orphanedWorktreeMonitor.isPruning
-        return HStack(spacing: 11) {
+        return HStack(spacing: Space.lg) {
             Text("ORPHANED")
-                .font(.mono(9.5, .semibold))
+                .font(Typography.caps)
                 .kerning(1.1)
                 .foregroundStyle(Theme.attentionText)
             Text("\(counted(count, "worktree")) with no session")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(Typography.body.weight(.semibold))
                 .fixedSize()
             Text(orphanedSummary)
-                .font(.mono(10.5))
+                .font(Typography.data)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
             ActionButton(title: pruning ? "Pruning…" : "Prune all",
-                         tone: .outlined, height: 28, size: 11.5) {
+                         tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
                 confirmPruneOrphans(project)
             }
             .disabled(pruning)
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.attention.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 10)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.attention.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
             .stroke(Theme.attention.opacity(0.35), lineWidth: 1.2))
     }
 
@@ -600,7 +600,7 @@ struct ProjectDetailView: View {
     // sits in the sidebar's context menu, which is not where someone reading this looks.
     private func missingFolder(_ project: Project) -> some View {
         WarningStrip("Folder not found at \(project.collapsedPath). Move it back or remove the project before starting a session.") {
-            ActionButton(title: "Remove project", tone: .outlined, height: 28, size: 11.5) {
+            ActionButton(title: "Remove project", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
                 ProjectRemoval.confirm(project, in: store, runner: runner, shortcuts: shortcuts,
                                        dialogs: dialogs)
             }
@@ -752,25 +752,25 @@ struct SessionRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 7) {
+        HStack(spacing: Space.xl) {
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack(spacing: Space.sm) {
                     StateLight(tone: tone)
                     Text(tone.word)
-                        .font(.mono(9, .semibold))
+                        .font(Typography.caps)
                         .kerning(0.9)
                         .foregroundStyle(tone.colour)
                     if let branch {
                         Text(branch)
-                            .font(.mono(9.5))
+                            .font(Font.mono(Typography.Size.micro))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Text(session.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(Typography.body.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if session.isPinned { PinnedMark() }
@@ -778,16 +778,16 @@ struct SessionRow: View {
             }
             .frame(minWidth: 220, idealWidth: 280, maxWidth: 320, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text(activity)
-                    .font(.mono(11))
+                    .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 switch detail {
                 case .location(let text):
                     Text(text)
-                        .font(.mono(10.5))
+                        .font(Typography.data)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -797,11 +797,11 @@ struct SessionRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: 6) {
+            VStack(alignment: .trailing, spacing: Space.sm) {
                 DiffPair(added: session.summary.added,
-                         removed: session.summary.removed, size: 11.5, spacing: 6)
+                         removed: session.summary.removed, size: Typography.Size.detail, spacing: Space.sm)
                 Text(RelativeTime.stamp(session.lastActivity))
-                    .font(.mono(10.5))
+                    .font(Typography.data)
                     .foregroundStyle(.tertiary)
             }
 
@@ -811,13 +811,13 @@ struct SessionRow: View {
                 .appMenu(menu)
                 .appTooltip("More session actions")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: 12)
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.floating)
             .fill(hovering ? Theme.field : Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12)
+        .overlay(RoundedRectangle(cornerRadius: Radius.floating)
             .stroke(tone.ring, lineWidth: tone.ringWidth))
-        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.floating))
         .onTapGesture(perform: onOpen)
         .appContextMenu(menu)
         .accessibilityAction(named: "Open session", onOpen)
@@ -829,41 +829,41 @@ struct SessionRow: View {
     private func repositoryDetails(_ repositories: [Repository]) -> some View {
         if repositories.isEmpty {
             Text("No repositories")
-                .font(.mono(10.5))
+                .font(Typography.data)
                 .foregroundStyle(.tertiary)
         } else {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     ForEach(Array(repositories.prefix(2))) { repository in
                         repositoryChip(repository,
                                        showsMode: hasMixedCheckoutModes(repositories))
                     }
                     if repositories.count > 2 {
-                        MonoChip(text: "+\(repositories.count - 2)", size: 9.5)
+                        MonoChip(text: "+\(repositories.count - 2)", size: Typography.Size.micro)
                     }
                     if !hasMixedCheckoutModes(repositories) {
                         Text(checkoutSummary(repositories))
-                            .font(.mono(9.5, .semibold))
+                            .font(Typography.caps)
                             .foregroundStyle(.tertiary)
                             .fixedSize()
                     }
                 }
                 .fixedSize(horizontal: true, vertical: false)
 
-                HStack(spacing: 7) {
+                HStack(spacing: Space.sm) {
                     ProjectDot(tint: repositories[0].tint, size: 5)
                     Text("\(repositories.count) repositories")
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(checkoutSummary(repositories))
                 }
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
 
                 Text("\(repositories.count) repositories · \(checkoutSummary(repositories))")
-                    .font(.mono(10))
+                    .font(Font.mono(Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -880,23 +880,23 @@ struct SessionRow: View {
     }
 
     private func repositoryChip(_ repository: Repository, showsMode: Bool) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Space.xs) {
             ProjectDot(tint: repository.tint, size: 5)
             Text(repository.name)
-                .font(.mono(10))
+                .font(Font.mono(Typography.Size.micro))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             if showsMode {
                 Text("· \(repository.usesWorktree ? "worktree" : "folder")")
-                    .font(.mono(9.5, .semibold))
+                    .font(Typography.caps)
                     .foregroundStyle(.tertiary)
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 2)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.field))
+        .padding(.horizontal, Space.sm)
+        .padding(.vertical, Space.xxs)
+        .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.field))
         .fixedSize(horizontal: true, vertical: false)
     }
 

@@ -119,7 +119,7 @@ struct PushReviewLayoutTests {
                                                                       emptyMessage: "").frame(width: 520))
             return host.sizeThatFits(in: CGSize(width: 520, height: 2000)).height
         }
-        #expect(height(5) > 5 * 28)
+        #expect(height(5) > 5 * 26)
         #expect(height(5) < 222)
         #expect(height(12) == 222)
 

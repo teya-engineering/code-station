@@ -6,7 +6,7 @@ struct CodingAgentPicker: View {
     let entries: [MenuEntry]
 
     var body: some View {
-        ActionButton(title: title, tone: .outlined, height: 38, size: 12, disclosure: true)
+        ActionButton(title: title, tone: .outlined, height: ControlHeight.xl, size: Typography.Size.detail, disclosure: true)
             .appMenu(edge: .top) { entries }
             .disabled(!enabled)
             .accessibilityLabel("Choose coding agent, \(title) selected")
@@ -22,7 +22,7 @@ struct AgentAndBotPicker: View {
     let agentMenu: [MenuEntry]
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.lg) {
             SessionBotPicker(avatars: avatars, selectedName: $selectedAvatarName,
                              sessionID: sessionID, size: 28, showsName: true)
             CodingAgentPicker(title: agentTitle, enabled: agentEnabled, entries: agentMenu)
