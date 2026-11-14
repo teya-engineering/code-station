@@ -10,6 +10,7 @@ struct LogView: View {
     @State private var lines: [LogLine] = []
     @State private var lastWritten: Date?
     @State private var follow = true
+    @State private var showsWhy = false
     @State private var note: String?
     @State private var notes = 0
 
@@ -21,8 +22,9 @@ struct LogView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)
             content
-            SheetFooter(dismiss: { dismiss() }) {
+            SheetFooter(dismiss: closeOrDismiss) {
                 InlineLink(title: "Reveal in Finder") {
                     SessionLog.revealInFinder()
                     showNote("Revealed the session log in Finder")
@@ -35,7 +37,7 @@ struct LogView: View {
             ZStack {
                 if let note {
                     HeaderNote(icon: "folder", text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
+                        .padding(.top, Theme.headerHeight + Space.md).padding(.trailing, Space.pane)
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
                 }
             }
@@ -57,21 +59,31 @@ struct LogView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: Space.lg) {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text("Session log").font(Typography.title)
-                Text("Every line Claude Code sent, and what the app did with it. The newest is at the bottom.")
+        SheetTitle(name: "Session log", icon: "text.alignleft") {
+            HStack(spacing: Space.lg) {
+                Toggle("Follow", isOn: $follow)
+                    .toggleStyle(.appSwitch)
                     .font(Typography.detail)
-                    .foregroundStyle(.secondary)
+                    .appTooltip("Stay at the newest line as it is written")
+                WhyButton(label: "What this log holds", isOpen: $showsWhy) {
+                    Text("Every line Claude Code sent, and what the app did with it. The newest is at the bottom.")
+                        .font(Typography.detail)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            Spacer(minLength: 0)
-            Toggle("Follow", isOn: $follow)
-                .toggleStyle(.appSwitch)
-                .font(Typography.detail)
-                .appTooltip("Stay at the newest line as it is written")
         }
-        .padding(.horizontal, Space.xxl)
+        .padding(.horizontal, Space.pane)
         .headerBand()
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -96,7 +108,7 @@ struct LogView: View {
                         // edge; this is what the view is actually pinned to.
                         Color.clear.frame(height: 1).id(Self.bottom)
                     }
-                    .padding(.horizontal, Space.xl)
+                    .padding(.horizontal, Space.pane)
                     .padding(.vertical, Space.lg)
                     .textSelection(.enabled)
                 }

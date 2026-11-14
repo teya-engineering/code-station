@@ -64,6 +64,7 @@ struct ImportSessionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            readings
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.md) {
                     if request.candidates.isEmpty {
@@ -88,7 +89,7 @@ struct ImportSessionsView: View {
                     if let failure { notice(failure) }
                 }
                 .disabled(progress != nil || rescanning)
-                .padding(Space.xxl)
+                .padding(Space.pane)
             }
             .frame(maxHeight: 420)
 
@@ -110,20 +111,21 @@ struct ImportSessionsView: View {
     // MARK: - Pieces
 
     private var header: some View {
-        // The band has a fixed height, so this stays at two short lines.
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            Text(request.addsProject ? "Add \(folderName)" : "Import sessions")
-                .font(Typography.title)
-                .lineLimit(1)
-            Text(request.folder.abbreviatedPath)
-                .font(Typography.data)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        SheetTitle(request.addsProject ? "Add \(folderName)" : "Import sessions",
+                   icon: request.addsProject ? "folder.badge.plus" : "square.and.arrow.down",
+                   count: request.candidates.count)
+            .padding(.horizontal, Space.pane)
+            .headerBand()
+    }
+
+    private var readings: some View {
+        HStack(spacing: Space.md) {
+            StatusCaps(text: "FOLDER")
+            StatusValue(text: request.folder.abbreviatedPath, truncation: .middle)
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Space.xxl)
-        .headerBand()
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
     }
 
     private var emptyCard: some View {

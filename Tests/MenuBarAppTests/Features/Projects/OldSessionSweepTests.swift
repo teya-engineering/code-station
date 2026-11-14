@@ -629,10 +629,8 @@ struct OldSessionSweepTests {
 
     // Each list names the other, so the counts and verbs have to agree with how many.
     @Test func eachListPointsAtTheOther() {
-        #expect(CleanupCountdownView.waitingLink(1)
-            == "1 other session is old too, but it is not in this sweep. It waits for your OK.")
-        #expect(CleanupCountdownView.waitingLink(3)
-            == "3 other sessions are old too, but they are not in this sweep. They wait for your OK.")
+        #expect(CleanupCountdownView.waitingLink(1) == "1 other waits for your OK")
+        #expect(CleanupCountdownView.waitingLink(3) == "3 others wait for your OK")
         #expect(CleanupReviewView.countdownLink(5) == "5 others are deleted at the countdown")
         #expect(CleanupReviewView.countdownLink(1) == "1 other is deleted at the countdown")
     }

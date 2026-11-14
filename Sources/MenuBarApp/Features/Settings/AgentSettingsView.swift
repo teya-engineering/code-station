@@ -850,20 +850,24 @@ struct AgentCommandSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(title).font(Typography.title)
-                Text(note)
-                    .font(Typography.detail)
-                    .foregroundStyle(.secondary)
+            SheetTitle(title, icon: "terminal")
+                .padding(.horizontal, Space.pane)
+                .headerBand()
+            HStack(spacing: Space.md) {
+                StatusCaps(text: "RUNS")
+                StatusValue(text: command, truncation: .middle)
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, Space.xxl)
-            .headerBand()
+            .accessibilityElement(children: .combine)
+            .statusBand(padding: Space.pane)
             if let terminal {
                 TerminalScreen(terminal: terminal, isFocused: $focused)
                     .frame(height: 420)
                     .transition(.fadeIn)
             }
-            SheetFooter { dismiss() }
+            // The note is what to do in the terminal, so it stays in view rather than
+            // behind a question mark.
+            SheetFooter(title: note, dismiss: { dismiss() })
         }
         .smoothlyResizes(when: terminal != nil)
         .frame(width: 680)

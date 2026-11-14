@@ -12,6 +12,11 @@ struct SheetAction {
     // Left nil, the action wears the shape of its slot: green as the primary, outlined
     // as the secondary. A primary that deletes wears the danger tone instead.
     var tone: ButtonTone? = nil
+    // Why the action is off, for a sheet where the reason is not plain from the form. It
+    // becomes the button's hint, and a click on the dead button runs `onBlockedClick`, so
+    // the sheet can point at what is missing instead of the click doing nothing.
+    var blockedReason: String? = nil
+    var onBlockedClick: (() -> Void)? = nil
     let action: () -> Void
 }
 
@@ -91,6 +96,8 @@ struct SheetFooter<Leading: View>: View {
                             }
                         }
                         .disabled(!primary.enabled)
+                        .overlay { blockedCatcher(for: primary) }
+                        .accessibilityHint(primary.enabled ? "" : primary.blockedReason ?? "")
                 }
                 if !primaryLast { dismissButton }
             }
@@ -103,6 +110,19 @@ struct SheetFooter<Leading: View>: View {
     private var dismissButton: some View {
         ActionButton(title: dismissTitle ?? (primary == nil && secondary == nil ? "Done" : "Cancel"),
                      tone: dismissTone, size: Typography.Size.body, keyboardShortcut: .cancelAction, action: dismiss)
+    }
+
+    // A disabled button takes no clicks and shows no hint, so a clear layer laid over it
+    // carries both. It sits outside the `.disabled`, and Return still does nothing.
+    @ViewBuilder private func blockedCatcher(for action: SheetAction) -> some View {
+        if !action.enabled, let reason = action.blockedReason {
+            Capsule()
+                .fill(.clear)
+                .contentShape(Capsule())
+                .onTapGesture { action.onBlockedClick?() }
+                .appTooltip(reason)
+                .accessibilityHidden(true)
+        }
     }
 
     private func controlTwin(_ shortcut: KeyboardShortcut) -> KeyboardShortcut? {

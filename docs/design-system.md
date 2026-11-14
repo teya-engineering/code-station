@@ -185,6 +185,8 @@ From top to bottom:
 
 A header band with a `SheetTitle`, an optional status band, then the content, then a `SheetFooter`. The closing action is always at the bottom right, and Escape does the same thing. Sides are inset by `Space.pane`.
 
+When the main action is off and the reason is not plain from the form, say what is missing at the left end of the footer, through the `leading` slot. Give the `SheetAction` the same sentence as its `blockedReason`, so the dead button shows it as a hint, and use `onBlockedClick` to play the sentence in again, so a click on the dead button still gets an answer. The New workspace sheet is the example.
+
 ### Titles
 
 A title names the thing. Everything else is shown, not written.

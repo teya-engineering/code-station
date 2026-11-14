@@ -194,6 +194,7 @@ struct OldSessionsSheetTests {
             .environment(store)
             .environment(runner)
             .environment(DialogPresenter())
+            .environment(TooltipPresenter())
             .environment(settings)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -289,6 +290,7 @@ struct OldSessionsSheetSizeTests {
             .environment(store)
             .environment(runner)
             .environment(DialogPresenter())
+            .environment(TooltipPresenter())
             .environment(settings)
         return NSHostingView(rootView: view).fittingSize.height
     }

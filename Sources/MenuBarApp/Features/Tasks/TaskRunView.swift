@@ -14,53 +14,87 @@ struct TaskRunView: View {
     @State private var values: [String: String] = [:]
     @State private var note = ""
     @State private var showingPrompt = false
+    @State private var showsWhy = false
 
     private var spec: TaskSpec { task.task ?? TaskSpec(prompt: "") }
     private var inputs: [TaskInput] { TaskTemplate.inputs(in: spec) }
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.lg) {
-                heading
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Space.xl) {
-                        ForEach(inputs, id: \.name) { input in
-                            TaskInputField(input: input, value: binding(for: input))
-                        }
-                        LabeledField("ANYTHING ELSE") {
-                            AppTextEditor(text: $note,
-                                          placeholder: "Added to the end of the prompt, for this run only.",
-                                          minHeight: 60)
-                        }
-                        promptPreview
+            header
+                .zIndex(1)
+            readings
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.xl) {
+                    ForEach(inputs, id: \.name) { input in
+                        TaskInputField(input: input, value: binding(for: input))
                     }
-                    .padding(.vertical, Space.xxs)
+                    LabeledField("ANYTHING ELSE") {
+                        AppTextEditor(text: $note,
+                                      placeholder: "Added to the end of the prompt, for this run only.",
+                                      minHeight: 60)
+                    }
+                    promptPreview
                 }
-                .frame(maxHeight: 380)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Space.pane)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Space.xxl)
+            .frame(maxHeight: 420)
 
             SheetFooter(primary: SheetAction(title: "Run task", icon: "play.fill", enabled: ready,
                                              shortcut: .defaultAction, action: run),
-                        dismiss: { dismiss() })
+                        dismiss: closeOrDismiss)
         }
         .frame(width: 500)
         .background(Theme.background)
         .task { start() }
     }
 
-    private var heading: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            Text("Run \(task.name)")
-                .font(Typography.display)
-            Text(inputs.contains(where: { !$0.required })
-                ? "Fill in what this run needs. A line that only asked for something left blank is left out."
-                : "Fill in what this run needs.")
-                .font(Typography.body)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
         }
+    }
+
+    private var header: some View {
+        SheetTitle(name: task.name, icon: "play") {
+            WhyButton(label: "What a run asks for", isOpen: $showsWhy) {
+                Text("Each field fills a hole in the task's prompt, starting from what the last run used. A line that only asked for something left blank is left out.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
+    }
+
+    // How many of the fields this run must have, and how many can stay blank.
+    private var readings: some View {
+        let required = inputs.count { $0.required }
+        let optional = inputs.count - required
+        return HStack(spacing: Space.md) {
+            StatusCaps(text: "RUN")
+            if inputs.isEmpty {
+                StatusRule()
+                StatusCaps(text: "NOTHING TO FILL IN")
+            } else {
+                if required > 0 {
+                    StatusRule()
+                    StatusValue(text: "\(required) needed")
+                }
+                if optional > 0 {
+                    if required > 0 { StatusDot() } else { StatusRule() }
+                    StatusValue(text: "\(optional) optional")
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
     }
 
     private var promptPreview: some View {

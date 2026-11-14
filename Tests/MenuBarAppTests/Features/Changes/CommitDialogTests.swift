@@ -20,7 +20,7 @@ struct CommitDialogTests {
 
     @Test func titlesFollowTheFilesAndTheAmendChoice() {
         let dialog = model()
-        #expect(dialog.title == "Commit 2 files")
+        #expect(dialog.title == "Commit changes")
         #expect(dialog.actionTitle == "Commit 2 files")
         #expect(dialog.includedLabel == "2 files included")
         #expect(dialog.added == 27)

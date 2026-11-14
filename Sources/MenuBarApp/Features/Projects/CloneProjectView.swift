@@ -16,6 +16,7 @@ struct CloneProjectView: View {
     @State private var cloning: Task<Void, Never>?
     @State private var progress: GitClone.Progress?
     @State private var failure: Failure?
+    @State private var showsWhy = false
     @FocusState private var remoteFocused: Bool
 
     private struct Failure: Equatable {
@@ -34,14 +35,9 @@ struct CloneProjectView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            header
+                .zIndex(1)
             VStack(alignment: .leading, spacing: Space.md) {
-                Text("Clone repository")
-                    .font(Typography.display)
-                Text("Copy a repository to this Mac and add it as a project.")
-                    .font(Typography.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
                 fieldRow("URL") {
                     // Verbatim, or the title is read as markdown and the address turns into
                     // a link.
@@ -52,7 +48,6 @@ struct CloneProjectView: View {
                         .font(Font.mono(Typography.Size.body))
                         .focused($remoteFocused)
                 }
-                .padding(.top, Space.sm)
 
                 fieldRow("FOLDER") {
                     Text(folder.path.abbreviatedPath)
@@ -79,12 +74,12 @@ struct CloneProjectView: View {
                     .motion(Motion.reveal, value: status)
             }
             .disabled(isCloning)
-            .padding(Space.xxl)
+            .padding(Space.pane)
 
             SheetFooter(title: "The project opens when the clone finishes.",
                         primary: SheetAction(title: "Clone", enabled: canClone,
                                              shortcut: .defaultAction, action: clone),
-                        dismiss: cancel)
+                        dismiss: closeOrCancel)
         }
         .frame(width: 560)
         .background(Theme.background)
@@ -95,6 +90,19 @@ struct CloneProjectView: View {
         }
         .onChange(of: name) { failure = nil }
         .onChange(of: chosenFolder) { failure = nil }
+    }
+
+    private var header: some View {
+        SheetTitle(name: "Clone repository", icon: "arrow.down.circle") {
+            WhyButton(label: "What cloning does", isOpen: $showsWhy) {
+                Text("Copies a repository to this Mac and adds it as a project.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
     }
 
     private func fieldRow<Field: View>(_ label: String,
@@ -233,6 +241,15 @@ struct CloneProjectView: View {
             case .cancelled:
                 cloning = nil
             }
+        }
+    }
+
+    // Escape puts the explanation away before it cancels the clone.
+    private func closeOrCancel() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            cancel()
         }
     }
 

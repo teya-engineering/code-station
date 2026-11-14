@@ -18,6 +18,9 @@ struct NewWorkspaceView: View {
     @State private var removesWhenEmpty = false
     // Nil until the stepper is touched, so the count follows the old session setting.
     @State private var removalDays: Int?
+    @State private var showsWhy = false
+    // Counts clicks on the dead Create button, so each one plays the hint in again.
+    @State private var blockedClicks = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -33,29 +36,23 @@ struct NewWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text("New workspace")
-                    .font(Typography.display)
-                Text("Pick the projects that get worked on together. Every session starts with all of them.")
-                    .font(Typography.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            header
+                .zIndex(1)
+            readings
 
-                HStack(spacing: Space.lg) {
-                    SectionLabel("NAME", style: .field)
-                    TextField("Workspace name", text: $name)
-                        .textFieldStyle(.plain)
-                        .font(Typography.body.weight(.semibold))
-                }
-                .padding(.horizontal, Space.lg)
-                .frame(height: 44)
-                .fieldSurface(cornerRadius: Radius.card)
-                .padding(.top, Space.md)
+            HStack(spacing: Space.lg) {
+                SectionLabel("NAME", style: .field)
+                TextField("Workspace name", text: $name)
+                    .textFieldStyle(.plain)
+                    .font(Typography.body.weight(.semibold))
             }
-            .padding(Space.xxl)
+            .padding(.horizontal, Space.lg)
+            .frame(height: 44)
+            .fieldSurface(cornerRadius: Radius.card)
+            .padding(Space.pane)
 
             projectFilterField
-                .padding(.horizontal, Space.xxl)
+                .padding(.horizontal, Space.pane)
                 .padding(.bottom, Space.lg)
 
             ScrollView {
@@ -77,8 +74,8 @@ struct NewWorkspaceView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, Space.xs)
                 }
-                .padding(.horizontal, Space.xxl)
-                .padding(.bottom, Space.xxl)
+                .padding(.horizontal, Space.pane)
+                .padding(.bottom, Space.pane)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                     // The first height is taken as it is, so the sheet opens at its
                     // final size instead of growing into it.
@@ -96,13 +93,66 @@ struct NewWorkspaceView: View {
                                               set: { removalDays = $0 }),
                                 oldSessionDays: settings.oldSessionDays)
 
-            SheetFooter(title: "Projects can belong to several workspaces.",
-                        primary: SheetAction(title: "Create", enabled: canCreate,
-                                             shortcut: .defaultAction, action: create),
-                        dismiss: { dismiss() })
+            SheetFooter(primary: SheetAction(title: "Create", enabled: canCreate,
+                                             shortcut: .defaultAction,
+                                             blockedReason: gap?.sentence,
+                                             onBlockedClick: { blockedClicks += 1 },
+                                             action: create),
+                        dismiss: closeOrDismiss) {
+                CreateHint(gap: gap, replay: blockedClicks)
+            }
         }
         .frame(width: 650)
         .background(Theme.background)
+        .onChange(of: gap) { _, gap in
+            AccessibilityNotification.Announcement(gap?.sentence ?? "Ready to create the workspace.").post()
+        }
+    }
+
+    private var gap: NewWorkspaceGap? {
+        NewWorkspaceGap(picked: selected.count, name: name)
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
+    }
+
+    private var header: some View {
+        SheetTitle(name: "New workspace", icon: "square.stack.3d.up") {
+            WhyButton(label: "What a workspace is", isOpen: $showsWhy) {
+                Text("A group of projects that get worked on together. Every session starts with all of them, and the lead project is where the agent works.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
+    }
+
+    // How many projects are picked, and which one leads. A workspace needs two.
+    private var readings: some View {
+        let lead = leadProjectID.flatMap(store.project)?.name
+        return HStack(spacing: Space.md) {
+            StatusCaps(text: selected.count < 2 ? "PICK AT LEAST 2 PROJECTS" : "\(selected.count) PROJECTS")
+                .contentTransition(.numericText())
+            if let lead {
+                StatusRule()
+                StatusCaps(text: "LEAD")
+                StatusValue(text: lead, tint: Theme.accent)
+                    .contentTransition(.opacity)
+            }
+            Spacer(minLength: 0)
+        }
+        .motion(Motion.control, value: selected.count)
+        .motion(Motion.control, value: leadProjectID)
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
     }
 
     private var projectFilterField: some View {
@@ -194,7 +244,7 @@ struct NewWorkspaceView: View {
     }
 
     private var canCreate: Bool {
-        !name.isBlank && selected.count >= 2 && leadProjectID != nil
+        gap == nil && leadProjectID != nil
     }
 
     private func toggle(_ id: UUID) {
@@ -225,6 +275,126 @@ struct NewWorkspaceView: View {
                       ? removalDays ?? settings.oldSessionDays : nil) else { return }
         onCreate(workspace)
         dismiss()
+    }
+}
+
+// What the sheet still needs before Create works, in the order a person fixes it. The
+// projects come first because that is the step they are on; the name is usually filled in.
+enum NewWorkspaceGap: Equatable {
+    case projects(picked: Int, nameMissing: Bool)
+    case name
+
+    static let minimumProjects = 2
+
+    init?(picked: Int, name: String) {
+        if picked < Self.minimumProjects {
+            self = .projects(picked: picked, nameMissing: name.isBlank)
+        } else if name.isBlank {
+            self = .name
+        } else {
+            return nil
+        }
+    }
+
+    // The part that says what to do, set in bold.
+    var instruction: String {
+        switch self {
+        case .projects(let picked, _):
+            picked == Self.minimumProjects - 1 ? "Pick one more project." : "Pick at least two projects."
+        case .name:
+            "Give the workspace a name"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .projects(_, nameMissing: true): "Then give the workspace a name."
+        case .projects(let picked, _) where picked == Self.minimumProjects - 1: "A workspace needs two or more."
+        case .projects: "A workspace holds projects worked on together."
+        case .name: "to create it."
+        }
+    }
+
+    var sentence: String { "\(instruction) \(detail)" }
+
+    var picked: Int? {
+        if case .projects(let picked, _) = self { picked } else { nil }
+    }
+}
+
+// The left end of the footer. While Create is off it says what is missing, next to a
+// count of the projects picked so far; once Create is on it is the usual small print.
+private struct CreateHint: View {
+    let gap: NewWorkspaceGap?
+    let replay: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: Space.md) {
+            if let picked = gap?.picked {
+                ProjectTally(picked: picked)
+                    .transition(.fadeIn)
+            }
+            // A new identity only when the words change or a dead click asks for them
+            // again, so typing in the name field does not replay the line.
+            ZStack(alignment: .leading) {
+                message
+                    .id("\(gap?.sentence ?? "")#\(replay)")
+                    .transition(.asymmetric(insertion: .popover(reduceMotion: reduceMotion),
+                                            removal: .identity))
+            }
+        }
+        .motion(Motion.reveal, value: gap?.picked == nil)
+    }
+
+    @ViewBuilder private var message: some View {
+        if let gap {
+            Text("\(Text(gap.instruction).fontWeight(.semibold)) \(gap.detail)")
+                .font(Typography.detail)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text("Projects can belong to several workspaces.")
+                .font(Typography.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// How many of the two projects a workspace needs have been picked: the number, then a pip
+// for each project that fills as it is picked. It reads as one figure, so it is spoken by
+// the sentence beside it rather than on its own.
+private struct ProjectTally: View {
+    let picked: Int
+
+    var body: some View {
+        HStack(spacing: Space.xxs) {
+            HStack(spacing: 0) {
+                Text("\(picked)")
+                    .contentTransition(.numericText(value: Double(picked)))
+                    .motion(Motion.pop, value: picked)
+                Text("/\(NewWorkspaceGap.minimumProjects)")
+            }
+            HStack(spacing: Space.xxs) {
+                ForEach(0..<NewWorkspaceGap.minimumProjects, id: \.self) { index in
+                    Circle()
+                        .fill(index < picked ? Theme.workspaceTint.ink : .clear)
+                        .overlay(Circle().strokeBorder(Theme.workspaceTint.ink, lineWidth: 1.25))
+                        .frame(width: Space.sm, height: Space.sm)
+                }
+            }
+            .padding(.leading, Space.xxs)
+            .motion(Motion.control, value: picked)
+        }
+        .font(Typography.data.weight(.semibold))
+        .foregroundStyle(Theme.workspaceTint.ink)
+        .padding(.horizontal, Space.sm)
+        .frame(height: ControlHeight.xs)
+        .background(Theme.workspaceTint.fill, in: Capsule())
+        .fixedSize()
+        .accessibilityHidden(true)
     }
 }
 
@@ -279,7 +449,7 @@ private struct RemoveWhenEmptyBand: View {
                 .allowsHitTesting(isOn)
                 .accessibilityHidden(!isOn)
         }
-        .padding(.horizontal, Space.xxl)
+        .padding(.horizontal, Space.pane)
         .padding(.vertical, Space.lg)
         .background(Theme.statusBand)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }

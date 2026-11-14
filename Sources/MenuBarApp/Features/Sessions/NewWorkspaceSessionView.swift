@@ -43,6 +43,7 @@ struct NewWorkspaceSessionView: View {
     // A requested pull is running. The sheet stays up and quiet until it finishes, since
     // a click anywhere while git works could only start the same work twice.
     @State private var pulling = false
+    @State private var showsWhy = false
 
     init(workspace: ProjectWorkspace, onCreate: @escaping (WorkspaceSessionChoice) -> Void) {
         self.workspace = workspace
@@ -53,16 +54,9 @@ struct NewWorkspaceSessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text("New session in \(workspace.name)")
-                    .font(Typography.display)
-                Text("The lead project is the agent's working directory. Attached projects are available to the same conversation.")
-                    .font(Typography.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Space.xxl)
+            header
+                .zIndex(1)
+            readings
 
             ScrollView {
                 VStack(spacing: Space.md) {
@@ -101,8 +95,7 @@ struct NewWorkspaceSessionView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, Space.xxl)
-                .padding(.bottom, Space.xxl)
+                .padding(Space.pane)
             }
             .frame(maxHeight: 470)
 
@@ -115,7 +108,7 @@ struct NewWorkspaceSessionView: View {
                              selectedAgent: $selectedAgent,
                              selectedAvatarName: $selectedAvatarName,
                              create: create,
-                             dismiss: { dismiss() })
+                             dismiss: closeOrDismiss)
         }
         .frame(width: 780)
         .background(Theme.background)
@@ -124,6 +117,45 @@ struct NewWorkspaceSessionView: View {
         .onAppear { selectedAvatarName = appSettings.defaultAgentAvatarName }
         .onDisappear { retries.stopAll() }
         .task { await check(gitProjects) }
+    }
+
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else {
+            dismiss()
+        }
+    }
+
+    private var header: some View {
+        SheetTitle(name: "New session", icon: "plus.bubble") {
+            WhyButton(label: "How a workspace session works", isOpen: $showsWhy) {
+                Text("The lead project is the agent's working directory. Attached projects are available to the same conversation.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Space.pane)
+        .headerBand()
+    }
+
+    // The workspace the session belongs to, and the project the agent works in.
+    private var readings: some View {
+        let lead = store.project(workspace.leadProjectID)?.name
+        return HStack(spacing: Space.md) {
+            StatusCaps(text: "IN")
+            StatusValue(text: workspace.name, tint: Theme.workspaceTint.ink)
+            if let lead {
+                StatusRule()
+                StatusCaps(text: "LEAD")
+                StatusValue(text: lead, tint: Theme.projectTint(for: lead).ink)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
     }
 
     private var gitProjects: [Project] {

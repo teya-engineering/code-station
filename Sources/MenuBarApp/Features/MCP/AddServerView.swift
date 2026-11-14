@@ -34,9 +34,11 @@ struct AddServerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.xxl) {
-                Text(group.addTitle).font(Typography.display)
+            SheetTitle(group.addTitle, icon: "server.rack")
+                .padding(.horizontal, Space.pane)
+                .headerBand()
 
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 VStack(alignment: .leading, spacing: Space.md) {
                     SectionLabel("PRESET")
                     ActionButton(title: preset?.label ?? "Choose a preset",
@@ -97,7 +99,7 @@ struct AddServerView: View {
                         .foregroundStyle(Theme.secret)
                 }
             }
-            .padding(Space.xxxl)
+            .padding(Space.pane)
 
             SheetFooter(primary: SheetAction(title: exists ? "Replace" : "Add",
                                              enabled: !incomplete,
