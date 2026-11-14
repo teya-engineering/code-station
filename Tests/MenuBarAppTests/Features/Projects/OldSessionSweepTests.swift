@@ -633,10 +633,19 @@ struct OldSessionSweepTests {
             == "1 other session is old too, but it is not in this sweep. It waits for your OK.")
         #expect(CleanupCountdownView.waitingLink(3)
             == "3 other sessions are old too, but they are not in this sweep. They wait for your OK.")
-        #expect(CleanupReviewView.countdownLink(5)
-            == "5 other sessions will be deleted when the countdown ends, without asking.")
-        #expect(CleanupReviewView.countdownLink(1)
-            == "1 other session will be deleted when the countdown ends, without asking.")
+        #expect(CleanupReviewView.countdownLink(5) == "5 others are deleted at the countdown")
+        #expect(CleanupReviewView.countdownLink(1) == "1 other is deleted at the countdown")
+    }
+
+    // The status band names only what is really at stake, in a fixed order.
+    @Test func theStakeReadsOnlyWhatWouldBeLost() {
+        typealias Stake = CleanupReviewView.Stake
+        #expect(CleanupReviewView.stakeReadings(Stake()).isEmpty)
+        #expect(CleanupReviewView.stakeReadings(Stake(added: 3000, removed: 16, commits: 2, designs: 1))
+            == [.diff(added: 3000, removed: 16), .value("2 commits"), .value("1 design")])
+        #expect(CleanupReviewView.stakeReadings(Stake(removed: 4, designs: 2))
+            == [.diff(added: 0, removed: 4), .value("2 designs")])
+        #expect(CleanupReviewView.stakeReadings(Stake(commits: 1)) == [.value("1 commit")])
     }
 
     // MARK: - What git has to say first

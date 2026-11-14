@@ -173,7 +173,7 @@ The full motion rules are in `CLAUDE.md`.
 
 From top to bottom:
 
-1. **Header band**: `.headerBand()`. Always 60 points tall, with the screen's name in `display` or `title`, and its actions on the right.
+1. **Header band**: `.headerBand()`. Always 60 points tall, with the screen's name in `display` or `title`, and its actions on the right. Draw the name with `SheetTitle` (see Titles below).
 2. **Status band** (optional): `.statusBand(padding:)`. 30 points tall. Says what state the thing is in, using the `Status...` parts.
 3. **Sub header** (optional): `.headerBand(height: Theme.subHeaderHeight)`. 48 points tall.
 4. **Content**: on `Theme.background`, inset by `Space.pane`. Sections are led by a `SectionRule`.
@@ -181,7 +181,18 @@ From top to bottom:
 
 ### A sheet
 
-A header band, then the content, then a `SheetFooter`. The closing action is always at the bottom right, and Escape does the same thing. Sides are inset by `Space.pane`.
+A header band with a `SheetTitle`, an optional status band, then the content, then a `SheetFooter`. The closing action is always at the bottom right, and Escape does the same thing. Sides are inset by `Space.pane`.
+
+### Titles
+
+A title names the thing. Everything else is shown, not written.
+
+- **A name is a name.** No number and no sentence in it, so it never changes while the sheet is open.
+- **One count, in a badge.** `CountBadge` sits beside the name and takes the colour of the state. A count that says nothing is wrong stays grey.
+- **Facts are readings.** Thresholds and what is at stake go on the status band, and change in place as the list changes.
+- **The why is one click away.** An explanation that is read once goes behind a `WhyButton`, not under the name.
+
+A dialog shows the mark and the name, with no badge. Its mark takes the colour of what will happen.
 
 ### A card
 
@@ -220,6 +231,9 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 
 | Need | Use |
 | --- | --- |
+| The name of a sheet, dialog or screen | `SheetTitle`: a `TitleMark`, the name and a `CountBadge`, with room for actions on the right |
+| A count beside a name | `CountBadge`. Lands with `Motion.pop` and fades out at zero. |
+| An explanation kept out of the way | `WhyButton`: a question mark `GlyphButton` that opens the words in a `.popover` panel |
 | A section heading | `SectionRule`. In a form, `SectionLabel`. |
 | A group of settings | `ChoiceBlock` holding a `SettingsCard`, with `SettingsRowDivider` between rows |
 | A row that opens and closes | `DisclosureHeader` |

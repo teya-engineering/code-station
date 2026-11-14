@@ -19,7 +19,6 @@ struct CleanupReviewView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
 
-    @State private var filter: Filter = .all
     @State private var picked: Set<OldSessionSweep.Parked.Item> = []
     // Rows answered in this sheet. They fold out at once rather than waiting for the
     // sweep's next pass to drop them from its list.
@@ -29,13 +28,9 @@ struct CleanupReviewView: View {
     @State private var costs: [UUID: SessionRemovalCost] = [:]
     @State private var orphanOutcomes: [String: SessionOutcome] = [:]
     @State private var isDeleting = false
+    @State private var showsWhy = false
     @State private var note: String?
     @State private var notes = 0
-
-    enum Filter: Hashable {
-        case all
-        case family(CleanupReason.Family)
-    }
 
     // A row in the waiting list: the sweep's reasons, and the session or worktree they
     // belong to.
@@ -47,41 +42,46 @@ struct CleanupReviewView: View {
         var id: OldSessionSweep.Parked.Item { parked.item }
     }
 
+    // What deleting everything still on the list would throw away, added up from the
+    // rows that have been checked.
+    struct Stake: Equatable {
+        var added = 0
+        var removed = 0
+        var commits = 0
+        var designs = 0
+
+        var isEmpty: Bool { added == 0 && removed == 0 && commits == 0 && designs == 0 }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(1)
+            readings
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.xl) {
                     if items.isEmpty {
                         emptyState
                     } else {
-                        pills
-                        family(.losesWork, title: "Would lose work",
+                        family(.losesWork, title: "Would lose work", dot: Theme.deletion,
                                detail: "Deleting throws away something that exists nowhere else.")
-                        family(.notLookedAt, title: "Not looked at yet",
+                        family(.notLookedAt, title: "Not looked at yet", dot: Theme.attention,
                                detail: "Nothing on disk is lost, but you have not been back to these.")
                     }
-                    if let deletion = status.deletion {
-                        CleanupCrossLink(icon: "timer",
-                                         tint: Theme.accent,
-                                         text: Self.countdownLink(deletion.total),
-                                         action: "See which",
-                                         go: showCountdown)
-                    }
                 }
-                .padding(Space.xxl)
+                .padding(Space.pane)
                 .motion(Motion.leave, value: answered)
-                .motion(Motion.control, value: filter)
             }
             .frame(minHeight: 220, maxHeight: 480)
 
-            SheetFooter(title: footerNote,
-                        primary: SheetAction(title: deleteLabel,
+            SheetFooter(primary: SheetAction(title: deleteLabel,
                                              enabled: canDeletePicked,
                                              tone: .danger,
                                              action: { confirmDelete(pickedItems) }),
                         dismissTitle: "Cancel",
-                        dismiss: { if !isDeleting { dismiss() } })
+                        dismiss: closeOrDismiss) {
+                countdownLink
+            }
         }
         .frame(width: 660)
         .background(Theme.background)
@@ -99,27 +99,102 @@ struct CleanupReviewView: View {
         .task { await load() }
     }
 
+    // Escape puts the explanation away before it closes the sheet.
+    private func closeOrDismiss() {
+        if showsWhy {
+            showsWhy = false
+        } else if !isDeleting {
+            dismiss()
+        }
+    }
+
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            Text(items.isEmpty ? "Waiting for your OK" : "\(items.count) waiting for your OK")
-                .font(Typography.title)
-                .contentTransition(.numericText(value: Double(items.count)))
-                .motion(Motion.pop, value: items.count)
-            Text("These are older than \(counted(appSettings.oldSessionDays, "day")), but deleting them would cost you something. They stay until you decide, however old they get.")
-                .font(Typography.detail)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        SheetTitle(name: "Waiting for your OK", icon: "hourglass",
+                   tint: Theme.attention, ink: Theme.attentionText, count: items.count) {
+            WhyButton(label: "Why these wait", isOpen: $showsWhy) {
+                Text("These are older than \(counted(appSettings.oldSessionDays, "day")), but deleting them would cost you something. They stay until you decide, however old they get.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(.horizontal, Space.xxl)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Space.pane)
         .headerBand()
     }
 
-    // "5 other sessions will be deleted when the countdown ends, without asking."
+    // The threshold, then what is at stake across the rows still on the list.
+    private var readings: some View {
+        let stake = stake
+        return HStack(spacing: Space.md) {
+            if items.isEmpty {
+                StatusCaps(text: "NOTHING IS WAITING")
+            } else {
+                StatusCaps(text: "OLDER THAN \(counted(appSettings.oldSessionDays, "day"))".uppercased())
+                StatusRule()
+                if stake.isEmpty {
+                    StatusCaps(text: "NOTHING AT STAKE")
+                } else {
+                    StatusCaps(text: "AT STAKE")
+                    ForEach(Array(Self.stakeReadings(stake).enumerated()), id: \.element) { index, reading in
+                        if index > 0 { StatusDot() }
+                        switch reading {
+                        case .diff(let added, let removed):
+                            DiffPair(added: added, removed: removed)
+                                .contentTransition(.numericText())
+                        case .value(let text):
+                            StatusValue(text: text)
+                                .contentTransition(.numericText())
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .motion(Motion.pop, value: stake)
+        .accessibilityElement(children: .combine)
+        .statusBand(padding: Space.pane)
+    }
+
+    enum StakeReading: Hashable {
+        case diff(added: Int, removed: Int)
+        case value(String)
+    }
+
+    // "+3000 −16 · 2 commits · 1 design", leaving out whatever is nothing.
+    nonisolated static func stakeReadings(_ stake: Stake) -> [StakeReading] {
+        var readings: [StakeReading] = []
+        if stake.added > 0 || stake.removed > 0 {
+            readings.append(.diff(added: stake.added, removed: stake.removed))
+        }
+        if stake.commits > 0 { readings.append(.value(counted(stake.commits, "commit"))) }
+        if stake.designs > 0 { readings.append(.value(counted(stake.designs, "design"))) }
+        return readings
+    }
+
+    // "1 other is deleted at the countdown"
     nonisolated static func countdownLink(_ count: Int) -> String {
-        "\(counted(count, "other session")) will be deleted when the countdown ends, without asking."
+        "\(counted(count, "other")) \(count == 1 ? "is" : "are") deleted at the countdown"
+    }
+
+    @ViewBuilder
+    private var countdownLink: some View {
+        if let deletion = status.deletion {
+            HStack(spacing: Space.sm) {
+                Image(systemName: "timer")
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.accent)
+                Text(Self.countdownLink(deletion.total))
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .contentTransition(.numericText())
+                InlineLink(title: "See which", action: showCountdown)
+            }
+            .accessibilityElement(children: .contain)
+            .transition(.fadeIn)
+        }
     }
 
     private var emptyState: some View {
@@ -128,7 +203,7 @@ struct CleanupReviewView: View {
                 .font(.system(size: 20))
                 .foregroundStyle(Theme.dotOnText)
             Text("Nothing is waiting for you")
-                .font(Typography.body.weight(.semibold))
+                .font(Typography.title)
             Text("Sessions older than \(counted(appSettings.oldSessionDays, "day")) that hold work or that you have not looked at will show up here. Read sessions with nothing to lose are cleared after a one-hour warning.")
                 .font(Typography.detail)
                 .foregroundStyle(.secondary)
@@ -138,27 +213,6 @@ struct CleanupReviewView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, Space.xxxl)
         .transition(.fadeIn)
-    }
-
-    private var pills: some View {
-        let work = items.count { $0.parked.family == .losesWork }
-        let unseen = items.count - work
-        return HStack(spacing: Space.sm) {
-            ChoicePill(title: "All \(items.count)", selected: filter == .all) {
-                filter = .all
-            }
-            ChoicePill(title: "Would lose work \(work)",
-                       selected: filter == .family(.losesWork), enabled: work > 0) {
-                filter = .family(.losesWork)
-            }
-            ChoicePill(title: "Not looked at \(unseen)",
-                       selected: filter == .family(.notLookedAt), enabled: unseen > 0) {
-                filter = .family(.notLookedAt)
-            }
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Filter")
     }
 
     // MARK: - Waiting list
@@ -179,83 +233,91 @@ struct CleanupReviewView: View {
         }
     }
 
+    // One rule names the group and counts it. The sentence behind the name is a hover
+    // away, since the name already says it.
     @ViewBuilder
-    private func family(_ family: CleanupReason.Family, title: String,
+    private func family(_ family: CleanupReason.Family, title: String, dot: Color,
                         detail: String) -> some View {
         let rows = items.filter { $0.parked.family == family }
-        if !rows.isEmpty, filter == .all || filter == .family(family) {
+        if !rows.isEmpty {
             VStack(alignment: .leading, spacing: Space.md) {
-                familyHeader(title: title, detail: detail)
-                ForEach(rows) { item in
-                    WaitingRow(item: item,
-                               detail: meta(item),
-                               cost: costLine(item),
-                               lossTint: family == .losesWork,
-                               isChecking: isChecking(item),
-                               picked: picked.contains(item.id),
-                               isDeleting: isDeleting,
-                               togglePick: { togglePick(item) },
-                               open: { open(item) },
-                               keepMenu: { keepMenu(item) },
-                               delete: { confirmDelete([item]) })
-                        .transition(.fold)
+                SectionRule(title: title.uppercased(), dot: dot) {
+                    Text(verbatim: "\(rows.count)")
+                        .font(Typography.caps)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText(value: Double(rows.count)))
+                        .motion(Motion.pop, value: rows.count)
                 }
+                .appTooltip(detail)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
+                        WaitingRow(item: item,
+                                   project: projectName(item),
+                                   age: age(item),
+                                   diff: diff(item),
+                                   commits: commits(item),
+                                   divided: index > 0,
+                                   isChecking: isChecking(item),
+                                   picked: picked.contains(item.id),
+                                   isDeleting: isDeleting,
+                                   togglePick: { togglePick(item) },
+                                   open: { open(item) },
+                                   keepMenu: { keepMenu(item) },
+                                   delete: { confirmDelete([item]) })
+                            .transition(.fold)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+                .cardSurface()
             }
             .transition(.fadeIn)
         }
     }
 
-    private func familyHeader(title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title)
-                .font(Typography.body.weight(.semibold))
-            Text(detail)
-                .font(Typography.detail)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, Space.xxs)
+    private func projectName(_ item: Item) -> String {
+        if let orphan = item.orphan { return orphan.projectName }
+        guard let session = item.session else { return "" }
+        return store.project(session.projectID)?.name ?? "Unknown project"
     }
 
-    // "code-station · Last turn 9 days ago"
-    private func meta(_ item: Item) -> String {
+    private func age(_ item: Item) -> String {
         if let orphan = item.orphan {
-            return "\(orphan.projectName) · No session owns it"
+            guard orphan.allocatedBytes > 0 else { return "No session owns it" }
+            return "No session · \(orphan.allocatedBytes.formatted(.byteCount(style: .file)))"
         }
         guard let session = item.session else { return "" }
-        let project = store.project(session.projectID)?.name ?? "Unknown project"
-        return "\(project) · Last turn \(SessionAge.phrase(since: session.lastActivity))"
+        return SessionAge.phrase(since: session.lastActivity)
     }
 
-    // What deleting would cost, in the row's own words.
-    private func costLine(_ item: Item) -> String? {
-        if let orphan = item.orphan {
-            guard let outcome = orphanOutcomes[orphan.id] else { return nil }
-            let size = orphan.allocatedBytes > 0
-                ? " · \(orphan.allocatedBytes.formatted(.byteCount(style: .file))) on disk" : ""
-            if case .wouldLoseWork(let added, let removed) = outcome {
-                return "+\(added) −\(removed) not committed\(size)"
+    // The lines that are not committed, once the worktree has been read.
+    private func diff(_ item: Item) -> (added: Int, removed: Int)? {
+        let outcome = if let orphan = item.orphan {
+            orphanOutcomes[orphan.id]
+        } else {
+            item.session.flatMap { costs[$0.id]?.worktree }
+        }
+        if case .wouldLoseWork(let added, let removed)? = outcome { return (added, removed) }
+        return nil
+    }
+
+    private func commits(_ item: Item) -> Int {
+        item.session.flatMap { costs[$0.id]?.unpushedCommits } ?? 0
+    }
+
+    private var stake: Stake {
+        items.reduce(into: Stake()) { stake, item in
+            if let diff = diff(item) {
+                stake.added += diff.added
+                stake.removed += diff.removed
             }
-            return "No changes\(size)"
-        }
-        guard let session = item.session, let cost = costs[session.id] else { return nil }
-        var parts: [String] = []
-        if case .wouldLoseWork(let added, let removed) = cost.worktree {
-            parts.append("+\(added) −\(removed) not committed")
-        }
-        if cost.unpushedCommits > 0 {
-            parts.append("\(counted(cost.unpushedCommits, "commit")) on no remote")
-        }
-        if cost.design == .unimplemented { parts.append("Design never handed over") }
-        if parts.isEmpty {
-            if let snooze = session.snooze, snooze.isActive() {
-                parts.append("History only · snoozed \(snooze.phrase())")
-            } else if cost.worktree == .worktreeRemoved {
-                parts.append("Conversation and a clean worktree")
-            } else {
-                parts.append("Conversation only")
+            stake.commits += commits(item)
+            if let session = item.session, costs[session.id]?.design == .unimplemented {
+                stake.designs += 1
             }
         }
-        return parts.joined(separator: " · ")
     }
 
     private func isChecking(_ item: Item) -> Bool {
@@ -277,14 +339,6 @@ struct CleanupReviewView: View {
     private var deleteLabel: String {
         let count = pickedItems.count
         return count == 0 ? "Delete selected" : "Delete \(counted(count, "item"))"
-    }
-
-    private var footerNote: String {
-        let chosen = pickedItems
-        guard !chosen.isEmpty else { return "Nothing here is deleted until you choose it." }
-        let work = chosen.count { $0.parked.family == .losesWork }
-        return work > 0 ? "\(chosen.count) selected · \(work) would lose work"
-            : "\(chosen.count) selected"
     }
 
     // MARK: - Loading
@@ -376,6 +430,7 @@ struct CleanupReviewView: View {
     // nowhere else.
     private func confirmDelete(_ chosen: [Item]) {
         guard !chosen.isEmpty, !isDeleting, !chosen.contains(where: isChecking) else { return }
+        showsWhy = false
         var rows = chosen.map { item in
             Dialog.Impact.Row(title: title(item), detail: goes(item))
         }
@@ -482,14 +537,19 @@ struct CleanupReviewView: View {
     }
 }
 
-// One row of the waiting list: the tick, who it is and why it waits, what deleting costs,
-// and the three answers. The reasons are chips in the colour of their family, so a scan
-// down the list reads the colours before the words.
+// One row of the waiting list: the tick and the name, then why it waits, whose it is
+// and how old, then the three answers. The reasons are chips in the colour of their
+// family, so a scan down the list reads the colours before the words. Uncommitted work
+// is shown as its diff, which is both the reason and the cost.
 private struct WaitingRow: View {
     let item: CleanupReviewView.Item
-    let detail: String
-    let cost: String?
-    let lossTint: Bool
+    let project: String
+    let age: String
+    let diff: (added: Int, removed: Int)?
+    let commits: Int
+    // Every row but the first is split from the one above by a hairline. The line
+    // belongs to the row, so it folds away with it.
+    let divided: Bool
     let isChecking: Bool
     let picked: Bool
     let isDeleting: Bool
@@ -499,53 +559,78 @@ private struct WaitingRow: View {
     let delete: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: Space.lg) {
-            Toggle(isOn: Binding(get: { picked }, set: { _ in togglePick() })) { EmptyView() }
-                .toggleStyle(.appCheckbox)
-                .disabled(isChecking || isDeleting)
-                .opacity(isChecking ? 0.4 : 1)
-                .accessibilityLabel("Select \(title)")
+        VStack(spacing: 0) {
+            if divided {
+                Rectangle().fill(Theme.hairline).frame(height: 1)
+            }
+            HStack(alignment: .top, spacing: Space.lg) {
+                Toggle(isOn: Binding(get: { picked }, set: { _ in togglePick() })) { EmptyView() }
+                    .toggleStyle(.appCheckbox)
+                    .disabled(isChecking || isDeleting)
+                    .opacity(isChecking ? 0.4 : 1)
+                    .accessibilityLabel("Select \(title)")
 
-            VStack(alignment: .leading, spacing: Space.xs) {
-                Text(title)
-                    .font(Typography.body.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(detail)
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    Text(title)
+                        .font(Typography.body.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    facts
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: Space.xs) {
+                    GlyphButton(icon: item.session == nil ? "folder" : "arrow.up.right",
+                                side: ControlHeight.sm, action: open)
+                        .appTooltip(item.session == nil ? "Show in Finder" : "Open")
+                        .accessibilityLabel(item.session == nil ? "Show \(title) in Finder" : "Open \(title)")
+                    RowAction(title: "Keep", disclosure: true)
+                        .appMenu(keepMenu)
+                        .accessibilityLabel("Keep \(title)")
+                    GlyphButton(icon: "trash", side: ControlHeight.sm, tint: Theme.deletion,
+                                action: delete)
+                        .disabled(isChecking || isDeleting)
+                        .appTooltip("Delete")
+                        .accessibilityLabel("Delete \(title)")
+                }
+            }
+            .padding(Space.card)
+            .background(picked ? Theme.accent.opacity(0.07) : .clear)
+            .hoverFill(cornerRadius: 0)
+        }
+        .motion(Motion.control, value: picked)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var facts: some View {
+        HStack(spacing: Space.sm) {
+            ForEach(item.parked.reasons, id: \.self) { reason in
+                CleanupReasonChip(text: chipText(reason), reason: reason,
+                                  diff: isChecking ? nil : diff)
+            }
+            if isChecking {
+                Text("Checking the worktree…")
+                    .font(Typography.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+                    .transition(.opacity)
+            }
+            HStack(spacing: Space.sm) {
+                ProjectDot(tint: Theme.projectTint(for: project))
+                Text(project)
                     .font(Typography.data)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                HStack(spacing: Space.xs) {
-                    ForEach(item.parked.reasons, id: \.self) { reason in
-                        CleanupReasonChip(text: chipText(reason), reason: reason)
-                    }
-                }
-                Text(isChecking ? "Checking the worktree…" : (cost ?? ""))
-                    .font(Typography.data)
-                    .foregroundStyle(isChecking || !lossTint ? Color.secondary : Theme.deletion)
-                    .lineLimit(1)
                     .truncationMode(.middle)
-                    .contentTransition(.opacity)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: Space.xs) {
-                RowAction(title: item.session == nil ? "Show in Finder" : "Open", action: open)
-                RowAction(title: "Keep", disclosure: true)
-                    .appMenu(keepMenu)
-                    .accessibilityLabel("Keep \(title)")
-                RowAction(title: "Delete", tint: Theme.deletion, action: delete)
-                    .disabled(isChecking || isDeleting)
-                    .accessibilityLabel("Delete \(title)")
-            }
+            .layoutPriority(-1)
+            Text(age)
+                .font(Typography.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize()
         }
-        .padding(.horizontal, Space.lg)
-        .padding(.vertical, Space.lg)
-        .surface(Theme.card, cornerRadius: Radius.card,
-                 border: picked ? Theme.deletion.opacity(0.45) : Theme.border)
-        .hoverFill(cornerRadius: Radius.card)
-        .motion(Motion.control, value: picked)
-        .accessibilityElement(children: .contain)
+        .motion(Motion.reveal, value: isChecking)
     }
 
     private var title: String {
@@ -555,8 +640,12 @@ private struct WaitingRow: View {
         return item.session?.title ?? ""
     }
 
-    // "Snoozed until 15 Nov" when the snooze has an end.
+    // "Snoozed until 15 Nov" when the snooze has an end, and the count of commits once
+    // the branch has been read.
     private func chipText(_ reason: CleanupReason) -> String {
+        if reason == .unpushedCommits, commits > 0 {
+            return "\(counted(commits, "commit")) not pushed"
+        }
         guard reason == .snoozed, let deadline = item.session?.snooze?.deadline else {
             return reason.title
         }
@@ -564,29 +653,20 @@ private struct WaitingRow: View {
     }
 }
 
-// A small inline action at the end of a row: accent text, or red for the one that
-// deletes.
+// The Keep answer at the end of a row: accent words with a chevron, opening its menu.
 private struct RowAction: View {
     let title: String
     var tint: Color = Theme.accent
     var disclosure = false
-    var action: (() -> Void)? = nil
 
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovering = false
 
     var body: some View {
-        Group {
-            if let action {
-                Button(action: action) { label }
-                    .buttonStyle(.plain)
-            } else {
-                label
-            }
-        }
-        .opacity(isEnabled ? 1 : 0.4)
-        .hoverLift(hovering && isEnabled)
-        .onPointerHover { hovering = $0 }
+        label
+            .opacity(isEnabled ? 1 : 0.4)
+            .hoverLift(hovering && isEnabled)
+            .onPointerHover { hovering = $0 }
     }
 
     private var label: some View {
@@ -600,7 +680,7 @@ private struct RowAction: View {
         }
         .foregroundStyle(tint)
         .padding(.horizontal, Space.sm)
-        .frame(height: 24)
+        .frame(height: ControlHeight.sm)
         .background(tint.opacity(hovering && isEnabled ? 0.1 : 0), in: RoundedRectangle(cornerRadius: Radius.inset))
         .motion(Motion.hover, value: hovering)
         .contentShape(RoundedRectangle(cornerRadius: Radius.inset))

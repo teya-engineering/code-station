@@ -134,20 +134,34 @@ private struct AskReasonRow: View {
 }
 
 // A reason, in the colour of its family: red for work that would be lost, amber for
-// something not looked at yet, the snooze lilac for something put aside.
+// something not looked at yet, the snooze lilac for something put aside. Uncommitted
+// changes show the diff itself once it is known, since the lines are the cost.
 struct CleanupReasonChip: View {
     let text: String
     let reason: CleanupReason
+    var diff: (added: Int, removed: Int)? = nil
 
     var body: some View {
-        Text(text)
-            .font(Typography.caption.weight(.semibold))
-            .foregroundStyle(foreground)
-            .lineLimit(1)
-            .padding(.horizontal, Space.sm)
-            .padding(.vertical, Space.xxs)
-            .background(background, in: RoundedRectangle(cornerRadius: Radius.inset))
-            .fixedSize()
+        Group {
+            if reason == .uncommittedChanges, let diff {
+                DiffPair(added: diff.added, removed: diff.removed)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xxs)
+                    .background(Theme.field, in: RoundedRectangle(cornerRadius: Radius.tag))
+                    .appTooltip("Not committed")
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(counted(diff.added, "line")) added, \(diff.removed) removed, not committed")
+            } else {
+                Text(text)
+                    .font(Typography.caption.weight(.semibold))
+                    .foregroundStyle(foreground)
+                    .lineLimit(1)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xxs)
+                    .background(background, in: RoundedRectangle(cornerRadius: Radius.tag))
+            }
+        }
+        .fixedSize()
     }
 
     private var foreground: Color {
