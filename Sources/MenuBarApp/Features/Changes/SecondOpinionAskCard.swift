@@ -459,12 +459,12 @@ struct SecondOpinionAskCard: View {
     // MARK: Footer
 
     private var footer: some View {
-        HStack(spacing: Space.md) {
+        let title = SecondOpinionAsk.askTitle(lineup: asked, hasFocus: hasFocus)
+        return HStack(spacing: Space.md) {
             Text(SecondOpinionAsk.estimate(lineup: asked))
                 .font(Typography.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 0)
-            ActionButton(title: SecondOpinionAsk.askTitle(lineup: asked, hasFocus: hasFocus),
-                         tone: .green, shortcut: "↩", keyboardShortcut: .defaultAction) {
+            ActionButton(title: title, tone: .green, shortcut: "↩", keyboardShortcut: .defaultAction) {
                 ask(SecondOpinionAskChoice(
                     stop: stop, lineup: asked,
                     chatFocus: ChatSecondOpinion.Focus.allCases.filter(chatFocus.contains),
@@ -476,12 +476,12 @@ struct SecondOpinionAskCard: View {
             .disabled(asked.isEmpty || !hasFocus)
             .contentTransition(.opacity)
         }
+        .motion(Motion.control, value: title)
     }
 }
 
-// One installed agent as a seat to fill or leave empty. A tick on the tile and the words
-// "Asked" say it is in; the meter under the name says how independent it is of the
-// author, and the tooltip says the same in words.
+// One installed agent as a seat to fill or leave empty. A tick on the tile says it is
+// in; the meter under the name says how independent it is of the author.
 private struct SeatToggle: View {
     let agent: AgentKind
     let author: SecondOpinion.Reviewer
@@ -490,7 +490,6 @@ private struct SeatToggle: View {
     let toggle: () -> Void
 
     @State private var hovering = false
-    @Environment(SessionRunner.self) private var runner
 
     private var on: Bool { !seats.isEmpty }
 
@@ -540,12 +539,6 @@ private struct SeatToggle: View {
         .onPointerHover { hovering = $0 }
         .motion(Motion.control, value: on)
         .motion(Motion.hover, value: hovering)
-        .appTooltip {
-            let model = seats.first?.model.map { runner.modelTitle($0) } ?? "its usual model"
-            return Tooltip(title: busy ? "\(agent.title) is reviewing now"
-                               : (agent == author.agent ? "A fresh \(agent.title), without this conversation, on " : "\(agent.title) on ") + model,
-                           subtitle: independence.line)
-        }
         .accessibilityLabel(agent == author.agent ? "\(agent.title), fresh start" : agent.title)
         .accessibilityValue((on ? "Asked. " : "Not asked. ") + independence.line)
         .accessibilityAddTraits(on ? [.isToggle, .isSelected] : [.isToggle])
