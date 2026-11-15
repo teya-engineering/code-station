@@ -61,7 +61,7 @@ struct MenuAnchorResizeTests {
         let menuFrame = frame(of: menu, in: host.view)
         try click(CGRect(x: menuFrame.midX, y: menuFrame.midY, width: 0, height: 0), in: window)
         await settle(host.view)
-        #expect(model.selected == "Codex")
+        #expect(model.selected == .codex)
         #expect(scrollView(in: host.view) == nil)
     }
 
@@ -99,7 +99,7 @@ struct MenuAnchorResizeTests {
 @Observable
 private final class ResizingAgentDialog {
     var showsWarning = false
-    var selected = "Claude Code"
+    var selected = AgentKind.claudeCode
 }
 
 private struct AgentDialogFixture: View {
@@ -115,13 +115,13 @@ private struct AgentDialogFixture: View {
                     .frame(maxWidth: .infinity, minHeight: 160)
                     .background(Theme.attention.opacity(0.1))
             }
-            CodingAgentPicker(title: model.selected, entries: [
-                .item("Claude Code", checked: model.selected == "Claude Code",
-                      subtitle: "Anthropic's coding agent.") { model.selected = "Claude Code" },
-                .item("Codex", checked: model.selected == "Codex",
-                      subtitle: "OpenAI's coding agent.") { model.selected = "Codex" },
-                .item("Copilot", checked: model.selected == "Copilot",
-                      subtitle: "GitHub's coding agent.") { model.selected = "Copilot" }
+            CodingAgentPicker(agent: model.selected, entries: [
+                .item("Claude Code", checked: model.selected == .claudeCode,
+                      subtitle: "Anthropic's coding agent.") { model.selected = .claudeCode },
+                .item("Codex", checked: model.selected == .codex,
+                      subtitle: "OpenAI's coding agent.") { model.selected = .codex },
+                .item("Copilot", checked: model.selected == .copilot,
+                      subtitle: "GitHub's coding agent.") { model.selected = .copilot }
             ])
             .background(FrameAnchorView(anchor: button))
         }

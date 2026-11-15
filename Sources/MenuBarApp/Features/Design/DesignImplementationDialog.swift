@@ -137,7 +137,7 @@ struct DesignImplementationDialog: View {
         VStack(alignment: .leading, spacing: Space.lg) {
             FormPair {
                 LabeledField("Agent") {
-                    CodingAgentPicker(title: draft.agent.title, fills: true, entries: agentEntries)
+                    CodingAgentPicker(agent: draft.agent, fills: true, entries: agentEntries)
                         .focused($focus, equals: .agent)
                 }
                 LabeledField("Model") {

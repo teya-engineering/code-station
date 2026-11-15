@@ -51,6 +51,7 @@ struct ActionButton: View {
 
     // Set by `.disabled(...)` on the button, so a caller has nothing to dim by hand.
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -75,6 +76,7 @@ struct ActionButton: View {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: size - 1, weight: .semibold))
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
             }
             Text(title)
                 .font(.system(size: size, weight: .semibold))
