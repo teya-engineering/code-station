@@ -281,10 +281,11 @@ struct LocalServerPreviewWebTests {
         let webView = LocalServerPreviewWebContent.makeWebView(coordinator: coordinator)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: 400),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = webView
         window.orderFront(nil)
         defer {
-            window.orderOut(nil)
+            window.close()
             LocalServerPreviewWebContent.close(webView, coordinator: coordinator)
             window.contentView = nil
         }
@@ -362,8 +363,7 @@ struct LocalServerPreviewPageTests {
         let preview: LocalServerPreview
         // Borderless, as in the other web tests: a window that can become key takes the
         // first click on the page for itself, and the app never sees it.
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window: NSWindow
         private(set) var pageFocused = false
         private(set) var addressFocused = false
         private(set) var closed = false
@@ -386,6 +386,9 @@ struct LocalServerPreviewPageTests {
             shortcuts = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
             previews.open(address)
             preview = try #require(previews.selected)
+            window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             preview.coordinator.loadedGeneration = preview.reloadGeneration
             preview.webView.loadHTMLString(app, baseURL: address)
             show(app: true)
@@ -394,7 +397,12 @@ struct LocalServerPreviewPageTests {
             window.setContentSize(NSSize(width: 1000, height: 800))
             window.center()
             window.orderFront(nil)
-            try await load(preview)
+            do {
+                try await load(preview)
+            } catch {
+                close()
+                throw error
+            }
         }
 
         func add() async throws -> LocalServerPreview {
@@ -485,7 +493,7 @@ struct LocalServerPreviewPageTests {
         }
 
         func close() {
-            window.orderOut(nil)
+            window.close()
             window.contentViewController = nil
             previews.closeAll()
             runner.stopAll()
@@ -507,6 +515,7 @@ struct LocalServerPreviewPageTests {
         weak var released: WKWebView?
         do {
             let pane = try await Pane(app: "<input id='name'>")
+            defer { pane.close() }
             let page = pane.preview.webView
             released = page
             let name = "document.getElementById('name').value"

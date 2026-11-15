@@ -310,6 +310,7 @@ private final class SidebarHarness {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 318, height: 820),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 318, height: 820))
@@ -328,7 +329,7 @@ private final class SidebarHarness {
     }
 
     func close() {
-        window?.orderOut(nil)
+        window?.close()
         window?.contentViewController = nil
         hosting = nil
         window = nil

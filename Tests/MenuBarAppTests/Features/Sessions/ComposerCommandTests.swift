@@ -46,8 +46,14 @@ struct ComposerCommandTests {
             scrollView.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
             window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentView = scrollView
             window.makeFirstResponder(view)
+        }
+
+        func close() {
+            window.close()
+            window.contentView = nil
         }
 
         func colour(at index: Int) -> NSColor? {
@@ -58,6 +64,7 @@ struct ComposerCommandTests {
 
     @Test func coloursTheCommandAsItIsTypedAndLeavesArgumentsPlain() {
         let field = Field("")
+        defer { field.close() }
 
         for letter in "/review" {
             field.view.insertText(String(letter), replacementRange: field.view.selectedRange())
@@ -77,6 +84,7 @@ struct ComposerCommandTests {
     @Test(arguments: ["/REVIEW changes", "  /review changes", "/backend:review\ncheck it"])
     func coloursCommandsInRestoredDrafts(prompt: String) {
         let field = Field(prompt)
+        defer { field.close() }
         let slash = (prompt as NSString).range(of: "/").location
 
         #expect(field.colour(at: slash) == Theme.accentNSColor)
@@ -87,6 +95,7 @@ struct ComposerCommandTests {
                       "```\n/review\n```", "/rev arguments", "/reviewer"])
     func leavesOtherTextPlain(prompt: String) {
         let field = Field(prompt)
+        defer { field.close() }
 
         for index in 0..<(prompt as NSString).length {
             #expect(field.colour(at: index) == nil)
@@ -95,6 +104,7 @@ struct ComposerCommandTests {
 
     @Test func removesColourWhenEditsMoveOrInvalidateTheCommand() {
         let field = Field("/review")
+        defer { field.close() }
         field.view.insertText("Please ", replacementRange: NSRange(location: 0, length: 0))
 
         for index in 0..<(field.view.string as NSString).length {
@@ -113,6 +123,7 @@ struct ComposerCommandTests {
 
     @Test func refreshingCommandNamesKeepsTheSelectionAndText() {
         let field = Field("/review changes", commands: [])
+        defer { field.close() }
         let selection = NSRange(location: 2, length: 4)
         field.view.setSelectedRange(selection)
         #expect(field.colour(at: 0) == nil)
@@ -131,6 +142,7 @@ struct ComposerCommandTests {
 
     @Test func keepsHighlightingOutOfTheTextAndUndoHistory() throws {
         let field = Field("/review")
+        defer { field.close() }
         let undo = try #require(field.view.undoManager)
         undo.removeAllActions()
         let stored = try #require(field.view.textStorage).copy() as! NSAttributedString
@@ -153,6 +165,7 @@ struct ComposerCommandTests {
 
     @Test func sharesTheFieldWithThinkingKeywordColours() {
         let field = Field("/review ultrathink", highlightsKeyword: true)
+        defer { field.close() }
 
         #expect(field.colour(at: 0) == Theme.accentNSColor)
         #expect(field.colour(at: 7) == nil)

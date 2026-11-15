@@ -124,6 +124,7 @@ struct BusyLoopTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
                               styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         let wires = FlowingWiresView(dash: FlowingWiresView.wireDash,
                                      period: FlowingWiresView.wirePeriod)
         #expect(!wires.isPaused)
@@ -132,6 +133,5 @@ struct BusyLoopTests {
         #expect(wires.isPaused)
 
         wires.removeFromSuperview()
-        window.close()
     }
 }

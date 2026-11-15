@@ -15,6 +15,8 @@ struct TooltipTests {
         let hosting = NSHostingController(rootView: source("Design has content", focused: false))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = hosting
         await settle(hosting.view)
 
@@ -41,6 +43,8 @@ struct TooltipTests {
         let hosting = NSHostingController(rootView: source(activation: 0))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = hosting
         await settle(hosting.view)
 

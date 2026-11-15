@@ -121,6 +121,8 @@ struct PromptShortcutTests {
             .appOverlays())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 220),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.center()
         window.contentView = host
         host.layoutSubtreeIfNeeded()

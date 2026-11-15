@@ -77,8 +77,14 @@ struct ComposerSuggestionKeyTests {
             scrollView.frame = NSRect(x: 0, y: 0, width: 400, height: 100)
             window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentView?.addSubview(scrollView)
             window.makeFirstResponder(view)
+        }
+
+        func close() {
+            window.close()
+            window.contentView = nil
         }
 
         // Command-return never reaches the text-command path, so it is pressed as the key
@@ -95,6 +101,7 @@ struct ComposerSuggestionKeyTests {
 
     @Test func handsTheThreeKeysToTheSuggestionWhileOneIsShowing() {
         let field = Field()
+        defer { field.close() }
 
         field.view.doCommand(by: #selector(NSResponder.insertTab(_:)))
         field.view.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
@@ -110,6 +117,7 @@ struct ComposerSuggestionKeyTests {
     // the prompt history.
     @Test func handsTheMenuItsKeysBeforeAnythingElseTheyMean() {
         let field = Field()
+        defer { field.close() }
         field.lists = true
 
         field.view.doCommand(by: #selector(NSResponder.moveUp(_:)))
@@ -127,6 +135,7 @@ struct ComposerSuggestionKeyTests {
 
     @Test func leavesTheKeysAloneWithNoMenuOpen() {
         let field = Field()
+        defer { field.close() }
 
         field.view.doCommand(by: #selector(NSResponder.moveUp(_:)))
         field.view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
@@ -138,6 +147,7 @@ struct ComposerSuggestionKeyTests {
 
     @Test func givesThemBackWhenThereIsNothingToAnswer() {
         let field = Field()
+        defer { field.close() }
         field.offers = false
 
         field.view.doCommand(by: #selector(NSResponder.insertTab(_:)))
@@ -150,6 +160,7 @@ struct ComposerSuggestionKeyTests {
     // field never offers a plain return to the suggestion at all.
     @Test func neverOffersAPlainReturn() {
         let field = Field()
+        defer { field.close() }
 
         field.view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
 

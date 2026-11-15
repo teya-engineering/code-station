@@ -10,13 +10,17 @@ import Testing
 @MainActor
 struct WindowKeyMonitorTests {
     private func window() -> NSWindow {
-        NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
-                 styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     @Test func onlyTheWindowInFrontActsOnTheStroke() {
         let front = window()
+        defer { front.close() }
         let behind = window()
+        defer { behind.close() }
 
         #expect(WindowKeyMonitor.routes(to: front, frontmost: front))
         #expect(!WindowKeyMonitor.routes(to: behind, frontmost: front))
@@ -25,7 +29,9 @@ struct WindowKeyMonitorTests {
     // A composer left focused behind a sheet must not answer for the sheet's own chord.
     @Test func aWindowBehindASheetStandsDown() {
         let sheet = window()
+        defer { sheet.close() }
         let owner = window()
+        defer { owner.close() }
 
         #expect(!WindowKeyMonitor.routes(to: owner, frontmost: sheet))
         #expect(WindowKeyMonitor.routes(to: sheet, frontmost: sheet))
@@ -35,6 +41,7 @@ struct WindowKeyMonitorTests {
     // paste there is the shell's, not the composer's. Being in front is not enough.
     @Test func aShellHoldingTheKeyboardKeepsTheStroke() {
         let host = window()
+        defer { host.close() }
         let shell = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         host.contentView?.addSubview(shell)
         host.makeFirstResponder(shell)
@@ -47,6 +54,7 @@ struct WindowKeyMonitorTests {
     // clicks out of the drawer gets the composer's shortcuts returned to them.
     @Test func theWindowRoutesAgainOnceTheShellLetsGo() {
         let host = window()
+        defer { host.close() }
         let shell = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
         host.contentView?.addSubview(shell)
@@ -61,6 +69,9 @@ struct WindowKeyMonitorTests {
 
     // Nothing in front at all - the app is not the active one - is not a reason to act.
     @Test func nothingInFrontMeansNobodyActs() {
-        #expect(!WindowKeyMonitor.routes(to: window(), frontmost: nil))
+        let host = window()
+        defer { host.close() }
+
+        #expect(!WindowKeyMonitor.routes(to: host, frontmost: nil))
     }
 }

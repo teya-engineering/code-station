@@ -101,8 +101,12 @@ enum DesignSecondOpinion {
                                     configuration: configuration)
             let window = NSWindow(contentRect: webView.frame, styleMask: [.borderless],
                                   backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentView = webView
-            defer { window.contentView = nil }
+            defer {
+                window.close()
+                window.contentView = nil
+            }
             webView.appearance = NSAppearance(named: .aqua)
             webView.loadFileURL(url, allowingReadAccessTo: directory)
             guard await loaded(webView) else { continue }

@@ -148,13 +148,13 @@ struct SidebarBrandMarkTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
                               styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(mark)
         hover()
         #expect(mark.motion.playback == nil)
         #expect(mark.hitTest(CGPoint(x: 20, y: 20)) == nil)
         #expect(!mark.isAccessibilityElement())
         mark.removeFromSuperview()
-        window.close()
     }
 
     private func descendants(of layer: CALayer) -> [CALayer] {

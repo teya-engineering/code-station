@@ -48,6 +48,8 @@ import Testing
         view.isRichText = true
         view.allowsUndo = true
         let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.center()
         window.contentView = view
         window.makeFirstResponder(view)
@@ -75,7 +77,6 @@ import Testing
         view.breakUndoCoalescing()
         undo.undo()
         #expect(view.string == "☐ Keep this")
-        window.orderOut(nil)
     }
 
     @Test func formattingAtTheCursorUpdatesTypingStateWithoutChangingExistingText() {

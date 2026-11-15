@@ -17,6 +17,8 @@ struct PushReviewLayoutTests {
         let size = CGSize(width: 640, height: 360)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = host
         window.setContentSize(size)
         window.center()
@@ -54,6 +56,8 @@ struct PushReviewLayoutTests {
             host.sizingOptions = []
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
                                   styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
             window.contentViewController = host
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             window.center()

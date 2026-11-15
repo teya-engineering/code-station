@@ -167,6 +167,8 @@ struct SecondOpinionAskCardLayoutTests {
                     #expect(measured.height < 1000)
                     let window = NSWindow(contentRect: NSRect(origin: .zero, size: measured),
                                           styleMask: [.titled], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    defer { window.close() }
                     window.contentViewController = host
                     window.setContentSize(measured)
                     host.view.frame = NSRect(origin: .zero, size: measured)

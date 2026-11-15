@@ -100,6 +100,8 @@ struct HeaderTabDeckRoomTests {
     private func draw(_ view: NSView) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 40),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = view
         view.frame = NSRect(x: 0, y: 0, width: 900, height: 40)
         for _ in 0..<4 {
@@ -114,6 +116,8 @@ struct HeaderTabDeckRoomTests {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 40),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = hosting
 
         for width: CGFloat in [400, 250, 450] {

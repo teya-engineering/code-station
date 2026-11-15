@@ -31,10 +31,16 @@ struct ComposerKeywordTests {
             scrollView.frame = NSRect(x: 0, y: 0, width: 400, height: 100)
             window = NSWindow(contentRect: scrollView.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentView?.addSubview(scrollView)
             view.highlightsKeyword = highlights
             view.animatesKeyword = animates
             view.refreshHighlights()
+        }
+
+        func close() {
+            window.close()
+            window.contentView = nil
         }
 
         func colour(at index: Int) -> NSColor? {
@@ -46,6 +52,7 @@ struct ComposerKeywordTests {
 
     @Test func coloursEveryLetterOfTheKeywordAndNothingElse() {
         let field = Field("please ultrathink now")
+        defer { field.close() }
 
         #expect(field.colour(at: 0) == nil)
         for letter in 7..<17 {
@@ -56,21 +63,28 @@ struct ComposerKeywordTests {
 
     @Test func givesTheLettersDifferentColours() {
         let field = Field("ultrathink")
+        defer { field.close() }
 
         #expect(field.colour(at: 0) != field.colour(at: 9))
     }
 
     @Test func leavesThePromptPlainForAgentsThatDoNotKnowTheWord() {
         let field = Field("ultrathink", highlights: false)
+        defer { field.close() }
 
         #expect(field.colour(at: 0) == nil)
     }
 
     @Test func keepsTheColoursMovingOnlyWhileThereIsAWordToMoveThem() {
-        #expect(Field("ultrathink", animates: true).view.isSweeping)
-        #expect(!Field("nothing to see", animates: true).view.isSweeping)
+        let highlighted = Field("ultrathink", animates: true)
+        defer { highlighted.close() }
+        let plain = Field("nothing to see", animates: true)
+        defer { plain.close() }
+        #expect(highlighted.view.isSweeping)
+        #expect(!plain.view.isSweeping)
 
         let field = Field("ultrathink", animates: true)
+        defer { field.close() }
         field.view.insertText("ing", replacementRange: NSRange(location: 10, length: 0))
 
         #expect(!field.view.isSweeping)
@@ -78,6 +92,7 @@ struct ComposerKeywordTests {
 
     @Test func dropsTheColoursOnceTypingMakesItAnotherWord() {
         let field = Field("ultrathink")
+        defer { field.close() }
 
         field.view.insertText("ing", replacementRange: NSRange(location: 10, length: 0))
 

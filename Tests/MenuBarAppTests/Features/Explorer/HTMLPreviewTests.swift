@@ -85,10 +85,11 @@ struct HTMLPreviewWebTests {
         webView.frame = CGRect(x: 0, y: 0, width: 700, height: 400)
         let window = NSWindow(contentRect: webView.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = webView
         window.orderFront(nil)
         defer {
-            window.orderOut(nil)
+            window.close()
             HTMLPreviewWebContent.dismantleNSView(webView, coordinator: coordinator)
             window.contentView = nil
         }
@@ -149,10 +150,11 @@ struct HTMLPreviewTranscriptTests {
         host.frame = CGRect(x: 0, y: 0, width: 700, height: 700)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = host
         window.orderFront(nil)
         defer {
-            window.orderOut(nil)
+            window.close()
             window.contentView = nil
         }
         func webView(in view: NSView) -> WKWebView? {

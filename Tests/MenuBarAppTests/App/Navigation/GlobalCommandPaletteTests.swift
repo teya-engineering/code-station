@@ -18,6 +18,8 @@ struct GlobalCommandPaletteTests {
             .appOverlays())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = host
         defer { window.contentViewController = nil }
         window.layoutIfNeeded()

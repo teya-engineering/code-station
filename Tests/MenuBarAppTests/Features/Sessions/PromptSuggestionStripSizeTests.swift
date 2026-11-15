@@ -27,6 +27,8 @@ struct PromptSuggestionStripSizeTests {
             let view = NSHostingView(rootView: pane)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
             window.contentView = view
             view.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
             for _ in 0..<4 {

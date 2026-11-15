@@ -169,6 +169,7 @@ struct JSONTextViewTests {
     private func windowed(_ view: JSONTextView) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
                               styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
         window.contentView = view
         return window
     }
@@ -184,6 +185,7 @@ struct JSONTextViewTests {
         let pasted = #"{"fs":{"command":"npx"}}"#
         let view = editor()
         let window = windowed(view)
+        defer { window.close() }
         view.pasteboard = clipboard(pasted)
 
         view.paste(nil)
@@ -194,56 +196,56 @@ struct JSONTextViewTests {
         #expect(view.string == pasted)
         undo.undo()
         #expect(view.string == "")
-        _ = window
     }
 
     @Test func aPasteOverEverythingIsLaidOut() {
         let view = editor("old text")
         let window = windowed(view)
+        defer { window.close() }
         view.pasteboard = clipboard(#"{"a":1}"#)
         view.selectAll(nil)
         view.paste(nil)
         #expect(view.string == "{\n  \"a\": 1\n}")
-        _ = window
     }
 
     @Test func aValuePastedIntoTheMiddleLeavesTheLayoutAlone() {
         let text = "{\n    \"token\":   TOKEN\n}"
         let view = editor(text)
         let window = windowed(view)
+        defer { window.close() }
         let token = (text as NSString).range(of: "TOKEN")
         view.setSelectedRange(token)
         view.pasteboard = clipboard(#""ghp_xyz""#)
         view.paste(nil)
         #expect(view.string == "{\n    \"token\":   \"ghp_xyz\"\n}")
         #expect(view.selectedRange().location == token.location + 9)
-        _ = window
     }
 
     @Test func aPasteThatIsNotJSONIsLeftAsPasted() {
         let view = editor()
         let window = windowed(view)
+        defer { window.close() }
         view.pasteboard = clipboard(#"{"a": "#)
         view.paste(nil)
         #expect(view.string == #"{"a": "#)
-        _ = window
     }
 
     @Test func textReplacedFromOutsideForgetsTheOldUndoSteps() throws {
         let view = editor()
         let window = windowed(view)
+        defer { window.close() }
         type(#"{"a": 1, "bbbbbbbbbbbbbbbbbb": 2}"#, into: view)
         view.replaceFromOutside(with: "{}")
         let undo = try #require(view.undoManager)
         #expect(!undo.canUndo)
         #expect(view.string == "{}")
-        _ = window
     }
 
     // Format lays out what was typed by hand, as one step that Cmd+Z takes back.
     @Test func formattingTypedTextIsOneUndoStep() throws {
         let view = editor()
         let window = windowed(view)
+        defer { window.close() }
         type(#"{"fs": {"command": "npx"}}"#, into: view)
         #expect(!view.status.formattable)   // waits for a pause in typing
         view.flushFormattableCheck()
@@ -256,7 +258,6 @@ struct JSONTextViewTests {
 
         try #require(view.undoManager).undo()
         #expect(view.string == #"{"fs": {"command": "npx"}}"#)
-        _ = window
     }
 
     // Format keeps the caret with the characters it was beside.
@@ -264,10 +265,10 @@ struct JSONTextViewTests {
         let text = #"{"a": 1, "bcd": 2}"#
         let view = editor(text, caret: (text as NSString).range(of: "cd").location)
         let window = windowed(view)
+        defer { window.close() }
         view.reformat()
         #expect(view.string == "{\n  \"a\": 1,\n  \"bcd\": 2\n}")
         #expect(view.selectedRange().location == (view.string as NSString).range(of: "cd").location)
-        _ = window
     }
 
     // After any run of edits the colours must be what painting the text afresh gives,
@@ -275,15 +276,16 @@ struct JSONTextViewTests {
     @Test func paintingAfterEditsMatchesPaintingFromScratch() {
         let view = editor()
         let window = windowed(view)
+        defer { window.close() }
         let pasted = #"{"mcpServers": {"a": {"url": "u", "n": 1, "on": true}}}"#
         view.pasteboard = clipboard(pasted)
         let s = { view.string as NSString }
         func expectFresh(_ note: Comment) {
             let fresh = editor()
             let freshWindow = windowed(fresh)
+            defer { freshWindow.close() }
             fresh.replaceFromOutside(with: view.string)
             #expect(colours(of: view) == colours(of: fresh), note)
-            _ = freshWindow
         }
 
         view.paste(nil)
@@ -313,7 +315,6 @@ struct JSONTextViewTests {
 
         view.insertText("\u{201C}", replacementRange: NSRange(location: s().range(of: "\"u\"").location, length: 1))
         expectFresh("a straight quote made curly")
-        _ = window
     }
 
     // A long text is painted once typing pauses, and then matches a fresh paint.
@@ -323,6 +324,7 @@ struct JSONTextViewTests {
         #expect((long as NSString).length > JSONTextView.paintsAsYouTypeUpTo)
         let view = editor()
         let window = windowed(view)
+        defer { window.close() }
         view.replaceFromOutside(with: long)
         view.setSelectedRange(NSRange(location: 2, length: 0))
         type("/* ", into: view)
@@ -330,9 +332,9 @@ struct JSONTextViewTests {
 
         let fresh = editor()
         let freshWindow = windowed(fresh)
+        defer { freshWindow.close() }
         fresh.replaceFromOutside(with: view.string)
         #expect(colours(of: view) == colours(of: fresh))
-        _ = (window, freshWindow)
     }
 
     private func colours(of view: NSTextView) -> [String] {
@@ -404,6 +406,7 @@ struct JSONTextViewTests {
     @Test func pasteOverEverythingWithNothingToReadKeepsTheSelection() {
         let view = editor(#"{"a": 1}"#, caret: 3)
         let window = windowed(view)
+        defer { window.close() }
         let board = NSPasteboard(name: NSPasteboard.Name("json-editor-test-\(UUID().uuidString)"))
         board.clearContents()
         board.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
@@ -411,7 +414,6 @@ struct JSONTextViewTests {
         #expect(!view.pasteOverEverything())
         #expect(view.selectedRange() == NSRange(location: 3, length: 0))
         #expect(view.string == #"{"a": 1}"#)
-        _ = window
     }
 
     // Format lays the text out by its own step, the one Return and Tab use, and a config
@@ -419,6 +421,7 @@ struct JSONTextViewTests {
     @Test func formatKeepsTheTextsOwnIndent() {
         let view = editor("{\n    \"a\": {\"b\": 1}\n}")
         let window = windowed(view)
+        defer { window.close() }
         view.reformat()
         #expect(view.string == "{\n    \"a\": {\n        \"b\": 1\n    }\n}")
 
@@ -426,7 +429,6 @@ struct JSONTextViewTests {
         tidy.recolour()
         tidy.flushFormattableCheck()
         #expect(!tidy.status.formattable)
-        _ = window
     }
 
     // The text view fills the box, so a click below the last line still lands in it.
@@ -439,6 +441,8 @@ struct JSONTextViewTests {
             .frame(width: 400, height: 260))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 260),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = host
         window.center()
         host.layoutSubtreeIfNeeded()
@@ -471,6 +475,7 @@ struct JSONTextViewTests {
     @Test func theFormattedMarkGoesWithTheFirstEdit() throws {
         let view = editor(#"{"a": 1}"#)
         let window = windowed(view)
+        defer { window.close() }
         view.reformat()
         #expect(view.status.formatted)
         // A keystroke is an event of its own, and so its own undo step.
@@ -485,7 +490,6 @@ struct JSONTextViewTests {
         undo.undo()
         #expect(view.string == "{\n  \"a\": 1\n}")
         #expect(!view.status.formatted)
-        _ = window
     }
 
     // Past the size that is painted as it is typed, an edit puts Format away until the
@@ -494,6 +498,7 @@ struct JSONTextViewTests {
         let body = (0..<400).map { "\"key\($0)\": \"value\($0)\"" }.joined(separator: ", ")
         let view = editor("{" + body + "}")
         let window = windowed(view)
+        defer { window.close() }
         view.recolour()
         view.flushFormattableCheck()
         #expect(view.status.formattable)
@@ -501,7 +506,6 @@ struct JSONTextViewTests {
         #expect(!view.status.formattable)
         view.flushPendingPaint()
         #expect(!view.status.formattable)
-        _ = window
     }
 
     // Undo is one action, like the Format it takes back, so a long text is read and
@@ -510,6 +514,7 @@ struct JSONTextViewTests {
         let body = (0..<600).map { "\"key\($0)\": \"value\($0)\"" }.joined(separator: ", ")
         let view = editor("{" + body + "}")
         let window = windowed(view)
+        defer { window.close() }
         #expect((view.string as NSString).length > JSONTextView.paintsAsYouTypeUpTo)
         view.recolour()
         view.reformat()
@@ -521,7 +526,6 @@ struct JSONTextViewTests {
         // A read at once leaves a formattable check waiting; a deferred one does not.
         view.flushFormattableCheck()
         #expect(view.status.formattable)
-        _ = window
     }
 
     // AppKit does not call didChangeText for an undo, so the box has to notice it some
@@ -533,6 +537,8 @@ struct JSONTextViewTests {
             .frame(width: 400, height: 260))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 260),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = host
         window.center()
         host.layoutSubtreeIfNeeded()

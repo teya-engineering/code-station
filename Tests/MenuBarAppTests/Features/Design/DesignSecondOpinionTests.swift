@@ -162,6 +162,10 @@ struct DesignSecondOpinionTests {
 @MainActor
 @Suite(.serialized)
 struct DesignSecondOpinionWebTests {
+    @MainActor private final class ClosedScreens {
+        var urls: Set<URL> = []
+    }
+
     @Test func everyScreenIsPicturedLightAndOnlyDarkWhenItHasADarkStyle() async throws {
         _ = NSApplication.shared
         let scratch = ScratchDirectory(prefix: "design-shots")
@@ -176,8 +180,21 @@ struct DesignSecondOpinionWebTests {
             """.write(to: scratch.path("printing.html"), atomically: true, encoding: .utf8)
         let screens = [DesignScreen(id: "approved", title: "Approved", path: "index.html", width: 200, height: 120),
                        DesignScreen(id: "printing", title: "Printing", path: "printing.html", width: 200, height: 120)]
+        let closed = ClosedScreens()
+        let observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                               object: nil, queue: .main) { notification in
+            guard let window = notification.object as? NSWindow else { return }
+            MainActor.assumeIsolated {
+                guard let webView = window.contentView as? WKWebView,
+                      let url = webView.url else { return }
+                closed.urls.insert(url.resolvingSymlinksInPath())
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
         let shots = await DesignSecondOpinion.capture(screens, in: scratch.url,
                                                       to: scratch.url.appendingPathComponent("shots"))
+        #expect(closed.urls.isSuperset(of: [scratch.path("index.html").resolvingSymlinksInPath(),
+                                          scratch.path("printing.html").resolvingSymlinksInPath()]))
         #expect(shots.map(\.screen.id) == ["approved", "printing"])
         #expect(shots[0].dark != nil)
         #expect(shots[1].dark == nil)
@@ -191,6 +208,8 @@ struct DesignSecondOpinionWebTests {
         let viewport = DesignWebContent.makeViewport(coordinator: coordinator)
         viewport.frame = CGRect(x: 0, y: 0, width: 600, height: 400)
         let window = NSWindow(contentRect: viewport.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = viewport
         defer {
             DesignWebContent.dismantleNSView(viewport, coordinator: coordinator)

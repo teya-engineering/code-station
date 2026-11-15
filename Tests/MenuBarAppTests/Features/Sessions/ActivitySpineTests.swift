@@ -100,10 +100,11 @@ struct ActivitySpineLayoutTests {
                 .frame(width: 700, height: viewport))
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 700, height: viewport),
                                   styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentView = hosting
             window.center()
             window.orderFront(nil)
-            defer { window.orderOut(nil) }
+            defer { window.close() }
             for _ in 0..<10 {
                 try await Task.sleep(for: .milliseconds(10))
                 hosting.layoutSubtreeIfNeeded()

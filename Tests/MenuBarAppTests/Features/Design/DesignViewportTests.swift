@@ -155,6 +155,7 @@ struct DesignWebViewportTests {
             view.frame = CGRect(x: 0, y: 0, width: 720, height: 600)
             window = NSWindow(contentRect: view.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentView = view
             view.configure(screen: screen, reset: true)
             view.layoutSubtreeIfNeeded()
@@ -163,6 +164,7 @@ struct DesignWebViewportTests {
         func close() {
             DesignWebContent.dismantleNSView(view, coordinator: coordinator)
             window.contentView = nil
+            window.close()
         }
 
         func load(_ html: String, from directory: URL? = nil) async throws {

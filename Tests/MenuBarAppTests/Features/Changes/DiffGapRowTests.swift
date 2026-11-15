@@ -122,8 +122,12 @@ private final class Pane {
         })
         host.sizingOptions = []
         host.frame = CGRect(x: 0, y: 0, width: 500, height: 200)
-        window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                          backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        var configured = false
+        defer { if !configured { window.close() } }
+        self.window = window
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)
@@ -134,6 +138,7 @@ private final class Pane {
         container = try #require(textView.textContainer)
         layoutManager.ensureLayout(for: container)
         self.recorded = recorded
+        configured = true
     }
 
     private let recorded: Recorder
@@ -166,7 +171,7 @@ private final class Pane {
     }
 
     func close() {
-        window.orderOut(nil)
+        window.close()
         window.contentView = nil
     }
 

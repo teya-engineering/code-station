@@ -32,6 +32,7 @@ struct CodeEditorTests {
             view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
             window = NSWindow(contentRect: view.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentView?.addSubview(view)
             view.layoutSubtreeIfNeeded()
             apply(text: text, language: language, matches: matches, currentMatch: currentMatch,
@@ -44,9 +45,16 @@ struct CodeEditorTests {
             stored = text
             coordinator.apply(CodeEditorView(
                 documentID: "pane.swift",
-                text: Binding(get: { self.stored }, set: { self.stored = $0 }),
+                text: Binding(get: { [weak self] in self?.stored ?? "" },
+                              set: { [weak self] in self?.stored = $0 }),
                 language: language, matches: matches, currentMatch: currentMatch,
                 findQuery: findQuery, onFind: onFind))
+        }
+
+        func close() {
+            CodeEditorView.dismantleNSView(view, coordinator: coordinator)
+            window.close()
+            window.contentView = nil
         }
 
         var textView: NSTextView { scrollView.documentView as! NSTextView }
@@ -69,8 +77,28 @@ struct CodeEditorTests {
         }
     }
 
+    @Test func aThrowingTestReleasesItsEditorAndWindow() {
+        enum Failure: Error { case stopped }
+        weak var releasedPane: Pane?
+        weak var releasedWindow: NSWindow?
+
+        #expect(throws: Failure.stopped) {
+            try autoreleasepool {
+                let pane = Pane("let a = 1\n")
+                defer { pane.close() }
+                releasedPane = pane
+                releasedWindow = pane.window
+                throw Failure.stopped
+            }
+        }
+
+        #expect(releasedPane == nil)
+        #expect(releasedWindow == nil)
+    }
+
     @Test func theFileArrivesReadyToTypeInto() {
         let pane = Pane("let a = 1\n")
+        defer { pane.close() }
 
         #expect(pane.textView.isEditable)
         #expect(pane.textView.string == "let a = 1\n")
@@ -81,6 +109,7 @@ struct CodeEditorTests {
     // everything under it while still showing its numbers.
     @Test func theTextDrawsBesideTheGutter() throws {
         let pane = Pane("rendered text\n", language: nil)
+        defer { pane.close() }
         let visible = pane.view.bounds
         let image = try #require(pane.view.bitmapImageRepForCachingDisplay(in: visible))
         pane.view.cacheDisplay(in: visible, to: image)
@@ -105,6 +134,7 @@ struct CodeEditorTests {
 
     @Test func theGutterStaysOutsideTheScrollViewSurface() {
         let pane = Pane("one\ntwo\n")
+        defer { pane.close() }
 
         #expect(pane.view.gutter.superview === pane.view)
         #expect(pane.scrollView.verticalRulerView == nil)
@@ -117,6 +147,7 @@ struct CodeEditorTests {
         let name = "value"
         let count = 42
         """)
+        defer { pane.close() }
 
         #expect(pane.colour(of: "// a note") == CodeStyle.comment)
         #expect(pane.colour(of: "let") == CodeStyle.keyword)
@@ -127,6 +158,7 @@ struct CodeEditorTests {
 
     @Test func aFileWithNoKnownLanguageStaysPlain() {
         let pane = Pane("let name = \"value\"\n", language: nil)
+        defer { pane.close() }
 
         #expect(pane.colour(of: "let") == NSColor.labelColor)
     }
@@ -140,6 +172,7 @@ struct CodeEditorTests {
         */
         let code = 1
         """)
+        defer { pane.close() }
 
         #expect(pane.colour(of: "let notCode") == CodeStyle.comment)
         #expect(pane.colour(of: "let code") == CodeStyle.keyword)
@@ -149,6 +182,7 @@ struct CodeEditorTests {
         let text = "alpha\nbeta\nalpha\n"
         let matches = FileFind.search("alpha", in: text).matches
         let pane = Pane(text, matches: matches, currentMatch: 1)
+        defer { pane.close() }
 
         #expect(matches.count == 2)
         #expect(pane.storage.attribute(.backgroundColor, at: matches[0].location,
@@ -162,6 +196,7 @@ struct CodeEditorTests {
         let text = "alpha\nbeta\n"
         let matches = FileFind.search("alpha", in: text).matches
         let pane = Pane(text, matches: matches, currentMatch: 0)
+        defer { pane.close() }
         #expect(pane.background(of: "alpha") != nil)
 
         pane.apply(text: text)
@@ -173,6 +208,7 @@ struct CodeEditorTests {
     func controlFInTheEditorOpensFindWithoutMovingTheCaret(modifiers: NSEvent.ModifierFlags) throws {
         var opened = false
         let pane = Pane("alpha beta", onFind: { opened = true })
+        defer { pane.close() }
         pane.window.makeFirstResponder(pane.textView)
         pane.textView.selectedRange = NSRange(location: 2, length: 0)
         let event = try #require(NSEvent.keyEvent(
@@ -190,6 +226,7 @@ struct CodeEditorTests {
     @Test func typingFStillEditsTheFile() throws {
         var opened = false
         let pane = Pane("alpha", onFind: { opened = true })
+        defer { pane.close() }
         pane.window.makeFirstResponder(pane.textView)
         pane.textView.selectedRange = NSRange(location: 0, length: 0)
         let event = try #require(NSEvent.keyEvent(
@@ -207,6 +244,7 @@ struct CodeEditorTests {
         let text = "alpha\n" + String(repeating: "line\n", count: 300) + "beta\n"
         let pane = Pane(text, matches: FileFind.search("alpha", in: text).matches,
                         currentMatch: 0, findQuery: "alpha")
+        defer { pane.close() }
         let initialOffset = pane.scrollView.contentView.bounds.minY
         let matches = FileFind.search("beta", in: text).matches
 
@@ -225,6 +263,7 @@ struct CodeEditorTests {
     // Typing has to reach the pane's own text, or Save would write back what was loaded.
     @Test func typingReachesTheBoundText() {
         let pane = Pane("let a = 1\n")
+        defer { pane.close() }
         pane.textView.selectedRange = NSRange(location: 0, length: 0)
         pane.textView.insertText("var b = 2\n", replacementRange: NSRange(location: 0, length: 0))
 
@@ -236,6 +275,7 @@ struct CodeEditorTests {
     // still has to come back coloured rather than plain.
     @Test func colourSurvivesAnEditAboveIt() {
         let pane = Pane("let a = 1\nlet b = 2\nlet c = 3\n")
+        defer { pane.close() }
         pane.textView.selectedRange = NSRange(location: 0, length: 0)
         pane.textView.insertText("// note\n", replacementRange: NSRange(location: 0, length: 0))
 
@@ -246,6 +286,7 @@ struct CodeEditorTests {
     // Opening another file must not leave the last one's text or colouring behind.
     @Test func switchingFileReplacesTheDocument() {
         let pane = Pane("let a = 1\n")
+        defer { pane.close() }
         pane.coordinator.apply(CodeEditorView(documentID: "other.swift",
                                               text: .constant("plain words\n"),
                                               language: nil, matches: [], currentMatch: nil))
@@ -257,6 +298,7 @@ struct CodeEditorTests {
     // A link to "File.kt:2" opens the file with that line picked out, ready to read.
     @Test func aFileOpenedAtALineSelectsThatLine() {
         let pane = Pane("first\n")
+        defer { pane.close() }
         pane.coordinator.apply(CodeEditorView(documentID: "linked.swift",
                                               text: .constant("one\ntwo\nthree\n"),
                                               language: nil, matches: [], currentMatch: nil,
@@ -268,16 +310,19 @@ struct CodeEditorTests {
     // The gutter has to be wide enough for the biggest number it will draw, or the numbers
     // on the longest files run under the code.
     @Test func theGutterGrowsWithTheLineCount() {
-        let narrow = gutter(Pane("a\n")).thickness
-        let wide = gutter(Pane(String(repeating: "a\n", count: 5000))).thickness
+        let short = Pane("a\n")
+        defer { short.close() }
+        let long = Pane(String(repeating: "a\n", count: 5000))
+        defer { long.close() }
 
-        #expect(wide > narrow)
+        #expect(gutter(long).thickness > gutter(short).thickness)
     }
 
     // Only the viewport is coloured, so a long file must not be read end to end just to
     // show its first screen.
     @Test func aLongFileOnlyColoursWhatIsOnScreen() {
         let pane = Pane(String(repeating: "let a = 1\n", count: 20_000))
+        defer { pane.close() }
         let lastLine = pane.storage.length - 10
 
         #expect(pane.colour(of: "let") == CodeStyle.keyword)
@@ -292,6 +337,7 @@ struct CodeEditorTests {
 
     @Test func everyLineOnScreenIsNumberedOnce() {
         let pane = Pane("one\ntwo\nthree")
+        defer { pane.close() }
 
         #expect(gutter(pane).visibleLabels().map(\.number) == [1, 2, 3])
     }
@@ -300,6 +346,7 @@ struct CodeEditorTests {
     // a caret there, so the gutter has to name it.
     @Test func theEmptyLineAfterATrailingNewlineIsNumbered() {
         let pane = Pane("one\ntwo\n")
+        defer { pane.close() }
 
         #expect(gutter(pane).visibleLabels().map(\.number) == [1, 2, 3])
     }
@@ -308,6 +355,7 @@ struct CodeEditorTests {
     // land on the row it belongs to rather than at the top of the pane.
     @Test func theGutterFollowsTheTextWhenScrolled() {
         let pane = Pane(String(repeating: "let a = 1\n", count: 400))
+        defer { pane.close() }
         pane.scrollView.contentView.scroll(to: NSPoint(x: 0, y: 743))
         pane.scrollView.reflectScrolledClipView(pane.scrollView.contentView)
 
@@ -337,6 +385,7 @@ struct CodeEditorTests {
     @Test func horizontalScrollingKeepsTheDocumentVisible() async throws {
         let longLine = String(repeating: "abcdefghij", count: 200)
         let pane = Pane("one\ntwo\n\(longLine)\nthree\n")
+        defer { pane.close() }
         let before = gutter(pane).visibleLabels().map(\.number)
 
         pane.scrollView.contentView.scroll(to: NSPoint(x: 700, y: 0))
@@ -370,6 +419,7 @@ struct CodeEditorTests {
 
     @Test func verticalScrollingReachesTheEndOfTheDocument() throws {
         let pane = Pane(String(repeating: "let a = 1\n", count: 400))
+        defer { pane.close() }
         let textView = pane.textView
 
         let bottom = textView.frame.height - pane.scrollView.contentSize.height

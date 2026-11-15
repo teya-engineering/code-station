@@ -896,6 +896,7 @@ private struct Page {
         host.frame = CGRect(x: 0, y: 0, width: 520, height: 400)
         window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                           backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)
@@ -936,7 +937,7 @@ private struct Page {
     }
 
     func close() {
-        window.orderOut(nil)
+        window.close()
         window.contentView = nil
     }
 

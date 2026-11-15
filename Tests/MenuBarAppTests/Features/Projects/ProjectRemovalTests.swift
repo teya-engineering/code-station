@@ -195,7 +195,7 @@ struct ProjectRemovalTests {
                                               worktrees: removal { .success(()) })
 
         #expect(throwsNothing(result))
-        #expect(shortcuts.shortcuts(for: project.id).isEmpty)
+        #expect(!shortcuts.shortcuts.contains { $0.projectID == project.id })
         #expect(shortcuts.shortcuts.map(\.name) == ["Build", "Prune"])
     }
 

@@ -72,6 +72,8 @@ struct ChangesLayoutTests {
         host.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = host
         window.center()
         window.layoutIfNeeded()
@@ -112,6 +114,8 @@ struct ChangesLayoutTests {
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = hosting
         window.center()
         window.layoutIfNeeded()
@@ -140,6 +144,8 @@ struct ChangesLayoutTests {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 1000, height: 700))
         window.center()
@@ -209,6 +215,8 @@ struct ChangesLayoutTests {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = hosting
         window.center()
         window.layoutIfNeeded()

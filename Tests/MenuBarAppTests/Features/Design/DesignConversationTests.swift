@@ -58,6 +58,8 @@ struct DesignConversationDismissalTests {
     @Test func outsideClicksCollapseAndPassThroughWhileInsideClicksDoNothing() throws {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         let observer = DesignConversationDismissal.ObserverView(frame: CGRect(x: 20, y: 20, width: 405, height: 144))
         window.contentView?.addSubview(observer)
         defer { observer.stop() }
@@ -93,6 +95,8 @@ struct DesignConversationDismissalTests {
     @Test func pressesOnTheFoldedTranscriptExpandItButNotOnTheCornerButtonComposerOrOutside() throws {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         let observer = DesignConversationDismissal.ObserverView(frame: CGRect(x: 20, y: 20, width: 405, height: 144))
         window.contentView?.addSubview(observer)
         defer { observer.stop() }
@@ -124,6 +128,8 @@ struct DesignConversationDismissalTests {
     @Test func pressesOnAControlInTheFoldedTranscriptLeaveThePanelFolded() throws {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         let observer = DesignConversationDismissal.ObserverView(frame: CGRect(x: 20, y: 20, width: 405, height: 144))
         window.contentView?.addSubview(observer)
         defer { observer.stop() }
@@ -146,6 +152,8 @@ struct DesignConversationDismissalTests {
     func overlappingCornerClicksReachTheButtonWithoutChangingThePanel(expanded: Bool) throws {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         let observer = DesignConversationDismissal.ObserverView(frame: CGRect(x: 20, y: 20, width: 405, height: 144))
         window.contentView?.addSubview(observer)
         defer { observer.stop() }
@@ -203,13 +211,14 @@ struct DesignConversationViewTests {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 1000, height: 800))
         hosting.view.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
         window.center()
         window.makeKeyAndOrderFront(nil)
         defer {
-            window.orderOut(nil)
+            window.close()
             window.contentViewController = nil
             runner.stopAll()
         }
@@ -407,12 +416,13 @@ struct DesignConversationViewTests {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 1000, height: 800))
         window.center()
         window.makeKeyAndOrderFront(nil)
         defer {
-            window.orderOut(nil)
+            window.close()
             window.contentViewController = nil
             runner.stopAll()
         }
@@ -489,12 +499,13 @@ struct DesignConversationViewTests {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 800),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentViewController = hosting
         window.setContentSize(NSSize(width: 1000, height: 800))
         window.center()
         window.makeKeyAndOrderFront(nil)
         defer {
-            window.orderOut(nil)
+            window.close()
             window.contentViewController = nil
             runner.stopAll()
         }

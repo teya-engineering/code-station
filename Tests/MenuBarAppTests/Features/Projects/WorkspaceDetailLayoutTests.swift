@@ -47,6 +47,8 @@ struct WorkspaceDetailLayoutTests {
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentViewController = hosting
         window.layoutIfNeeded()
 

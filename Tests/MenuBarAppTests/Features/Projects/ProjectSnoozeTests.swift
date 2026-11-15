@@ -198,6 +198,7 @@ struct OldSessionsSheetTests {
             .environment(settings)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: view)
         window.layoutIfNeeded()
         return window
@@ -226,6 +227,7 @@ struct OldSessionsSheetTests {
         agedSessions(2, in: beta, store: store)
 
         let window = sheet(store)
+        defer { window.close() }
         let content = try #require(window.contentView)
         settle()
         let listed = content.fittingSize.height
@@ -251,6 +253,7 @@ struct OldSessionsSheetTests {
         agedSessions(2, in: alpha, store: store)
 
         let window = sheet(store)
+        defer { window.close() }
         let content = try #require(window.contentView)
         settle()
         let listed = content.fittingSize.height

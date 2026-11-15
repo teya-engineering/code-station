@@ -8,7 +8,7 @@ struct SessionScrollTests {
     @Test func findRefreshesWhenTextStreamsIntoAnExistingMessage() async throws {
         let find = TranscriptFind()
         let pane = try Pane(find: find)
-        defer { pane.harness.tearDown() }
+        defer { pane.close() }
         _ = try await pane.transcript()
         let sessionID = pane.harness.session.id
         let messages = pane.harness.store.transcript(of: sessionID)
@@ -47,7 +47,7 @@ struct SessionScrollTests {
     @Test func openingAndClosingFindKeepsAPinnedTranscriptStill() async throws {
         let find = TranscriptFind()
         let pane = try Pane(find: find)
-        defer { pane.harness.tearDown() }
+        defer { pane.close() }
         let scroll = try await pane.transcript()
         let documentView = try #require(scroll.documentView)
         func endInWindow() -> CGFloat {
@@ -71,10 +71,7 @@ struct SessionScrollTests {
     @Test(arguments: [CGFloat(760), CGFloat(1000)])
     func theAgentIndicatorRevealsDelegationOutsideTheLoadedMessages(width: CGFloat) async throws {
         let pane = try Pane(includesAgent: true, width: width)
-        defer {
-            pane.window.orderOut(nil)
-            pane.harness.tearDown()
-        }
+        defer { pane.close() }
         pane.window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         pane.window.orderFront(nil)
         let scroll = try await pane.transcript()
@@ -98,7 +95,7 @@ struct SessionScrollTests {
     @Test(arguments: [false, true])
     func submittingAndQueuingPromptsResumeFollowingALongTranscript(multiline: Bool) async throws {
         let pane = try Pane()
-        defer { pane.harness.tearDown() }
+        defer { pane.close() }
         let scroll = try await pane.transcript()
         let editor = try #require(pane.views.compactMap { $0 as? NSTextView }
             .first { $0.isEditable })
@@ -129,7 +126,7 @@ struct SessionScrollTests {
 
     @Test func incomingTextRespectsReadingEarlierMessagesAndFollowsNearTheBottom() async throws {
         let pane = try Pane()
-        defer { pane.harness.tearDown() }
+        defer { pane.close() }
         let scroll = try await pane.transcript()
         let message = try #require(pane.harness.store.transcript(of: pane.harness.session.id).last)
 
@@ -198,10 +195,17 @@ struct SessionScrollTests {
             hosting.sizingOptions = []
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             window.contentViewController = hosting
             window.setContentSize(NSSize(width: width, height: 700))
             hosting.view.frame = NSRect(x: 0, y: 0, width: width, height: 700)
             view = hosting.view
+        }
+
+        func close() {
+            window.close()
+            window.contentViewController = nil
+            harness.tearDown()
         }
 
         var views: [NSView] {

@@ -284,12 +284,13 @@ struct MarkdownBlockTests {
         host.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)
         defer {
             tooltips.hideAll()
-            window.orderOut(nil)
+            window.close()
             window.contentView = nil
         }
         host.layoutSubtreeIfNeeded()
@@ -645,11 +646,12 @@ struct MarkdownBlockTests {
         host.frame = CGRect(x: 0, y: 0, width: 875, height: 400)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = host
         window.setFrameOrigin(CGPoint(x: -10_000, y: -10_000))
         window.orderFront(nil)
         defer {
-            window.orderOut(nil)
+            window.close()
             window.contentView = nil
         }
         host.layoutSubtreeIfNeeded()

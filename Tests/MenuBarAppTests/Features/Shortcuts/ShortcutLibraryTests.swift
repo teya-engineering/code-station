@@ -171,6 +171,8 @@ struct ShortcutLibraryTests {
             .appOverlays())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 390, height: 780),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.center()
         window.contentView = host
         window.layoutIfNeeded()

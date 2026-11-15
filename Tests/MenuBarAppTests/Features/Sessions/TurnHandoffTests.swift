@@ -89,6 +89,8 @@ struct TurnHandoffLayoutTests {
         })
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: width, height: 240),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = view
         window.center()
         view.frame = CGRect(x: 0, y: 0, width: width, height: 240)

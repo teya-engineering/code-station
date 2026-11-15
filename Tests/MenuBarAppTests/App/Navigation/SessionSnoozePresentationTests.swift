@@ -113,6 +113,7 @@ struct SessionSnoozePresentationTests {
                                       styleMask: [.titled, .closable], backing: .buffered, defer: false)
                 window.title = "Snooze review - \(dark ? "dark" : "light") - motion \(reduced ? "off" : "on")"
                 window.isReleasedWhenClosed = false
+                defer { window.close() }
                 window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                 window.contentView = host
                 window.center()
@@ -127,7 +128,6 @@ struct SessionSnoozePresentationTests {
                 if ProcessInfo.processInfo.environment["SNOOZE_INTERACTIVE"] != nil {
                     try await Task.sleep(for: .seconds(45))
                 }
-                window.close()
                 withExtendedLifetime(scratch) {}
             }
         }
