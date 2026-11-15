@@ -293,10 +293,10 @@ struct SessionView: View {
             .background(Theme.background)
             .overlay(alignment: .topLeading) { opinionLayer(session) }
             .coordinateSpace(.named(SecondOpinionAskCard.space))
-            .environment(\.secondOpinionAnchor) { opinionAnchor = $0 }
-            .environment(\.askSecondOpinionOnFile) { root, path in
+            .environment(\.secondOpinionAnchor, SecondOpinionAnchorAction { opinionAnchor = $0 })
+            .environment(\.askSecondOpinionOnFile, AskSecondOpinionOnFileAction { root, path in
                 askForSecondOpinion(session, origin: .file, file: (root, path))
-            }
+            })
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
                 installed: AgentKind.allCases.filter { runner.executable(for: $0) != nil }, author: session.agent))
             .onChange(of: tab) { closeOpinionPanels() }

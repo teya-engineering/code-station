@@ -12,14 +12,26 @@ struct SecondOpinionAskChoice {
     var note: String
 }
 
+struct SecondOpinionAnchorAction {
+    let perform: (CGRect) -> Void
+
+    func callAsFunction(_ frame: CGRect) { perform(frame) }
+}
+
+struct AskSecondOpinionOnFileAction {
+    let perform: (_ root: String, _ path: String) -> Void
+
+    func callAsFunction(_ root: String, _ path: String) { perform(root, path) }
+}
+
 extension EnvironmentValues {
     // Where in the session the control that opens an ask sits, recorded as it is pressed
     // so the card can hang off it. A button under an answer only shows while the pointer
     // is on the answer, so its place is taken at the click, not looked up afterwards.
-    @Entry var secondOpinionAnchor: (CGRect) -> Void = { _ in }
+    @Entry var secondOpinionAnchor = SecondOpinionAnchorAction { _ in }
     // Opens the ask on one changed file, from that file's header in Changes. Nil where
     // the Changes screen is not inside a session that can ask.
-    @Entry var askSecondOpinionOnFile: ((_ root: String, _ path: String) -> Void)? = nil
+    @Entry var askSecondOpinionOnFile: AskSecondOpinionOnFileAction? = nil
 }
 
 // The ask for a second opinion, as a small card hung off the control that opened it. It
@@ -28,7 +40,7 @@ extension EnvironmentValues {
 // behind Tune, so the usual ask is one click and Return.
 struct SecondOpinionAskCard: View {
     // The coordinate space the session draws the card in.
-    static let space = "secondOpinionAsk"
+    nonisolated static let space = "secondOpinionAsk"
     static let width: CGFloat = 480
     // The preview keeps one height whatever it shows, so the card does not jump as the
     // knob moves.
