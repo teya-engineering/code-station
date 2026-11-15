@@ -2815,6 +2815,7 @@ struct SessionView: View {
                             snoozeStrip(session)
                             runChoices(session, project: project)
                             contextNudge(session)
+                            aside(directory: session.worktreePath ?? project.path)
                             promptSuggestion(busy: state.isBusy, blocked: blocked)
                             SessionQueueStrip(sessionID: sessionID, busy: state.isBusy,
                                               blocked: blocked) { composerFocused = true }
@@ -2828,6 +2829,7 @@ struct SessionView: View {
                         .motion(store.isSnoozed(sessionID) ? Motion.reveal : Motion.leave,
                                 value: store.isSnoozed(sessionID))
                         .motion(Motion.reveal, value: runner.queued(sessionID).isEmpty)
+                        .motion(Motion.reveal, value: runner.asides.aside(sessionID)?.id)
                         .motion(Motion.leave, value: runner.isNudgeDismissed(sessionID))
     }
 
@@ -2993,6 +2995,20 @@ struct SessionView: View {
     private func dismissSuggestion() {
         withAnimation(reduceMotion ? nil : Motion.leave) {
             runner.dismissSuggestion(sessionID)
+        }
+    }
+
+    // The answer to a /btw question. It stays while the session works, since it was
+    // asked about the work and does not go stale when the next turn starts.
+    @ViewBuilder private func aside(directory: String) -> some View {
+        if let aside = runner.asides.aside(sessionID) {
+            SessionAsideCard(aside: aside, projectPath: directory, textScale: appSettings.textSize.scale) {
+                withAnimation(reduceMotion ? nil : Motion.leave) {
+                    runner.asides.dismiss(sessionID)
+                }
+            }
+            .id(aside.id)
+            .transition(dismissal)
         }
     }
 
