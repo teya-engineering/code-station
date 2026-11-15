@@ -72,6 +72,8 @@ enum ChatSecondOpinion {
         var conversation = ""
         var directories: [String]
         var executable: String
+        // Nil keeps every MCP server away from the reviewer.
+        var servers: SecondOpinion.ServerAccess? = nil
     }
 
     enum Verdict: String, Sendable, CaseIterable {
@@ -152,10 +154,12 @@ enum ChatSecondOpinion {
         let output = await SecondOpinion.run(agent: reviewer.agent, executable: request.executable,
                                              searchPath: searchPath, directory: directory,
                                              timeout: .seconds(420), writing: "Writing its verdict",
+                                             servers: request.servers,
                                              activity: activity) { codexServers, copilotServers in
             SecondOpinion.arguments(for: reviewer, prompt: prompt,
                                     addDirectories: Array(request.directories.dropFirst()),
-                                    codexServers: codexServers, copilotServers: copilotServers)
+                                    codexServers: codexServers, copilotServers: copilotServers,
+                                    servers: request.servers)
         }
         switch output {
         case .failure(let failure):

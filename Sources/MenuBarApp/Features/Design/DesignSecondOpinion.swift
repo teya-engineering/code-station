@@ -60,6 +60,8 @@ enum DesignSecondOpinion {
         var asked: String
         var conversation = ""
         var executable: String
+        // Nil keeps every MCP server away from the reviewer.
+        var servers: SecondOpinion.ServerAccess? = nil
     }
 
     // A spot on a screen's picture, in its CSS pixels.
@@ -213,7 +215,8 @@ enum DesignSecondOpinion {
                           codexServers: [DisabledMCPServer] = [], copilotServers: [String] = []) -> [String] {
         let folders = request.reading.source ? [request.shotsDirectory] : []
         var arguments = SecondOpinion.arguments(for: reviewer, prompt: prompt, addDirectories: folders,
-                                                codexServers: codexServers, copilotServers: copilotServers)
+                                                codexServers: codexServers, copilotServers: copilotServers,
+                                                servers: request.servers)
         if reviewer.agent == .codex, let end = arguments.lastIndex(of: "--") {
             let images = request.shots.flatMap { [$0.light] + ($0.dark.map { [$0] } ?? []) }
             arguments.insert(contentsOf: images.flatMap { ["--image", $0] }, at: end)
@@ -230,6 +233,7 @@ enum DesignSecondOpinion {
         let output = await SecondOpinion.run(agent: reviewer.agent, executable: request.executable,
                                              searchPath: searchPath, directory: directory,
                                              timeout: .seconds(480), writing: "Writing its notes",
+                                             servers: request.servers,
                                              activity: activity) { codexServers, copilotServers in
             arguments(for: reviewer, request: request, prompt: prompt,
                       codexServers: codexServers, copilotServers: copilotServers)

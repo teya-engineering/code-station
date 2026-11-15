@@ -278,24 +278,43 @@ enum SecondOpinion {
         return text
     }
 
+    // The MCP servers a reviewer may use, as the session that asked has them. Without
+    // this a reviewer gets none: any server can write, and none is needed to read a diff.
+    struct ServerAccess: Equatable, Sendable {
+        // Claude Code's servers by name. Its run cannot stop to ask, so a tool it was not
+        // told it may use is refused; each server named here is allowed as a whole.
+        var claudeServers: [String] = []
+        // Servers the session keeps off, which stay off for its reviewers too.
+        var disabled: [DisabledMCPServer] = []
+
+        // What a session's reviewers get. A session that runs without MCP keeps its
+        // reviewers without it too, and one held to some servers holds them to the same.
+        static func session(_ settings: SessionSettings?, claudeServers: [String]) -> Self? {
+            guard settings?.mcpServersEnabled != false else { return nil }
+            return Self(claudeServers: settings?.allowedMCPServerNames ?? claudeServers,
+                        disabled: settings?.disabledMCPServers ?? [])
+        }
+    }
+
     // Each CLI in its strictest read-only setting, so a reviewer that reaches for an edit
-    // is stopped by the agent rather than by the prompt. None of them gets the MCP servers
-    // the person has set up either: any one of those can write, and none is needed to read
-    // a diff.
+    // is stopped by the agent rather than by the prompt. MCP servers stay out unless the
+    // person lets reviewers use them; then they get the ones the session has.
     // The model and effort go in with the same flags a session launch uses.
     static func arguments(for reviewer: Reviewer, prompt: String,
                           addDirectories: [String] = [],
                           codexServers: [DisabledMCPServer] = [],
-                          copilotServers: [String] = []) -> [String] {
+                          copilotServers: [String] = [],
+                          servers: ServerAccess? = nil) -> [String] {
         let model = reviewer.model.map { ["--model", $0] } ?? []
         switch reviewer.agent {
         case .claudeCode:
+            let allowed = ["Read", "Grep", "Glob"] + (servers?.claudeServers ?? []).map { "mcp__" + $0 }
             // Streamed like the others, so its lane can say what it is reading.
             return ["-p", prompt, "--output-format", "stream-json", "--verbose",
              "--permission-mode", "default",
-             "--allowedTools", "Read,Grep,Glob",
-             "--disallowedTools", "Edit,Write,MultiEdit,NotebookEdit,Bash",
-             "--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#]
+             "--allowedTools", allowed.joined(separator: ","),
+             "--disallowedTools", "Edit,Write,MultiEdit,NotebookEdit,Bash"]
+                + (servers == nil ? ["--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#] : [])
                 + model + (reviewer.effort.map { ["--effort", $0] } ?? [])
                 + (addDirectories.isEmpty ? [] : ["--add-dir"] + addDirectories)
         case .codex:
@@ -314,10 +333,19 @@ enum SecondOpinion {
         case .copilot:
             // Copilot remembers what was allowed in a folder from one run to the next, and
             // a denial outranks every allowance, so writes and the shell are denied outright.
+            let mcp: [String]
+            if let servers {
+                let off = Set(servers.disabled.map(\.name))
+                mcp = copilotServers.flatMap { off.contains($0)
+                    ? ["--disable-mcp-server", $0, "--deny-tool=\($0)"] : ["--allow-tool=\($0)"] }
+            } else {
+                mcp = ["--disable-builtin-mcps"]
+                    + copilotServers.flatMap { ["--disable-mcp-server", $0, "--deny-tool=\($0)"] }
+            }
             return ["-p", prompt, "--output-format", "json",
-             "--no-ask-user", "--disable-builtin-mcps", "--log-level", "none",
+             "--no-ask-user", "--log-level", "none",
              "--deny-tool=shell", "--deny-tool=write"]
-                + copilotServers.flatMap { ["--disable-mcp-server", $0, "--deny-tool=\($0)"] }
+                + mcp
                 + model + (reviewer.effort.map { ["--effort", $0] } ?? [])
                 + addDirectories.flatMap { ["--add-dir", $0] }
         }
@@ -329,6 +357,15 @@ enum SecondOpinion {
                           copilotServers: [String] = []) -> [String] {
         arguments(for: Reviewer(agent: agent), prompt: prompt, addDirectories: addDirectories,
                   codexServers: codexServers, copilotServers: copilotServers)
+    }
+
+    // The servers in Claude Code's own configuration, which a session there loads unless
+    // it picks its own.
+    static func claudeServers(in url: URL = FileManager.default.homeDirectoryForCurrentUser
+                                .appendingPathComponent(".claude.json")) -> [String] {
+        guard let data = try? Data(contentsOf: url),
+              let entries = ClaudeCodeManager.configurationEntries(in: data) else { return [] }
+        return entries.keys.sorted()
     }
 
     // The servers in Copilot's own MCP configuration, which it loads on every run and has
@@ -344,6 +381,7 @@ enum SecondOpinion {
     static func review(_ patches: [Patch], reviewer: Reviewer, executable: String,
                        searchPath: String, repositories: [(root: String, name: String)],
                        focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false,
+                       servers: ServerAccess? = nil,
                        activity: @escaping @Sendable (String) -> Void = { _ in }) async -> Result<[ReviewComment], Failure> {
         let agent = reviewer.agent
         guard let directory = repositories.first?.root else {
@@ -352,9 +390,10 @@ enum SecondOpinion {
         let prompt = prompt(for: patches, repositories: repositories, focus: focus, note: note,
                             sinceReview: sinceReview)
         let output = await run(agent: agent, executable: executable, searchPath: searchPath, directory: directory,
-                               timeout: .seconds(420), writing: "Writing findings", activity: activity) { codexServers, copilotServers in
+                               timeout: .seconds(420), writing: "Writing findings", servers: servers,
+                               activity: activity) { codexServers, copilotServers in
             arguments(for: reviewer, prompt: prompt, addDirectories: repositories.dropFirst().map(\.root),
-                      codexServers: codexServers, copilotServers: copilotServers)
+                      codexServers: codexServers, copilotServers: copilotServers, servers: servers)
         }
         switch output {
         case .failure(let failure):
@@ -369,18 +408,19 @@ enum SecondOpinion {
         }
     }
 
-    // Runs an agent's CLI read-only and hands back everything it printed. Codex's own MCP
-    // servers are listed first so the arguments can turn each one off by name.
+    // Runs an agent's CLI read-only and hands back everything it printed. Without server
+    // access, Codex's own MCP servers are listed first so the arguments can turn each one
+    // off by name; with it, only the ones the session keeps off are turned off.
     static func run(agent: AgentKind, executable: String, searchPath: String, directory: String,
-                    timeout: Duration, writing: String,
+                    timeout: Duration, writing: String, servers: ServerAccess? = nil,
                     activity: @escaping @Sendable (String) -> Void,
                     arguments: (_ codexServers: [DisabledMCPServer], _ copilotServers: [String]) -> [String]) async -> Result<String, Failure> {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = searchPath
         let output: CommandRunner.Output
         do {
-            var codexServers: [DisabledMCPServer] = []
-            if agent == .codex {
+            var codexServers: [DisabledMCPServer] = servers?.disabled ?? []
+            if agent == .codex && servers == nil {
                 let listed: CommandRunner.Output
                 do {
                     listed = try await CommandRunner.run(

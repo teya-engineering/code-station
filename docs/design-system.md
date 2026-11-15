@@ -226,7 +226,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Pick how much, from narrow to wide | `ScopeTrack` (`Controls/ScopeTrack.swift`): stops in order, a knob that slides to the one picked, arrow keys to move along it |
 | Turn on any number of a few, all visible | `ToggleChip`: a tick and a tint when on. `ToggleChip(fixed:)` for something always included, shown with a lock. Pass `warns: true` for a choice with a cost. |
 | Pick one, each with a sentence | `OptionRow` |
-| On or off | `.toggleStyle(.appSwitch)`, `.toggleStyle(.appCheckbox)`, `SettingsToggleRow` |
+| On or off | `.toggleStyle(.appSwitch)`, `.toggleStyle(.appCheckbox)`, `SettingsToggleRow`. Use `.appSwitch(warns: true)` or `SettingsToggleRow(warns: true)` for a switch with a cost, which turns the attention colour when on. |
 | A number in a range | `AppSlider` |
 | Text | `.appTextField()`, `AppTextEditor` |
 | A date | `DayField` |

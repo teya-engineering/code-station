@@ -89,11 +89,13 @@ struct SettingsToggleRow: View {
     let title: String
     let detail: String?
     @Binding var isOn: Bool
+    var warns = false
 
-    init(_ title: String, detail: String? = nil, isOn: Binding<Bool>) {
+    init(_ title: String, detail: String? = nil, isOn: Binding<Bool>, warns: Bool = false) {
         self.title = title
         self.detail = detail
         self._isOn = isOn
+        self.warns = warns
     }
 
     var body: some View {
@@ -112,7 +114,7 @@ struct SettingsToggleRow: View {
                 Spacer(minLength: 0)
             }
         }
-        .toggleStyle(.appSwitch)
+        .toggleStyle(.appSwitch(warns: warns))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

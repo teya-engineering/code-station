@@ -151,7 +151,7 @@ struct SecondOpinionAskCardLayoutTests {
             let card = SecondOpinionAskCard(
                 facts: facts, stop: .constant(stop), author: SecondOpinion.Reviewer(agent: .claudeCode),
                 installed: [.codex, .copilot, .claudeCode], lineup: [SecondOpinion.Reviewer(agent: .codex)],
-                changesFocus: Set(SecondOpinion.Focus.standard), ask: { _ in }, close: {})
+                defaults: SecondOpinionDefaults(), ask: { _ in }, close: {})
             let root = ZStack {
                 card.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }

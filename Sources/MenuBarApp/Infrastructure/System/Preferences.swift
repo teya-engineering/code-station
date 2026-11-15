@@ -167,15 +167,34 @@ enum Preferences {
 
     // What a session runs with when it has not picked for itself. Defaults belong to the
     // agent that reads them, so one CLI's model and access choices cannot affect another.
-    // The second opinion lineup the person saved as their usual. Empty until they save one.
+    // What a second opinion starts from. A lineup saved before the Settings tab existed
+    // becomes its usual seats, all ticked.
+    static func secondOpinionDefaults(in store: UserDefaults = .standard) -> SecondOpinionDefaults {
+        if let data = store.data(forKey: "secondOpinionDefaults"),
+           let defaults = try? JSONDecoder().decode(SecondOpinionDefaults.self, from: data) {
+            return defaults
+        }
+        var defaults = SecondOpinionDefaults()
+        if let data = store.data(forKey: "secondOpinionLineup"),
+           let lineup = try? JSONDecoder().decode([SecondOpinion.Reviewer].self, from: data) {
+            defaults.seats = lineup.map { SecondOpinionDefaults.Seat(reviewer: $0) }
+        }
+        return defaults
+    }
+
+    static func setSecondOpinionDefaults(_ defaults: SecondOpinionDefaults, in store: UserDefaults = .standard) {
+        store.set(try? JSONEncoder().encode(defaults), forKey: "secondOpinionDefaults")
+    }
+
+    // The usual reviewers an ask opens with. Empty until the person saves some.
     static func secondOpinionLineup(in store: UserDefaults = .standard) -> [SecondOpinion.Reviewer] {
-        guard let data = store.data(forKey: "secondOpinionLineup"),
-              let lineup = try? JSONDecoder().decode([SecondOpinion.Reviewer].self, from: data) else { return [] }
-        return lineup
+        secondOpinionDefaults(in: store).lineup
     }
 
     static func setSecondOpinionLineup(_ lineup: [SecondOpinion.Reviewer], in store: UserDefaults = .standard) {
-        store.set(try? JSONEncoder().encode(lineup), forKey: "secondOpinionLineup")
+        var defaults = secondOpinionDefaults(in: store)
+        defaults.makeUsual(lineup)
+        setSecondOpinionDefaults(defaults, in: store)
     }
 
     static func sessionDefaults(for agent: AgentKind, in store: UserDefaults = .standard) -> SessionSettings {

@@ -556,6 +556,8 @@ struct SecondOpinionRequest: Equatable, Sendable {
     var scope: Scope = .all
     var repositories: [ReviewRepository]
     var executable: String
+    // Nil keeps every MCP server away from the reviewer.
+    var servers: SecondOpinion.ServerAccess? = nil
 }
 
 // One reviewer's lane in the second opinion: what it is reading, how long it has taken,
@@ -1028,6 +1030,7 @@ final class ReviewCommentStore {
                     patches, reviewer: reviewer, executable: request.executable, searchPath: searchPath,
                     repositories: request.repositories.map { (root: $0.root, name: $0.name) },
                     focus: request.focus, note: request.note, sinceReview: request.scope.isSinceReview,
+                    servers: request.servers,
                     activity: { [weak self] text in
                         Task { @MainActor in self?.setActivity(text, reviewer: reviewer, in: sessionID) }
                     })

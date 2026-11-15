@@ -31,6 +31,10 @@ enum SettingsSearchTarget: String, Hashable {
     case agentPermissions
     case agentCost
     case agentFiles
+    case secondOpinionReviewers
+    case secondOpinionFocus
+    case secondOpinionReading
+    case secondOpinionAccess
     case advancedConfiguration
     case advancedImport
     case mobileAccess
@@ -127,6 +131,14 @@ enum SettingsSearchIndex {
                "spent dollars session usage show"),
         result("Agent files", .agents, .agentFiles,
                "claude settings json codex config toml copilot reveal"),
+        result("Usual reviewers", .secondOpinion, .secondOpinionReviewers,
+               "second opinion review reviewer lineup seat ask default model effort claude codex copilot"),
+        result("Look for", .secondOpinion, .secondOpinionFocus,
+               "second opinion review focus bugs edge cases security tests risks assumptions steps hierarchy accessibility copy states"),
+        result("They read", .secondOpinion, .secondOpinionReading,
+               "second opinion review project files conversation design source html handoff theme"),
+        result("Use your MCP servers", .secondOpinion, .secondOpinionAccess,
+               "second opinion review reviewer mcp servers tools access read only logs dashboards docs"),
         result("Current configuration", .advanced, .advancedConfiguration,
                "json environments api access credentials oauth shared defaults starter requests mcp presets skills marketplace shortcuts export backup"),
         result("Import", .advanced, .advancedImport,
@@ -187,6 +199,7 @@ enum SettingsTab: CaseIterable, Hashable {
     case appearance
     case keyboard
     case agents
+    case secondOpinion
     case mobile
     case advanced
 
@@ -196,6 +209,7 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "Appearance"
         case .keyboard: "Keyboard"
         case .agents: "Agents"
+        case .secondOpinion: "Second opinion"
         case .mobile: "Mobile"
         case .advanced: "Advanced"
         }
@@ -207,6 +221,7 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "paintpalette"
         case .keyboard: "keyboard"
         case .agents: "cpu"
+        case .secondOpinion: "checkmark.rectangle.stack"
         case .mobile: "iphone"
         case .advanced: "gearshape"
         }
@@ -218,6 +233,7 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
         case .keyboard: "Every key Code Station answers. Click a key to change it."
         case .agents: "Choose an agent and set how it runs."
+        case .secondOpinion: "Who reads your work when you ask for a second opinion, what they look for, and what they can reach."
         case .mobile: "Read and run your sessions from a phone on the same Wi-Fi."
         case .advanced: "Manage shared configuration and other advanced settings."
         }

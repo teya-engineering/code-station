@@ -7,13 +7,17 @@ import SwiftUI
 // while only the switch answers.
 
 struct AppSwitchStyle: ToggleStyle {
+    // A switch for a choice with a cost wears the attention colour once it is on.
+    var warns = false
+
     func makeBody(configuration: Configuration) -> some View {
-        AppSwitch(configuration: configuration)
+        AppSwitch(configuration: configuration, warns: warns)
     }
 }
 
 private struct AppSwitch: View {
     let configuration: ToggleStyleConfiguration
+    let warns: Bool
 
     private static let trackWidth: CGFloat = 34
     private static let trackHeight: CGFloat = 20
@@ -30,7 +34,7 @@ private struct AppSwitch: View {
             HStack(spacing: Space.lg) {
                 configuration.label
                 Capsule()
-                    .fill(configuration.isOn ? Theme.accentFill : Theme.dotOff)
+                    .fill(configuration.isOn ? (warns ? Theme.attention : Theme.accentFill) : Theme.dotOff)
                     .frame(width: Self.trackWidth, height: Self.trackHeight)
                     .overlay(alignment: .leading) {
                         // The knob is given its own size and slid along the track. A shape
@@ -119,6 +123,7 @@ struct CheckboxMark: View {
 
 extension ToggleStyle where Self == AppSwitchStyle {
     static var appSwitch: AppSwitchStyle { AppSwitchStyle() }
+    static func appSwitch(warns: Bool) -> AppSwitchStyle { AppSwitchStyle(warns: warns) }
 }
 
 extension ToggleStyle where Self == AppCheckboxStyle {

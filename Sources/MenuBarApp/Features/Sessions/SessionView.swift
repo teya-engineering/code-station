@@ -2107,10 +2107,15 @@ struct SessionView: View {
                 let repositories = directories.map {
                     ReviewRepository(root: $0, name: ($0 as NSString).lastPathComponent)
                 }
-                let seat = Preferences.secondOpinionLineup().first { $0.agent == checker }
+                let defaults = Preferences.secondOpinionDefaults()
+                let seat = defaults.seats.first { $0.reviewer.agent == checker }?.reviewer
                     ?? SecondOpinion.Reviewer(agent: checker)
                 reviews.startSecondOpinion(sessionID, reviewer: seat, request: SecondOpinionRequest(
-                    scope: .sinceReview(trees: round.trees), repositories: repositories, executable: executable))
+                    focus: SecondOpinion.Focus.allCases.filter(defaults.changesFocus.contains),
+                    scope: .sinceReview(trees: round.trees), repositories: repositories, executable: executable,
+                    servers: store.session(sessionID).flatMap {
+                        reviewerServers($0, usesServers: defaults.usesServers)
+                    }))
                 changesNavigation.showingHistory = false
                 openChanges()
             })
@@ -2559,14 +2564,15 @@ struct SessionView: View {
     private func opinionCard(_ ask: OpinionAsk, session: ChatSession) -> some View {
         let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
         let author = runner.author(of: session)
+        let defaults = Preferences.secondOpinionDefaults()
         return SecondOpinionAskCard(
             facts: ask.facts,
             stop: Binding(get: { opinionAsk?.stop ?? ask.stop }, set: { opinionAsk?.stop = $0 }),
             author: author, installed: installed,
             running: Set(runner.reviews.runs(session.id).filter(\.isRunning).map(\.reviewer)),
             sinceReviewFiles: sinceReviewFiles,
-            lineup: opinionLineup ?? Preferences.secondOpinionLineup().filter { installed.contains($0.agent) },
-            changesFocus: changesNavigation.secondOpinionFocus,
+            lineup: opinionLineup ?? defaults.lineup.filter { installed.contains($0.agent) },
+            defaults: defaults,
             ask: { choice in
                 opinionLineup = choice.lineup
                 closeOpinionPanels()
@@ -2580,6 +2586,7 @@ struct SessionView: View {
         let executables = Dictionary(uniqueKeysWithValues: installed.compactMap { agent in
             runner.executable(for: agent).map { (agent, $0) }
         })
+        let servers = reviewerServers(session, usesServers: choice.usesServers)
         switch choice.stop {
         case .answer, .conversation:
             let subject: ChatSecondOpinion.Subject? = choice.stop == .conversation
@@ -2593,13 +2600,14 @@ struct SessionView: View {
                                           conversation: choice.chatReading.conversation
                                             ? SideQuestion.recentChat(session.messages) : "",
                                           directories: store.workingDirectories(for: session),
-                                          executable: ""),
+                                          executable: "", servers: servers),
                 reviewers: choice.lineup, executables: executables,
                 anchor: choice.stop == .conversation ? latestAnswer(in: session)?.id : ask.chatAnchor,
                 in: sessionID)
         case .file, .sinceReview, .uncommitted:
             changesNavigation.secondOpinionFocus = choice.changesFocus
             changesNavigation.secondOpinionNote = choice.note
+            changesNavigation.secondOpinionServers = servers
             changesNavigation.secondOpinionScope = switch choice.stop {
             case .file: .file
             case .sinceReview: .sinceReview
@@ -2626,9 +2634,15 @@ struct SessionView: View {
                                             shots: [], asked: asked,
                                             conversation: choice.designReading.conversation
                                                 ? SideQuestion.recentChat(designSession.messages) : "",
-                                            executable: ""),
+                                            executable: "", servers: servers),
                 screens: screens, reviewers: choice.lineup, executables: executables, in: designSession.id)
         }
+    }
+
+    // The MCP servers the session's reviewers get, when the ask lets them use any.
+    private func reviewerServers(_ session: ChatSession, usesServers: Bool) -> SecondOpinion.ServerAccess? {
+        guard usesServers else { return nil }
+        return .session(session.settings, claudeServers: SecondOpinion.claudeServers())
     }
 
     // The whole conversation as one subject, judged against everything the person asked.

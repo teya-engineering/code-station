@@ -119,6 +119,8 @@ final class ChangesNavigationMemory {
     var secondOpinionFocus = Set(SecondOpinion.Focus.standard)
     var secondOpinionScope = SecondOpinionScopeChoice.all
     var secondOpinionNote = ""
+    // The MCP servers the next ask's reviewers may use. Nil keeps them away from all.
+    var secondOpinionServers: SecondOpinion.ServerAccess?
     // An ask settled in the session's dialog, or a click on a run under way, from the
     // session header, which sits outside the screen that starts runs and shows them. It
     // waits here until that screen takes it, since a click from another tab opens the

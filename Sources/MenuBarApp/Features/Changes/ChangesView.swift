@@ -2458,7 +2458,8 @@ struct ChangesView: View {
             guard let executable = review.executable(reviewer.agent) else { continue }
             review.reviews.startSecondOpinion(review.sessionID, reviewer: reviewer, request: SecondOpinionRequest(
                 focus: SecondOpinion.Focus.allCases.filter(navigation.secondOpinionFocus.contains),
-                note: navigation.secondOpinionNote, scope: scope, repositories: reviewRepositories, executable: executable))
+                note: navigation.secondOpinionNote, scope: scope, repositories: reviewRepositories, executable: executable,
+                servers: navigation.secondOpinionServers))
             asked.append(reviewer.label())
         }
         guard !asked.isEmpty else { return }

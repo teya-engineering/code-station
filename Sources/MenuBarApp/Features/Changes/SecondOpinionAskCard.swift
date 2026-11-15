@@ -10,6 +10,8 @@ struct SecondOpinionAskChoice {
     var designFocus: [DesignSecondOpinion.Focus]
     var designReading: DesignSecondOpinion.Reading
     var note: String
+    // The reviewers may use the session's MCP servers.
+    var usesServers = false
 }
 
 extension EnvironmentValues {
@@ -45,16 +47,19 @@ struct SecondOpinionAskCard: View {
     var running: Set<SecondOpinion.Reviewer> = []
     // The files changed since the last review, once they have been worked out.
     var sinceReviewFiles: Set<String>?
+    // What Settings says an ask starts from. Tune changes only this ask.
+    let defaults: SecondOpinionDefaults
     let ask: (SecondOpinionAskChoice) -> Void
     let close: () -> Void
 
     @State private var lineup: [SecondOpinion.Reviewer]
-    @State private var usual = Preferences.secondOpinionLineup()
-    @State private var chatFocus = Set(ChatSecondOpinion.Focus.standard)
-    @State private var chatReading = ChatSecondOpinion.Reading()
+    @State private var usual: [SecondOpinion.Reviewer]
+    @State private var chatFocus: Set<ChatSecondOpinion.Focus>
+    @State private var chatReading: ChatSecondOpinion.Reading
     @State private var changesFocus: Set<SecondOpinion.Focus>
-    @State private var designFocus = Set(DesignSecondOpinion.Focus.standard)
-    @State private var designReading = DesignSecondOpinion.Reading()
+    @State private var designFocus: Set<DesignSecondOpinion.Focus>
+    @State private var designReading: DesignSecondOpinion.Reading
+    @State private var usesServers: Bool
     @State private var note = ""
     @State private var tuning = false
     @Environment(SessionRunner.self) private var runner
@@ -63,7 +68,7 @@ struct SecondOpinionAskCard: View {
     init(facts: SecondOpinionAskFacts, stop: Binding<SecondOpinionStop>, author: SecondOpinion.Reviewer,
          installed: [AgentKind], running: Set<SecondOpinion.Reviewer> = [],
          sinceReviewFiles: Set<String>? = nil, lineup: [SecondOpinion.Reviewer],
-         changesFocus: Set<SecondOpinion.Focus>,
+         defaults: SecondOpinionDefaults,
          ask: @escaping (SecondOpinionAskChoice) -> Void, close: @escaping () -> Void) {
         self.facts = facts
         self._stop = stop
@@ -73,8 +78,15 @@ struct SecondOpinionAskCard: View {
         self.sinceReviewFiles = sinceReviewFiles
         self.ask = ask
         self.close = close
+        self.defaults = defaults
         _lineup = State(initialValue: lineup)
-        _changesFocus = State(initialValue: changesFocus)
+        _usual = State(initialValue: defaults.lineup)
+        _chatFocus = State(initialValue: defaults.chatFocus)
+        _chatReading = State(initialValue: defaults.chatReading)
+        _changesFocus = State(initialValue: defaults.changesFocus)
+        _designFocus = State(initialValue: defaults.designFocus)
+        _designReading = State(initialValue: defaults.designReading)
+        _usesServers = State(initialValue: defaults.usesServers)
     }
 
     private var stops: [SecondOpinionStop] { SecondOpinionAsk.stops(facts) }
@@ -94,10 +106,10 @@ struct SecondOpinionAskCard: View {
 
     // Something differs from what a plain click would ask, which the dot on Tune says.
     private var tuned: Bool {
-        lineup != usual || !note.isBlank
-            || chatFocus != Set(ChatSecondOpinion.Focus.standard) || chatReading != ChatSecondOpinion.Reading()
-            || changesFocus != Set(SecondOpinion.Focus.standard)
-            || designFocus != Set(DesignSecondOpinion.Focus.standard) || designReading != DesignSecondOpinion.Reading()
+        lineup != usual || !note.isBlank || usesServers != defaults.usesServers
+            || chatFocus != defaults.chatFocus || chatReading != defaults.chatReading
+            || changesFocus != defaults.changesFocus
+            || designFocus != defaults.designFocus || designReading != defaults.designReading
     }
 
     var body: some View {
@@ -320,6 +332,21 @@ struct SecondOpinionAskCard: View {
                 trayLabel("They read")
                 FlowRow(spacing: Space.sm) { readingChips }
             }
+            GridRow {
+                trayLabel("They can use")
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    ToggleChip("Your MCP servers", isOn: $usesServers, warns: true)
+                        .appTooltip("The MCP servers this session uses. A tool there can act, not only read.")
+                    if usesServers != defaults.usesServers {
+                        Text(usesServers ? "On for this ask only. Settings keeps them off."
+                                         : "Off for this ask only. Settings has them on.")
+                            .font(Typography.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(reduceMotion ? .opacity : .fadeIn)
+                    }
+                }
+                .motion(Motion.reveal, value: usesServers)
+            }
             ForEach(Array(lineup.enumerated()), id: \.offset) { index, seat in
                 GridRow {
                     trayLabel(seat.agent.title)
@@ -345,8 +372,11 @@ struct SecondOpinionAskCard: View {
                         }
                         .appTooltip("Open with these reviewers, models and effort next time")
                     }
-                    Text(safety).font(Typography.caption).foregroundStyle(.tertiary)
+                    Text(safety).font(Typography.caption)
+                        .foregroundStyle(usesServers ? AnyShapeStyle(Theme.attentionText) : AnyShapeStyle(.tertiary))
                         .fixedSize(horizontal: false, vertical: true)
+                        .contentTransition(.opacity)
+                        .motion(Motion.control, value: usesServers)
                 }
             }
         }
@@ -398,11 +428,7 @@ struct SecondOpinionAskCard: View {
     }
 
     private var safety: String {
-        switch stop.kind {
-        case .chat: "Read-only, and without your MCP servers. \(author.agent.title) sees nothing they say until you send it."
-        case .changes: "They can read files but not change them, and run without your MCP servers."
-        case .design: "They look and read. They cannot change the design or use your MCP servers."
-        }
+        SecondOpinionAsk.safety(stop.kind, usesServers: usesServers, author: author.agent)
     }
 
     private func member<Item: Hashable>(_ item: Item, of set: Binding<Set<Item>>) -> Binding<Bool> {
@@ -471,7 +497,7 @@ struct SecondOpinionAskCard: View {
                     chatReading: stop == .conversation ? .init(files: chatReading.files, conversation: false) : chatReading,
                     changesFocus: changesFocus,
                     designFocus: DesignSecondOpinion.Focus.allCases.filter(designFocus.contains),
-                    designReading: designReading, note: note.trimmed))
+                    designReading: designReading, note: note.trimmed, usesServers: usesServers))
             }
             .disabled(asked.isEmpty || !hasFocus)
             .contentTransition(.opacity)
@@ -578,7 +604,7 @@ private struct TuneButton: View {
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
         .motion(Motion.pop, value: changed)
-        .appTooltip { Tooltip(title: "Tune the review", subtitle: "What to look for, what they read, models and effort") }
+        .appTooltip { Tooltip(title: "Tune the review", subtitle: "What to look for, what they read and use, models and effort") }
         .accessibilityLabel("Tune the review")
         .accessibilityValue((open ? "Expanded" : "Collapsed") + (changed ? ", changed from your usual" : ""))
     }

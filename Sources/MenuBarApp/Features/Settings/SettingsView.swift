@@ -26,6 +26,8 @@ struct SettingsView: View {
         iconStyle: DiceBearAvatarStyle, iconSet: SidebarIconSet, workingSet: Bool,
         sunlight: Bool, sunlightMode: SunlightMode, warmth: Double,
         cursorEffects: CursorEffectsSettings)?
+    @State private var secondOpinion = Preferences.secondOpinionDefaults()
+    @State private var secondOpinionBeforeReset: SecondOpinionDefaults?
     @FocusState private var searchFocused: Bool
     // Ties the seat under the chosen pane to whichever row holds it, so picking another
     // pane slides the same shape down the list instead of redrawing it there.
@@ -75,6 +77,7 @@ struct SettingsView: View {
         .background(Theme.background)
         .interactiveDismissDisabled(bots.draft?.isDirty == true)
         .onAppear { loginItem.refresh() }
+        .onChange(of: secondOpinion) { _, defaults in Preferences.setSecondOpinionDefaults(defaults) }
         .sheet(isPresented: $reviewingOldSessions) {
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
                                                             store: store, runner: runner))
@@ -270,6 +273,12 @@ struct SettingsView: View {
         appearanceBeforeReset = nil
     }
 
+    private func resetSecondOpinion() {
+        secondOpinionBeforeReset = secondOpinion
+        secondOpinion = SecondOpinionDefaults()
+        showNote("Second opinion reset", icon: "arrow.counterclockwise")
+    }
+
     private var paneHeading: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             Text(tab.title)
@@ -298,6 +307,20 @@ struct SettingsView: View {
                 InlineLink(title: "Reset Appearance", action: resetAppearance)
                     .padding(.leading, Space.sm)
                 if appearanceBeforeReset != nil { InlineLink(title: "Undo reset", action: undoAppearanceReset) }
+            }
+            if tab == .secondOpinion {
+                HStack(spacing: Space.md) {
+                    InlineLink(title: "Reset Second opinion", action: resetSecondOpinion)
+                    if let previous = secondOpinionBeforeReset {
+                        InlineLink(title: "Undo reset", action: {
+                            secondOpinion = previous
+                            secondOpinionBeforeReset = nil
+                        })
+                        .transition(reduceMotion ? .opacity : .fadeIn)
+                    }
+                }
+                .padding(.leading, Space.sm)
+                .motion(Motion.reveal, value: secondOpinionBeforeReset != nil)
             }
         }
     }
@@ -331,6 +354,8 @@ struct SettingsView: View {
         case .agents:
             AgentSettingsView(selectedAgent: runner.agent,
                               requestedAgent: searchedAgent)
+        case .secondOpinion:
+            SecondOpinionSettingsView(defaults: $secondOpinion)
         case .mobile:
             mobileAccess
         case .advanced:

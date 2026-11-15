@@ -192,6 +192,26 @@ enum SecondOpinionAsk {
         return "Ask \(chosen.count) reviewers"
     }
 
+    // What the reviewers can reach, under the tray. With MCP servers open it says a tool
+    // there can act, since that is the one way a reviewer could change anything.
+    static func safety(_ kind: SecondOpinionStop.Kind, usesServers: Bool, author: AgentKind) -> String {
+        let open = "Your MCP servers are open to them, and a tool there can act."
+        switch (kind, usesServers) {
+        case (.chat, false):
+            return "Read-only, and without your MCP servers. \(author.title) sees nothing they say until you send it."
+        case (.chat, true):
+            return "They can read files but not change them. \(open) \(author.title) sees nothing they say until you send it."
+        case (.changes, false):
+            return "They can read files but not change them, and run without your MCP servers."
+        case (.changes, true):
+            return "They can read files but not change them. " + open
+        case (.design, false):
+            return "They look and read. They cannot change the design or use your MCP servers."
+        case (.design, true):
+            return "They look and read, and cannot change the design. " + open
+        }
+    }
+
     static func estimate(lineup: [SecondOpinion.Reviewer]) -> String {
         let chosen = seated(lineup)
         guard !chosen.isEmpty else { return "Nobody is picked to ask." }
