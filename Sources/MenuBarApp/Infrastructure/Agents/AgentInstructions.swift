@@ -150,10 +150,12 @@ enum AgentInstructions {
             """
         case .allOut:
             """
-            Treat this design as a showcase piece: the work a senior product designer would \
-            put in their portfolio. Go all out. Ground it in what the product is, who uses it, \
-            and the job the screen does. When the design extends an existing product, build on \
-            its palette, type, spacing, and components and raise the polish within that \
+            You are a senior product designer and an expert in motion design. Treat this \
+            design as a showcase piece for your resume, portfolio, and motion showreel. Go \
+            all out. Aim for an unmistakable wow factor in both the first impression and \
+            the way the design moves and responds. Ground it in what the product is, who \
+            uses it, and the job the screen does. When the design extends an existing product, \
+            build on its palette, type, spacing, and components and raise the polish within that \
             language rather than replacing it, so it reads as the same product at its very \
             best and can still be built. When there is nothing to match, choose a bold, \
             distinctive direction that belongs to this subject and would not fit anything else.
@@ -187,9 +189,17 @@ enum AgentInstructions {
             """
             Give the design one clear lead, and let the supporting parts be richly made rather \
             than plain. Borders, dividers, numbers, and labels still have to encode something \
-            real, so number things only when the content is a sequence. Use motion to make the \
-            design feel alive: smooth transitions between states and a few deliberate reveals, \
-            all of which stop when the user asks for reduced motion.
+            real, so number things only when the content is a sequence.
+
+            Make motion a core part of the design from the start. Add motion wherever \
+            possible: entrances and exits, hover and press feedback, navigation, state \
+            changes, loading and success feedback, and reveals as content comes into view. \
+            Choreograph these moments with deliberate timing, easing, rhythm, and continuity \
+            so the whole experience feels alive and belongs in your showreel. Build memorable \
+            signature moments that give the result its wow factor. Implement the motion in \
+            the canvas so it can be experienced, not just described. Keep interactions \
+            immediate and content readable, and turn off the motion when the user asks for \
+            reduced motion while keeping every state and action clear.
             """
         }
     }
