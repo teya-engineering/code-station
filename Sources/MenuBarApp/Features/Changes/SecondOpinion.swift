@@ -284,14 +284,27 @@ enum SecondOpinion {
         // Claude Code's servers by name. Its run cannot stop to ask, so a tool it was not
         // told it may use is refused; each server named here is allowed as a whole.
         var claudeServers: [String] = []
+        // Codex's servers from its own config. Codex refuses every MCP call when it may
+        // not ask, so each of these is told to let its read-only tools through; a tool
+        // that can write is still refused. A server a plugin adds has no table to add
+        // that to, so its tools stay refused.
+        var codexServers: [String] = []
         // Servers the session keeps off, which stay off for its reviewers too.
         var disabled: [DisabledMCPServer] = []
 
         // What a session's reviewers get. A session that runs without MCP keeps its
         // reviewers without it too, and one held to some servers holds them to the same.
-        static func session(_ settings: SessionSettings?, claudeServers: [String]) -> Self? {
+        static func session(_ settings: SessionSettings?, claudeServers: [String],
+                            codexServers: [String] = []) -> Self? {
             guard settings?.mcpServersEnabled != false else { return nil }
+            let off = Set((settings?.disabledMCPServers ?? []).map(\.name))
             return Self(claudeServers: settings?.allowedMCPServerNames ?? claudeServers,
+                        // Codex reads a dot in a -c key as a step into a table, and quotes
+                        // become part of the name, so only plain names can be set this way.
+                        codexServers: codexServers.filter { name in
+                            !off.contains(name) && !name.isEmpty
+                                && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+                        },
                         disabled: settings?.disabledMCPServers ?? [])
         }
     }
@@ -323,6 +336,9 @@ enum SecondOpinion {
                              "-c", #"approval_policy="never""#]
             if let override = AgentLaunchConfiguration.disabledMCPServersOverride(codexServers) {
                 arguments += ["-c", override]
+            }
+            for name in servers?.codexServers ?? [] {
+                arguments += ["-c", "mcp_servers.\(name).default_tools_approval_mode=\"writes\""]
             }
             if let effort = reviewer.effort { arguments += ["-c", "model_reasoning_effort=\"\(effort)\""] }
             // Read-only already permits reads outside the working directory. --add-dir
@@ -366,6 +382,13 @@ enum SecondOpinion {
         guard let data = try? Data(contentsOf: url),
               let entries = ClaudeCodeManager.configurationEntries(in: data) else { return [] }
         return entries.keys.sorted()
+    }
+
+    // The servers Codex's own config.toml gives a table of their own. Plugin servers
+    // never appear here, and a table nested under a server, such as its env, is skipped.
+    static func codexServers(in url: URL = CodexCodeManager.configURL) -> [String] {
+        guard let toml = try? String(contentsOf: url.resolvingSymlinksInPath(), encoding: .utf8) else { return [] }
+        return CodexCodeManager.configuredServerNames(in: toml)
     }
 
     // The servers in Copilot's own MCP configuration, which it loads on every run and has

@@ -2643,7 +2643,8 @@ struct SessionView: View {
     // The MCP servers the session's reviewers get, when the ask lets them use any.
     private func reviewerServers(_ session: ChatSession, usesServers: Bool) -> SecondOpinion.ServerAccess? {
         guard usesServers else { return nil }
-        return .session(session.settings, claudeServers: SecondOpinion.claudeServers())
+        return .session(session.settings, claudeServers: SecondOpinion.claudeServers(),
+                        codexServers: SecondOpinion.codexServers())
     }
 
     // The whole conversation as one subject, judged against everything the person asked.

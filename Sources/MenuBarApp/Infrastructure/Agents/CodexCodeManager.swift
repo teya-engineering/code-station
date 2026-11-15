@@ -229,6 +229,29 @@ final class CodexCodeManager {
         return lines.joined(separator: "\n")
     }
 
+    // Every server with a table of its own in the file, by name: `[mcp_servers.name]`,
+    // with the name bare or quoted. Tables under a server, such as its env, are not
+    // servers of their own.
+    nonisolated static func configuredServerNames(in toml: String) -> [String] {
+        var names: [String] = []
+        for line in toml.components(separatedBy: "\n") {
+            let header = line.components(separatedBy: "#")[0].trimmingCharacters(in: .whitespaces)
+            guard header.hasPrefix("[mcp_servers."), header.hasSuffix("]"), !header.hasPrefix("[[") else { continue }
+            let key = String(header.dropFirst("[mcp_servers.".count).dropLast()).trimmingCharacters(in: .whitespaces)
+            let name: String
+            if let quote = key.first, quote == "\"" || quote == "'" {
+                let rest = key.dropFirst()
+                guard let close = rest.firstIndex(of: quote), rest[rest.index(after: close)...].isEmpty else { continue }
+                name = String(rest[..<close])
+            } else {
+                guard !key.contains(".") else { continue }
+                name = key
+            }
+            if !name.isEmpty && !names.contains(name) { names.append(name) }
+        }
+        return names
+    }
+
     func addCommand(for server: Server) -> String? {
         guard let args = Self.addArguments(for: server, executable: resolvedCommand(server)) else { return nil }
         return (["codex"] + args).map(\.shellQuoted).joined(separator: " ")

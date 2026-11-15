@@ -139,6 +139,43 @@ struct SecondOpinionDefaultsTests {
         #expect(arguments.contains("read-only"))
     }
 
+    // Codex refuses every MCP call when it may not ask. Writes mode lets the tools a
+    // server marks read-only through and still refuses the rest.
+    @Test func codexLetsOnlyReadOnlyToolsThrough() {
+        let arguments = SecondOpinion.arguments(for: SecondOpinion.Reviewer(agent: .codex), prompt: "p",
+                                                servers: .init(codexServers: ["grafana-edge", "glean"]))
+        #expect(arguments.contains(#"mcp_servers.grafana-edge.default_tools_approval_mode="writes""#))
+        #expect(arguments.contains(#"mcp_servers.glean.default_tools_approval_mode="writes""#))
+        #expect(arguments.contains(#"approval_policy="never""#))
+        #expect(!SecondOpinion.arguments(for: SecondOpinion.Reviewer(agent: .codex), prompt: "p")
+            .contains { $0.contains("default_tools_approval_mode") })
+    }
+
+    @Test func codexServersTheSessionKeepsOffOrCannotNameAreLeftOut() {
+        let access = SecondOpinion.ServerAccess.session(
+            SessionSettings(disabledMCPServers: [DisabledMCPServer(name: "browser", transport: .stdio)]),
+            claudeServers: [], codexServers: ["browser", "grafana-edge", "team.docs", "my server"])
+        #expect(access?.codexServers == ["grafana-edge"])
+    }
+
+    @Test func codexServersAreTheTablesInItsOwnConfig() {
+        let toml = """
+        model = "gpt-6"
+        [mcp_servers.grafana-edge]
+        command = "mcp-grafana"
+        [mcp_servers.grafana-edge.env]
+        TOKEN = "x"
+        [mcp_servers."glean"] # remote
+        url = "https://glean.example"
+        [mcp_servers.'team.docs']
+        command = "docs"
+        [profiles.fast]
+        model = "gpt-6-mini"
+        """
+        #expect(CodexCodeManager.configuredServerNames(in: toml) == ["grafana-edge", "glean", "team.docs"])
+        #expect(CodexCodeManager.configuredServerNames(in: "").isEmpty)
+    }
+
     @Test func aSessionWithoutMCPKeepsItsReviewersWithoutIt() {
         #expect(SecondOpinion.ServerAccess.session(SessionSettings(mcpServersEnabled: false),
                                                    claudeServers: ["files"]) == nil)
