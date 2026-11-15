@@ -373,7 +373,7 @@ struct SecondOpinionAskCard: View {
                 trayLabel("They can use")
                 VStack(alignment: .leading, spacing: Space.xs) {
                     ToggleChip("Your MCP servers", isOn: $usesServers, warns: true)
-                        .appTooltip("The MCP servers this session uses. A tool there can act, not only read.")
+                        .appTooltip("The MCP servers this session uses. Only tools a server marks read-only run.")
                     if usesServers != defaults.usesServers {
                         Text(usesServers ? "On for this ask only. Settings keeps them off."
                                          : "Off for this ask only. Settings has them on.")

@@ -192,10 +192,10 @@ enum SecondOpinionAsk {
         return "Ask \(chosen.count) reviewers"
     }
 
-    // What the reviewers can reach, under the tray. With MCP servers open it says a tool
-    // there can act, since that is the one way a reviewer could change anything.
+    // What the reviewers can reach, under the tray. With MCP servers open it says they
+    // get only the tools a server marks read-only, since the mark is the server's word.
     static func safety(_ kind: SecondOpinionStop.Kind, usesServers: Bool, author: AgentKind) -> String {
-        let open = "Your MCP servers are open to them, and a tool there can act."
+        let open = "They can use the tools your MCP servers mark read-only."
         switch (kind, usesServers) {
         case (.chat, false):
             return "Read-only, and without your MCP servers. \(author.title) sees nothing they say until you send it."

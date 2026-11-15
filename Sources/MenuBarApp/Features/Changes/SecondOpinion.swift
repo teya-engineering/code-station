@@ -279,15 +279,14 @@ enum SecondOpinion {
     }
 
     // The MCP servers a reviewer may use, as the session that asked has them. Without
-    // this a reviewer gets none: any server can write, and none is needed to read a diff.
+    // this a reviewer gets none. With it, a reviewer can only call the tools a server
+    // marks read-only: each CLI refuses the rest, so a review still changes nothing.
     struct ServerAccess: Equatable, Sendable {
-        // Claude Code's servers by name. Its run cannot stop to ask, so a tool it was not
-        // told it may use is refused; each server named here is allowed as a whole.
-        var claudeServers: [String] = []
+        // Claude Code's servers the session holds out, which its reviewers are kept from.
+        var claudeHeld: [String] = []
         // Codex's servers from its own config. Codex refuses every MCP call when it may
-        // not ask, so each of these is told to let its read-only tools through; a tool
-        // that can write is still refused. A server a plugin adds has no table to add
-        // that to, so its tools stay refused.
+        // not ask, so each of these is told to let its read-only tools through. A server
+        // a plugin adds has no table to add that to, so its tools stay refused.
         var codexServers: [String] = []
         // Servers the session keeps off, which stay off for its reviewers too.
         var disabled: [DisabledMCPServer] = []
@@ -298,7 +297,10 @@ enum SecondOpinion {
                             codexServers: [String] = []) -> Self? {
             guard settings?.mcpServersEnabled != false else { return nil }
             let off = Set((settings?.disabledMCPServers ?? []).map(\.name))
-            return Self(claudeServers: settings?.allowedMCPServerNames ?? claudeServers,
+            let held = settings?.allowedMCPServerNames.map { allowed in
+                claudeServers.filter { !allowed.contains($0) }
+            } ?? []
+            return Self(claudeHeld: held,
                         // Codex reads a dot in a -c key as a step into a table, and quotes
                         // become part of the name, so only plain names can be set this way.
                         codexServers: codexServers.filter { name in
@@ -311,7 +313,7 @@ enum SecondOpinion {
 
     // Each CLI in its strictest read-only setting, so a reviewer that reaches for an edit
     // is stopped by the agent rather than by the prompt. MCP servers stay out unless the
-    // person lets reviewers use them; then they get the ones the session has.
+    // person lets reviewers use them; then they get the session's servers, read-only.
     // The model and effort go in with the same flags a session launch uses.
     static func arguments(for reviewer: Reviewer, prompt: String,
                           addDirectories: [String] = [],
@@ -321,12 +323,15 @@ enum SecondOpinion {
         let model = reviewer.model.map { ["--model", $0] } ?? []
         switch reviewer.agent {
         case .claudeCode:
-            let allowed = ["Read", "Grep", "Glob"] + (servers?.claudeServers ?? []).map { "mcp__" + $0 }
-            // Streamed like the others, so its lane can say what it is reading.
+            let denied = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"]
+                + (servers?.claudeHeld ?? []).map { "mcp__" + $0 }
+            // Streamed like the others, so its lane can say what it is reading. With MCP,
+            // plan mode is what keeps it to read-only tools: it runs a tool its server
+            // marks read-only and refuses any other.
             return ["-p", prompt, "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "default",
-             "--allowedTools", allowed.joined(separator: ","),
-             "--disallowedTools", "Edit,Write,MultiEdit,NotebookEdit,Bash"]
+             "--permission-mode", servers == nil ? "default" : "plan",
+             "--allowedTools", "Read,Grep,Glob",
+             "--disallowedTools", denied.joined(separator: ",")]
                 + (servers == nil ? ["--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#] : [])
                 + model + (reviewer.effort.map { ["--effort", $0] } ?? [])
                 + (addDirectories.isEmpty ? [] : ["--add-dir"] + addDirectories)
@@ -349,11 +354,12 @@ enum SecondOpinion {
         case .copilot:
             // Copilot remembers what was allowed in a folder from one run to the next, and
             // a denial outranks every allowance, so writes and the shell are denied outright.
+            // With MCP, no server is allowed outright: a run that cannot ask still runs a
+            // tool its server marks read-only, and refuses any other.
             let mcp: [String]
             if let servers {
                 let off = Set(servers.disabled.map(\.name))
-                mcp = copilotServers.flatMap { off.contains($0)
-                    ? ["--disable-mcp-server", $0, "--deny-tool=\($0)"] : ["--allow-tool=\($0)"] }
+                mcp = copilotServers.filter(off.contains).flatMap { ["--disable-mcp-server", $0, "--deny-tool=\($0)"] }
             } else {
                 mcp = ["--disable-builtin-mcps"]
                     + copilotServers.flatMap { ["--disable-mcp-server", $0, "--deny-tool=\($0)"] }

@@ -109,24 +109,32 @@ struct SecondOpinionDefaultsTests {
         #expect(SecondOpinion.arguments(for: .copilot, prompt: "p").contains("--disable-builtin-mcps"))
     }
 
-    @Test func claudeIsAllowedTheSessionsServersAndStillCannotWrite() throws {
-        let access = SecondOpinion.ServerAccess(claudeServers: ["grafana", "glean"])
+    // Plan mode runs a tool its server marks read-only and refuses any other, so no
+    // server is allowed by name and a server the session holds out is denied.
+    @Test func claudeGetsOnlyReadOnlyToolsFromTheSessionsServers() throws {
+        let access = SecondOpinion.ServerAccess(claudeHeld: ["browser"])
         let arguments = SecondOpinion.arguments(for: SecondOpinion.Reviewer(agent: .claudeCode), prompt: "p", servers: access)
         #expect(!arguments.contains("--strict-mcp-config"))
+        let mode = try #require(arguments.firstIndex(of: "--permission-mode"))
+        #expect(arguments[mode + 1] == "plan")
         let allowed = try #require(arguments.firstIndex(of: "--allowedTools"))
-        #expect(arguments[allowed + 1] == "Read,Grep,Glob,mcp__grafana,mcp__glean")
+        #expect(arguments[allowed + 1] == "Read,Grep,Glob")
         let disallowed = try #require(arguments.firstIndex(of: "--disallowedTools"))
-        #expect(arguments[disallowed + 1] == "Edit,Write,MultiEdit,NotebookEdit,Bash")
+        #expect(arguments[disallowed + 1] == "Edit,Write,MultiEdit,NotebookEdit,Bash,mcp__browser")
+        let plain = SecondOpinion.arguments(for: SecondOpinion.Reviewer(agent: .claudeCode), prompt: "p")
+        #expect(plain[try #require(plain.firstIndex(of: "--permission-mode")) + 1] == "default")
     }
 
+    // A run that cannot ask still runs a tool its server marks read-only, so no server
+    // is allowed outright; that would let every one of its tools run.
     @Test func copilotUsesItsServersButNotTheOnesTheSessionKeepsOff() {
         let access = SecondOpinion.ServerAccess(disabled: [DisabledMCPServer(name: "browser", transport: .stdio)])
         let arguments = SecondOpinion.arguments(for: SecondOpinion.Reviewer(agent: .copilot), prompt: "p", copilotServers: ["browser", "files"],
                                                 servers: access)
         #expect(!arguments.contains("--disable-builtin-mcps"))
-        #expect(arguments.contains("--allow-tool=files"))
+        #expect(!arguments.contains { $0.hasPrefix("--allow-tool") })
         #expect(arguments.contains("--deny-tool=browser"))
-        #expect(!arguments.contains("--allow-tool=browser"))
+        #expect(!arguments.contains("--deny-tool=files"))
         #expect(arguments.contains("--deny-tool=shell"))
         #expect(arguments.contains("--deny-tool=write"))
     }
@@ -181,8 +189,8 @@ struct SecondOpinionDefaultsTests {
                                                    claudeServers: ["files"]) == nil)
         let held = SecondOpinion.ServerAccess.session(SessionSettings(allowedMCPServerNames: ["grafana"]),
                                                       claudeServers: ["files", "grafana"])
-        #expect(held?.claudeServers == ["grafana"])
-        #expect(SecondOpinion.ServerAccess.session(nil, claudeServers: ["files"])?.claudeServers == ["files"])
+        #expect(held?.claudeHeld == ["files"])
+        #expect(SecondOpinion.ServerAccess.session(nil, claudeServers: ["files"])?.claudeHeld == [])
     }
 
     @Test func claudesServersAreReadFromItsOwnConfiguration() throws {
@@ -193,13 +201,13 @@ struct SecondOpinionDefaultsTests {
         #expect(SecondOpinion.claudeServers(in: url.appendingPathExtension("missing")).isEmpty)
     }
 
-    @Test func theSafetyLineSaysWhenAToolCanAct() {
+    @Test func theSafetyLineSaysWhatTheServersAreOpenFor() {
         for kind in [SecondOpinionStop.Kind.chat, .changes, .design] {
             #expect(SecondOpinionAsk.safety(kind, usesServers: false, author: .codex).contains("MCP servers"))
-            #expect(SecondOpinionAsk.safety(kind, usesServers: true, author: .codex).contains("a tool there can act"))
+            #expect(SecondOpinionAsk.safety(kind, usesServers: true, author: .codex).contains("mark read-only"))
         }
         #expect(SecondOpinionAsk.safety(.chat, usesServers: true, author: .codex)
-            == "They can read files but not change them. Your MCP servers are open to them, and a tool there can act. Codex sees nothing they say until you send it.")
+            == "They can read files but not change them. They can use the tools your MCP servers mark read-only. Codex sees nothing they say until you send it.")
     }
 
     @Test func settingsSearchFindsTheMCPSwitch() throws {

@@ -358,7 +358,7 @@ struct SecondOpinionSettingsView: View {
             }
             HStack(alignment: .top, spacing: Space.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                Text("An MCP tool can act, not only read. A reviewer could post, write or start something through a server. Keep this on only if your servers are safe for that.")
+                Text("Reviewers only run the tools a server marks read-only. That mark is the server's own word, so keep this on only for servers you trust to set it right.")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
