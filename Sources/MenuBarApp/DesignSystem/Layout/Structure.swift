@@ -236,6 +236,38 @@ struct HuggingHeight: Layout {
     }
 }
 
+// A label and a flexible field share a row, or stack when the field needs the room.
+// A single child keeps the field's inset without leaving an empty label above it.
+struct FormRow: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.last else { return .zero }
+        let width = proposal.width ?? FormMetrics.dialogWidth
+        let stacked = width < FormMetrics.inlineRowWidth
+        let inset = stacked ? 0 : FormMetrics.rowLabelWidth + Space.lg
+        let contentSize = content.sizeThatFits(.init(width: max(0, width - inset), height: nil))
+        guard subviews.count > 1, let label = subviews.first else {
+            return CGSize(width: width, height: contentSize.height)
+        }
+        let labelSize = label.sizeThatFits(.init(width: stacked ? width : FormMetrics.rowLabelWidth, height: nil))
+        return CGSize(width: width, height: stacked ? labelSize.height + Space.sm + contentSize.height
+                      : max(labelSize.height, contentSize.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let content = subviews.last else { return }
+        let stacked = bounds.width < FormMetrics.inlineRowWidth
+        var point = bounds.origin
+        if subviews.count > 1, let label = subviews.first {
+            let labelProposal = ProposedViewSize(width: stacked ? bounds.width : FormMetrics.rowLabelWidth, height: nil)
+            label.place(at: point, proposal: labelProposal)
+            if stacked { point.y += label.sizeThatFits(labelProposal).height + Space.sm }
+        }
+        let inset = stacked ? 0 : FormMetrics.rowLabelWidth + Space.lg
+        point.x += inset
+        content.place(at: point, proposal: .init(width: max(0, bounds.width - inset), height: nil))
+    }
+}
+
 // Two fields share a row while there is room to read both controls.
 struct FormPair: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

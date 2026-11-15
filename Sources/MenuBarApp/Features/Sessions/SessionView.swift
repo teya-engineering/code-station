@@ -2517,6 +2517,7 @@ struct SessionView: View {
                 if let ask = opinionAsk {
                     let anchor = ask.anchor ?? headerOpinionFrame
                     opinionCard(ask, session: session)
+                        .frame(width: min(SecondOpinionAskCard.width, max(0, proxy.size.width - Space.md * 2)))
                         .onGeometryChange(for: CGSize.self) { $0.size } action: { opinionCardSize = $0 }
                         .offset(Self.place(opinionCardSize, under: anchor, in: proxy.size,
                                            trailing: ask.anchor == nil))

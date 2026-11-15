@@ -96,10 +96,10 @@ struct SecondOpinionAskTests {
         #expect(SecondOpinionAsk.askTitle(lineup: [codex, codex], hasFocus: true) == "Ask Codex")
         #expect(SecondOpinionAsk.askTitle(lineup: [codex, copilot], hasFocus: true) == "Ask Codex and Copilot")
         #expect(SecondOpinionAsk.askTitle(lineup: [codex, codexMini], hasFocus: true) == "Ask 2 reviewers")
-        #expect(SecondOpinionAsk.estimate(lineup: []) == "Nobody is picked to ask.")
-        #expect(SecondOpinionAsk.estimate(lineup: [SecondOpinion.Reviewer(agent: .codex, effort: "low"),
-                                                  SecondOpinion.Reviewer(agent: .copilot, effort: "xhigh")])
-                == "About 6 min. You can keep working.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: true) == "Choose at least one reviewer.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: false) == "Choose at least one reviewer.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: false) == "Choose what to look for or add a note.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: true) == nil)
     }
 
     @Test func wordsTheyWriteJoinWhatTheyTicked() {
@@ -134,8 +134,94 @@ struct SecondOpinionAskTests {
 // The card keeps one size while the knob moves, so it never jumps under the pointer, and
 // it keeps to its content whatever room it is offered.
 @MainActor
+@Suite(.serialized)
 struct SecondOpinionAskCardLayoutTests {
     private let testPreferences = TestPreferences()
+
+    @Test func expandedOptionsFitNarrowCardsAndBothAppearances() async throws {
+        let facts = SecondOpinionAskFacts(origin: .header, files: [
+            .init(root: "/repo", path: "src/RetryPolicy.swift", added: 18, removed: 9)
+        ])
+        let lineup = [SecondOpinion.Reviewer(agent: .claudeCode, model: "opus"),
+                      SecondOpinion.Reviewer(agent: .codex, model: "gpt-6-astra"),
+                      SecondOpinion.Reviewer(agent: .copilot)]
+        for width: CGFloat in [320, 480] {
+            for dark in [false, true] {
+                for reducedMotion in [false, true] {
+                    let card = SecondOpinionAskCard(
+                        facts: facts, stop: .constant(.uncommitted), author: lineup[1],
+                        installed: [.claudeCode, .codex, .copilot], lineup: lineup,
+                        changesFocus: Set(SecondOpinion.Focus.standard), startsTuning: true,
+                        ask: { _ in }, close: {})
+                        .environment(DialogPresenter())
+                        .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+                        .environment(TooltipPresenter())
+                        .environment(MenuPresenter())
+                        .environment(\.colorScheme, dark ? .dark : .light)
+                        .environment(\._accessibilityReduceMotion, reducedMotion)
+                    let host = NSHostingController(rootView: card)
+                    host.sizingOptions = []
+                    let measured = host.sizeThatFits(in: CGSize(width: width, height: 2000))
+                    #expect(measured.width == width)
+                    #expect(measured.height > 500)
+                    #expect(measured.height < 1000)
+                    let window = NSWindow(contentRect: NSRect(origin: .zero, size: measured),
+                                          styleMask: [.titled], backing: .buffered, defer: false)
+                    window.contentViewController = host
+                    window.setContentSize(measured)
+                    host.view.frame = NSRect(origin: .zero, size: measured)
+                    window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                    window.center()
+                    window.layoutIfNeeded()
+                    try await Task.sleep(for: .milliseconds(100))
+                    if let folder = ProcessInfo.processInfo.environment["WORKSPACE_REVIEW_DIRECTORY"] {
+                        let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+                        host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
+                        try #require(bitmap.representation(using: .png, properties: [:]))
+                            .write(to: URL(fileURLWithPath: folder).appendingPathComponent(
+                                "opinion-\(Int(width))-\(dark ? "dark" : "light")-\(reducedMotion).png"))
+                    }
+                    window.contentViewController = nil
+                }
+            }
+        }
+    }
+
+    @Test func formFieldsFillTheColumnAndLongModelNamesWrap() {
+        for width: CGFloat in [296, 456] {
+            var labelFrame = CGRect.zero
+            var fieldFrame = CGRect.zero
+            var modelFrame = CGRect.zero
+            var effortFrame = CGRect.zero
+            let row = FormRow {
+                Text("Claude Code")
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("row")) } action: { labelFrame = $0 }
+                HStack(alignment: .top, spacing: Space.sm) {
+                    SeatPill(form: true) { Text("A very long model name with a version and provider") }
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("row")) } action: { modelFrame = $0 }
+                    SeatPill(form: true) { Text("Default") }
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("row")) } action: { effortFrame = $0 }
+                }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("row")) } action: { fieldFrame = $0 }
+            }
+            .coordinateSpace(name: "row")
+            .frame(width: width)
+            let host = NSHostingView(rootView: row)
+            host.frame = NSRect(x: 0, y: 0, width: width, height: 300)
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            #expect(abs(fieldFrame.maxX - width) < 1)
+            #expect(abs(effortFrame.maxX - width) < 1)
+            #expect(abs(modelFrame.width - effortFrame.width) < 1)
+            #expect(modelFrame.height > ControlHeight.sm)
+            if width < FormMetrics.inlineRowWidth {
+                #expect(fieldFrame.minX == 0)
+                #expect(fieldFrame.minY >= labelFrame.maxY + Space.sm)
+            } else {
+                #expect(fieldFrame.minX == FormMetrics.rowLabelWidth + Space.lg)
+            }
+        }
+    }
 
     @Test func theCardKeepsItsHeightAsTheSubjectChanges() {
         let answer = ChatSecondOpinion.Subject(kind: .answer, id: "answer:1",

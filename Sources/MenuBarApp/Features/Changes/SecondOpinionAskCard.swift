@@ -57,13 +57,14 @@ struct SecondOpinionAskCard: View {
     @State private var designReading = DesignSecondOpinion.Reading()
     @State private var note = ""
     @State private var tuning = false
+    @FocusState private var tuneFocused: Bool
     @Environment(SessionRunner.self) private var runner
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(facts: SecondOpinionAskFacts, stop: Binding<SecondOpinionStop>, author: SecondOpinion.Reviewer,
          installed: [AgentKind], running: Set<SecondOpinion.Reviewer> = [],
          sinceReviewFiles: Set<String>? = nil, lineup: [SecondOpinion.Reviewer],
-         changesFocus: Set<SecondOpinion.Focus>,
+         changesFocus: Set<SecondOpinion.Focus>, startsTuning: Bool = false,
          ask: @escaping (SecondOpinionAskChoice) -> Void, close: @escaping () -> Void) {
         self.facts = facts
         self._stop = stop
@@ -75,6 +76,7 @@ struct SecondOpinionAskCard: View {
         self.close = close
         _lineup = State(initialValue: lineup)
         _changesFocus = State(initialValue: changesFocus)
+        _tuning = State(initialValue: startsTuning)
     }
 
     private var stops: [SecondOpinionStop] { SecondOpinionAsk.stops(facts) }
@@ -116,12 +118,18 @@ struct SecondOpinionAskCard: View {
             footer
         }
         .padding(Space.card)
-        .frame(width: Self.width, alignment: .leading)
+        .frame(minWidth: 0, idealWidth: Self.width, maxWidth: Self.width, alignment: .leading)
         .floatingCard(cornerRadius: Radius.floating)
         .motion(Motion.reveal, value: tuning)
-        // Escape closes the card, and the control that opened it gets the keyboard back.
         .background {
-            Button(action: close) { EmptyView() }
+            Button {
+                if tuning {
+                    tuning = false
+                    tuneFocused = true
+                } else {
+                    close()
+                }
+            } label: { EmptyView() }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 .opacity(0)
@@ -263,20 +271,34 @@ struct SecondOpinionAskCard: View {
     // MARK: Seats
 
     private var seats: some View {
-        HStack(spacing: Space.sm) {
-            if installed.isEmpty {
-                Text(SecondOpinionLineup.installHint(author: author.agent))
-                    .font(Typography.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        ViewThatFits(in: .horizontal) {
+            seatRow
+            FlowRow(spacing: Space.sm) {
+                seatChoices
+                tuneButton
             }
-            ForEach(installed, id: \.self) { agent in
-                seatButton(agent)
-            }
-            Spacer(minLength: 0)
-            tuneButton
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Who reviews")
+    }
+
+    private var seatRow: some View {
+        HStack(spacing: Space.sm) {
+            seatChoices
+            Spacer(minLength: 0)
+            tuneButton
+        }
+    }
+
+    @ViewBuilder private var seatChoices: some View {
+        if installed.isEmpty {
+            Text(SecondOpinionLineup.installHint(author: author.agent))
+                .font(Typography.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        ForEach(installed, id: \.self) { agent in
+            seatButton(agent)
+        }
     }
 
     private func seatButton(_ agent: AgentKind) -> some View {
@@ -301,13 +323,16 @@ struct SecondOpinionAskCard: View {
 
     private var tuneButton: some View {
         TuneButton(open: tuning, changed: tuned) { tuning.toggle() }
+            .focused($tuneFocused)
+            .focusEffectDisabled()
+            .overlay { FocusRingStroke(focused: tuneFocused) }
     }
 
     // MARK: Tune
 
     private var tray: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
-            GridRow {
+        VStack(alignment: .leading, spacing: Space.md) {
+            FormRow {
                 trayLabel("Look for")
                 VStack(alignment: .leading, spacing: Space.sm) {
                     FlowRow(spacing: Space.sm) { focusChips }
@@ -316,24 +341,34 @@ struct SecondOpinionAskCard: View {
                         .accessibilityLabel("Anything else to look for")
                 }
             }
-            GridRow {
+            FormRow {
                 trayLabel("They read")
                 FlowRow(spacing: Space.sm) { readingChips }
             }
             ForEach(Array(lineup.enumerated()), id: \.offset) { index, seat in
-                GridRow {
+                FormRow {
                     trayLabel(seat.agent.title)
-                    HStack(spacing: Space.sm) {
-                        modelMenu(seat, at: index)
-                        effortMenu(seat, at: index)
-                        IndependenceMeter(independence: SecondOpinion.independence(of: seat, from: author))
-                        Text(SecondOpinion.independence(of: seat, from: author).line)
-                            .font(Typography.caption).foregroundStyle(.secondary).lineLimit(1)
+                    VStack(alignment: .leading, spacing: Space.sm) {
+                        HStack(alignment: .top, spacing: Space.sm) {
+                            modelMenu(seat, at: index)
+                            effortMenu(seat, at: index)
+                        }
+                        HStack(alignment: .top, spacing: Space.sm) {
+                            IndependenceMeter(independence: SecondOpinion.independence(of: seat, from: author))
+                                .fixedSize()
+                                .padding(.top, Space.xs)
+                            Text(SecondOpinion.independence(of: seat, from: author).line)
+                                .font(Typography.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentTransition(.opacity)
+                        }
+                        .motion(Motion.control, value: seat)
                     }
                 }
+                .transition(reduceMotion ? .opacity : .fold)
             }
-            GridRow {
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+            FormRow {
                 VStack(alignment: .leading, spacing: Space.sm) {
                     if !lineup.isEmpty && lineup == usual {
                         Label("Your usual reviewers", systemImage: "checkmark")
@@ -352,11 +387,13 @@ struct SecondOpinionAskCard: View {
         }
         .padding(.top, Space.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .motion(Motion.reveal, value: lineup)
     }
 
     private func trayLabel(_ title: String) -> some View {
-        Text(title).font(Typography.caption).foregroundStyle(.secondary).lineLimit(1)
-            .gridColumnAlignment(.leading)
+        Text(title).font(Typography.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, Space.xs)
     }
 
     @ViewBuilder private var focusChips: some View {
@@ -412,8 +449,8 @@ struct SecondOpinionAskCard: View {
 
     private func modelMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
         let title = seat.model.map { runner.modelTitle($0) } ?? "Default"
-        return SeatPill { Text(title) }
-            .appMenu {
+        return SeatPill(form: true) { Text(title).contentTransition(.opacity) }
+            .appMenu(showsFocusRing: true) {
                 runner.modelOptions(for: seat.agent).map { option in
                     var changed = seat
                     changed.model = option.id
@@ -434,11 +471,12 @@ struct SecondOpinionAskCard: View {
     private func effortMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
         let levels = runner.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
         let title = seat.effort.map { runner.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
-        return SeatPill {
-            EffortMeter(lit: EffortMeter.lit(for: seat.effort, among: levels), height: 11)
-            Text(title)
+        return SeatPill(form: true) {
+            EffortMeter(lit: EffortMeter.lit(for: seat.effort, among: levels), height: Typography.Size.caption)
+                .fixedSize()
+            Text(title).contentTransition(.opacity)
         }
-        .appMenu {
+        .appMenu(showsFocusRing: true) {
             [MenuEntry.item("Default", meter: 0, checked: seat.effort == nil,
                             subtitle: "Whatever \(seat.agent.title) is set to use",
                             detail: "about \(SecondOpinion.minutes(for: nil)) min") {
@@ -460,9 +498,14 @@ struct SecondOpinionAskCard: View {
 
     private var footer: some View {
         let title = SecondOpinionAsk.askTitle(lineup: asked, hasFocus: hasFocus)
+        let blockedReason = SecondOpinionAsk.blockedReason(lineup: asked, hasFocus: hasFocus)
         return HStack(spacing: Space.md) {
-            Text(SecondOpinionAsk.estimate(lineup: asked))
-                .font(Typography.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let blockedReason {
+                Text(blockedReason)
+                    .font(Typography.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
             Spacer(minLength: 0)
             ActionButton(title: title, tone: .green, shortcut: "↩", keyboardShortcut: .defaultAction) {
                 ask(SecondOpinionAskChoice(
@@ -473,7 +516,8 @@ struct SecondOpinionAskCard: View {
                     designFocus: DesignSecondOpinion.Focus.allCases.filter(designFocus.contains),
                     designReading: designReading, note: note.trimmed))
             }
-            .disabled(asked.isEmpty || !hasFocus)
+            .disabled(blockedReason != nil)
+            .accessibilityHint(blockedReason ?? "")
             .contentTransition(.opacity)
         }
         .motion(Motion.control, value: title)
