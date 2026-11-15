@@ -538,14 +538,14 @@ struct GlobalCommandPalette: View {
             let live = LiveConversation.id(of: session.id, store: store, runner: runner)
             let question = runner.question(live)
             let finished = store.isUnread(session.id)
-            let busy = runner.state(live).isBusy
+            let busy = runner.state(live).isBusy || runner.isAskingSecondOpinion(session.id)
             let needsAttention = question != nil || finished
             let badge: String? = if question != nil {
                 "ANSWER"
             } else if finished {
                 "REVIEW"
             } else if busy {
-                runner.completionActivity(live)?.label.uppercased() ?? "RUNNING"
+                runner.rowActivity(session.id, live: live)?.label.uppercased() ?? "RUNNING"
             } else {
                 nil
             }

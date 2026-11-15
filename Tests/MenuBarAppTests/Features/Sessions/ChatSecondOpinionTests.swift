@@ -126,6 +126,20 @@ struct ChatSecondOpinionTests {
         #expect(store.opinions(session).first?.sent == nil)
     }
 
+    // The session is told once, when the last seat ends, not once for every reviewer.
+    @MainActor @Test func theSessionHearsOnceWhenTheLastSeatEnds() async {
+        let store = ChatOpinionStore()
+        store.askReviewer = { _, _, _, _ in .success(.init(verdict: .agrees, summary: "Sound.", points: [])) }
+        var settled: [UUID] = []
+        store.onSettled = { settled.append($0) }
+        let session = UUID()
+        store.ask(request(), reviewers: [codex, copilot],
+                  executables: [.codex: "/bin/codex", .copilot: "/bin/copilot"], anchor: nil, in: session)
+
+        #expect(await waitUntil { store.opinions(session).first?.isRunning == false })
+        #expect(settled == [session])
+    }
+
     @MainActor @Test func aSeatWithNoInstalledAgentIsLeftOut() {
         let store = ChatOpinionStore()
         #expect(store.ask(request(), reviewers: [copilot], executables: [.codex: "/bin/codex"],

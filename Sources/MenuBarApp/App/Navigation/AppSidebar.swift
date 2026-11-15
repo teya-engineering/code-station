@@ -685,10 +685,10 @@ struct AppSidebar: View {
                             waitingSince: runner.waitingSince(live.id),
                             needsInput: runner.question(live.id) != nil,
                             finished: finished,
-                            completionActivity: runner.completionActivity(live.id),
+                            completionActivity: runner.rowActivity(session.id, live: live.id),
                             snoozed: snooze,
                             activity: { [runner, store] in
-                                Self.activity(live, runner: runner, store: store)
+                                Self.activity(live, of: session.id, runner: runner, store: store)
                             },
                             branch: branch(session),
                             uncommitted: uncommitted(session),
@@ -1172,9 +1172,9 @@ struct AppSidebar: View {
     // else reads from the saved summary, so the rail never observes transcript writes.
     // A pending permission is left out: a session waiting on one is already on the
     // needs-you card above.
-    private static func activity(_ session: ChatSession, runner: SessionRunner,
+    private static func activity(_ session: ChatSession, of rowID: UUID, runner: SessionRunner,
                                  store: ProjectStore) -> String? {
-        if let activity = runner.completionActivity(session.id) { return activity.label }
+        if let activity = runner.rowActivity(rowID, live: session.id) { return activity.label }
         let runningTool = runner.state(session.id).isBusy ? runner.runningTool(session.id) : nil
         let tasks = runner.backgroundTasks(session.id)
         // A card with nothing to say draws no line, where a wider row would say so in words.

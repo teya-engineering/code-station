@@ -407,6 +407,8 @@ final class DesignOpinionStore {
     private(set) var opinions: [UUID: DesignOpinion] = [:]
     @ObservationIgnored private var tasks: [UUID: [SecondOpinion.Reviewer: Task<Void, Never>]] = [:]
     @ObservationIgnored private var captures: [UUID: Task<Void, Never>] = [:]
+    // Called with the session when its last reviewer ends on its own, not when stopped.
+    @ObservationIgnored var onSettled: ((UUID) -> Void)?
     // How the screens are pictured and a reviewer is asked; tests swap in their own.
     @ObservationIgnored var captureScreens: @MainActor ([DesignScreen], URL, URL) async -> [DesignSecondOpinion.Shot] = {
         await DesignSecondOpinion.capture($0, in: $1, to: $2)
@@ -479,6 +481,7 @@ final class DesignOpinionStore {
             case .failure(let failure): lane.state = .failed(failure.message)
             }
         }
+        if opinions[sessionID]?.isRunning == false { onSettled?(sessionID) }
     }
 
     func stop(_ seat: SecondOpinion.Reviewer, in sessionID: UUID) {

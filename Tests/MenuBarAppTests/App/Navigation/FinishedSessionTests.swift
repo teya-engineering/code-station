@@ -28,6 +28,61 @@ struct FinishedSessionTests {
 
     // The result of the session being read is already on screen, so there is nothing to
     // come back to.
+    // A second opinion ends outside any turn but leaves something to read all the same.
+    @Test func aSecondOpinionMarksASessionOutOfSightAndSaysSo() {
+        let background = store.newSession(in: project.id)
+        let open = store.newSession(in: project.id)
+
+        store.selection = .session(open.id)
+        store.noteSecondOpinionReady(for: background.id)
+
+        #expect(store.hasFinished(background.id))
+        #expect(store.hasSecondOpinionReady(background.id))
+
+        // A turn ending afterwards is the newer news.
+        store.noteTurnEnded(for: background.id)
+        #expect(store.hasSecondOpinionReady(background.id) == false)
+    }
+
+    @Test func aSecondOpinionLeavesTheSessionOnScreenAlone() {
+        let open = store.newSession(in: project.id)
+
+        store.selection = .session(open.id)
+        store.noteSecondOpinionReady(for: open.id)
+
+        #expect(store.hasFinished(open.id) == false)
+        #expect(store.hasSecondOpinionReady(open.id) == false)
+    }
+
+    // The agent is idle while a reviewer works, so the row names the reviewer's work
+    // instead of reading IDLE, and says it is done once it is.
+    @Test func aRunningSecondOpinionNamesItselfAndMarksTheSessionWhenItEnds() async {
+        let preferences = TestPreferences()
+        let runner = SessionRunner(preferences: preferences.store, paths: [:])
+        runner.opinions.onSettled = { [store] in runner.secondOpinionSettled($0, store: store) }
+        let background = store.newSession(in: project.id)
+        let open = store.newSession(in: project.id)
+        store.selection = .session(open.id)
+        let subject = ChatSecondOpinion.Subject(kind: .plan, id: "plan:1", text: "1. Retry.", request: "Plan it.")
+        let request = ChatSecondOpinion.Request(subject: subject, reading: .init(), conversation: "",
+                                                directories: ["/repo"], executable: "/bin/codex")
+        let release = AsyncStream<Void>.makeStream()
+        runner.opinions.askReviewer = { [stream = release.stream] _, _, _, _ in
+            for await _ in stream { break }
+            return .success(.init(verdict: .agrees, summary: "Sound.", points: []))
+        }
+
+        runner.opinions.ask(request, reviewers: [.init(agent: .codex)], executables: [.codex: "/bin/codex"],
+                            anchor: nil, in: background.id)
+        #expect(runner.rowActivity(background.id, live: background.id) == .secondOpinion)
+        #expect(store.hasFinished(background.id) == false)
+
+        release.continuation.yield()
+        #expect(await waitUntil { !runner.isAskingSecondOpinion(background.id) })
+        #expect(runner.rowActivity(background.id, live: background.id) == nil)
+        #expect(store.hasSecondOpinionReady(background.id))
+    }
+
     @Test func leavesTheSessionOnScreenAlone() {
         let open = store.newSession(in: project.id)
 

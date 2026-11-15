@@ -161,7 +161,7 @@ struct SessionWorkingSet: View {
         }
         switch tone {
         case .running:
-            if let activity = runner.completionActivity(live) {
+            if let activity = runner.rowActivity(session.id, live: live) {
                 return HeaderStatus(word: activity.label, line: activity.detail,
                                     elapsedSince: runner.turnStarted(live))
             }

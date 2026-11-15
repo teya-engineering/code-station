@@ -25,12 +25,16 @@ enum SidebarNotices {
             let live = LiveConversation.id(of: session.id, store: store, runner: runner)
             let question = runner.question(live)
             let working = runner.state(live).isBusy && !runner.isWrappingUp(live)
+            let asking = runner.isAskingSecondOpinion(session.id)
             guard let notice = SessionNotice(
-                isBusy: working || runner.isAskingSecondOpinion(session.id),
+                isBusy: working || asking,
                 needsInput: question != nil,
                 finishedUnseen: store.hasFinished(session.id)) else { return nil }
+            let secondOpinion = notice == .running
+                ? asking && !working : store.hasSecondOpinionReady(session.id)
             return NoticedSession(session: session, project: project, notice: notice,
-                                  reason: reason(notice, question: question))
+                                  reason: reason(notice, question: question,
+                                                 secondOpinion: secondOpinion))
         }
         .sorted(by: comesFirst)
     }
@@ -43,7 +47,8 @@ enum SidebarNotices {
         return first.session.lastActivity > second.session.lastActivity
     }
 
-    static func reason(_ notice: SessionNotice, question: PermissionRequest?) -> String {
+    static func reason(_ notice: SessionNotice, question: PermissionRequest?,
+                       secondOpinion: Bool = false) -> String {
         switch notice {
         case .needsInput:
             guard let question else { return "waiting on an answer" }
@@ -51,9 +56,9 @@ enum SidebarNotices {
                 ? "question · \(question.title.lowercased())"
                 : "permission · \(question.toolName.lowercased())"
         case .running:
-            return "running"
+            return secondOpinion ? "getting a second opinion" : "running"
         case .finished:
-            return "finished while away"
+            return secondOpinion ? "second opinion ready" : "finished while away"
         }
     }
 }

@@ -6,6 +6,9 @@ import Observation
 final class SessionAttention {
     var finished: Set<UUID> = []
     var markedUnread: Set<UUID> = []
+    // Finished sessions whose news is a second opinion rather than a turn, so the notice
+    // can say which. Only read alongside `finished`, so a stale entry says nothing.
+    var secondOpinionReady: Set<UUID> = []
     @ObservationIgnored var applicationIsActive = true
 
     @discardableResult

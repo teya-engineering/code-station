@@ -446,6 +446,7 @@ final class ProjectStore {
         // A snooze that was to last until the reply has had it, so the reply is told of
         // like any other.
         if snooze(of: visibleID)?.endsOnReply == true { wake(visibleID) }
+        attention.secondOpinionReady.remove(visibleID)
         let isVisible = sessionID != visibleID
             ? holds[sessionID]?.contains(.open) == true
             : selection == .session(visibleID)
@@ -507,6 +508,17 @@ final class ProjectStore {
     }
 
     func hasFinished(_ sessionID: UUID) -> Bool { finished.contains(sessionID) }
+
+    @discardableResult
+    func noteSecondOpinionReady(for sessionID: UUID) -> Bool {
+        guard noteTurnEnded(for: sessionID) else { return false }
+        attention.secondOpinionReady.insert(userFacingSessionID(for: sessionID))
+        return true
+    }
+
+    func hasSecondOpinionReady(_ sessionID: UUID) -> Bool {
+        finished.contains(sessionID) && attention.secondOpinionReady.contains(sessionID)
+    }
 
     // Whether the session is waiting to be read, either because a turn ended unseen or
     // because the person marked it to come back to.

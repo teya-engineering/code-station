@@ -1,13 +1,16 @@
 import Foundation
 
+// Work a running session is doing that is not the agent's own turn, named in place of
+// RUNNING so the row says what is actually happening.
 enum SessionCompletionActivity: Equatable {
-    case title, recap, finishing
+    case title, recap, finishing, secondOpinion
 
     var label: String {
         switch self {
         case .title: "Generating title"
         case .recap: "Writing recap"
         case .finishing: "Finishing up"
+        case .secondOpinion: "Second opinion"
         }
     }
 
@@ -16,6 +19,7 @@ enum SessionCompletionActivity: Equatable {
         case .title: "Naming the session from its conversation."
         case .recap: "Summarising the completed turn."
         case .finishing: "The agent has reported completion. Waiting for its process to close."
+        case .secondOpinion: "Another agent is reviewing the work. This session's own agent is idle."
         }
     }
 }
@@ -68,6 +72,26 @@ extension SessionRunner {
         reviews.isReviewing(sessionID)
             || opinions.opinions(sessionID).contains(where: \.isRunning)
             || designOpinions.opinion(sessionID)?.isRunning == true
+    }
+
+    // What a running row says in place of RUNNING. The second opinion only names the
+    // work when the agent is idle, since a turn in flight is the bigger news.
+    @MainActor
+    func rowActivity(_ sessionID: UUID, live: UUID) -> SessionCompletionActivity? {
+        if let activity = completionActivity(live) { return activity }
+        return !state(live).isBusy && isAskingSecondOpinion(sessionID) ? .secondOpinion : nil
+    }
+
+    // Called when the last reviewer working for a session ends. It leaves the person
+    // something to read just like a finished turn does, so it is told the same way. A
+    // turn still running will say so itself when it ends.
+    @MainActor
+    func secondOpinionSettled(_ sessionID: UUID, store: ProjectStore) {
+        guard !isAskingSecondOpinion(sessionID), !state(sessionID).isBusy,
+              let session = store.session(sessionID) else { return }
+        store.noteSecondOpinionReady(for: sessionID)
+        AppNotifier.shared.secondOpinionReady(sessionID: store.userFacingSessionID(for: sessionID),
+                                              sessionTitle: session.title)
     }
 }
 

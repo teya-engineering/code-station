@@ -69,6 +69,13 @@ struct SidebarNoticesTests {
             == "finished while away")
     }
 
+    @Test func aSecondOpinionSaysSoWhileItRunsAndWhenItIsIn() {
+        #expect(SidebarNotices.reason(.running, question: nil, secondOpinion: true)
+            == "getting a second opinion")
+        #expect(SidebarNotices.reason(.finished, question: nil, secondOpinion: true)
+            == "second opinion ready")
+    }
+
     // MARK: - What comes first
 
     // Waiting on a person outranks everything: it is the only kind anyone has to act on.

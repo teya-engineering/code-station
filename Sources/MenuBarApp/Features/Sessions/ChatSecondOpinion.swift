@@ -288,6 +288,8 @@ final class ChatOpinionStore {
     private(set) var opinions: [UUID: [ChatOpinion]] = [:]
     // Each opinion's runs, by the opinion's id.
     @ObservationIgnored private var tasks: [UUID: [SecondOpinion.Reviewer: Task<Void, Never>]] = [:]
+    // Called with the session when its last reviewer ends on its own, not when stopped.
+    @ObservationIgnored var onSettled: ((UUID) -> Void)?
     // How a reviewer is asked; tests swap in their own so nothing is run.
     @ObservationIgnored var askReviewer: @Sendable (ChatSecondOpinion.Request, SecondOpinion.Reviewer, String,
                                                     @escaping @Sendable (String) -> Void)
@@ -369,6 +371,7 @@ final class ChatOpinionStore {
             case .failure(let failure): lane.state = .failed(failure.message)
             }
         }
+        if !opinions(sessionID).contains(where: \.isRunning) { onSettled?(sessionID) }
     }
 
     func toggle(_ pointID: UUID, of id: UUID, in sessionID: UUID) {

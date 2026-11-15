@@ -733,6 +733,8 @@ final class ReviewCommentStore {
     @ObservationIgnored private var sentTexts: [UUID: [String: String]] = [:]
 
     @ObservationIgnored private var tasks: [UUID: [SecondOpinion.Reviewer: Task<Void, Never>]] = [:]
+    // Called with the session when its last reviewer ends on its own, not when stopped.
+    @ObservationIgnored var onSecondOpinionSettled: ((UUID) -> Void)?
     @ObservationIgnored private let url: URL?
     @ObservationIgnored private let roundsURL: URL?
     @ObservationIgnored private let questionsURL: URL?
@@ -1072,6 +1074,7 @@ final class ReviewCommentStore {
         case .success(let found): runs[sessionID]?[index].state = .finished(found: found.count)
         case .failure(let failure): runs[sessionID]?[index].state = .failed(failure.message)
         }
+        if !isReviewing(sessionID) { onSecondOpinionSettled?(sessionID) }
     }
 
     // MARK: - Rounds

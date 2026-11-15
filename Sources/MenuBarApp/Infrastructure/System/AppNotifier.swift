@@ -36,24 +36,38 @@ final class AppNotifier: NSObject {
 
     func turnEnded(sessionID: UUID, sessionTitle: String, failure: String?) {
         guard isMuted?(sessionID) != true else { return }
-        // Played from here rather than left to the notification, so a turn finishing is
-        // heard while the window is open on another session too, and so the chosen sound
-        // is the only one: a notification carrying its own would double up on it. It
-        // waits for the beat the sidebar's tick starts drawing on, so sound and sight
-        // land together.
-        if isBundled {
-            let sound = Preferences.sessionFinishedSound()
-            Task {
-                try? await Task.sleep(for: TurnMotion.soundBeat)
-                sound.play()
-            }
-        }
+        playFinishedSound()
         post(identifier: "finished-\(sessionID.uuidString)",
              sessionID: sessionID,
              title: sessionTitle,
              body: failure.map { "The turn failed: \(Self.firstLine($0))" }
                 ?? "Finished and waiting for you.",
              sound: nil)
+    }
+
+    // A second opinion can take minutes, long enough for the person to move on, and it
+    // ends with something to read just like a turn does.
+    func secondOpinionReady(sessionID: UUID, sessionTitle: String) {
+        guard isMuted?(sessionID) != true else { return }
+        playFinishedSound()
+        post(identifier: "opinion-\(sessionID.uuidString)",
+             sessionID: sessionID,
+             title: sessionTitle,
+             body: "The second opinion is in and waiting for you.",
+             sound: nil)
+    }
+
+    // Played from here rather than left to the notification, so a session finishing is
+    // heard while the window is open on another session too, and so the chosen sound is
+    // the only one: a notification carrying its own would double up on it. It waits for
+    // the beat the sidebar's tick starts drawing on, so sound and sight land together.
+    private func playFinishedSound() {
+        guard isBundled else { return }
+        let sound = Preferences.sessionFinishedSound()
+        Task {
+            try? await Task.sleep(for: TurnMotion.soundBeat)
+            sound.play()
+        }
     }
 
     func needsInput(sessionID: UUID, sessionTitle: String, request: PermissionRequest) {
@@ -82,7 +96,7 @@ final class AppNotifier: NSObject {
     func clear(sessionID: UUID) {
         guard let center else { return }
         let identifiers = ["finished-\(sessionID.uuidString)", "input-\(sessionID.uuidString)",
-                           "stuck-\(sessionID.uuidString)"]
+                           "stuck-\(sessionID.uuidString)", "opinion-\(sessionID.uuidString)"]
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
         pending.removeAll { identifiers.contains($0.identifier) }
     }

@@ -46,6 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             afterTurn(sessionID)
             pullRequestReviews.turnEnded(sessionID)
         }
+        let opinionSettled: (UUID) -> Void = { [weak runner, projects] sessionID in
+            runner?.secondOpinionSettled(sessionID, store: projects)
+        }
+        runner.reviews.onSecondOpinionSettled = opinionSettled
+        runner.opinions.onSettled = opinionSettled
+        runner.designOpinions.onSettled = opinionSettled
         return runner
     }()
     private lazy var scheduledTasks = ScheduledTaskService(
