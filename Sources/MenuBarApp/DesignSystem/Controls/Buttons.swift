@@ -180,6 +180,7 @@ struct InlineLink: View {
 struct GlyphButton: View {
     let icon: String
     var side: CGFloat = ControlHeight.md
+    var circular = false
     // A toggle that is on wears the accent fill, the way a pressed tool does.
     var active = false
     var tint: Color? = nil
@@ -215,14 +216,15 @@ struct GlyphButton: View {
             .actOut(icon, trigger: actOuts)
             .foregroundStyle(active ? Color.white : tint ?? Color.secondary)
             .frame(width: side, height: side)
-            .surface(fill, cornerRadius: side * 0.27, border: active ? .clear : Theme.border)
-            .contentShape(RoundedRectangle(cornerRadius: side * 0.27))
+            .surface(fill, cornerRadius: circular ? side / 2 : side * 0.27,
+                     border: active ? .clear : Theme.border)
+            .contentShape(RoundedRectangle(cornerRadius: circular ? side / 2 : side * 0.27))
     }
 
     private var fill: Color {
         let lit = hovering && isEnabled
         if active { return lit ? Theme.accentFill.opacity(0.86) : Theme.accentFill }
-        return lit ? Theme.field : .clear
+        return lit ? Theme.field : circular ? Theme.card : .clear
     }
 }
 

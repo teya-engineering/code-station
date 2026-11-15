@@ -104,7 +104,7 @@ struct DesignConversationDismissalTests {
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         }
-        let corner = try click(CGPoint(x: 400, y: 150))
+        let corner = try click(CGPoint(x: 420, y: 160))
         #expect(observer.handle(corner, frontmost: window) === corner)
         _ = observer.handle(try click(CGPoint(x: 600, y: 400)), frontmost: window)
         let composer = try click(CGPoint(x: 100, y: 40))
@@ -119,6 +119,28 @@ struct DesignConversationDismissalTests {
         observer.expanded = true
         _ = observer.handle(body, frontmost: window)
         #expect(expands == 1)
+    }
+
+    @Test(arguments: [false, true])
+    func overlappingCornerClicksReachTheButtonWithoutChangingThePanel(expanded: Bool) throws {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let observer = DesignConversationDismissal.ObserverView(frame: CGRect(x: 20, y: 20, width: 405, height: 144))
+        window.contentView?.addSubview(observer)
+        defer { observer.stop() }
+        observer.expanded = expanded
+        observer.footerHeight = 50
+        var changes = 0
+        observer.expand = { changes += 1 }
+        observer.collapse = { _ in changes += 1 }
+        for point in [CGPoint(x: 420, y: 160), CGPoint(x: 429, y: 160),
+                      CGPoint(x: 420, y: 168), CGPoint(x: 427, y: 166)] {
+            let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            #expect(observer.handle(event, frontmost: window) === event)
+        }
+        #expect(changes == 0)
     }
 }
 
@@ -286,7 +308,7 @@ struct DesignConversationViewTests {
         runner.composer.attach([attachment], to: session.id)
         try await settle()
         let expandedFrame = observer.convert(observer.bounds, to: nil)
-        try click(CGPoint(x: expandedFrame.maxX - 28, y: expandedFrame.maxY - 26))
+        try click(CGPoint(x: expandedFrame.maxX + 2, y: expandedFrame.maxY + 2))
         try await settle()
         #expect(!observer.expanded)
         #expect(observer.bounds.height == 326)

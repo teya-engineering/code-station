@@ -211,7 +211,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Need | Use |
 | --- | --- |
 | A button with words | `ActionButton`. The tone says how much it matters: `.green` or `.dark` for the main action, `.outlined` beside it, `.danger` to delete. One main action per screen or card. |
-| A button that is only an icon | `GlyphButton`, with an `.appTooltip` that names it. |
+| A button that is only an icon | `GlyphButton`, with an `.appTooltip` that names it. Use `circular: true` for an opaque round button that overlaps a surface's edge. |
 | A small link in a line of text or a header | `InlineLink`, `GlyphLink` |
 | Copy to the clipboard | `CopyButton` |
 | Add a new item to a list | `NewItemButton` |

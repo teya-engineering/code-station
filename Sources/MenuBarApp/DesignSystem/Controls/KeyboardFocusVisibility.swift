@@ -36,9 +36,10 @@ final class KeyboardFocusVisibility {
 
 struct FocusRingStroke: View {
     let focused: Bool
+    var cornerRadius: CGFloat = Radius.inset
 
     var body: some View {
-        RoundedRectangle(cornerRadius: Radius.inset)
+        RoundedRectangle(cornerRadius: cornerRadius)
             .stroke(focused && KeyboardFocusVisibility.shared.isVisible ? Theme.accent : .clear,
                     lineWidth: 2)
             .padding(-2)

@@ -6,9 +6,8 @@ enum DesignConversationLayout {
     static let minimizedMaxWidth: CGFloat = 320
     static let minimizedBottomInset: CGFloat = 12
     static let minimizedCanvasGutter = minimizedBottomInset + minimizedSize.height * 2 / 3
-    // The expand button sits in the top-right corner, this far in from both edges.
-    static let cornerButtonSize: CGFloat = 28
-    static let cornerButtonInset: CGFloat = 10
+    static let cornerButtonSize = ControlHeight.md
+    static let cornerButtonOutset = Space.md
 
     static func inset(in workspace: CGSize) -> CGFloat {
         min(workspace.width < 720 ? 12 : 22, max(0, min(workspace.width, workspace.height) / 2))
@@ -48,8 +47,9 @@ enum DesignConversationLayout {
 
     // The corner button takes its own presses, so a press there must not also open the panel.
     static func isOnCornerButton(_ point: CGPoint, fromTop: CGFloat, width: CGFloat) -> Bool {
-        let reach = cornerButtonInset * 2 + cornerButtonSize
-        return fromTop < reach && point.x > width - reach
+        CGRect(x: width + cornerButtonOutset - cornerButtonSize, y: -cornerButtonOutset,
+               width: cornerButtonSize, height: cornerButtonSize)
+            .contains(CGPoint(x: point.x, y: fromTop))
     }
 
     static func minimizedAccessibilityValue(_ tone: SessionTone) -> String {
@@ -120,12 +120,16 @@ struct DesignConversationDismissal: NSViewRepresentable {
             guard enabled, !minimized, !isHiddenOrHasHiddenAncestor, let window,
                   event.window === window, window.attachedSheet == nil else { return event }
             let point = convert(event.locationInWindow, from: nil)
+            let fromTop = isFlipped ? point.y : bounds.maxY - point.y
+            // The button overlaps the panel's edge, so its outer part is still an inside click.
+            if event.type != .keyDown,
+               DesignConversationLayout.isOnCornerButton(point, fromTop: fromTop, width: bounds.width) {
+                return event
+            }
             guard expanded else {
                 // The corner has its own expand button, and a press in the composer is someone
                 // about to type, so only a press on the rest of the transcript opens the panel.
-                let fromTop = isFlipped ? point.y : bounds.maxY - point.y
                 let transcript = fromTop < bounds.height - footerHeight
-                    && !DesignConversationLayout.isOnCornerButton(point, fromTop: fromTop, width: bounds.width)
                 if event.type == .leftMouseDown, bounds.contains(point), transcript {
                     expand?()
                 } else if event.type != .keyDown, !bounds.contains(point) {
@@ -217,11 +221,6 @@ struct DesignConversation: View {
             transcript(session, width: panelSize.width)
                 .frame(width: panelSize.width, height: max(0, panelSize.height - footerHeight))
                 .clipped()
-                .overlay(alignment: .topTrailing) {
-                    if !designEmpty {
-                        conversationToggle
-                    }
-                }
                 // Drawn over the transcript rather than stacked, so the composer gets all of
                 // its measured height. One point short and it scrolls: a Mac without a trackpad
                 // shows a scroll bar beside it, and a resize can leave it part way scrolled.
@@ -260,12 +259,19 @@ struct DesignConversation: View {
             }
         }
         .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 17))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
         .overlay {
-            RoundedRectangle(cornerRadius: 17).stroke(Theme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: Radius.floating).strokeBorder(Theme.border)
                 .allowsHitTesting(false)
         }
         .elevation(.floating)
+        .overlay(alignment: .topTrailing) {
+            if !designEmpty && !conversationMinimized {
+                conversationToggle
+                    .offset(x: DesignConversationLayout.cornerButtonOutset,
+                            y: -DesignConversationLayout.cornerButtonOutset)
+            }
+        }
         .background(DesignConversationDismissal(
             expanded: conversationExpanded,
             minimized: conversationMinimized,
@@ -299,22 +305,15 @@ struct DesignConversation: View {
     // shows while the pointer is over the panel, but it stays up while it has focus or the
     // panel is expanded, since that is when it is the way back.
     private var conversationToggle: some View {
-        let visible = conversationHovered || conversationExpanded || conversationToggleFocused
-        return Button {
+        let visible = conversationHovered || cornerHovered || conversationExpanded || conversationToggleFocused
+        return GlyphButton(icon: conversationExpanded ? "chevron.down" : "arrow.up.left.and.arrow.down.right",
+                           side: DesignConversationLayout.cornerButtonSize, circular: true) {
             conversationExpanded.toggle()
-        } label: {
-            Image(systemName: conversationExpanded ? "chevron.down" : "arrow.up.left.and.arrow.down.right")
-                .font(Typography.caption.weight(.medium))
-                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
-                .foregroundStyle(cornerHovered ? .primary : .secondary)
-                .frame(width: DesignConversationLayout.cornerButtonSize,
-                       height: DesignConversationLayout.cornerButtonSize)
-                .background(Circle().fill(cornerHovered ? Theme.field : Theme.card))
-                .overlay(Circle().stroke(conversationToggleFocused ? Theme.accent : Theme.border,
-                                         lineWidth: conversationToggleFocused ? 2 : 1))
-                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .overlay {
+            FocusRingStroke(focused: conversationToggleFocused,
+                            cornerRadius: DesignConversationLayout.cornerButtonSize / 2)
+        }
         .focusable()
         .focused($conversationToggleFocused)
         .focusEffectDisabled()
@@ -323,9 +322,7 @@ struct DesignConversation: View {
             return .handled
         }
         .onPointerHover { cornerHovered = $0 }
-        .motion(Motion.hover, value: cornerHovered)
         .appTooltip(conversationExpanded ? "Collapse" : "Expand")
-        .padding(DesignConversationLayout.cornerButtonInset)
         .opacity(visible ? 1 : 0)
         .motion(Motion.reveal, value: visible)
         .accessibilityLabel(conversationExpanded ? "Collapse the conversation" : "Expand the conversation")
