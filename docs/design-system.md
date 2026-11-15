@@ -163,6 +163,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 
 - Animate with `.motion(_:value:)`, so it turns off under Reduce Motion. Every transition takes `reduceMotion` and falls back to a plain fade.
 - Buttons and pills use `.hoverLift`. Rows use `.hoverFill`. Track the pointer with `.onPointerHover`.
+- Both also tell `PointerOverControl` when the pointer is on them. A surface that reacts to a press anywhere on itself checks it, so a press meant for a button inside goes only to that button.
 - Transitions: `.headerPage` for a tab page, `.popover` for a panel from a button, `.drawer(from:)` for a panel from an edge, `.fadeIn` for plain new content, `.fold` for content that closes.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
 - Motion confirms what the person did. It never makes them wait and never plays for something they did not cause.

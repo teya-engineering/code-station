@@ -92,6 +92,7 @@ struct DesignConversationDismissal: NSViewRepresentable {
         var enabled = true
         var collapse: ((Bool) -> Void)?
         var expand: (() -> Void)?
+        var pointerOverControl: () -> Bool = { PointerOverControl.shared.isActive }
         private var monitor: Any?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -127,10 +128,12 @@ struct DesignConversationDismissal: NSViewRepresentable {
                 return event
             }
             guard expanded else {
-                // The corner has its own expand button, and a press in the composer is someone
-                // about to type, so only a press on the rest of the transcript opens the panel.
+                // The corner has its own expand button, a press in the composer is someone
+                // about to type, and a press on a control in the transcript, such as a copy
+                // button, belongs to that control. Only a press on the rest of the
+                // transcript opens the panel.
                 let transcript = fromTop < bounds.height - footerHeight
-                if event.type == .leftMouseDown, bounds.contains(point), transcript {
+                if event.type == .leftMouseDown, bounds.contains(point), transcript, !pointerOverControl() {
                     expand?()
                 } else if event.type != .keyDown, !bounds.contains(point) {
                     collapse?(false)

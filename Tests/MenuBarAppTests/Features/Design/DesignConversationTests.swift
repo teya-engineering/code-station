@@ -121,6 +121,27 @@ struct DesignConversationDismissalTests {
         #expect(expands == 1)
     }
 
+    @Test func pressesOnAControlInTheFoldedTranscriptLeaveThePanelFolded() throws {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let observer = DesignConversationDismissal.ObserverView(frame: CGRect(x: 20, y: 20, width: 405, height: 144))
+        window.contentView?.addSubview(observer)
+        defer { observer.stop() }
+        var expands = 0
+        var overControl = true
+        observer.footerHeight = 50
+        observer.expand = { expands += 1 }
+        observer.pointerOverControl = { overControl }
+        let body = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 100, y: 150),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        #expect(observer.handle(body, frontmost: window) === body)
+        #expect(expands == 0)
+        overControl = false
+        _ = observer.handle(body, frontmost: window)
+        #expect(expands == 1)
+    }
+
     @Test(arguments: [false, true])
     func overlappingCornerClicksReachTheButtonWithoutChangingThePanel(expanded: Bool) throws {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),

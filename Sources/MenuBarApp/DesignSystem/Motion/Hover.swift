@@ -39,6 +39,7 @@ private struct HoverLift: ViewModifier {
         content
             .scaleEffect(lifted ? amount : 1)
             .motion(Motion.hover, value: lifted)
+            .reportsPointerOverControl(hovering && isEnabled)
     }
 }
 
@@ -71,6 +72,7 @@ private struct HoverFill: ViewModifier {
             }
             .onPointerHover { hovering = $0 }
             .motion(Motion.hover, value: lit)
+            .reportsPointerOverControl(lit)
     }
 }
 
@@ -83,6 +85,49 @@ private struct SelfTrackedHoverLift: ViewModifier {
         content
             .hoverLift(hovering, amount: amount)
             .onPointerHover { hovering = $0 }
+    }
+}
+
+// Whether the pointer is over a control right now. A surface that answers a press
+// anywhere on itself, such as the folded design panel opening, reads this so a press
+// meant for a button inside it is left to that button. Every button, pill and row
+// already answers hover through `hoverLift` or `hoverFill`, so they report here for free.
+@MainActor
+final class PointerOverControl {
+    static let shared = PointerOverControl()
+
+    private var hovered: Set<UUID> = []
+
+    var isActive: Bool { !hovered.isEmpty }
+
+    func update(_ id: UUID, hovering: Bool) {
+        if hovering {
+            hovered.insert(id)
+        } else {
+            hovered.remove(id)
+        }
+    }
+}
+
+private struct PointerOverControlReport: ViewModifier {
+    let hovering: Bool
+
+    @State private var id = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: hovering, initial: true) { _, now in
+                PointerOverControl.shared.update(id, hovering: now)
+            }
+            // A control can go while the pointer is still on it, such as a copy pill
+            // that hides once the message is no longer hovered.
+            .onDisappear { PointerOverControl.shared.update(id, hovering: false) }
+    }
+}
+
+private extension View {
+    func reportsPointerOverControl(_ hovering: Bool) -> some View {
+        modifier(PointerOverControlReport(hovering: hovering))
     }
 }
 
