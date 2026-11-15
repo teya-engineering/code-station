@@ -7,23 +7,26 @@ This branch holds nothing but the site. It is an orphan branch with no history i
 common with `main`, so it is a deploy target rather than something to merge or
 rebase. Pages serves it from the branch root.
 
-Everything is static, with no build step. `index.html` and `assets/style.css` are
-the whole page. `.nojekyll` keeps Pages from running the files through Jekyll.
+Everything is static, with no build step. `index.html` is the whole page, with its
+CSS and JavaScript inline. `.nojekyll` keeps Pages from running the files through Jekyll.
+
+The page is a scroll tour of the eight parts of the Code Station talk. Each part is a
+scene drawn in HTML and driven by scroll, so there are no screenshots to keep in step
+with the app. Add `?at=mcp:0.6` to the address to open a part some of the way through,
+which helps when reviewing or taking screenshots.
+
+Nothing is loaded from another site. Check that this stays true after a change.
 
 ## Assets
 
-`assets/shot-*.webp` are product captures made with isolated demo data. The app
-window sits on transparency and can be dropped on any background. Each image
-bleeds past the bottom of its section on purpose, so the section supplies the
-fold. The palette in `style.css` is sampled from `Sources/MenuBarApp/Theme.swift`
-on `main` and from the captures, so the page and the app read as one system.
+`assets/fonts/Figtree-*.ttf` are the four weights of Figtree the page uses, served
+from here so the page makes no request to a font host.
 
 `assets/mark.svg` is the app icon redrawn as vector, and `assets/icon-512.png` is
 the same mark from `Resources/AppIcon.icns` for the Apple touch icon.
 
-The Design capture includes a local interactive artifact rendered on the live
-canvas, so it shows both the current app shell and the output it is built to refine.
+`assets/og.jpg` is the social card.
 
-The Needs you stack, the turn receipt and the phone are drawn in HTML from the app's
-own components rather than captured, so they stay interactive and sharp at any size.
-`assets/og.jpg` is the social card, made from the hero capture.
+The colours in `index.html` come from `Sources/MenuBarApp/Theme.swift` on `main` and
+from the project colour wheel in the talk, so the page, the talk and the app read as
+one system.
