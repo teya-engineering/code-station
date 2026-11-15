@@ -293,10 +293,10 @@ struct SessionView: View {
             .background(Theme.background)
             .overlay(alignment: .topLeading) { opinionLayer(session) }
             .coordinateSpace(.named(SecondOpinionAskCard.space))
-            .environment(\.secondOpinionAnchor) { opinionAnchor = $0 }
-            .environment(\.askSecondOpinionOnFile) { root, path in
+            .environment(\.secondOpinionAnchor, SecondOpinionAnchorAction { opinionAnchor = $0 })
+            .environment(\.askSecondOpinionOnFile, AskSecondOpinionOnFileAction { root, path in
                 askForSecondOpinion(session, origin: .file, file: (root, path))
-            }
+            })
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
                 installed: AgentKind.allCases.filter { runner.executable(for: $0) != nil }, author: session.agent))
             .onChange(of: tab) { closeOpinionPanels() }
@@ -2522,6 +2522,7 @@ struct SessionView: View {
                 if let ask = opinionAsk {
                     let anchor = ask.anchor ?? headerOpinionFrame
                     opinionCard(ask, session: session)
+                        .frame(width: min(SecondOpinionAskCard.width, max(0, proxy.size.width - Space.md * 2)))
                         .onGeometryChange(for: CGSize.self) { $0.size } action: { opinionCardSize = $0 }
                         .offset(Self.place(opinionCardSize, under: anchor, in: proxy.size,
                                            trailing: ask.anchor == nil))

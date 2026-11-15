@@ -350,7 +350,10 @@ struct MarkdownHTMLTests {
             .environment(MenuPresenter())
             .environment(TooltipPresenter())
             .fixedSize())
-        await waitUntil { host.layoutSubtreeIfNeeded(); return host.fittingSize.height > 100 }
+        try #require(await waitUntil {
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.height > 100
+        })
         #expect(host.fittingSize.width == 128)
         #expect(host.fittingSize.height == 128)
     }

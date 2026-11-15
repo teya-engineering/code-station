@@ -1127,29 +1127,6 @@ struct ReviewLane: View {
     }
 }
 
-// The small menu pill on a seat, for its model and its effort.
-struct SeatPill<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: Space.xs) {
-            content
-            MenuChevron(size: 7)
-        }
-        .font(Typography.label)
-        .lineLimit(1)
-        .padding(.horizontal, Space.md).frame(height: 24)
-        .background(Capsule().fill(hovering ? Theme.border : Theme.field))
-        .contentShape(Capsule())
-        .fixedSize()
-        .hoverLift(hovering)
-        .motion(Motion.hover, value: hovering)
-        .onPointerHover { hovering = $0 }
-    }
-}
-
 // The way into a second opinion on a plan. It leads with the usual
 // reviewers' tiles, so the lineup the dialog will start from is the button's mark.
 struct SecondOpinionButton: View {

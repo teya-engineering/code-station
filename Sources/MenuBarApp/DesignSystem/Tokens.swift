@@ -137,4 +137,6 @@ enum FormMetrics {
     static let dialogWidth: CGFloat = 460
     static let guidanceHeight: CGFloat = 96
     static let pairedFieldsWidth: CGFloat = 340
+    static let rowLabelWidth: CGFloat = 68
+    static let inlineRowWidth: CGFloat = 360
 }

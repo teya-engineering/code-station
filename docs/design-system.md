@@ -134,6 +134,8 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 
 `FormMetrics` supplies the width, guidance editor height and stacking breakpoint for compact dialog forms. `FormPair` places two fields side by side and stacks them when the dialog is narrow.
 
+`FormRow` places a label in a 68-point column beside flexible content. Below 360 points it stacks the label above the content. Give it one child for content that shares the same inset without a label.
+
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
 ### Depth
@@ -233,6 +235,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A file or folder | `FilePicker` |
 | A label over a field | `LabeledField` |
 | A key beside its value | `LabeledRow` |
+| A reviewer's model or effort menu | `SeatPill` (`Controls/SeatPill.swift`), with `.appMenu`. Pass `form: true` to fill the available width and wrap long labels, keeping a minimum `ControlHeight.sm` height. The default stays compact. |
 | A keyboard shortcut the person sets by pressing it | `KeyRecorder` |
 
 **Structure**

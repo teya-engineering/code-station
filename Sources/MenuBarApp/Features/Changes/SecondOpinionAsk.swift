@@ -212,10 +212,9 @@ enum SecondOpinionAsk {
         }
     }
 
-    static func estimate(lineup: [SecondOpinion.Reviewer]) -> String {
-        let chosen = seated(lineup)
-        guard !chosen.isEmpty else { return "Nobody is picked to ask." }
-        let minutes = chosen.map { SecondOpinion.minutes(for: $0.effort) }.max() ?? 0
-        return "About \(minutes) min. You can keep working."
+    static func blockedReason(lineup: [SecondOpinion.Reviewer], hasFocus: Bool) -> String? {
+        guard !lineup.isEmpty else { return "Choose at least one reviewer." }
+        guard hasFocus else { return "Choose what to look for or add a note." }
+        return nil
     }
 }
