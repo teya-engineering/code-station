@@ -71,7 +71,7 @@ struct NewSessionFooter: View {
     private var selectors: some View {
         AgentAndBotPicker(avatars: appSettings.agentAvatars,
                           selectedAvatarName: $selectedAvatarName, sessionID: sessionID,
-                          agentTitle: chosenAgent?.title ?? "Unavailable",
+                          agent: chosenAgent,
                           agentEnabled: !runner.availableAgents.isEmpty,
                           agentMenu: agentMenu)
     }

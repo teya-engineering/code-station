@@ -122,7 +122,7 @@ struct NewTaskView: View {
                 Spacer(minLength: 8)
                 AgentAndBotPicker(avatars: appSettings.agentAvatars,
                                   selectedAvatarName: avatarBinding,
-                                  agentTitle: (agent ?? runner.agent).title,
+                                  agent: agent ?? runner.agent,
                                   agentMenu: agentMenu)
             }
             .padding(.leading, Space.lg)
