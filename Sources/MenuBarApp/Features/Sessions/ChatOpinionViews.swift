@@ -1,46 +1,5 @@
 import SwiftUI
 
-// What a reviewer of a plan or an answer looks for and reads. The plan or answer and the
-// request it answers always go; the files and the whole conversation are the person's
-// to choose.
-struct ChatOpinionChoices: View {
-    let authorTitle: String
-    @Binding var focus: Set<ChatSecondOpinion.Focus>
-    @Binding var reading: ChatSecondOpinion.Reading
-
-    var body: some View {
-        SecondOpinionSection(title: "What to look for") {
-            FlowRow(spacing: Space.sm) {
-                ForEach(ChatSecondOpinion.Focus.allCases, id: \.self) { item in
-                    ChoicePill(title: item.title, selected: focus.contains(item)) {
-                        if !focus.insert(item).inserted { focus.remove(item) }
-                    }
-                    .accessibilityAddTraits(focus.contains(item) ? .isSelected : [])
-                }
-            }
-        }
-        SecondOpinionSection(title: "What they read") {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                row(title: "The project's files", note: "Read-only", on: $reading.files)
-                row(title: "The whole conversation", note: "Makes them think like \(authorTitle)",
-                    warns: true, on: $reading.conversation)
-            }
-        }
-    }
-
-    private func row(title: String, note: String, warns: Bool = false, on: Binding<Bool>) -> some View {
-        Toggle(isOn: on) {
-            HStack(spacing: Space.md) {
-                Text(title).font(Typography.label)
-                Spacer(minLength: 8)
-                Text(note).font(Typography.caption)
-                    .foregroundStyle(warns ? Theme.attentionText : Color.secondary)
-            }
-        }
-        .toggleStyle(.appCheckbox)
-    }
-}
-
 // A second opinion joined to the plan or answer it judged. While the seats read it shows
 // their lanes; once they are in, one verdict per seat and the points they raised, each
 // with a tick. Only ticked points are sent, and only when the person sends them.
@@ -92,7 +51,7 @@ struct ChatOpinionCard: View {
         .surface(Theme.card, cornerRadius: Radius.floating, border: Theme.border)
         .smoothlyResizes(when: opinion.sent)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Second opinion on this \(opinion.subject.noun)")
+        .accessibilityLabel("Second opinion on \(opinion.subject.name)")
         .accessibilityAddTraits(opinion.isRunning ? .updatesFrequently : [])
     }
 
@@ -101,7 +60,7 @@ struct ChatOpinionCard: View {
             HStack(spacing: -6) {
                 ForEach(Array(opinion.lanes.enumerated()), id: \.offset) { ReviewAvatar(agent: $0.element.reviewer.agent, size: 22) }
             }
-            Text("Second opinion on this \(opinion.subject.noun)").font(Typography.body.weight(.semibold))
+            Text("Second opinion on \(opinion.subject.name)").font(Typography.body.weight(.semibold))
             Spacer(minLength: 8)
             if let sent = opinion.sent {
                 Label("Sent \(counted(sent, "point")) to \(authorTitle)", systemImage: "checkmark")

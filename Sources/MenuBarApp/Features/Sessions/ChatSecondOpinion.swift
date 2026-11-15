@@ -4,11 +4,12 @@ import Foundation
 // with a verdict and a few points, which wait on a card in Chat: only the points the
 // person ticks and sends ever reach the agent that wrote the plan.
 enum ChatSecondOpinion {
-    // What is being judged: a plan the agent is waiting to have approved, or an answer
-    // it already gave. The id is the plan's request or the answer's message.
+    // What is being judged: a plan the agent is waiting to have approved, an answer it
+    // already gave, or the whole conversation so far. The id is the plan's request, the
+    // answer's message, or the conversation's latest answer.
     struct Subject: Equatable, Sendable {
         enum Kind: String, Sendable {
-            case plan, answer
+            case plan, answer, conversation
         }
 
         var kind: Kind
@@ -17,7 +18,16 @@ enum ChatSecondOpinion {
         // What the person asked for, which the plan or answer is measured against.
         var request: String
 
-        var noun: String { kind == .plan ? "plan" : "answer" }
+        var noun: String {
+            switch kind {
+            case .plan: "plan"
+            case .answer: "answer"
+            case .conversation: "conversation"
+            }
+        }
+
+        // How a card names what it judged.
+        var name: String { kind == .conversation ? "the whole conversation" : "this " + noun }
     }
 
     enum Focus: String, CaseIterable, Sendable {
@@ -55,6 +65,8 @@ enum ChatSecondOpinion {
     struct Request: Equatable, Sendable {
         var subject: Subject
         var focus: [Focus] = Focus.standard
+        // Anything else to look for, in the person's own words.
+        var note = ""
         var reading = Reading()
         // The latest turns as text, sent only when the person ticks the conversation.
         var conversation = ""
@@ -103,11 +115,15 @@ enum ChatSecondOpinion {
 
     static func prompt(for request: Request) -> String {
         let subject = request.subject
-        let asks = (request.focus.isEmpty ? Focus.standard : Focus.allCases.filter(request.focus.contains)).map(\.ask)
+        let asks = SecondOpinion.lookFor(Focus.allCases.filter(request.focus.contains).map(\.ask),
+                                         note: request.note, standard: Focus.standard.map(\.ask))
+        let lead = subject.kind == .conversation
+            ? "Another coding agent had the conversation below with a person."
+            : "Another coding agent wrote the \(subject.noun) below for a person."
         var text = """
-        Another coding agent wrote the \(subject.noun) below for a person. You are giving a second opinion before they act on it. Do not change any files or run commands that change anything.
+        \(lead) You are giving a second opinion before they act on it. Do not change any files or run commands that change anything.
 
-        Look for \(asks.joined(separator: "; ")). Skip style, wording and praise. Raise at most \(maxPoints) points, the most important first. If the \(subject.noun) is sound, say so and raise nothing.
+        Look for \(asks). Skip style, wording and praise. Raise at most \(maxPoints) points, the most important first. If the \(subject.noun) is sound, say so and raise nothing.
         """
         text += request.reading.files
             ? "\n\nYou may read the project's files to check the \(subject.noun) against the code."
@@ -119,7 +135,7 @@ enum ChatSecondOpinion {
         {"verdict": "agrees" | "agrees_with_changes" | "disagrees", "summary": "<one or two sentences for the person>", "points": [{"step": <number of the \(subject.kind == .plan ? "plan step" : "paragraph") it is about, or null>, "severity": "must" | "should" | "look", "text": "<one or two sentences addressed to the author>"}]}
         Use "must" for something that will break or is unsafe, "should" for a real problem worth fixing first, and "look" for something worth a second look.
         """
-        if request.reading.conversation, !request.conversation.isBlank {
+        if subject.kind != .conversation, request.reading.conversation, !request.conversation.isBlank {
             text += "\n\nThe conversation so far:\n" + request.conversation
         }
         text += "\n\nWhat the person asked for:\n" + subject.request.trimmed
@@ -196,9 +212,11 @@ enum ChatSecondOpinion {
         let lines = points.map { point in
             (point.step.map { "- Step \($0). " } ?? "- ") + point.text
         }
-        let lead = subject.kind == .plan
-            ? "Before you start, \(names) looked at the plan. Change it for these:"
-            : "\(names) looked at your answer. Take these into account:"
+        let lead = switch subject.kind {
+        case .plan: "Before you start, \(names) looked at the plan. Change it for these:"
+        case .answer: "\(names) looked at your answer. Take these into account:"
+        case .conversation: "\(names) looked at our conversation so far. Take these into account:"
+        }
         return lead + "\n" + lines.joined(separator: "\n")
     }
 }

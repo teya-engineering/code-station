@@ -49,6 +49,13 @@ struct SessionView: View {
     @State private var changesNavigation = ChangesNavigationMemory()
     // The reviewers last asked from this session, whatever they were asked about.
     @State private var opinionLineup: [SecondOpinion.Reviewer]?
+    // The ask card while it is open, and where the control that opened it sits.
+    @State private var opinionAsk: OpinionAsk?
+    @State private var opinionAnchor: CGRect?
+    @State private var headerOpinionFrame = CGRect.zero
+    @State private var opinionCardSize = CGSize.zero
+    @State private var opinionLanesOpen = false
+    @State private var sinceReviewFiles: Set<String>?
     @State private var explorerShowsDesignFiles = false
     @State private var shortcutEditor: ShortcutEditorRequest?
     @State private var composerBarWidth: CGFloat = 340
@@ -284,6 +291,16 @@ struct SessionView: View {
                 }
             }
             .background(Theme.background)
+            .overlay(alignment: .topLeading) { opinionLayer(session) }
+            .coordinateSpace(.named(SecondOpinionAskCard.space))
+            .environment(\.secondOpinionAnchor) { opinionAnchor = $0 }
+            .environment(\.askSecondOpinionOnFile) { root, path in
+                askForSecondOpinion(session, origin: .file, file: (root, path))
+            }
+            .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
+                installed: AgentKind.allCases.filter { runner.executable(for: $0) != nil }, author: session.agent))
+            .onChange(of: tab) { closeOpinionPanels() }
+            .task(id: opinionAsk?.id) { await readSinceReviewFiles() }
             // Clicks deep in the transcript that act outside the window, such as revealing
             // a file or opening a link, leave their note on the rail like the header's own.
             .environment(\.showExternalNote, ExternalNote { text, icon in showRailNote(text, icon: icon) })
@@ -1883,6 +1900,7 @@ struct SessionView: View {
                     // redraws every message in the transcript, parsing its markdown
                     // again on the way.
                     .equatable()
+                    .subjectRail(opinionRailShows(message))
                     .environment(\.runningAgents, runner.runningAgents(sessionID))
                     .environment(\.previewsLocalServers, true)
                     .environment(\.activeTranscriptTools, runner.runningTools(sessionID))
@@ -2280,6 +2298,7 @@ struct SessionView: View {
                            }) { answer in
                 runner.answer(request, with: answer, sessionID: sessionID, store: store)
             }
+            .subjectRail(opinionAsk?.stop == .answer && opinionAsk?.chatSubject?.id == Self.planID(request))
             .id(request.id)
             if let session, let opinion = runner.opinions.opinion(on: Self.planID(request), in: sessionID) {
                 opinionCard(opinion, session: session)
@@ -2320,28 +2339,64 @@ struct SessionView: View {
     // The header's one control for a second opinion, on every tab. It shows the review
     // that belongs to the page in view: the design's on the canvas, the changes' anywhere
     // else, since a card under an answer already shows its own.
-    @ViewBuilder
     private func secondOpinionButton(_ session: ChatSession) -> some View {
         let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
-        if let design = shownDesign(session) {
-            let opinion = runner.designOpinions.opinion(design.id)
-            SecondOpinionLineupButton(author: design.agent, installed: installed,
-                                      canReview: hasOpinionSubject(session),
-                                      runs: opinion?.runs ?? [], status: opinion?.status ?? .ask,
-                                      ask: { askForSecondOpinion(session) },
-                                      // The notes already sit in their panel beside the canvas.
-                                      open: {})
-        } else {
-            SecondOpinionLineupButton(author: session.agent, installed: installed,
-                                      canReview: hasOpinionSubject(session),
-                                      runs: runner.reviews.runs(session.id),
-                                      status: SecondOpinionStatus(reviews: runner.reviews, sessionID: session.id),
-                                      ask: { askForSecondOpinion(session) },
-                                      open: {
-                                          tab = .changes
-                                          changesNavigation.secondOpinionRequest = .open
-                                      })
+        return Group {
+            if let design = shownDesign(session) {
+                let opinion = runner.designOpinions.opinion(design.id)
+                SecondOpinionLineupButton(author: design.agent, installed: installed,
+                                          canReview: hasOpinionSubject(session),
+                                          proposal: { headerProposal(session) },
+                                          runs: opinion?.runs ?? [], status: opinion?.status ?? .ask,
+                                          ask: { toggleHeaderAsk(session) },
+                                          // The notes already sit in their panel beside the canvas.
+                                          open: {})
+            } else {
+                let status = SecondOpinionStatus(reviews: runner.reviews, sessionID: session.id)
+                SecondOpinionLineupButton(author: session.agent, installed: installed,
+                                          canReview: hasOpinionSubject(session),
+                                          proposal: { headerProposal(session) },
+                                          runs: runner.reviews.runs(session.id),
+                                          status: status,
+                                          ask: { toggleHeaderAsk(session) },
+                                          open: { openHeaderRun(status) })
+            }
         }
+        .anchorsSecondOpinion { headerOpinionFrame = $0 }
+    }
+
+    // While the reviewers read, the control opens their lanes under it. Once there are
+    // findings, it takes the person to them.
+    private func openHeaderRun(_ status: SecondOpinionStatus) {
+        switch status {
+        case .reviewing, .failed, .settled(0, 0):
+            opinionAsk = nil
+            opinionLanesOpen.toggle()
+        case .ask, .ready, .settled:
+            opinionLanesOpen = false
+            tab = .changes
+            changesNavigation.secondOpinionRequest = .open
+        }
+    }
+
+    // A second click on the control puts its card away.
+    private func toggleHeaderAsk(_ session: ChatSession) {
+        if let ask = opinionAsk, ask.anchor == nil {
+            closeOpinionPanels()
+        } else {
+            askForSecondOpinion(session)
+        }
+    }
+
+    // The sentence the header's tooltip says a click will propose.
+    private func headerProposal(_ session: ChatSession) -> String {
+        let built = opinionFacts(session, picked: nil, origin: .header, file: nil)
+        let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        var seen = Set<AgentKind>()
+        let reviewers = (opinionLineup ?? Preferences.secondOpinionLineup()).map(\.agent)
+            .filter { installed.contains($0) && seen.insert($0).inserted }
+        return SecondOpinionAsk.proposal(SecondOpinionAsk.initialStop(built.facts), facts: built.facts,
+                                         reviewers: reviewers)
     }
 
     // The design on screen right now, whose notes the canvas shows.
@@ -2368,111 +2423,257 @@ struct SessionView: View {
         latestAnswer(in: session) != nil || workingTreeChanges(session) != nil || reviewableDesign(session) != nil
     }
 
-    // One dialog for whatever the session can be judged on. A plan or answer the person
-    // pointed at comes in already picked; from the header, the pick follows the page in
-    // view. Each kind is then asked where its results land.
+    // What the ask card was opened on, and what it will start from.
+    private struct OpinionAsk: Equatable {
+        var id = UUID()
+        var facts: SecondOpinionAskFacts
+        var stop: SecondOpinionStop
+        // Where the control that opened it sits. Nil for the header, which is tracked
+        // on its own since it never moves.
+        var anchor: CGRect?
+        // The plan or answer the card asks about, and the message its card goes under.
+        var chatSubject: ChatSecondOpinion.Subject?
+        var chatAnchor: UUID?
+    }
+
+    // Everything the ask can be about, read from the session as it stands.
+    private func opinionFacts(_ session: ChatSession, picked: ChatSecondOpinion.Subject?,
+                              origin: SecondOpinionOrigin, file: (root: String, path: String)?)
+        -> (facts: SecondOpinionAskFacts, chatSubject: ChatSecondOpinion.Subject?) {
+        // A plan waiting on an answer comes before the last answer.
+        let latest = picked == nil ? latestAnswer(in: session) : nil
+        let pendingPlan = picked == nil && origin == .header
+            ? runner.question(sessionID).map { planSubject($0, in: session) } : nil
+        let chatSubject = picked ?? pendingPlan ?? latest.map { answerSubject($0, in: session) }
+
+        var facts = SecondOpinionAskFacts(origin: origin)
+        facts.answer = chatSubject.map { .init(subject: $0, picked: picked != nil) }
+        for root in store.workingDirectories(for: session) {
+            guard let snapshot = gitStats.snapshot(at: root) else { continue }
+            facts.files += snapshot.files.map { change in
+                .init(root: snapshot.root.isEmpty ? root : snapshot.root, path: change.path,
+                      added: change.added ?? 0, removed: change.removed ?? 0)
+            }
+        }
+        if let file {
+            facts.file = facts.files.first { $0.path == file.path && ($0.root == file.root || facts.files.count(where: { $0.path == file.path }) == 1) }
+        } else if tab == .changes, let picked = selectedChange(session) {
+            facts.file = facts.files.first { $0.path == picked.path }
+        }
+        facts.canReadSince = runner.reviews.latestTrees(session.id) != nil
+        if let design = reviewableDesign(session),
+           let directory = store.designArtifactURL(for: design)?.deletingLastPathComponent() {
+            facts.designScreens = DesignManifest.read(from: directory).screens.map(\.title)
+        }
+        facts.turns = session.messages.compactMap { message in
+            guard message.role == .user || message.role == .assistant, !message.text.isBlank else { return nil }
+            return .init(fromPerson: message.role == .user, text: message.text)
+        }
+        facts.showsDesign = shownDesign(session) != nil
+        return (facts, chatSubject)
+    }
+
+    // Opens the ask card on whatever the session can be judged on. A plan or answer the
+    // person pointed at, or a file, comes in already picked; from the header, the pick
+    // follows where the work stands. Each subject is then asked where its results land.
     private func askForSecondOpinion(_ session: ChatSession, on picked: ChatSecondOpinion.Subject? = nil,
-                                     anchor: UUID? = nil) {
+                                     anchor: UUID? = nil, origin: SecondOpinionOrigin? = nil,
+                                     file: (root: String, path: String)? = nil) {
+        // Asking again about the whole conversation starts from it, with the latest answer.
+        let wholeConversation = picked?.kind == .conversation
+        let picked = wholeConversation ? nil : picked
+        let origin = origin ?? (picked != nil ? .answer : .header)
+        let built = opinionFacts(session, picked: picked, origin: origin, file: file)
+        guard var stop = SecondOpinionAsk.initialStop(built.facts) else { return }
+        if wholeConversation, SecondOpinionAsk.stops(built.facts).contains(.conversation) { stop = .conversation }
+        opinionLanesOpen = false
+        // The header tracks its own place; anything else was recorded as it was pressed.
+        let pressed = origin == .header ? nil : opinionAnchor
+        opinionAnchor = nil
+        // Return should ask, not send whatever is in the composer.
+        composerFocused = false
+        opinionAsk = OpinionAsk(facts: built.facts, stop: stop, anchor: pressed,
+                                chatSubject: built.chatSubject,
+                                chatAnchor: picked != nil ? anchor : latestAnswer(in: session)?.id)
+    }
+
+    private func closeOpinionPanels() {
+        opinionAsk = nil
+        opinionLanesOpen = false
+    }
+
+    // The ask card and the lanes panel, hung off the controls that open them. A click
+    // anywhere else puts them away, the way a menu goes.
+    @ViewBuilder
+    private func opinionLayer(_ session: ChatSession) -> some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                if opinionAsk != nil || opinionLanesOpen {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeOpinionPanels() }
+                        .accessibilityHidden(true)
+                }
+                if let ask = opinionAsk {
+                    let anchor = ask.anchor ?? headerOpinionFrame
+                    opinionCard(ask, session: session)
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { opinionCardSize = $0 }
+                        .offset(Self.place(opinionCardSize, under: anchor, in: proxy.size,
+                                           trailing: ask.anchor == nil))
+                        .transition(.popover(reduceMotion: reduceMotion))
+                        .id(ask.id)
+                }
+                if opinionLanesOpen {
+                    SecondOpinionLanesPanel(reviews: runner.reviews, sessionID: session.id,
+                                            lookAt: {
+                                                closeOpinionPanels()
+                                                tab = .changes
+                                                changesNavigation.secondOpinionRequest = .open
+                                            },
+                                            close: closeOpinionPanels)
+                        .offset(Self.place(CGSize(width: SecondOpinionLanesPanel.width, height: 0),
+                                           under: headerOpinionFrame, in: proxy.size, trailing: true))
+                        .transition(.popover(reduceMotion: reduceMotion))
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        }
+        .motion(opinionAsk == nil ? Motion.leave : Motion.arrive, value: opinionAsk?.id)
+        .motion(opinionLanesOpen ? Motion.arrive : Motion.leave, value: opinionLanesOpen)
+    }
+
+    // Under the control when the card fits there, over it when it does not, and always
+    // inside the pane. From the header it lines up with the control's trailing edge, since
+    // the control sits near the right of the window.
+    static func place(_ size: CGSize, under anchor: CGRect, in bounds: CGSize, trailing: Bool) -> CGSize {
+        let margin = Space.md
+        var x = trailing ? anchor.maxX - size.width : anchor.minX - Space.sm
+        x = min(max(margin, x), max(margin, bounds.width - size.width - margin))
+        var y = anchor.maxY + Space.sm
+        if y + size.height > bounds.height - margin {
+            y = max(margin, anchor.minY - Space.sm - size.height)
+        }
+        return CGSize(width: x, height: y)
+    }
+
+    private func opinionCard(_ ask: OpinionAsk, session: ChatSession) -> some View {
         let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
         let author = runner.author(of: session)
-        let latest = picked == nil ? latestAnswer(in: session) : nil
-        let chatSubject = picked ?? latest.map { answerSubject($0, in: session) }
-        let chatAnchor = picked == nil ? latest?.id : anchor
-        let answer = chatSubject.map { SessionOpinionAsk.Answer(subject: $0, author: author, picked: picked != nil) }
+        return SecondOpinionAskCard(
+            facts: ask.facts,
+            stop: Binding(get: { opinionAsk?.stop ?? ask.stop }, set: { opinionAsk?.stop = $0 }),
+            author: author, installed: installed,
+            running: Set(runner.reviews.runs(session.id).filter(\.isRunning).map(\.reviewer)),
+            sinceReviewFiles: sinceReviewFiles,
+            lineup: opinionLineup ?? Preferences.secondOpinionLineup().filter { installed.contains($0.agent) },
+            changesFocus: changesNavigation.secondOpinionFocus,
+            ask: { choice in
+                opinionLineup = choice.lineup
+                closeOpinionPanels()
+                startSecondOpinion(choice, ask: ask, session: session, installed: installed)
+            },
+            close: closeOpinionPanels)
+    }
 
-        let changes = workingTreeChanges(session).map { facts in
-            SessionOpinionAsk.Changes(
-                author: author,
-                running: Set(runner.reviews.runs(session.id).filter(\.isRunning).map(\.reviewer)),
-                fileCount: facts.files,
-                fileName: selectedChangeName(session),
-                canReadSince: runner.reviews.latestTrees(session.id) != nil)
-        }
-
-        let designSession = reviewableDesign(session)
-        let designDirectory = designSession.flatMap { store.designArtifactURL(for: $0) }?.deletingLastPathComponent()
-        let screens = designDirectory.map { DesignManifest.read(from: $0).screens } ?? []
-        let design = designSession.flatMap { design in
-            designDirectory.map { _ in SessionOpinionAsk.Design(author: runner.author(of: design), screenCount: screens.count) }
-        }
-
-        let initial: SessionOpinionKind = {
-            if picked != nil { return .chat }
-            let preferred: SessionOpinionKind? = switch tab {
-            case .changes: .changes
-            case .design: .design
-            case .conversation where session.isActivelyDesigning: .design
-            default: nil
-            }
-            let available = [answer != nil ? SessionOpinionKind.chat : nil,
-                             changes != nil ? .changes : nil,
-                             design != nil ? .design : nil].compactMap { $0 }
-            if let preferred, available.contains(preferred) { return preferred }
-            return available.first ?? .chat
-        }()
-
+    private func startSecondOpinion(_ choice: SecondOpinionAskChoice, ask: OpinionAsk, session: ChatSession,
+                                    installed: [AgentKind]) {
         let executables = Dictionary(uniqueKeysWithValues: installed.compactMap { agent in
             runner.executable(for: agent).map { (agent, $0) }
         })
-        dialogs.show(Dialog(
-            title: "Ask for a second opinion",
-            content: AnyView(SessionOpinionAsk(
-                answer: answer, changes: changes, design: design, initial: initial, installed: installed,
-                lineup: opinionLineup ?? Preferences.secondOpinionLineup().filter { installed.contains($0.agent) },
-                changesFocus: changesNavigation.secondOpinionFocus, scope: changesNavigation.secondOpinionScope,
-                ask: { choice in
-                    switch choice {
-                    case .chat(let lineup, let focus, let reading):
-                        guard let chatSubject else { return }
-                        opinionLineup = lineup
-                        dialogs.dismiss()
-                        if tab != .conversation { tab = .conversation }
-                        runner.opinions.ask(
-                            ChatSecondOpinion.Request(subject: chatSubject, focus: focus, reading: reading,
-                                                      conversation: reading.conversation
-                                                        ? SideQuestion.recentChat(session.messages) : "",
-                                                      directories: store.workingDirectories(for: session),
-                                                      executable: ""),
-                            reviewers: lineup, executables: executables, anchor: chatAnchor, in: sessionID)
-                    case .changes(let lineup, let focus, let scope):
-                        opinionLineup = lineup
-                        changesNavigation.secondOpinionFocus = focus
-                        changesNavigation.secondOpinionScope = scope
-                        // The Changes screen starts the run and puts its progress up in
-                        // place of this dialog.
-                        tab = .changes
-                        changesNavigation.secondOpinionRequest = .ask(lineup)
-                    case .design(let lineup, let focus, let reading):
-                        guard let designSession, let designDirectory else { return }
-                        opinionLineup = lineup
-                        dialogs.dismiss()
-                        if shownDesign(session) == nil {
-                            tab = session.isActivelyDesigning ? .conversation : .design
-                        }
-                        let shots = FileManager.default.temporaryDirectory
-                            .appendingPathComponent("code-station-design-review-\(UUID().uuidString)", isDirectory: true)
-                        let asked = designSession.messages.filter { $0.role == .user }.suffix(3).reversed()
-                            .map(\.text).joined(separator: "\n\n")
-                        runner.designOpinions.ask(
-                            DesignSecondOpinion.Request(focus: focus, reading: reading,
-                                                        designDirectory: designDirectory.path, shotsDirectory: shots.path,
-                                                        shots: [], asked: asked,
-                                                        conversation: reading.conversation
-                                                            ? SideQuestion.recentChat(designSession.messages) : "",
-                                                        executable: ""),
-                            screens: screens, reviewers: lineup, executables: executables, in: designSession.id)
-                    }
-                })),
-            actions: [], width: 620, framesItself: true))
+        switch choice.stop {
+        case .answer, .conversation:
+            let subject: ChatSecondOpinion.Subject? = choice.stop == .conversation
+                ? conversationSubject(session)
+                : ask.chatSubject
+            guard let subject else { return }
+            if tab != .conversation { tab = .conversation }
+            runner.opinions.ask(
+                ChatSecondOpinion.Request(subject: subject, focus: choice.chatFocus, note: choice.note,
+                                          reading: choice.chatReading,
+                                          conversation: choice.chatReading.conversation
+                                            ? SideQuestion.recentChat(session.messages) : "",
+                                          directories: store.workingDirectories(for: session),
+                                          executable: ""),
+                reviewers: choice.lineup, executables: executables,
+                anchor: choice.stop == .conversation ? latestAnswer(in: session)?.id : ask.chatAnchor,
+                in: sessionID)
+        case .file, .sinceReview, .uncommitted:
+            changesNavigation.secondOpinionFocus = choice.changesFocus
+            changesNavigation.secondOpinionNote = choice.note
+            changesNavigation.secondOpinionScope = switch choice.stop {
+            case .file: .file
+            case .sinceReview: .sinceReview
+            default: .all
+            }
+            // The Changes screen starts the run; its progress shows on the header control.
+            tab = .changes
+            changesNavigation.secondOpinionRequest = .ask(choice.lineup)
+        case .design:
+            guard let designSession = reviewableDesign(session),
+                  let designDirectory = store.designArtifactURL(for: designSession)?.deletingLastPathComponent()
+            else { return }
+            if shownDesign(session) == nil {
+                tab = session.isActivelyDesigning ? .conversation : .design
+            }
+            let screens = DesignManifest.read(from: designDirectory).screens
+            let shots = FileManager.default.temporaryDirectory
+                .appendingPathComponent("code-station-design-review-\(UUID().uuidString)", isDirectory: true)
+            let asked = designSession.messages.filter { $0.role == .user }.suffix(3).reversed()
+                .map(\.text).joined(separator: "\n\n")
+            runner.designOpinions.ask(
+                DesignSecondOpinion.Request(focus: choice.designFocus, note: choice.note, reading: choice.designReading,
+                                            designDirectory: designDirectory.path, shotsDirectory: shots.path,
+                                            shots: [], asked: asked,
+                                            conversation: choice.designReading.conversation
+                                                ? SideQuestion.recentChat(designSession.messages) : "",
+                                            executable: ""),
+                screens: screens, reviewers: choice.lineup, executables: executables, in: designSession.id)
+        }
     }
 
-    // The file picked on the Changes screen, which a reviewer can be held to.
-    private func selectedChangeName(_ session: ChatSession) -> String? {
+    // The whole conversation as one subject, judged against everything the person asked.
+    private func conversationSubject(_ session: ChatSession) -> ChatSecondOpinion.Subject? {
+        guard let latest = latestAnswer(in: session) else { return nil }
+        let asked = session.messages.filter { $0.role == .user && !$0.text.isBlank }.map(\.text.trimmed)
+        return ChatSecondOpinion.Subject(kind: .conversation, id: "conversation:" + latest.id.uuidString,
+                                         text: SideQuestion.recentChat(session.messages),
+                                         request: asked.joined(separator: "\n\n"))
+    }
+
+    // Marks the subject in the transcript while the card is open: the answer it reads,
+    // or every message when it reads the whole conversation.
+    private func opinionRailShows(_ message: ChatMessage) -> Bool {
+        guard let ask = opinionAsk else { return false }
+        switch ask.stop {
+        case .answer: return ask.chatSubject?.kind == .answer && ask.chatAnchor == message.id
+        case .conversation: return (message.role == .user || message.role == .assistant) && !message.text.isBlank
+        default: return false
+        }
+    }
+
+    // What changed after the last review, so the preview lights only those files.
+    private func readSinceReviewFiles() async {
+        sinceReviewFiles = nil
+        guard let ask = opinionAsk, ask.facts.canReadSince,
+              let trees = runner.reviews.latestTrees(sessionID) else { return }
+        var ids = Set<String>()
+        for (root, tree) in trees {
+            guard let changed = await TreeSnapshots.shared.patch(since: tree, at: root) else { continue }
+            for patch in SecondOpinion.split(changed.text, root: changed.root) {
+                ids.insert(SecondOpinionAskFacts.File(root: patch.root, path: patch.path, added: 0, removed: 0).id)
+            }
+        }
+        guard !Task.isCancelled else { return }
+        sinceReviewFiles = ids
+    }
+
+    // The file picked on the Changes screen.
+    private func selectedChange(_ session: ChatSession) -> (root: String, path: String)? {
         let root = directory(for: selectedProjectID ?? session.projectID, in: session)
             ?? store.workingDirectories(for: session).first
         guard let root, let id = changesNavigation.selections[root]?.activeID,
               let file = gitStats.snapshot(at: root)?.files.first(where: { $0.id == id }) else { return nil }
-        return file.fileName
+        return (root, file.path)
     }
 
     private func opinionCard(_ opinion: ChatOpinion, session: ChatSession) -> some View {

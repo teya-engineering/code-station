@@ -1,9 +1,10 @@
 import AppKit
 import SwiftUI
 
-// The second opinion lives in three dialogs: asking, opened from the session header, and
-// watching the reviewers work and going through what they found, opened from the same
-// control in the header once it has been asked. The review bar only says what will be sent.
+// The second opinion is asked in a card hung off the control that opened it
+// (`SecondOpinionAskCard`). While the reviewers read, the header control opens a small
+// panel of their lanes; once they are done, it opens the findings dialog to go through
+// what they found. The review bar only says what will be sent.
 
 // What a second opinion is asked to read.
 enum SecondOpinionScopeChoice: Hashable {
@@ -198,522 +199,113 @@ private struct DialogFrame<Trailing: View, Content: View, Footer: View>: View {
     }
 }
 
-private struct SectionTitle: View {
-    let title: String
-    var body: some View {
-        Text(title).font(Typography.body.weight(.semibold))
-            .accessibilityAddTraits(.isHeader)
-    }
-}
 
-// MARK: - 1. Ask
+// MARK: - 1. Lanes
 
-// The ask dialog, the same for changes, a plan, an answer or a design. It holds a lineup
-// of up to four seats, each an agent on its own model and effort, which a menu cannot.
-// Every seat says how independent it is of the agent that wrote the work, in a meter and
-// in words; that is advice, never a rule, so a seat on the author's own model is allowed
-// and only flagged. What differs between subjects is the wording and what a reviewer
-// looks for and reads, which the caller passes in, along with the choice of subject.
-struct SecondOpinionAskView<Subject: View, Choices: View>: View {
-    let message: String
-    let safety: String
-    let author: SecondOpinion.Reviewer
-    // What the author did, after its name in the lineup's top row.
-    var authorDid = "wrote these changes"
-    let installed: [AgentKind]
-    var running: Set<SecondOpinion.Reviewer> = []
-    @Binding var lineup: [SecondOpinion.Reviewer]
-    // Nothing is ticked to look for, so there is nothing to ask for yet.
-    var needsFocus = false
-    @ViewBuilder let subject: Subject
-    @ViewBuilder let choices: Choices
-    let ask: () -> Void
+// The run, in a small panel under the header control that started it: one row per seat,
+// what it is doing and for how long, and a way to stop it. Findings still land on the
+// Changes screen; this only says how far the reading has got.
+struct SecondOpinionLanesPanel: View {
+    let reviews: ReviewCommentStore
+    let sessionID: UUID
+    let lookAt: () -> Void
+    let close: () -> Void
 
-    @Environment(DialogPresenter.self) private var dialogs
-    @Environment(SessionRunner.self) private var runner
-    @State private var usual = Preferences.secondOpinionLineup()
-
-    private var chosen: [SecondOpinion.Reviewer] {
-        var seen = Set<SecondOpinion.Reviewer>()
-        return lineup.filter { !running.contains($0) && seen.insert($0).inserted }
-    }
+    static let width: CGFloat = 380
 
     var body: some View {
-        DialogFrame(title: "Ask for a second opinion", icon: "person.2", message: message) {
-            EmptyView()
-        } content: {
-            VStack(alignment: .leading, spacing: Space.xl) {
-                subject
-                VStack(alignment: .leading, spacing: Space.md) {
-                    HStack(alignment: .firstTextBaseline) {
-                        SectionTitle(title: "Reviewers")
-                        Spacer(minLength: 0)
-                        if !lineup.isEmpty && lineup == usual {
-                            Label("Your usual reviewers", systemImage: "checkmark")
-                                .font(Typography.detail).foregroundStyle(Theme.secondaryText)
-                        } else if !lineup.isEmpty {
-                            InlineLink(title: "Make this my usual", size: Typography.Size.detail) {
-                                Preferences.setSecondOpinionLineup(lineup)
-                                usual = lineup
-                            }
-                            .appTooltip("Open with these reviewers, models and effort next time")
-                        }
-                    }
-                    reviewers
-                }
-                choices
-                HStack(alignment: .top, spacing: Space.md) {
-                    Image(systemName: "checkmark.shield").font(Typography.detail).foregroundStyle(Theme.accent)
-                        .accessibilityHidden(true)
-                    Text(safety)
-                        .font(Typography.detail).foregroundStyle(Theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, Space.xxs)
-            }
-            .padding(.horizontal, Space.xxl).padding(.top, Space.xl).padding(.bottom, Space.xl)
-        } footer: {
-            footer
-        }
-        .onAppear {
-            // Another agent than the author's own, on its usual model, is the most
-            // independent first seat there is.
-            if lineup.isEmpty, let agent = installed.first(where: { $0 != author.agent }) ?? installed.first {
-                add(agent)
-            }
-        }
-        .task { for agent in installed { await runner.discoverModels(for: agent) } }
-    }
-
-    // MARK: Pieces
-
-    // The author on top, then each seat, then the way to add one, all in one box split
-    // by hairlines, so each seat reads against the author it is measured from.
-    private var reviewers: some View {
-        VStack(spacing: 0) {
-            authorRow
-            ForEach(Array(lineup.enumerated()), id: \.offset) { index, seat in
-                hairline
-                seatRow(seat, at: index)
-            }
-            hairline
-            if installed.isEmpty {
-                (Text("No agent is installed to ask. ").fontWeight(.semibold).foregroundColor(.primary)
-                 + Text("Install \(otherAgents), then open this again."))
-                    .font(Typography.detail).foregroundStyle(Theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Space.lg).padding(.vertical, Space.lg)
-            } else {
-                addReviewer
-            }
-        }
-        .background(Theme.field.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.card))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(Theme.border))
-    }
-
-    private var hairline: some View {
-        Rectangle().fill(Theme.hairline).frame(height: 1)
-    }
-
-    private var otherAgents: String {
-        let others = AgentKind.allCases.filter { $0 != author.agent }.map(\.title)
-        guard others.count > 1 else { return others.first ?? "an agent" }
-        return others.dropLast().joined(separator: ", ") + " or " + others.last!
-    }
-
-    private var authorRow: some View {
-        HStack(spacing: Space.md) {
-            ReviewAvatar(agent: author.agent, size: 22).opacity(0.8)
-                .frame(width: 26)
-            (Text(author.agent.title).fontWeight(.semibold).foregroundColor(.primary) + Text(" " + authorDid))
-                .font(Typography.detail).foregroundStyle(Theme.secondaryText)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Text(authorSetting).font(Typography.detail).foregroundStyle(Theme.secondaryText).lineLimit(1)
-        }
-        .padding(.horizontal, Space.lg).frame(height: 42)
-        .background(Theme.sunken)
-        .accessibilityElement(children: .combine)
-        .appTooltip("Each reviewer's independence is measured against this")
-    }
-
-    private var authorSetting: String {
-        let model = author.model.map { runner.modelTitle($0) } ?? "Its usual model"
-        guard let effort = author.effort else { return model }
-        return model + ", " + runner.effortTitle(effort, for: author.agent, model: author.model).lowercased() + " effort"
-    }
-
-    private func seatRow(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let independence = SecondOpinion.independence(of: seat, from: author)
-        let busy = running.contains(seat)
-        let flagged = independence == .sameModel
-        return HStack(spacing: Space.md) {
-            ReviewAvatar(agent: seat.agent, size: 26)
-            VStack(alignment: .leading, spacing: Space.xs) {
-                HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
-                    Text(seat.agent.title).font(Typography.body.weight(.semibold))
-                    if seat.agent == author.agent {
-                        Text("fresh start, without this conversation")
-                            .font(Typography.caption.weight(.medium)).foregroundStyle(Theme.secondaryText)
-                            .truncationMode(.tail)
-                    }
-                }
-                .lineLimit(1)
-                HStack(spacing: Space.sm) {
-                    IndependenceMeter(independence: independence)
-                    Text(independence.line)
-                        .font(Typography.caption)
-                        .foregroundStyle(flagged ? Theme.attentionText : Theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .accessibilityElement(children: .combine)
-            }
-            Spacer(minLength: 6)
-            if busy {
-                Text("Reviewing now").font(Typography.caption).foregroundStyle(.tertiary)
-            } else {
-                HStack(spacing: Space.sm) {
-                    modelMenu(seat, at: index)
-                    effortMenu(seat, at: index)
-                    GlyphButton(icon: "xmark", side: ControlHeight.xs) { lineup.remove(at: index) }
-                        .appTooltip("Remove")
-                        .accessibilityLabel("Remove \(seat.label(modelTitle: runner.modelTitle))")
-                }
-            }
-        }
-        .padding(.leading, Space.lg).padding(.trailing, Space.md).padding(.vertical, Space.md)
-        .background(flagged ? Theme.attention.opacity(0.08) : .clear)
-        .opacity(busy ? 0.6 : 1)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(seat.label(modelTitle: runner.modelTitle) + (busy ? ", reviewing now" : ""))
-    }
-
-    private func modelMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let title = seat.model.map { runner.modelTitle($0) } ?? "Default"
-        return SeatPill { Text(title) }
-            .appMenu {
-                runner.modelOptions(for: seat.agent).map { option in
-                    var changed = seat
-                    changed.model = option.id
-                    let words = SecondOpinion.independence(of: changed, from: author)
-                    return MenuEntry.item(option.title, checked: seat.model == option.id,
-                                          subtitle: option.detail,
-                                          detail: words == .sameModel ? "Author's model" : nil,
-                                          detailColour: Theme.attentionText) {
-                        changed.effort = runner.validEffort(seat.effort, for: seat.agent, model: option.id)
-                        lineup[index] = changed
-                    }
-                }
-            }
-            .appTooltip("The model \(seat.agent.title) reviews on")
-            .accessibilityLabel("Model: \(title)")
-    }
-
-    private func effortMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let levels = runner.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
-        let title = seat.effort.map { runner.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
-        return SeatPill {
-            EffortMeter(lit: EffortMeter.lit(for: seat.effort, among: levels), height: 11)
-            Text(title)
-        }
-        .appMenu {
-            [MenuEntry.item("Default", meter: 0, checked: seat.effort == nil,
-                            subtitle: "Whatever \(seat.agent.title) is set to use",
-                            detail: "about \(SecondOpinion.minutes(for: nil)) min") {
-                lineup[index].effort = nil
-            }, .separator] + levels.map { level in
-                MenuEntry.item(runner.effortTitle(level, for: seat.agent, model: seat.model),
-                               meter: EffortMeter.lit(for: level, among: levels),
-                               checked: seat.effort == level,
-                               detail: "about \(SecondOpinion.minutes(for: level)) min") {
-                    lineup[index].effort = level
-                }
-            }
-        }
-        .appTooltip("How long it thinks. More effort uses more of your plan.")
-        .accessibilityLabel("Effort: \(title)")
-    }
-
-    // The last row of the box. `appMenu` brings the button itself, so the row is only
-    // its label.
-    private var addReviewer: some View {
-        let full = lineup.count >= SecondOpinion.Reviewer.maxSeats
-        return HStack(spacing: Space.md) {
-            Image(systemName: "plus").font(Typography.micro)
-                .frame(width: 26)
-            Text(full ? "Four reviewers at most" : "Add a reviewer").font(Typography.label)
-            Spacer(minLength: 8)
-            if !full {
-                Text(lineup.count > 1 ? "They read side by side, so more costs no extra time" : "Up to four")
-                    .font(Typography.caption).foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-        }
-        .foregroundStyle(full ? Color.secondary.opacity(0.7) : Theme.accent)
-        .padding(.horizontal, Space.lg).frame(height: 38)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .hoverFill(cornerRadius: 0)
-        .appMenu {
-            installed.map { agent in
-                MenuEntry.item(agent == author.agent ? agent.title + " fresh start" : agent.title,
-                               image: nil, subtitle: agent == author.agent
-                                ? "The author's agent without this conversation" : agent.vendor) {
-                    add(agent)
-                }
-            }
-        }
-        .disabled(full)
-        .appTooltip(full ? "Four reviewers at most" : "Add another agent, or the same one on another model")
-        .accessibilityLabel(full ? "Four reviewers at most" : "Add a reviewer")
-        .accessibilityAddTraits(.isButton)
-    }
-
-    // A new seat starts on the agent's own defaults, or on another of its models when
-    // that seat is already taken, so two seats are never the same run.
-    private func add(_ agent: AgentKind) {
-        let defaults = runner.defaults(for: agent)
-        let model = runner.validModel(defaults.model, for: agent)
-        var seat = SecondOpinion.Reviewer(agent: agent, model: model,
-                                          effort: runner.validEffort(defaults.effort, for: agent, model: model))
-        if lineup.contains(seat),
-           let free = runner.modelOptions(for: agent).first(where: { option in
-               !lineup.contains { $0.agent == agent && $0.model == option.id }
-           }) {
-            seat.model = free.id
-            seat.effort = runner.validEffort(seat.effort, for: agent, model: free.id)
-        }
-        lineup.append(seat)
-    }
-
-    @ViewBuilder private var footer: some View {
-        let minutes = chosen.map { SecondOpinion.minutes(for: $0.effort) }.max() ?? 0
-        Text(installed.isEmpty ? "Install an agent to ask for a review."
-             : minutes > 0 ? "About \(minutes) min. You can keep working." : "You can keep working while they read.")
-            .font(Typography.caption).foregroundStyle(Theme.secondaryText)
-            .lineLimit(1)
-        Spacer(minLength: 0)
-        ActionButton(title: "Cancel", tone: .sunken, height: ControlHeight.lg, size: Typography.Size.body) { dialogs.dismiss() }
-        ActionButton(title: needsFocus ? "Pick what to look for" : askTitle, tone: .green, height: ControlHeight.lg, size: Typography.Size.body,
-                     shortcut: "↩", keyboardShortcut: .defaultAction, action: ask)
-            .disabled(chosen.isEmpty || needsFocus)
-    }
-
-    private var askTitle: String {
-        let agents = Array(NSOrderedSet(array: chosen.map(\.agent.title))) as? [String] ?? []
-        if chosen.isEmpty { return "Pick a reviewer" }
-        if chosen.count == agents.count && agents.count <= 2 { return "Ask " + agents.joined(separator: " and ") }
-        return "Ask \(chosen.count) reviewers"
-    }
-}
-
-// A titled run of choices in the ask dialog, the way each of its sections reads.
-struct SecondOpinionSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            SectionTitle(title: title)
-            content
-        }
-    }
-}
-
-// What a reviewer of changes looks for, and which changes they read.
-struct ChangesOpinionChoices: View {
-    @Binding var focus: Set<SecondOpinion.Focus>
-    @Binding var scope: SecondOpinionScopeChoice
-    let fileCount: Int
-    let fileName: String?
-    let canReadSince: Bool
-
-    @Namespace private var track
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        // Several can be ticked at once, so these are checkboxes; filled pills would read
-        // as a choice of one.
-        SecondOpinionSection(title: "What to look for") {
-            Grid(alignment: .leading, horizontalSpacing: Space.xxl, verticalSpacing: Space.md) {
-                ForEach(Array(stride(from: 0, to: SecondOpinion.Focus.allCases.count, by: 3)), id: \.self) { start in
-                    GridRow {
-                        ForEach(SecondOpinion.Focus.allCases.dropFirst(start).prefix(3), id: \.self) { item in
-                            Toggle(isOn: Binding(get: { focus.contains(item) },
-                                                 set: { on in if on { focus.insert(item) } else { focus.remove(item) } })) {
-                                Text(item.title).font(Typography.body)
-                            }
-                            .toggleStyle(.appCheckbox)
-                        }
-                    }
-                }
-            }
-        }
-        SecondOpinionSection(title: "Which changes") {
-            VStack(alignment: .leading, spacing: Space.md) {
-                HStack(spacing: Space.xxs) {
-                    scopePill("All \(counted(fileCount, "file"))", .all)
-                    if let fileName { scopePill(fileName, .file) }
-                    scopePill("Since your last review", .sinceReview, enabled: canReadSince)
-                        .appTooltip(canReadSince ? "Only what changed after the last review was sent"
-                                    : "Once you have sent a review, a reviewer can read only what changed after it")
-                }
-                .padding(Space.xxs)
-                .fieldSurface(cornerRadius: Radius.card)
-                .fixedSize()
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Which changes")
-                if !canReadSince {
-                    Text("Since your last review opens up once you send one.")
-                        .font(Typography.caption).foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    private func scopePill(_ title: String, _ choice: SecondOpinionScopeChoice, enabled: Bool = true) -> some View {
-        ChoicePill(title: title, selected: scope == choice, enabled: enabled, thumb: track) {
-            withAnimation(reduceMotion ? nil : Motion.control) { scope = choice }
-        }
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(scope == choice ? .isSelected : [])
-    }
-}
-
-// MARK: - 2. Progress
-
-struct SecondOpinionProgressView: View {
-    let review: ReviewTarget
-    let stop: (SecondOpinion.Reviewer) -> Void
-    let stopAll: () -> Void
-    let lookAt: (SecondOpinion.Reviewer?) -> Void
-
-    @Environment(DialogPresenter.self) private var dialogs
-
-    var body: some View {
-        let runs = review.reviews.runs(review.sessionID)
+        let runs = reviews.runs(sessionID)
         let running = runs.filter(\.isRunning)
-        let findings = review.reviews.findings(review.sessionID)
-        let pending = review.reviews.pending(review.sessionID).count { $0.reviewer != nil }
-        DialogFrame(title: "Second opinion", icon: running.isEmpty ? "checkmark" : "hourglass",
-                    message: !running.isEmpty ? "Findings wait for you as each reviewer finishes."
-                        : pending > 0 ? "\(counted(pending, "finding")) came back. Look at them before anything reaches \(review.agent.title)."
-                        : "Nothing is waiting to be looked at.") {
-            EmptyView()
-        } content: {
-            VStack(spacing: Space.md) {
-                if runs.isEmpty {
-                    Text("No reviewer is at work.").font(Typography.detail).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, Space.xl)
+        let findings = reviews.findings(sessionID)
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text(running.isEmpty ? "Second opinion" : "Reading the changes")
+                .font(Typography.body.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            if runs.isEmpty {
+                Text("No reviewer is at work.").font(Typography.detail).foregroundStyle(.secondary)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(runs.enumerated()), id: \.element.id) { index, run in
+                    if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }
+                    lane(run, findings: findings)
                 }
-                ForEach(runs) { run in lane(run, findings: findings) }
             }
-            .padding(.horizontal, Space.xxl).padding(.vertical, Space.xl)
-        } footer: {
-            if running.count > 1 {
-                InlineLink(title: "Stop all", tint: Color.secondary, action: stopAll)
-            }
-            Spacer(minLength: 0)
-            if !running.isEmpty {
-                Text("The review bar keeps count while you work.").font(Typography.detail).foregroundStyle(.tertiary)
-                ActionButton(title: "Keep working", tone: .outlined, height: ControlHeight.lg, size: Typography.Size.body,
-                             keyboardShortcut: .defaultAction) { dialogs.dismiss() }
-            } else if pending > 0 {
-                ActionButton(title: "Look at \(counted(pending, "finding"))", tone: .green, height: ControlHeight.lg, size: Typography.Size.body,
-                             keyboardShortcut: .defaultAction) { lookAt(nil) }
-            } else {
-                ActionButton(title: "Close", tone: .outlined, height: ControlHeight.lg, size: Typography.Size.body,
-                             keyboardShortcut: .defaultAction) { dialogs.dismiss() }
+            HStack(spacing: Space.md) {
+                Text(running.isEmpty ? "Findings wait for you on the Changes tab."
+                     : "Findings land on the Changes tab as each one finishes.")
+                    .font(Typography.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if running.count > 1 {
+                    InlineLink(title: "Stop all", size: Typography.Size.caption, tint: Color.secondary) {
+                        reviews.stopSecondOpinion(sessionID)
+                        announce("Stopped every review")
+                    }
+                }
             }
         }
+        .padding(Space.card)
+        .frame(width: Self.width, alignment: .leading)
+        .floatingCard(cornerRadius: Radius.floating)
+        .background {
+            Button(action: close) { EmptyView() }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Second opinion progress")
     }
 
     @ViewBuilder private func lane(_ run: SecondOpinionRun, findings: [ReviewComment]) -> some View {
         let name = run.reviewer.label()
-        switch run.state {
-        case .running:
-            laneCard(fill: Theme.card, border: Theme.border) {
-                BadgedAvatar(agent: run.agent, size: 36, badge: .working)
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    HStack(alignment: .firstTextBaseline, spacing: Space.md) {
-                        Text(name).font(Typography.body.weight(.semibold))
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(clock(from: run.started, to: context.date)).font(Typography.data).foregroundStyle(.tertiary)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(run.recent.enumerated()), id: \.offset) { index, line in
-                            Text(line).font(Typography.code)
-                                .foregroundStyle(index == run.recent.count - 1 ? Color.primary : Color.secondary)
-                                .opacity(index == run.recent.count - 1 ? 1 : 0.55)
-                                .lineLimit(1).truncationMode(.middle)
-                        }
-                    }
+        HStack(alignment: .center, spacing: Space.md) {
+            switch run.state {
+            case .running:
+                BadgedAvatar(agent: run.agent, size: ControlHeight.sm, badge: .working)
+                laneWords(name, detail: run.activity, mono: true)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(clock(from: run.started, to: context.date)).font(Typography.data).foregroundStyle(.tertiary)
                 }
-                Spacer(minLength: 0)
-                ActionButton(title: "Stop", tone: .sunken, height: ControlHeight.sm, size: Typography.Size.detail, icon: "stop.fill") { stop(run.reviewer) }
-                    .accessibilityLabel("Stop \(name)")
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(name) is reviewing. \(run.activity)")
-        case .finished(let found):
-            let mine = findings.filter { $0.raised(by: run.reviewer) }
-            laneCard(fill: Theme.dotOn.opacity(0.05), border: Theme.dotOn.opacity(0.25)) {
-                BadgedAvatar(agent: run.agent, size: 36, badge: .done)
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    HStack(alignment: .firstTextBaseline, spacing: Space.md) {
-                        Text(name).font(Typography.body.weight(.semibold))
-                        Text("took " + clock(from: run.started, to: run.ended ?? Date()))
-                            .font(Typography.data).foregroundStyle(.tertiary)
-                    }
-                    Group {
-                        if found > 0 { Text("Found ") + Text("\(found)").fontWeight(.semibold).foregroundColor(.primary) + Text(" worth raising") }
-                        else { Text("Nothing worth raising") }
-                    }
-                    .font(Typography.body).foregroundStyle(.secondary)
-                    let tally = ReviewComment.Severity.allCases.map { severity in (severity, mine.count { $0.severity == severity }) }
-                        .filter { $0.1 > 0 }
-                    if !tally.isEmpty {
-                        HStack(spacing: Space.xs) {
-                            ForEach(tally, id: \.0) { severity, count in SeverityChip(severity: severity, count: count) }
-                        }
-                        .padding(.top, Space.xs)
-                    }
+                ActionButton(title: "Stop", tone: .sunken, height: ControlHeight.sm, size: Typography.Size.caption,
+                             icon: "stop.fill") {
+                    reviews.stopSecondOpinion(sessionID, reviewer: run.reviewer)
+                    announce("Stopped \(name)'s review")
                 }
-                Spacer(minLength: 0)
+                .accessibilityLabel("Stop \(name)")
+            case .finished(let found):
+                BadgedAvatar(agent: run.agent, size: ControlHeight.sm, badge: .done)
+                laneWords(name, detail: (found > 0 ? "Found \(found) worth raising" : "Nothing worth raising")
+                          + ", took " + clock(from: run.started, to: run.ended ?? Date()))
                 if found > 0 {
-                    ActionButton(title: "Look at them", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) { lookAt(run.reviewer) }
+                    ActionButton(title: "Look", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption,
+                                 action: lookAt)
+                        .accessibilityLabel("Look at what \(name) found")
+                }
+            case .failed(let message):
+                ReviewAvatar(agent: run.agent, size: ControlHeight.sm)
+                laneWords(name + " could not finish", detail: message, warns: true)
+                ActionButton(title: "Try again", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.caption,
+                             icon: "arrow.clockwise") {
+                    reviews.retrySecondOpinion(sessionID, reviewer: run.reviewer)
                 }
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(name) finished with \(counted(found, "finding"))")
-        case .failed(let message):
-            laneCard(fill: Theme.warningBackground, border: Theme.warningText.opacity(0.25)) {
-                ReviewAvatar(agent: run.agent, size: 36)
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text("\(name) could not finish").font(Typography.body.weight(.semibold))
-                    Text(message).font(Typography.body).fixedSize(horizontal: false, vertical: true)
-                }
-                .foregroundStyle(Theme.warningText)
-                Spacer(minLength: 0)
-                ActionButton(title: "Try again", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail, icon: "arrow.clockwise") {
-                    review.reviews.retrySecondOpinion(review.sessionID, reviewer: run.reviewer)
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(name) could not finish. \(message)")
         }
+        .padding(.vertical, Space.sm)
+        .transition(.fadeIn)
+        .accessibilityElement(children: .contain)
     }
 
-    private func laneCard<Content: View>(fill: Color, border: Color, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .top, spacing: Space.lg, content: content)
-            .padding(Space.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(fill, cornerRadius: Radius.floating, border: border)
+    private func laneWords(_ title: String, detail: String, mono: Bool = false, warns: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            Text(title).font(Typography.label).lineLimit(1)
+            Text(detail).font(mono ? Typography.data : Typography.caption)
+                .foregroundStyle(warns ? Theme.warningText : Color.secondary)
+                .lineLimit(1).truncationMode(.middle)
+                .contentTransition(.opacity)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

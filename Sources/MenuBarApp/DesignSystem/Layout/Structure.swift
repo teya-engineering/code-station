@@ -260,3 +260,45 @@ struct FormPair: Layout {
         }
     }
 }
+
+// A line drawn down the leading edge of whatever a floating card is about, such as the
+// answer a second opinion will read, so the subject is marked in the window and not only
+// named in the card. It draws from the top while shown and fades when put away.
+struct SubjectRail: ViewModifier {
+    let shown: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    nonisolated static let width: CGFloat = 3
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .leading) {
+            RailLine()
+                .trim(from: 0, to: shown || reduceMotion ? 1 : 0)
+                .stroke(Theme.accent, style: StrokeStyle(lineWidth: Self.width, lineCap: .round))
+                .frame(width: Self.width)
+                .opacity(shown ? 1 : 0)
+                .offset(x: -Space.lg)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .motion(shown ? Motion.draw : Motion.leave, value: shown)
+        }
+    }
+
+    private struct RailLine: Shape {
+        func path(in rect: CGRect) -> Path {
+            Path { path in
+                path.move(to: CGPoint(x: rect.midX, y: rect.minY + Self.cap))
+                path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - Self.cap))
+            }
+        }
+
+        private static let cap = SubjectRail.width / 2
+    }
+}
+
+extension View {
+    func subjectRail(_ shown: Bool) -> some View {
+        modifier(SubjectRail(shown: shown))
+    }
+}

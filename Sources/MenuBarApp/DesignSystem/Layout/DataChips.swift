@@ -46,3 +46,49 @@ struct MonoChip: View {
             .fixedSize()
     }
 }
+
+// One changed file as a row of bars: its name, then a green bar for lines added and a red
+// one for lines removed, both measured on the same scale as the other rows beside it, so
+// the biggest change is seen first. A file outside what is picked keeps its grey bars and
+// dims its name; one that comes into it draws its colour along the bar.
+struct FileBarRow: View {
+    let name: String
+    let added: Int
+    let removed: Int
+    var lit = true
+    // The line count that fills the whole bar, shared by every row in one list.
+    var scale: Int
+
+    static let nameWidth: CGFloat = 168
+
+    var body: some View {
+        HStack(spacing: Space.md) {
+            Text(name).font(Typography.data).lineLimit(1).truncationMode(.middle)
+                .foregroundStyle(lit ? Color.primary : Color.secondary)
+                .frame(width: Self.nameWidth, alignment: .leading)
+            GeometryReader { proxy in
+                let unit = proxy.size.width / CGFloat(max(scale, 1))
+                HStack(spacing: Space.xxs) {
+                    bar(width: max(added > 0 ? 2 : 0, unit * CGFloat(added)), colour: Theme.addition)
+                    bar(width: max(removed > 0 ? 2 : 0, unit * CGFloat(removed)), colour: Theme.deletion)
+                }
+                .frame(maxHeight: .infinity)
+            }
+            .frame(height: 6)
+            DiffPair(added: added, removed: removed, size: Typography.Size.micro)
+                .opacity(lit ? 1 : 0.5)
+                .fixedSize()
+        }
+        .motion(Motion.draw, value: lit)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name), \(added) added, \(removed) removed" + (lit ? "" : ", left out"))
+    }
+
+    private func bar(width: CGFloat, colour: Color) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(Theme.border)
+            Capsule().fill(colour).frame(width: lit ? width : 0)
+        }
+        .frame(width: width, height: 4)
+    }
+}

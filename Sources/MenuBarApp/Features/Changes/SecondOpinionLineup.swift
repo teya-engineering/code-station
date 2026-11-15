@@ -347,6 +347,8 @@ struct SecondOpinionLineupButton: View {
     let installed: [AgentKind]
     // Whether there is an answer, a change or a design to look at yet.
     var canReview = true
+    // The sentence a click proposes, worked out only when the tooltip asks for it.
+    var proposal: (() -> String)? = nil
     let runs: [SecondOpinionRun]
     let status: SecondOpinionStatus
     let ask: () -> Void
@@ -384,6 +386,12 @@ struct SecondOpinionLineupButton: View {
         return "\(SecondOpinionLineup.names(lineup)) check an answer, the changes or the design"
     }
 
+    private var tooltipWords: String {
+        guard shown == .rest else { return accessibilityWords }
+        guard canAsk, let proposal else { return restWords }
+        return proposal()
+    }
+
     private var change: Animation {
         reduceMotion ? Motion.reveal : HeaderMotion.grow
     }
@@ -398,8 +406,8 @@ struct SecondOpinionLineupButton: View {
         .disabled(shown == .rest && !canAsk)
         .onPointerHover { hovering = $0 }
         .appTooltip {
-            Tooltip(title: "Ask for a second opinion",
-                    subtitle: restWords)
+            Tooltip(title: shown == .rest ? "Ask for a second opinion" : "Second opinion",
+                    subtitle: tooltipWords)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
@@ -538,17 +546,24 @@ struct SecondOpinionLineupButton: View {
 
 // MARK: - Under an answer
 
-// The tiles beside an answer's copy button: click them to ask the lineup about it.
+// The tiles beside an answer's copy button, or on a file in Changes: click them to ask
+// the lineup about that one thing. The card hangs off the tiles, so the place they sit
+// is passed on as they are clicked.
 struct AnswerLineupButton: View {
+    var subject = "this answer"
+    var accessibilityName = "Get a second opinion on this answer"
     let action: () -> Void
 
     @Environment(\.secondOpinionLineup) private var lineup
+    @Environment(\.secondOpinionAnchor) private var anchor
     @State private var hovering = false
     @State private var deals = 0
+    @State private var frame = CGRect.zero
 
     var body: some View {
         Button {
             deals += 1
+            anchor(frame)
             action()
         } label: {
             LineupTiles(agents: lineup, size: 18, fanned: hovering, deals: deals)
@@ -559,11 +574,21 @@ struct AnswerLineupButton: View {
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
+        .anchorsSecondOpinion { frame = $0 }
         .appTooltip {
             Tooltip(title: "Get a second opinion",
-                    subtitle: lineup.isEmpty ? "Other agents review this answer"
-                        : "\(SecondOpinionLineup.names(lineup)) review this answer")
+                    subtitle: lineup.isEmpty ? "Another agent reviews \(subject)"
+                        : "\(SecondOpinionLineup.names(lineup)) \(lineup.count > 1 ? "review" : "reviews") \(subject)")
         }
-        .accessibilityLabel("Get a second opinion on this answer")
+        .accessibilityLabel(accessibilityName)
+    }
+}
+
+extension View {
+    // Keeps where a control sits in the session, so the ask card can hang off it.
+    func anchorsSecondOpinion(_ action: @escaping (CGRect) -> Void) -> some View {
+        onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named(SecondOpinionAskCard.space))
+        } action: { action($0) }
     }
 }

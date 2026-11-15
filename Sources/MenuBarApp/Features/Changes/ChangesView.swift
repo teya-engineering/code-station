@@ -50,6 +50,7 @@ struct ChangesView: View {
     @Environment(GitStatsCache.self) private var gitStats
     @Environment(AppSettings.self) private var appSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.askSecondOpinionOnFile) private var askSecondOpinionOnFile
 
     @State private var commentDraft: CommentDraft?
     @State private var toast: ReviewToast?
@@ -1405,6 +1406,12 @@ struct ChangesView: View {
                 if loadingDiff { ChangesProgressLabel(title: "Reading diff…", compact: true) }
                 Spacer()
                 if mode == .changes, review != nil, !orderedComments.isEmpty { commentNavigation }
+                if mode == .changes, review != nil, let file = shownFile, let askOnFile = askSecondOpinionOnFile {
+                    AnswerLineupButton(subject: "only " + file.fileName,
+                                       accessibilityName: "Get a second opinion on " + file.fileName) {
+                        askOnFile(repoRoot, file.path)
+                    }
+                }
                 if mode == .changes, let file = shownFile {
                     Image(systemName: "ellipsis").padding(Space.md).contentShape(Rectangle())
                         .hoverLift(amount: Motion.smallLift)
@@ -2396,13 +2403,13 @@ struct ChangesView: View {
 
     // MARK: Second opinion
 
-    // The header's control opens whichever dialog its state is about.
+    // The header's control opens the findings once there are some. While the reviewers
+    // read, it opens their lanes in a panel of its own instead.
     private func openSecondOpinion(_ review: ReviewTarget) {
         switch SecondOpinionStatus(reviews: review.reviews, sessionID: review.sessionID) {
-        case .ask, .reviewing, .failed: openProgress(review)
         case .ready: openFindings(review)
-        case .settled(let kept, let dismissed):
-            if kept + dismissed > 0 { openFindings(review) } else { openProgress(review) }
+        case .settled(let kept, let dismissed) where kept + dismissed > 0: openFindings(review)
+        case .ask, .reviewing, .failed, .settled: break
         }
     }
 
@@ -2415,27 +2422,6 @@ struct ChangesView: View {
         case .ask(let lineup): askForSecondOpinion(review, lineup: lineup)
         case .open: openSecondOpinion(review)
         }
-    }
-
-    private func openProgress(_ review: ReviewTarget) {
-        let reviews = review.reviews
-        let sessionID = review.sessionID
-        let dialog = Dialog(
-            title: "Second opinion",
-            content: AnyView(SecondOpinionProgressView(
-                review: review,
-                stop: { reviewer in
-                    reviews.stopSecondOpinion(sessionID, reviewer: reviewer)
-                    announce("Stopped \(reviewer.label())'s review")
-                },
-                stopAll: {
-                    reviews.stopSecondOpinion(sessionID)
-                    announce("Stopped every review")
-                },
-                lookAt: { reviewer in openFindings(review, from: reviewer) })),
-            actions: [], width: 560, framesItself: true)
-        secondOpinionDialog = dialog.id
-        dialogs.show(dialog)
     }
 
     // Opens on the first finding still to look at, from one reviewer when asked.
@@ -2463,7 +2449,6 @@ struct ChangesView: View {
         let chosen = lineup.filter { !running.contains($0) && seen.insert($0).inserted }
         review.reviews.beginSecondOpinion(review.sessionID)
         startSecondOpinion(review, reviewers: chosen, scope: scope)
-        openProgress(review)
     }
 
     private func startSecondOpinion(_ review: ReviewTarget, reviewers: [SecondOpinion.Reviewer],
@@ -2473,7 +2458,7 @@ struct ChangesView: View {
             guard let executable = review.executable(reviewer.agent) else { continue }
             review.reviews.startSecondOpinion(review.sessionID, reviewer: reviewer, request: SecondOpinionRequest(
                 focus: SecondOpinion.Focus.allCases.filter(navigation.secondOpinionFocus.contains),
-                scope: scope, repositories: reviewRepositories, executable: executable))
+                note: navigation.secondOpinionNote, scope: scope, repositories: reviewRepositories, executable: executable))
             asked.append(reviewer.label())
         }
         guard !asked.isEmpty else { return }

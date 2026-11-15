@@ -1,44 +1,5 @@
 import SwiftUI
 
-// What a reviewer of a design looks for and looks at. Pictures of every screen always go;
-// the files and the design conversation are the person's to choose.
-struct DesignOpinionChoices: View {
-    @Binding var focus: Set<DesignSecondOpinion.Focus>
-    @Binding var reading: DesignSecondOpinion.Reading
-
-    var body: some View {
-        SecondOpinionSection(title: "What to look for") {
-            FlowRow(spacing: Space.sm) {
-                ForEach(DesignSecondOpinion.Focus.allCases, id: \.self) { item in
-                    ChoicePill(title: item.title, selected: focus.contains(item)) {
-                        if !focus.insert(item).inserted { focus.remove(item) }
-                    }
-                    .accessibilityAddTraits(focus.contains(item) ? .isSelected : [])
-                }
-            }
-        }
-        SecondOpinionSection(title: "What they look at") {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                row(title: "The HTML, handoff and theme", note: "To check contrast and tokens", on: $reading.source)
-                row(title: "The design conversation", note: "Makes them think like the author",
-                    warns: true, on: $reading.conversation)
-            }
-        }
-    }
-
-    private func row(title: String, note: String, warns: Bool = false, on: Binding<Bool>) -> some View {
-        Toggle(isOn: on) {
-            HStack(spacing: Space.md) {
-                Text(title).font(Typography.label)
-                Spacer(minLength: 8)
-                Text(note).font(Typography.caption)
-                    .foregroundStyle(warns ? Theme.attentionText : Color.secondary)
-            }
-        }
-        .toggleStyle(.appCheckbox)
-    }
-}
-
 // The side panel beside the canvas: the seats while they look, then the notes they
 // pinned, each with Keep and Dismiss. Hovering a note lights its pin, and a pin that is
 // clicked brings its note into view. Hovering never scrolls the list, so moving the

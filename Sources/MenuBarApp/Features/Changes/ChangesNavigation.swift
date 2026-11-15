@@ -118,6 +118,7 @@ final class ChangesNavigationMemory {
     var focusedComment: UUID?
     var secondOpinionFocus = Set(SecondOpinion.Focus.standard)
     var secondOpinionScope = SecondOpinionScopeChoice.all
+    var secondOpinionNote = ""
     // An ask settled in the session's dialog, or a click on a run under way, from the
     // session header, which sits outside the screen that starts runs and shows them. It
     // waits here until that screen takes it, since a click from another tab opens the

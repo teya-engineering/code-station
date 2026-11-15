@@ -223,6 +223,8 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | Pick one from a list | `.appMenu`, or `OptionMenu` for the ready-made dropdown |
 | Pick one of a few, all visible | `ChoicePill`s in an `HStack` |
+| Pick how much, from narrow to wide | `ScopeTrack` (`Controls/ScopeTrack.swift`): stops in order, a knob that slides to the one picked, arrow keys to move along it |
+| Turn on any number of a few, all visible | `ToggleChip`: a tick and a tint when on. `ToggleChip(fixed:)` for something always included, shown with a lock. Pass `warns: true` for a choice with a cost. |
 | Pick one, each with a sentence | `OptionRow` |
 | On or off | `.toggleStyle(.appSwitch)`, `.toggleStyle(.appCheckbox)`, `SettingsToggleRow` |
 | A number in a range | `AppSlider` |
@@ -253,6 +255,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | A small tag or value | `MonoChip` |
 | Lines added and removed | `DiffPair` |
+| Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
@@ -271,6 +274,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A right-click menu | `.appContextMenu` |
 | A hint on hover | `.appTooltip` |
 | A click that did its work outside the window | `HeaderNote` |
+| Mark what a floating card is about | `.subjectRail(_:)`: a line drawn down the leading edge of the thing while the card is open |
 
 The system file chooser (`NSOpenPanel`, `NSSavePanel`) is the only native surface allowed. Never use `NSAlert`, `.alert`, `.confirmationDialog`, `.contextMenu`, `Menu`, `Picker`, the built-in button and toggle styles, or `.textFieldStyle(.roundedBorder)`.
 

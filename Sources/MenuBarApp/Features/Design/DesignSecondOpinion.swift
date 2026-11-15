@@ -50,6 +50,8 @@ enum DesignSecondOpinion {
 
     struct Request: Equatable, Sendable {
         var focus: [Focus] = Focus.standard
+        // Anything else to look for, in the person's own words.
+        var note = ""
         var reading = Reading()
         var designDirectory: String
         var shotsDirectory: String
@@ -171,12 +173,13 @@ enum DesignSecondOpinion {
     // MARK: - Asking
 
     static func prompt(for request: Request) -> String {
-        let asks = (request.focus.isEmpty ? Focus.standard : Focus.allCases.filter(request.focus.contains)).map(\.ask)
+        let asks = SecondOpinion.lookFor(Focus.allCases.filter(request.focus.contains).map(\.ask),
+                                         note: request.note, standard: Focus.standard.map(\.ask))
         let categories = Focus.allCases.map { "\"\($0.title)\"" }.joined(separator: " | ")
         var text = """
         Another agent designed the screens below for a person. You are giving a second opinion before it is built. Do not change any files or run commands that change anything.
 
-        Look for \(asks.joined(separator: "; ")). Skip taste, praise and anything the design already does well. Raise at most \(maxNotes) notes, the most important first. If nothing is worth raising, return no notes.
+        Look for \(asks). Skip taste, praise and anything the design already does well. Raise at most \(maxNotes) notes, the most important first. If nothing is worth raising, return no notes.
 
         Open each picture below to look at the screen. Pictures are in CSS pixels.
         """

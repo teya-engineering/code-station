@@ -551,6 +551,8 @@ struct SecondOpinionRequest: Equatable, Sendable {
     }
 
     var focus: [SecondOpinion.Focus] = SecondOpinion.Focus.standard
+    // Anything else to look for, in the person's own words.
+    var note = ""
     var scope: Scope = .all
     var repositories: [ReviewRepository]
     var executable: String
@@ -1025,7 +1027,7 @@ final class ReviewCommentStore {
                 outcome = await SecondOpinion.review(
                     patches, reviewer: reviewer, executable: request.executable, searchPath: searchPath,
                     repositories: request.repositories.map { (root: $0.root, name: $0.name) },
-                    focus: request.focus, sinceReview: request.scope.isSinceReview,
+                    focus: request.focus, note: request.note, sinceReview: request.scope.isSinceReview,
                     activity: { [weak self] text in
                         Task { @MainActor in self?.setActivity(text, reviewer: reviewer, in: sessionID) }
                     })

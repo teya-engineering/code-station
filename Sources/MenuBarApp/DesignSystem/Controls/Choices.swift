@@ -296,3 +296,64 @@ struct ChoicePill: View {
         return hovering && enabled ? Theme.field : Theme.card
     }
 }
+
+// One of several that can be on together, such as what a reviewer looks for. A tick and
+// a tint say it is on, so the state never rests on colour alone. A fixed one is always on
+// and shows a lock instead, for what is part of the thing whatever is picked. A choice
+// with a cost shows it in amber once it is on.
+struct ToggleChip: View {
+    let title: String
+    @Binding var isOn: Bool
+    var fixed = false
+    var warns = false
+
+    @State private var hovering = false
+
+    init(_ title: String, isOn: Binding<Bool>, warns: Bool = false) {
+        self.title = title
+        self._isOn = isOn
+        self.warns = warns
+    }
+
+    // Always on, and not a control at all.
+    init(fixed title: String) {
+        self.title = title
+        self._isOn = .constant(true)
+        self.fixed = true
+    }
+
+    private var tint: Color { warns ? Theme.attention : Theme.accent }
+
+    var body: some View {
+        if fixed {
+            chip
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(title + ", always read")
+        } else {
+            Button { isOn.toggle() } label: { chip }
+                .buttonStyle(.plain)
+                .hoverLift(hovering)
+                .onPointerHover { hovering = $0 }
+                .motion(Motion.control, value: isOn)
+                .motion(Motion.hover, value: hovering)
+                .accessibilityLabel(title)
+                .accessibilityValue(isOn ? "On" : "Off")
+                .accessibilityAddTraits(isOn ? [.isToggle, .isSelected] : [.isToggle])
+        }
+    }
+
+    private var chip: some View {
+        HStack(spacing: Space.xs) {
+            Image(systemName: fixed ? "lock.fill" : isOn ? "checkmark" : "plus")
+                .font(Typography.micro)
+                .contentTransition(.symbolEffect(.replace))
+            Text(title).font(Typography.caption.weight(.medium)).lineLimit(1).fixedSize()
+        }
+        .foregroundStyle(fixed ? Color.secondary : isOn ? (warns ? Theme.attentionText : Theme.accent) : Color.secondary)
+        .padding(.horizontal, Space.md)
+        .frame(height: ControlHeight.sm)
+        .background(Capsule().fill(fixed ? Theme.sunken : isOn ? tint.opacity(0.12) : hovering ? Theme.field : .clear))
+        .overlay(Capsule().strokeBorder(fixed ? .clear : isOn ? tint.opacity(0.45) : Theme.border))
+        .contentShape(Capsule())
+    }
+}

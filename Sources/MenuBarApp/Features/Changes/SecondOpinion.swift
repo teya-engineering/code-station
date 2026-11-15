@@ -142,6 +142,14 @@ enum SecondOpinion {
         return name
     }
 
+    // What a reviewer is asked to look for: the kinds the person ticked, then anything
+    // they wrote in their own words. With neither, the usual kinds.
+    static func lookFor(_ asks: [String], note: String, standard: [String]) -> String {
+        var asks = asks
+        if !note.isBlank { asks.append("and this, in the person's own words: " + note.trimmed) }
+        return (asks.isEmpty ? standard : asks).joined(separator: "; ")
+    }
+
     // A rough wait for one seat, by how hard it is asked to think. None of the CLIs say
     // beforehand, so this only sets expectations. Seats run side by side, so a lineup
     // takes as long as its slowest seat.
@@ -228,7 +236,7 @@ enum SecondOpinion {
     // MARK: - Asking
 
     static func prompt(for patches: [Patch], repositories: [(root: String, name: String)] = [],
-                       focus: [Focus] = Focus.standard, sinceReview: Bool = false) -> String {
+                       focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false) -> String {
         var budget = patchBudget
         var shown: [String] = []
         var left: [String] = []
@@ -241,11 +249,12 @@ enum SecondOpinion {
                 left.append(file)
             }
         }
-        let asks = (focus.isEmpty ? Focus.standard : Focus.allCases.filter(focus.contains)).map(\.ask)
+        let asks = lookFor(Focus.allCases.filter(focus.contains).map(\.ask), note: note,
+                           standard: Focus.standard.map(\.ask))
         var text = """
         You are reviewing changes another coding agent made in this repository. Do not change any files or run commands that change anything. You may read files for context.
 
-        Look for real problems of these kinds: \(asks.joined(separator: "; ")). Skip style preferences, naming opinions and praise. Report at most \(maxFindings) findings, the most important first. If nothing is worth raising, return an empty array.
+        Look for real problems of these kinds: \(asks). Skip style preferences, naming opinions and praise. Report at most \(maxFindings) findings, the most important first. If nothing is worth raising, return an empty array.
 
         Reply with only a JSON array and no other text. Each item is:
         {"file": "<the path after File: below>", "line": <line number in the new version of the file>, "severity": "must" | "should" | "look", "comment": "<one or two sentences addressed to the author>"}
@@ -334,13 +343,14 @@ enum SecondOpinion {
 
     static func review(_ patches: [Patch], reviewer: Reviewer, executable: String,
                        searchPath: String, repositories: [(root: String, name: String)],
-                       focus: [Focus] = Focus.standard, sinceReview: Bool = false,
+                       focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false,
                        activity: @escaping @Sendable (String) -> Void = { _ in }) async -> Result<[ReviewComment], Failure> {
         let agent = reviewer.agent
         guard let directory = repositories.first?.root else {
             return .failure(Failure(message: "There is no project to review."))
         }
-        let prompt = prompt(for: patches, repositories: repositories, focus: focus, sinceReview: sinceReview)
+        let prompt = prompt(for: patches, repositories: repositories, focus: focus, note: note,
+                            sinceReview: sinceReview)
         let output = await run(agent: agent, executable: executable, searchPath: searchPath, directory: directory,
                                timeout: .seconds(420), writing: "Writing findings", activity: activity) { codexServers, copilotServers in
             arguments(for: reviewer, prompt: prompt, addDirectories: repositories.dropFirst().map(\.root),

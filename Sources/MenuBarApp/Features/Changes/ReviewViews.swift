@@ -1156,12 +1156,15 @@ struct SecondOpinionButton: View {
     let usual: [AgentKind]
     let action: () -> Void
 
+    @Environment(\.secondOpinionAnchor) private var anchor
     @State private var hovering = false
     @State private var deals = 0
+    @State private var frame = CGRect.zero
 
     var body: some View {
         Button {
             deals += 1
+            anchor(frame)
             action()
         } label: {
             HStack(spacing: Space.sm) {
@@ -1180,6 +1183,7 @@ struct SecondOpinionButton: View {
         .buttonStyle(.plain)
         .hoverLift(hovering)
         .onPointerHover { hovering = $0 }
+        .anchorsSecondOpinion { frame = $0 }
         .accessibilityLabel("Ask for a second opinion")
     }
 }
