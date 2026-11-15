@@ -65,7 +65,10 @@ enum AgentCommands {
     static func appCommands(for agent: AgentKind) -> [AgentCommand] {
         var commands = [AgentCommand(name: "clear",
                                      summary: "Start a fresh conversation in the same folder",
-                                     scope: .app)]
+                                     scope: .app),
+                    AgentCommand(name: "btw",
+                                 summary: "Ask a quick side question without adding it to the conversation",
+                                 scope: .app)]
         if agent == .claudeCode {
             commands.append(AgentCommand(name: "compact",
                                          summary: "Summarise the conversation so far and carry on from it",

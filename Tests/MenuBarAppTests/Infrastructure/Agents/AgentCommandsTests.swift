@@ -71,7 +71,7 @@ struct AgentCommandsTests {
                                       home: scratch.path("home"),
                                       environment: [:])
 
-        #expect(found.map(\.name) == ["clear", "flaky"])
+        #expect(found.map(\.name) == ["clear", "btw", "flaky"])
         #expect(found.last?.scope == .project)
     }
 
@@ -92,7 +92,7 @@ struct AgentCommandsTests {
         // What the app answers itself is offered whatever the agent is, and the CLI's own
         // commands come last, minus the name a file took.
         #expect(found.map(\.name)
-            == ["clear", "compact", "plan", "review", "notes", "init", "security-review"])
+            == ["clear", "btw", "compact", "plan", "review", "notes", "init", "security-review"])
     }
 
     @Test func claudeIsOfferedEverySkillItRunsWhenTyped() throws {
@@ -124,7 +124,7 @@ struct AgentCommandsTests {
 
         // A skill goes by its folder's name whatever its front matter says, and one Claude
         // keeps for itself is left out, as Claude leaves it out of its own menu.
-        #expect(found.map(\.name) == ["clear", "compact", "plan", "release-helper", "validate-pr-comments",
+        #expect(found.map(\.name) == ["clear", "btw", "compact", "plan", "release-helper", "validate-pr-comments",
                                       "init", "review", "security-review"])
         #expect(found.first { $0.name == "validate-pr-comments" }?.summary
             == "Check review comments against the code")
@@ -167,7 +167,7 @@ struct AgentCommandsTests {
         #expect(found.first { $0.name == "review" }?.summary == "The project's review skill")
         #expect(found.first { $0.name == "notes" }?.summary == "The project's notes skill")
         #expect(found.map(\.name)
-            == ["clear", "compact", "plan", "deploy", "notes", "review", "init", "security-review"])
+            == ["clear", "btw", "compact", "plan", "deploy", "notes", "review", "init", "security-review"])
     }
 
     @Test func skillsComeFromTheFolderClaudeIsPointedAt() throws {
@@ -279,7 +279,7 @@ struct AgentCommandsTests {
             == ["init", "review", "security-review"])
         #expect(AgentCommands.builtIns(for: .codex).isEmpty)
         #expect(AgentCommands.builtIns(for: .copilot).isEmpty)
-        #expect(AgentCommands.appCommands(for: .codex).map(\.name) == ["clear"])
+        #expect(AgentCommands.appCommands(for: .codex).map(\.name) == ["clear", "btw"])
         #expect(AgentKind.claudeCode.expandsCommands)
         #expect(!AgentKind.codex.expandsCommands)
         #expect(!AgentKind.copilot.expandsCommands)

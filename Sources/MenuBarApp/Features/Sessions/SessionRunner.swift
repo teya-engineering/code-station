@@ -114,6 +114,8 @@ final class SessionRunner {
     let opinions = ChatOpinionStore()
     // Second opinions on each Design session's screens, with the notes they pinned.
     let designOpinions = DesignOpinionStore()
+    // Each session's /btw question and its answer, which never join the conversation.
+    let asides = SessionAsideStore()
 
     // How wide the canvas is showing the design, in CSS pixels. The agent writes HTML it
     // never sees rendered, so without this it designs for a window it imagined and the
@@ -794,6 +796,33 @@ final class SessionRunner {
         return true
     }
 
+    // A side question goes straight out, whatever the session is doing: it waits for no
+    // turn and no turn waits for it.
+    private func askAside(_ question: String, sessionID: UUID, store: ProjectStore) {
+        guard !question.isEmpty else {
+            note("Type a question after /btw to ask it on the side.", sessionID: sessionID, store: store)
+            return
+        }
+        guard let session = store.session(sessionID),
+              let executable = catalog.executable(for: session.agent) else {
+            note("\(store.session(sessionID)?.agent.title ?? "The agent") is not installed, so the side question could not be asked.",
+                 sessionID: sessionID, store: store)
+            return
+        }
+        let conversationID = session.agent == .claudeCode
+            ? session.agentSessionID(for: .claudeCode).flatMap { $0.isEmpty ? nil : $0 } : nil
+        let request = SessionAside.Request(
+            question: question, agent: session.agent, executable: executable,
+            searchPath: ProcessManager.searchPath,
+            directories: store.workingDirectories(for: session),
+            conversationID: conversationID,
+            recentChat: SideQuestion.recentChat(store.transcript(of: sessionID)),
+            model: ModelChoice.valid(session.settings?.model, for: session.agent,
+                                     discovered: discoveredModels[session.agent]))
+        asides.ask(request, in: sessionID)
+        SessionLog.note("asking a side question", session: sessionID)
+    }
+
     // The mode is read when a turn starts, so this takes effect from the next one. A turn
     // already running goes on in the mode it was started in.
     private func enterPlanMode(_ sessionID: UUID, store: ProjectStore) {
@@ -1035,6 +1064,11 @@ final class SessionRunner {
         // instructions is left to run as one.
         if attachments.isEmpty, instructions?.isEmpty != false,
            handleWindowCommand(text, sessionID: sessionID, store: store) {
+            return
+        }
+        if attachments.isEmpty, instructions?.isEmpty != false,
+           let question = SessionAside.question(in: text) {
+            askAside(question, sessionID: sessionID, store: store)
             return
         }
         // The CLI refuses /plan in a headless run, so the app turns it into the setting it
@@ -1334,6 +1368,7 @@ final class SessionRunner {
         composer.remove(sessionID)
         reviews.remove(sessionID)
         opinions.remove(sessionID)
+        asides.dismiss(sessionID)
         designOpinions.dismiss(sessionID)
         canvasWidths[sessionID] = nil
     }
