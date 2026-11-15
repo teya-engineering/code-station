@@ -154,6 +154,7 @@ struct RootView: View {
             }
             .onAppear {
                 mobileAccess.setEnabled(settings.mobileAccessEnabled)
+                mobileAccess.pairingLifetime = settings.mobilePairingLifetime
                 let hasExistingWork = !store.projects.isEmpty
                     || !store.workspaces.isEmpty
                     || !store.sessions.isEmpty
@@ -163,6 +164,9 @@ struct RootView: View {
             }
             .onChange(of: settings.mobileAccessEnabled) { _, enabled in
                 mobileAccess.setEnabled(enabled)
+            }
+            .onChange(of: settings.mobilePairingLifetime) { _, lifetime in
+                mobileAccess.pairingLifetime = lifetime
             }
             // Opening a session answers whatever was posted about it while the app was in
             // the background.

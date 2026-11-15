@@ -156,6 +156,10 @@ final class AppSettings {
         didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled, in: preferences) }
     }
 
+    var mobilePairingLifetime: MobilePairingLifetime {
+        didSet { Preferences.setMobilePairingLifetime(mobilePairingLifetime, in: preferences) }
+    }
+
     var sessionRecapsEnabled: Bool {
         didSet {
             Preferences.setSessionRecapsEnabled(sessionRecapsEnabled, in: preferences)
@@ -227,6 +231,7 @@ final class AppSettings {
         keyBindings = Preferences.keyBindings(in: preferences)
         messageColour = Preferences.messageColour(in: preferences)
         mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
+        mobilePairingLifetime = Preferences.mobilePairingLifetime(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
         sessionTitlesEnabled = Preferences.sessionTitlesEnabled(in: preferences)
         promptSuggestionsEnabled = Preferences.promptSuggestionsEnabled(in: preferences)

@@ -249,6 +249,15 @@ struct MobilePairingView: View {
                             .font(Typography.label)
                     }
 
+                    if !share.isConnected {
+                        Text(mobileAccess.pairingLifetime.summary)
+                            .font(Typography.detail)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.fadeIn)
+                    }
+
                     Text(share.url.absoluteString)
                         .font(Font.mono(Typography.Size.micro))
                         .foregroundStyle(.secondary)
@@ -263,6 +272,7 @@ struct MobilePairingView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, Space.sm)
+                .motion(Motion.reveal, value: share.isConnected)
                 .transition(.fadeIn)
             } else if confirming {
                 confirmation.transition(.fadeIn)

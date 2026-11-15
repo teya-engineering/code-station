@@ -33,7 +33,8 @@ enum SettingsSearchTarget: String, Hashable {
     case agentFiles
     case advancedConfiguration
     case advancedImport
-    case experimentalFeatures
+    case mobileAccess
+    case mobilePairingLifetime
 
     var id: String { rawValue }
 }
@@ -132,8 +133,10 @@ enum SettingsSearchIndex {
                "import backup restore reset repository url github load choose file aspects team configuration"),
         result("Move to another Mac", .advanced, .advancedImport,
                "export import backup restore laptop migrate transfer new computer"),
-        result("Mobile access", .experimental, .experimentalFeatures,
-               "qr code phone wifi experimental")
+        result("Mobile access", .mobile, .mobileAccess,
+               "qr code phone wifi remote share iphone android"),
+        result("Keep a code working", .mobile, .mobilePairingLifetime,
+               "qr code phone session expire expiry revoke timeout idle lifetime duration last how long")
     ]
 
     static func results(for query: String) -> [SettingsSearchResult] {
@@ -184,8 +187,8 @@ enum SettingsTab: CaseIterable, Hashable {
     case appearance
     case keyboard
     case agents
+    case mobile
     case advanced
-    case experimental
 
     var title: String {
         switch self {
@@ -193,8 +196,8 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "Appearance"
         case .keyboard: "Keyboard"
         case .agents: "Agents"
+        case .mobile: "Mobile"
         case .advanced: "Advanced"
-        case .experimental: "Experimental"
         }
     }
 
@@ -204,8 +207,8 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "paintpalette"
         case .keyboard: "keyboard"
         case .agents: "cpu"
+        case .mobile: "iphone"
         case .advanced: "gearshape"
-        case .experimental: "flask"
         }
     }
 
@@ -215,8 +218,8 @@ enum SettingsTab: CaseIterable, Hashable {
         case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
         case .keyboard: "Every key Code Station answers. Click a key to change it."
         case .agents: "Choose an agent and set how it runs."
+        case .mobile: "Read and run your sessions from a phone on the same Wi-Fi."
         case .advanced: "Manage shared configuration and other advanced settings."
-        case .experimental: "Try features that are still in development."
         }
     }
 }

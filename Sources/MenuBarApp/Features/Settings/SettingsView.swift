@@ -331,12 +331,12 @@ struct SettingsView: View {
         case .agents:
             AgentSettingsView(selectedAgent: runner.agent,
                               requestedAgent: searchedAgent)
+        case .mobile:
+            mobileAccess
         case .advanced:
             VStack(alignment: .leading, spacing: Space.xxl) {
                 SiteConfigurationSection(skills: skills)
             }
-        case .experimental:
-            experimentalFeatures.id(SettingsSearchTarget.experimentalFeatures.id)
         }
     }
 
@@ -938,17 +938,44 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var experimentalFeatures: some View {
+    private var mobileAccess: some View {
         @Bindable var settings = settings
-        return ChoiceBlock("EXPERIMENTAL") {
-            SettingsCard {
-                SettingsToggleRow(
-                    "Mobile access",
-                    detail: "Puts a QR code on Home. A phone on the same trusted Wi-Fi that scans it can read and run every session in every project.",
-                    isOn: $settings.mobileAccessEnabled)
+        let lifetime = settings.mobilePairingLifetime
+        return VStack(alignment: .leading, spacing: Space.xxl) {
+            ChoiceBlock("MOBILE ACCESS") {
+                SettingsCard {
+                    SettingsToggleRow(
+                        "Mobile access",
+                        detail: "Puts a QR code on Home. A phone on the same trusted Wi-Fi that scans it can read and run every session in every project.",
+                        isOn: $settings.mobileAccessEnabled)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.vertical, Space.lg)
+                }
+            }
+            .id(SettingsSearchTarget.mobileAccess.id)
+
+            ChoiceBlock("PAIRING") {
+                SettingsCard {
+                    HStack(alignment: .top, spacing: Space.lg) {
+                        settingCopy(
+                            title: "Keep a code working for",
+                            detail: "How long a code lasts with no phone on it, counted from when you start sharing or the phone leaves. A connected phone is never cut off. Locking the phone usually counts as leaving.")
+                        Spacer(minLength: 0)
+                        OptionMenu(value: lifetime.title) {
+                            MobilePairingLifetime.choices.map { choice in
+                                .item(choice.title, checked: lifetime == choice) {
+                                    settings.mobilePairingLifetime = choice
+                                }
+                            }
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilityLabel("Keep a code working for: \(lifetime.title)")
+                    }
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
+                }
             }
+            .id(SettingsSearchTarget.mobilePairingLifetime.id)
         }
     }
 

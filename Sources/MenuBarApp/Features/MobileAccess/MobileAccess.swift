@@ -16,6 +16,49 @@ struct MobileShare: Equatable {
     var isConnected: Bool { connectionID != nil }
 }
 
+// How long a code keeps working while no phone is on it. The clock only runs while the
+// code is unused, so a phone that stays connected is never cut off. Locking a phone
+// usually closes its socket, which is why a short time here means scanning again often.
+enum MobilePairingLifetime: Int, CaseIterable, Identifiable, Sendable {
+    case untilStopped = 0
+    case tenMinutes = 600
+    case thirtyMinutes = 1_800
+    case oneHour = 3_600
+    case eightHours = 28_800
+    case oneDay = 86_400
+
+    static let standard = MobilePairingLifetime.thirtyMinutes
+
+    // Picked from the menu in this order, shortest first.
+    static let choices: [MobilePairingLifetime] = [
+        .tenMinutes, .thirtyMinutes, .oneHour, .eightHours, .oneDay, .untilStopped
+    ]
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .untilStopped: "Until I stop sharing"
+        case .tenMinutes: "10 minutes"
+        case .thirtyMinutes: "30 minutes"
+        case .oneHour: "1 hour"
+        case .eightHours: "8 hours"
+        case .oneDay: "1 day"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .untilStopped: "The code works until you stop sharing or quit the app."
+        default: "The code ends \(title) after the phone leaves."
+        }
+    }
+
+    var duration: Duration? {
+        self == .untilStopped ? nil : .seconds(rawValue)
+    }
+}
+
 struct LANInterfaceAddress: Equatable {
     let name: String
     let address: String
@@ -183,6 +226,14 @@ final class MobileAccessController {
     private var expiryTask: Task<Void, Never>?
     private var streamTask: Task<Void, Never>?
     private(set) var enabled = false
+
+    // A new length applies to a code that is waiting right now, not only to the next one.
+    var pairingLifetime = MobilePairingLifetime.standard {
+        didSet {
+            guard pairingLifetime != oldValue, let share, !share.isConnected else { return }
+            scheduleExpiry()
+        }
+    }
 
     init(store: ProjectStore, runner: SessionRunner, gitStats: GitStatsCache) {
         self.store = store
@@ -617,9 +668,11 @@ final class MobileAccessController {
     private func scheduleExpiry() {
         guard let pairingID = pairing?.share.id else { return }
         expiryTask?.cancel()
+        expiryTask = nil
+        guard let lifetime = pairingLifetime.duration else { return }
         expiryTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: .seconds(600))
+                try await Task.sleep(for: lifetime)
             } catch {
                 return
             }

@@ -229,7 +229,7 @@
         find('offline-detail').textContent = pairingEnded
           ? 'This pairing is no longer available. Open phone sharing on your Mac and scan a fresh code. Your draft is kept here.'
           : unreachable
-            ? 'A code expires 10 minutes after the phone drops. If it has been longer, open phone sharing on your Mac and scan a fresh code. Your draft is kept here.'
+            ? 'A code ends once the phone has been away longer than Mobile settings on your Mac allow. If so, open phone sharing on your Mac and scan a fresh code. Your draft is kept here.'
             : 'Your sessions and draft are still here. Keep your Mac awake and both devices on the same Wi-Fi.';
         find('retry').hidden = pairingEnded;
         sendButton.disabled = !live;

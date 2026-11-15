@@ -625,13 +625,24 @@ enum Preferences {
     }
 
     // Mobile access exposes live session control to another device, so it stays off until
-    // someone deliberately opts into the experimental surface.
+    // someone deliberately turns it on.
     static func mobileAccessEnabled(in store: UserDefaults = .standard) -> Bool {
         store.bool(forKey: "mobileAccessEnabled")
     }
 
     static func setMobileAccessEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
         store.set(enabled, forKey: "mobileAccessEnabled")
+    }
+
+    static func mobilePairingLifetime(in store: UserDefaults = .standard) -> MobilePairingLifetime {
+        guard store.object(forKey: "mobilePairingLifetime") != nil else { return .standard }
+        return MobilePairingLifetime(rawValue: store.integer(forKey: "mobilePairingLifetime"))
+            ?? .standard
+    }
+
+    static func setMobilePairingLifetime(_ lifetime: MobilePairingLifetime,
+                                         in store: UserDefaults = .standard) {
+        store.set(lifetime.rawValue, forKey: "mobilePairingLifetime")
     }
 
     // Whether what a session has spent is shown. Kept per agent, like the session

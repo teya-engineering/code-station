@@ -170,6 +170,27 @@ struct MobileAccessTests {
         #expect(Preferences.mobileAccessEnabled(in: defaults))
     }
 
+    @Test func aCodeLastsThirtyMinutesUntilAnotherLengthIsChosen() throws {
+        let suite = "mobile-access-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(Preferences.mobilePairingLifetime(in: defaults) == .thirtyMinutes)
+        #expect(MobilePairingLifetime.thirtyMinutes.duration == .seconds(1_800))
+
+        Preferences.setMobilePairingLifetime(.untilStopped, in: defaults)
+        #expect(Preferences.mobilePairingLifetime(in: defaults) == .untilStopped)
+        #expect(MobilePairingLifetime.untilStopped.duration == nil)
+
+        defaults.set(42, forKey: "mobilePairingLifetime")
+        #expect(Preferences.mobilePairingLifetime(in: defaults) == .thirtyMinutes)
+    }
+
+    @Test func everyCodeLengthIsOfferedOnce() {
+        #expect(Set(MobilePairingLifetime.choices) == Set(MobilePairingLifetime.allCases))
+        #expect(MobilePairingLifetime.choices.count == MobilePairingLifetime.allCases.count)
+    }
+
     @Test func choosesTheActivePrivateWiFiAddress() {
         let candidates = [
             LANInterfaceAddress(name: "lo0", address: "127.0.0.1",
