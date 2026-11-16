@@ -256,9 +256,7 @@ struct AttachmentTests {
         #expect(!SessionRunner.overlaps("/work/api", "/work/api-tools"))
     }
 
-    // The transcript shares its column with the working set, which docks beside it. An
-    // image that held itself at the width it was drawn for would push that sidebar off
-    // the edge of the window, so a narrow column has to make the picture narrow too.
+    // Images must follow the transcript's width so they fit in a narrow window.
     @MainActor
     @Test func aWideImageIsCappedByTheRoomItHasRatherThanHoldingItOpen() async throws {
         let file = root.appendingPathComponent("wide.png")

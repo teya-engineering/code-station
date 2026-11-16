@@ -7,7 +7,7 @@ import SwiftUI
 // every Mac app keeps them, and listing them here would bury the rest.
 enum AppCommand: String, CaseIterable, Identifiable, Sendable {
     case goBack, goForward, commandPalette, filterSidebar, nextWaiting
-    case newSession, switchTab, terminal, workingSet, findInConversation
+    case newSession, switchTab, terminal, findInConversation
     case runLastCommand, savedCommands, stopCommand
     case previewAddress, previewBack, previewForward
     case stopTurn, editSuggestion, sendSuggestion, cancelSuggestion
@@ -104,9 +104,6 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
             Info(title: "Terminal",
                  detail: "Open the terminal drawer, then move between the shell and the composer.",
                  keys: KeyCombo("`", .control), scope: .window, canChange: true)
-        case .workingSet:
-            Info(title: "Working set", detail: "Show or hide the files and activity beside the chat.",
-                 keys: KeyCombo("\\"), scope: .window, canChange: true)
         case .findInConversation:
             Info(title: "Find in the conversation", detail: "Search what was said in this session. ⌃ F works too.",
                  keys: KeyCombo("f"), scope: .pane(.conversation, firstClaim: true), canChange: true,
@@ -243,7 +240,7 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
     // Grouped by what a person is trying to do rather than by the file the key is bound in.
     static let groups: [(title: String, commands: [AppCommand])] = [
         ("Moving around", [.goBack, .goForward, .commandPalette, .filterSidebar, .nextWaiting]),
-        ("Sessions", [.newSession, .switchTab, .terminal, .workingSet, .findInConversation,
+        ("Sessions", [.newSession, .switchTab, .terminal, .findInConversation,
                       .runLastCommand, .savedCommands, .stopCommand, .stopTurn, .editSuggestion,
                       .sendSuggestion, .cancelSuggestion, .dictate, .stopDictating, .throwAwayTake]),
         ("Preview", [.previewAddress, .previewBack, .previewForward]),

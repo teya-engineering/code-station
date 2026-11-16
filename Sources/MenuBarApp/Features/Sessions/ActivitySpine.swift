@@ -151,7 +151,6 @@ enum TranscriptActivityEntry: Identifiable {
     }
 }
 
-// The Working Set uses the same light detail surface when its compact row is clicked.
 struct ToolCallExpandedDetail: View {
     let tool: ToolUse
     let projectPath: String

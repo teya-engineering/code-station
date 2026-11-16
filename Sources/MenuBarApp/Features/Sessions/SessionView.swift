@@ -90,7 +90,6 @@ struct SessionView: View {
     // nobody clicked anything for it.
     @State private var recapRequested = false
     @State private var recapArrivesUnasked = false
-    @State private var workingSetVisible: Bool
     @State private var requestedChange: RequestedChange?
     @State private var explorerReveal: ExplorerReveal?
     @State private var explorerCommand: ExplorerCommand?
@@ -165,8 +164,6 @@ struct SessionView: View {
             _tab = State(initialValue: .reviews)
             _requestedChange = State(initialValue: nil)
         }
-        _workingSetVisible = State(
-            initialValue: Preferences.workingSetVisibility()[sessionID] ?? false)
     }
 
     var body: some View {
@@ -308,7 +305,6 @@ struct SessionView: View {
                 composerFocused = true
                 recapOpen = recap != nil
                 recapNeedsAttention = recap != nil
-                openWorkingSetForLiveTurnIfNeeded()
             }
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
@@ -317,7 +313,6 @@ struct SessionView: View {
                 .appOverlays()
             }
             .background(terminalShortcut(directory: workingDirectory))
-            .background(workingSetShortcut)
             .background(tabShortcuts(headerTabs(for: session)))
             // A sent diagnosis has no brief form left to show; its findings are in the
             // conversation, which the Troubleshoot tab stands for from then on.
@@ -429,7 +424,6 @@ struct SessionView: View {
                 }
             }
             .onChange(of: runner.state(sessionID)) { _, state in
-                openWorkingSetForLiveTurnIfNeeded()
                 if state.isBusy {
                     reviewingEnding = nil
                     focusHandoffReview = false
@@ -580,18 +574,8 @@ struct SessionView: View {
                 facts: facts,
                 state: sessionState(tone: tone, conversation: live,
                                     isTroubleshooting: session.isTroubleshooting),
-                session: session,
+                sessionID: session.id,
                 repositoryCount: store.workingDirectories(for: session).count,
-                openWorkingSet: {
-                    tab = .conversation
-                    previews.hide()
-                    setWorkingSetVisible(true)
-                },
-                reviewRequest: {
-                    tab = live.id == session.id ? .conversation : .design
-                    previews.hide()
-                    transcriptPinnedToBottom = true
-                },
                 maxWidth: fit == .whole ? Self.branchRoom : Self.foldedBranchRoom,
                 showsBranch: tab != .changes,
                 openChanges: openChanges,
@@ -709,8 +693,6 @@ struct SessionView: View {
                 previewSeat(session, showsWord: showsWords)
                     .transition(.opacity)
                 terminalSeat(session: session, project: project, showsWord: showsWords)
-                workingSetSeat(session, showsWord: showsWords)
-                    .transition(.opacity)
                 findSeat(session, showsWord: showsWords)
                     .transition(.opacity)
             case .design, .troubleshoot, .evidence, .changes, .explorer:
@@ -857,26 +839,6 @@ struct SessionView: View {
                     }
                 }
             }
-        }
-    }
-
-    private func workingSetSeat(_ session: ChatSession, showsWord: Bool) -> some View {
-        let isOpen = tab == .conversation && workingSetVisible
-        return HeaderDockSeat(icon: "sidebar.right",
-                              word: "Working set",
-                              isOpen: isOpen,
-                              showsWord: showsWord,
-                              keys: keyBindings.keys(for: .workingSet)?.parts ?? [],
-                              detail: "What the agent did, prompt by prompt",
-                              action: toggleWorkingSet)
-    }
-
-    private func toggleWorkingSet() {
-        if tab == .conversation && workingSetVisible {
-            setWorkingSetVisible(false)
-        } else {
-            tab = .conversation
-            setWorkingSetVisible(true)
         }
     }
 
@@ -1399,12 +1361,6 @@ struct SessionView: View {
         .opacity(0)
     }
 
-    private var workingSetShortcut: some View {
-        Button("", action: toggleWorkingSet)
-            .appShortcut(.workingSet)
-            .opacity(0)
-    }
-
     // MARK: - Find in chat
 
     private var currentMessages: [ChatMessage] {
@@ -1625,41 +1581,12 @@ struct SessionView: View {
 
     // MARK: - Transcript
 
+    @ViewBuilder
     private func conversation(session: ChatSession, project: Project) -> some View {
-        GeometryReader { geometry in
-            // A running app has the conversation floating over it, reading every press around
-            // it, so the drawer sits beside the app rather than over the two.
-            let isDocked = geometry.size.width >= 800 || previews.isOpen
-            ZStack(alignment: .trailing) {
-                Group {
-                    if previews.isOpen, let preview = previews.selected {
-                        previewPage(preview, session: session)
-                    } else {
-                        conversationContent(session: session, project: project)
-                    }
-                }
-                .padding(.trailing,
-                         isDocked && workingSetVisible ? SessionWorkingSet.width : 0)
-                // The transcript takes its final width in one layout pass. Animating
-                // that width makes every line wrap again on every animation frame.
-                .animation(nil, value: workingSetVisible)
-
-                ZStack(alignment: .trailing) {
-                    if workingSetVisible {
-                        workingSet(session)
-                            .overlay(alignment: .leading) {
-                                if isDocked {
-                                    Rectangle().fill(Theme.hairline).frame(width: 1)
-                                }
-                            }
-                            .shadow(color: isDocked ? .clear : .black.opacity(0.16),
-                                    radius: isDocked ? 0 : 18,
-                                    x: isDocked ? 0 : -5)
-                            .transition(.drawer(from: .trailing, reduceMotion: reduceMotion))
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-            }
+        if previews.isOpen, let preview = previews.selected {
+            previewPage(preview, session: session)
+        } else {
+            conversationContent(session: session, project: project)
         }
     }
 
@@ -1684,22 +1611,6 @@ struct SessionView: View {
             composer(session: session, project: project, blocked: blocked)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func workingSet(_ session: ChatSession) -> some View {
-        SessionWorkingSet(session: session, close: { setWorkingSetVisible(false) })
-    }
-
-    private func setWorkingSetVisible(_ visible: Bool) {
-        workingSetVisible = visible
-        Preferences.setWorkingSetVisible(visible, for: sessionID)
-    }
-
-    private func openWorkingSetForLiveTurnIfNeeded() {
-        guard appSettings.opensWorkingSetByDefault,
-              runner.state(sessionID).isBusy,
-              Preferences.workingSetVisibility()[sessionID] == nil else { return }
-        setWorkingSetVisible(true)
     }
 
     // Reply is offered only while the composer can take the quote and send it.

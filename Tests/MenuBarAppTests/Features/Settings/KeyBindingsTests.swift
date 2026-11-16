@@ -42,13 +42,13 @@ struct KeyBindingsTests {
 
     @Test func aKeyTakenAwayStaysAwayAndCanBeReset() {
         var bindings = KeyBindings()
-        bindings.set(nil, for: .workingSet)
+        bindings.set(nil, for: .findInConversation)
 
-        #expect(bindings.keys(for: .workingSet) == nil)
-        #expect(bindings.isChanged(.workingSet))
+        #expect(bindings.keys(for: .findInConversation) == nil)
+        #expect(bindings.isChanged(.findInConversation))
 
-        bindings.reset(.workingSet)
-        #expect(bindings.keys(for: .workingSet) == KeyCombo("\\"))
+        bindings.reset(.findInConversation)
+        #expect(bindings.keys(for: .findInConversation) == KeyCombo("f"))
     }
 
     @Test func aFixedKeyCannotBeMoved() {
@@ -182,6 +182,7 @@ struct KeyBindingsTests {
         defer { defaults.removePersistentDomain(forName: suite) }
 
         let saved: [String: KeyCombo?] = ["gone": KeyCombo("g"), "quit": KeyCombo("j"),
+                                          "workingSet": KeyCombo("\\"),
                                           "newSession": KeyCombo("y")]
         defaults.set(try JSONEncoder().encode(saved), forKey: "keyBindings")
 

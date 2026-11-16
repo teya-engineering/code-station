@@ -63,17 +63,17 @@ struct SessionFactsTests {
                                         ticks: true)
         let facts = SessionFacts(branch: "code-station/6318e9ff")
         #expect(SessionFactsChip.accessibilityLabel(state: state, facts: facts, showsBranch: true)
-                    == "Running for 5m, branch code-station/6318e9ff, working set preview")
+                    == "Running for 5m, branch code-station/6318e9ff, session details")
         // The Changes tab names the branch itself, so the pill leaves it out there.
         #expect(SessionFactsChip.accessibilityLabel(state: state, facts: facts, showsBranch: false)
-                    == "Running for 5m, working set preview")
+                    == "Running for 5m, session details")
     }
 
     @Test func speaksTheWindowAndASessionWithNoTime() {
         let state = SessionStateReading(tone: .needsYou)
         let facts = SessionFacts(context: 0.42, agent: .claudeCode)
         #expect(SessionFactsChip.accessibilityLabel(state: state, facts: facts, showsBranch: true)
-                    == "Needs you, working set preview, context 42% full")
+                    == "Needs you, session details, context 42% full")
     }
 
     @Test func namesADiagnosisOnlyWhileItRuns() {

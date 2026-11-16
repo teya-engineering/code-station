@@ -44,6 +44,8 @@ struct AppBackupTests {
             UserDefaults().removePersistentDomain(forName: newDomain)
         }
         old.set("dark", forKey: "appearance")
+        old.set(true, forKey: "opensWorkingSetByDefault")
+        old.set([UUID().uuidString: true], forKey: "workingSetVisibility")
         old.set(UUID().uuidString, forKey: "selectedSessionID")
         old.set("/Users/old/site.json", forKey: "siteDefaultsPath")
         old.set("{0, 0, 10, 10}", forKey: "NSWindow Frame settings")
@@ -70,6 +72,8 @@ struct AppBackupTests {
         try apply(backup)
 
         #expect(new.string(forKey: "appearance") == "dark")
+        #expect(new.object(forKey: "opensWorkingSetByDefault") == nil)
+        #expect(new.object(forKey: "workingSetVisibility") == nil)
         #expect(new.object(forKey: "selectedSessionID") == nil)
         #expect(new.object(forKey: "NSWindow Frame settings") == nil)
         #expect(new.object(forKey: "siteDefaultsPath") == nil)

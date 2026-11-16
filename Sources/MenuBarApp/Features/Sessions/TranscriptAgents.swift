@@ -9,15 +9,15 @@ struct AgentTranscriptFocus: Equatable {
 }
 
 enum TranscriptAgents {
-    static func summary(_ agents: [WorkingSetActivity]) -> String {
-        let states: [WorkingSetToolCall.State] = [.running, .completed, .failed, .interrupted, .finished]
+    static func summary(_ agents: [AgentActivity]) -> String {
+        let states: [AgentToolCall.State] = [.running, .completed, .failed, .interrupted, .finished]
         return states.compactMap { state in
             let count = agents.count { $0.state == state }
             return count == 0 ? nil : "\(count) \(state.label)"
         }.joined(separator: " · ")
     }
 
-    static func target(for agent: WorkingSetActivity, in messages: [ChatMessage]) -> AgentTranscriptFocus? {
+    static func target(for agent: AgentActivity, in messages: [ChatMessage]) -> AgentTranscriptFocus? {
         guard let message = messages.first(where: { $0.id == agent.messageID }),
               let toolID = agent.sourceTool?.id else { return nil }
         for block in message.blocks {
@@ -41,9 +41,9 @@ struct SessionAgentIndicator: View {
     let open: (AgentTranscriptFocus) -> Void
 
     var body: some View {
-        let agents = WorkingSetSummary.activities(
+        let agents = AgentActivitySummary.activities(
             in: session.messages, activeTools: runner.runningTools(session.id),
-            backgroundTasks: [], runningAgentIDs: runner.runningAgents(session.id),
+            runningAgentIDs: runner.runningAgents(session.id),
             projectPath: store.workingDirectory(for: session) ?? "")
         let running = agents.filter { $0.state == .running }
         let latestPrompt = session.messages.last(where: { $0.role == .user })?.date ?? .distantPast
@@ -96,8 +96,8 @@ struct TranscriptAgentGroup: View {
         let message = ChatMessage(id: messageID ?? UUID(), role: .assistant,
                                   tools: ActivitySpine.flattened(nodes).map(\.tool))
         let roots = Set(nodes.map(\.id))
-        let agents = WorkingSetSummary.activities(
-            in: [message], activeTools: activeTools, backgroundTasks: [],
+        let agents = AgentActivitySummary.activities(
+            in: [message], activeTools: activeTools,
             runningAgentIDs: runningAgents, projectPath: projectPath)
             .filter { $0.sourceTool.map { roots.contains($0.id) } == true }
         let running = agents.contains { $0.state == .running }
@@ -155,7 +155,7 @@ struct TranscriptAgentGroup: View {
         .scaledMono(Typography.Size.detail, .semibold)
     }
 
-    private func reading(_ agents: [WorkingSetActivity]) -> some View {
+    private func reading(_ agents: [AgentActivity]) -> some View {
         Text(TranscriptAgents.summary(agents))
             .scaledMono(Typography.Size.micro)
             .foregroundStyle(agents.contains { $0.state == .failed } ? Theme.deletion : .secondary)
@@ -170,7 +170,7 @@ struct TranscriptAgentGroup: View {
 private struct TranscriptAgentRow: View {
     @State private var expanded = false
 
-    let activity: WorkingSetActivity
+    let activity: AgentActivity
     let children: [ToolNode]
     let messageID: UUID?
     let projectPath: String
@@ -184,7 +184,7 @@ private struct TranscriptAgentRow: View {
         let name = tool.agentTask?.task.agentName ?? fields?["name"] as? String
             ?? fields?["subagent_type"] as? String
         let task = tool.agentTask?.task.description ?? fields?["description"] as? String
-        if WorkingSetSummary.collaboratingAgentNames(in: tool) != nil { return (activity.title, nil) }
+        if AgentActivitySummary.collaboratingAgentNames(in: tool) != nil { return (activity.title, nil) }
         let title = task.flatMap { $0.isBlank ? nil : $0 } ?? activity.title
         return (title, name?.isBlank == false ? name : nil)
     }

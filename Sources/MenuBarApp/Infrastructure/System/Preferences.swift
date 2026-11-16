@@ -97,37 +97,6 @@ enum Preferences {
                   forKey: "sidebarSessionLimit")
     }
 
-    // A missing entry means the session has never made a choice, so the app-level default
-    // decides whether a live turn opens the working set. A session-specific choice wins
-    // on later turns and launches.
-    static func workingSetVisibility(in store: UserDefaults = .standard) -> [UUID: Bool] {
-        let saved = store.dictionary(forKey: "workingSetVisibility") ?? [:]
-        return saved.reduce(into: [:]) { visibility, entry in
-            guard let id = UUID(uuidString: entry.key), let isVisible = entry.value as? Bool else {
-                return
-            }
-            visibility[id] = isVisible
-        }
-    }
-
-    static func setWorkingSetVisible(_ visible: Bool, for sessionID: UUID,
-                                     in store: UserDefaults = .standard) {
-        var visibility = workingSetVisibility(in: store)
-        visibility[sessionID] = visible
-        store.set(Dictionary(uniqueKeysWithValues: visibility.map {
-            ($0.key.uuidString, $0.value)
-        }), forKey: "workingSetVisibility")
-    }
-
-    static func opensWorkingSetByDefault(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "opensWorkingSetByDefault")
-    }
-
-    static func setOpensWorkingSetByDefault(_ opens: Bool,
-                                            in store: UserDefaults = .standard) {
-        store.set(opens, forKey: "opensWorkingSetByDefault")
-    }
-
     // The hidden buttons are saved rather than the shown ones, so a button added in a
     // later release appears until the person turns it off.
     static func hiddenHeaderButtons(in store: UserDefaults = .standard) -> Set<HeaderButton> {

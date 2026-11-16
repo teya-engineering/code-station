@@ -20,13 +20,11 @@ private struct AppOverlays: ViewModifier {
     @State private var dialogs = DialogPresenter()
     @State private var menus = MenuPresenter()
     @State private var tooltips = TooltipPresenter()
-    @State private var toolCallDetails = ToolCallDetailPresenter()
 
     func body(content: Content) -> some View {
         content
             .disabled(dialogs.current?.impact != nil || dialogs.current?.isModal == true)
             .accessibilityHidden(dialogs.current?.impact != nil || dialogs.current?.isModal == true)
-            .overlay { ToolCallDetailHost() }
             .overlay { TooltipHost() }
             .overlay { DialogHost() }
             // Last, so a menu opened from inside a dialog is not drawn behind it. It
@@ -37,7 +35,6 @@ private struct AppOverlays: ViewModifier {
             .environment(dialogs)
             .environment(menus)
             .environment(tooltips)
-            .environment(toolCallDetails)
     }
 }
 

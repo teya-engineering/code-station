@@ -113,13 +113,6 @@ final class AppSettings {
         didSet { Preferences.setCursorEffects(cursorEffects, in: preferences) }
     }
 
-    var opensWorkingSetByDefault: Bool {
-        didSet {
-            Preferences.setOpensWorkingSetByDefault(opensWorkingSetByDefault,
-                                                    in: preferences)
-        }
-    }
-
     private var hiddenHeaderButtons: Set<HeaderButton> {
         didSet { Preferences.setHiddenHeaderButtons(hiddenHeaderButtons, in: preferences) }
     }
@@ -224,7 +217,6 @@ final class AppSettings {
         sunlightNightKelvin = Preferences.sunlightNightKelvin(in: preferences)
         cursorEffects = Preferences.cursorEffects(in: preferences)
         sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
-        opensWorkingSetByDefault = Preferences.opensWorkingSetByDefault(in: preferences)
         hiddenHeaderButtons = Preferences.hiddenHeaderButtons(in: preferences)
         diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
         textSize = Preferences.textSize(in: preferences)
@@ -263,7 +255,6 @@ final class AppSettings {
         messageColour = .projectIcon
         diceBearAvatarStyle = .waves
         sidebarIconSet = .diceBear
-        opensWorkingSetByDefault = false
     }
 
     func completeOnboarding() {

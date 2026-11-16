@@ -141,10 +141,8 @@ struct SessionStateReading: Equatable {
 struct SessionFactsChip: View {
     let facts: SessionFacts
     let state: SessionStateReading
-    let session: ChatSession
+    let sessionID: UUID
     let repositoryCount: Int
-    let openWorkingSet: () -> Void
-    let reviewRequest: () -> Void
     // How wide the branch is allowed to grow before it truncates. A narrow pane hands it
     // less, and a name too long for either cuts from the tail: the end of a branch name
     // is the part that repeats across a project.
@@ -159,27 +157,25 @@ struct SessionFactsChip: View {
 
     // The card hangs off the pill rather than being placed by a presenter: it belongs to
     // this corner of the band, and nothing above the band can clip it.
-    private static let pillHeight: CGFloat = 36
-    private static let pillRadius: CGFloat = 9
-    private static let cardGap: CGFloat = 7
+    private static let pillHeight = ControlHeight.xl
+    private static let pillRadius = Radius.card
+    private static let cardGap = Space.md
     private static let labelWidth: CGFloat = 62
     // Context and every usage window share one column, so the meters read down the card
     // as one scale rather than as bars that happen to be near each other.
     private static let meterWidth: CGFloat = 240
-    private static let radius: CGFloat = 12
+    private static let radius = Radius.floating
     // Strong enough to read on the cream card, still a step under the values.
     private static let labelInk = Color.primary.opacity(0.42)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AccountUsageMonitor.self) private var usageMonitor: AccountUsageMonitor?
     @Environment(MenuPresenter.self) private var menus
-    @Environment(ToolCallDetailPresenter.self) private var toolDetails
     @FocusedValue(\.sessionFactsPreview) private var focusedPreview
     @FocusState private var chipFocused: Bool
-    private enum PreviewControl: Hashable { case pin, close, status, workingSet }
+    private enum PreviewControl: Hashable { case pin, close }
     @FocusState private var previewControl: PreviewControl?
     @State private var focusDismissed = false
-    @State private var showsDetails = false
     @State private var layout = SessionFactsLayout()
     @State private var cardAnchor = FrameAnchor()
 
@@ -202,7 +198,7 @@ struct SessionFactsChip: View {
     @State private var freedReset: Task<Void, Never>?
 
     private var focusInside: Bool {
-        !focusDismissed && (chipFocused || focusedPreview == session.id)
+        !focusDismissed && (chipFocused || focusedPreview == sessionID)
     }
 
     private var isOpen: Bool { pinned || hovering || focusInside }
@@ -223,13 +219,13 @@ struct SessionFactsChip: View {
             .focused($chipFocused)
             .focusEffectDisabled()
             .overlay(FocusRingStroke(focused: chipFocused))
-            .onChange(of: chipFocused || focusedPreview == session.id) { _, focused in
+            .onChange(of: chipFocused || focusedPreview == sessionID) { _, focused in
                 if !focused { focusDismissed = false }
                 pointerMoved()
             }
             .background(SessionFactsBoundary(cardAnchor: cardAnchor, isOpen: isOpen,
                 dismiss: {
-                    if !menus.isOpen && toolDetails.current == nil { closeCard() }
+                    if !menus.isOpen { closeCard() }
                 }, resized: { layout = $0 }))
             .onPointerHover { pointerOnChip = $0; pointerMoved() }
             .accessibilityLabel(Self.accessibilityLabel(
@@ -258,7 +254,7 @@ struct SessionFactsChip: View {
             .onChange(of: isOpen) { _, open in
                 if open {
                     escape.start {
-                        if menus.isOpen || toolDetails.current != nil { return false }
+                        if menus.isOpen { return false }
                         closeCard()
                         chipFocused = true
                         return true
@@ -267,10 +263,7 @@ struct SessionFactsChip: View {
                     escape.stop()
                 }
             }
-            .onChange(of: session.id) { _, _ in closeCard() }
-            .onChange(of: toolDetails.current != nil) { _, showing in
-                if showing && isOpen { pinned = true }
-            }
+            .onChange(of: sessionID) { _, _ in closeCard() }
             .onDisappear {
                 closing?.cancel()
                 copiedReset?.cancel()
@@ -296,14 +289,14 @@ struct SessionFactsChip: View {
         }
     }
 
-    // "Running for 5m, branch main, working set preview". The state leads, since it is the
+    // "Running for 5m, branch main, session details". The state leads, since it is the
     // half that changes while the session is looked at.
     static func accessibilityLabel(state: SessionStateReading, facts: SessionFacts,
                                    showsBranch: Bool) -> String {
         var parts = [state.shortElapsed.map { "\(state.spokenWord) for \($0)" }
                          ?? state.spokenWord]
         if showsBranch, let branch = facts.namedBranch { parts.append("branch \(branch)") }
-        parts.append("working set preview")
+        parts.append("session details")
         if !facts.pullRequests.isEmpty {
             parts.append("\(facts.pullRequestCountLabel) pull requests")
         }
@@ -398,8 +391,8 @@ struct SessionFactsChip: View {
             card
         }
         .fixedSize(horizontal: false, vertical: true)
-        .background(FrameAnchorView(anchor: cardAnchor, identifier: "Working set preview"))
-        .focusedValue(\.sessionFactsPreview, session.id)
+        .background(FrameAnchorView(anchor: cardAnchor, identifier: "Session details"))
+        .focusedValue(\.sessionFactsPreview, sessionID)
         .contentShape(Rectangle())
         .onPointerHover { pointerOnCard = $0; pointerMoved() }
         .transition(.popover(reduceMotion: reduceMotion))
@@ -407,37 +400,10 @@ struct SessionFactsChip: View {
 
     private var card: some View {
         VStack(spacing: 0) {
-            previewHeading.frame(height: 60)
-            MenuContentScrollView(maxHeight: max(0, layout.height - 113)) {
+            previewHeading.frame(height: Theme.headerHeight)
+            MenuContentScrollView(maxHeight: max(0, layout.height - Theme.headerHeight - Self.cardGap)) {
                 VStack(spacing: 0) {
-                    Button { showsDetails.toggle() } label: {
-                        HStack {
-                            Text(state.spokenWord + (facts.namedBranch.map { " · \($0)" } ?? ""))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .rotationEffect(.degrees(showsDetails ? 90 : 0))
-                        }
-                        .font(Font.system(size: Typography.Size.micro))
-                        .foregroundStyle(state.tone.wordColour)
-                        .padding(.horizontal, Space.lg)
-                        .padding(.vertical, Space.xs)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .focused($previewControl, equals: .status)
-                    .focusEffectDisabled()
-                    .overlay(FocusRingStroke(focused: previewControl == .status))
-                    .hoverFill()
-                    .accessibilityLabel("Session status and branch")
-                    .accessibilityValue(showsDetails ? "Expanded" : "Collapsed")
-                    if showsDetails {
-                        head(hasRows: false)
-                            .transition(reduceMotion ? .opacity : .fold)
-                    }
-                    SessionWorkingSetPreview(session: session, state: state,
-                                             reviewRequest: acting(reviewRequest))
-                    rule
+                    head
                     if let changes = facts.changes { changesRow(changes) }
                     pullRequestsSection
                     VStack(spacing: 0) {
@@ -464,33 +430,17 @@ struct SessionFactsChip: View {
                     .background(Theme.sunken)
                 }
             }
-            .motion(showsDetails ? Motion.reveal : Motion.leave, value: showsDetails)
-            rule
-            HStack {
-                Text(pinned ? "Pinned. Esc to dismiss" : "Hover to preview")
-                    .font(Font.system(size: Typography.Size.micro))
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.opacity)
-                Spacer(minLength: 4)
-                ActionButton(title: "Open working set", tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
-                             icon: "sidebar.right", action: acting(openWorkingSet))
-                    .focused($previewControl, equals: .workingSet)
-                    .focusEffectDisabled()
-                    .overlay(FocusRingStroke(focused: previewControl == .workingSet))
-            }
-            .padding(.horizontal, Space.lg)
-            .frame(height: 52)
         }
         .frame(width: layout.width, alignment: .leading)
         .floatingCard(cornerRadius: Self.radius)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Working set preview")
+        .accessibilityLabel("Session details")
     }
 
     private var previewHeading: some View {
         HStack(spacing: Space.md) {
             VStack(alignment: .leading, spacing: Space.xs) {
-                Text("Working set").font(Typography.body.weight(.semibold))
+                Text("Session details").font(Typography.body.weight(.semibold))
                 Text([facts.model.map { "\(facts.agent.title) / \($0)" } ?? facts.agent.title,
                       repositoryCount > 0 ? counted(repositoryCount, "repository", plural: "repositories") : nil]
                     .compactMap { $0 }.joined(separator: " · "))
@@ -498,14 +448,14 @@ struct SessionFactsChip: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 4)
+            Spacer(minLength: Space.xs)
             GlyphButton(icon: pinned ? "pin.fill" : "pin", side: ControlHeight.sm, active: pinned) {
                 if pinned { closeCard() } else { pinned = true }
             }
             .focused($previewControl, equals: .pin)
             .focusEffectDisabled()
             .overlay(FocusRingStroke(focused: previewControl == .pin))
-            .accessibilityLabel(pinned ? "Unpin working set preview" : "Pin working set preview")
+            .accessibilityLabel(pinned ? "Unpin session details" : "Pin session details")
             GlyphButton(icon: "xmark", side: ControlHeight.sm) {
                 closeCard()
                 chipFocused = true
@@ -513,7 +463,7 @@ struct SessionFactsChip: View {
             .focused($previewControl, equals: .close)
             .focusEffectDisabled()
             .overlay(FocusRingStroke(focused: previewControl == .close))
-            .accessibilityLabel("Close working set preview")
+            .accessibilityLabel("Close session details")
         }
         .padding(Space.lg)
         .motion(Motion.control, value: pinned)
@@ -548,7 +498,7 @@ struct SessionFactsChip: View {
     // The card's head answers both halves of the pill at a size that can be read: the
     // state with its precise time and the clock time it began, then the name the pill
     // truncated, with the one action that takes it out of the app beside it.
-    private func head(hasRows: Bool) -> some View {
+    private var head: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.sm) {
                 if state.tone == .running {
@@ -613,7 +563,7 @@ struct SessionFactsChip: View {
         .padding(.bottom, Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.sunken)
-        .overlay(alignment: .bottom) { if hasRows { rule } }
+        .overlay(alignment: .bottom) { rule }
     }
 
     private func branchCopied() {

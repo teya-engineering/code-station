@@ -116,8 +116,8 @@ struct TranscriptAgentTests {
     }
 
     private func activities(_ message: ChatMessage, active: [ToolUse] = [],
-                            running: Set<String> = []) -> [WorkingSetActivity] {
-        WorkingSetSummary.activities(in: [message], activeTools: active, backgroundTasks: [],
+                            running: Set<String> = []) -> [AgentActivity] {
+        AgentActivitySummary.activities(in: [message], activeTools: active,
                                      runningAgentIDs: running, projectPath: "/project")
     }
 }

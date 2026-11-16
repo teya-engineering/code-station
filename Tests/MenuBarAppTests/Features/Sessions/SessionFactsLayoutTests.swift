@@ -7,31 +7,15 @@ import Testing
 @Suite(.serialized)
 struct SessionFactsLayoutTests {
     @Test(arguments: [false, true])
-    func previewFitsAndRoutesToTheWorkingSet(reduceMotion: Bool) async throws {
+    func sessionDetailsFitAndDismiss(reduceMotion: Bool) async throws {
         let app = NSApplication.shared
         let policy = app.activationPolicy()
         app.setActivationPolicy(.regular)
         defer { app.setActivationPolicy(policy) }
-        let (store, scratch) = TestStore.make()
-        let project = try TestStore.project(in: store)
-        let original = store.newSession(in: project.id, seed: .init(agent: .claudeCode))
-        store.append(ChatMessage(role: .user, text: "Tighten keyboard navigation"), to: original.id)
-        store.append(ChatMessage(role: .assistant, tools: [
-            ToolUse(id: "previous", name: "Read", input: "Keyboard.swift", result: "done")
-        ]), to: original.id)
-        store.append(ChatMessage(role: .user, text: "Refine the session header"), to: original.id)
-        store.append(ChatMessage(role: .assistant, tools: [
-            ToolUse(id: "read", name: "Read", input: #"{"file_path":"HeaderRail.swift"}"#, result: "done"),
-            ToolUse(id: "edit", name: "Edit", input: "SessionFacts.swift", result: "done"),
-            ToolUse(id: "agent", name: "Agent", input: #"{"description":"Check keyboard access","name":"Explore"}"#,
-                    result: "Keyboard access verified")
-        ]), to: original.id)
-        let session = try #require(store.session(original.id))
-        let runner = SessionRunner(preferences: scratch.preferences.store, paths: [:])
+        let sessionID = UUID()
         let monitor = AccountUsageMonitor(sources: [PreviewUsageSource()])
         await monitor.refresh(.claudeCode)
         let chip = FrameAnchor()
-        var openedWorkingSet = false
         let first = PullRequest(number: 482, url: "https://github.com/team/code-station/pull/482")
         let second = PullRequest(number: 96, url: "https://github.com/team/code-station-settings/pull/96")
         let facts = SessionFacts(
@@ -47,8 +31,7 @@ struct SessionFactsLayoutTests {
                     Text("Session header").font(.system(size: 18, weight: .semibold))
                     Spacer()
                     SessionFactsChip(facts: facts, state: .init(tone: .running, since: .now, ticks: true),
-                                     session: session, repositoryCount: 3,
-                                     openWorkingSet: { openedWorkingSet = true }, reviewRequest: {},
+                                     sessionID: sessionID, repositoryCount: 3,
                                      openChanges: {}, contextActions: { [] }, usageTooltip: { Tooltip(title: "Context") })
                         .background(FrameAnchorView(anchor: chip))
                 }
@@ -58,7 +41,7 @@ struct SessionFactsLayoutTests {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.background)
-            .environment(store).environment(runner).environment(monitor)
+            .environment(monitor)
             .environment(\._accessibilityReduceMotion, reduceMotion)
             .appOverlays())
         host.sizingOptions = []
@@ -71,7 +54,7 @@ struct SessionFactsLayoutTests {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        defer { window.close(); runner.stopAll() }
+        defer { window.close() }
         await settle(host.view)
         try click(try #require(chip.frame()), in: window)
         await settle(host.view)
@@ -116,10 +99,8 @@ struct SessionFactsLayoutTests {
             }
         }
 
-        let frame = FrameAnchor.fromTop(preview.convert(preview.bounds, to: host.view), in: host.view)
-        try click(CGRect(x: frame.maxX - 90, y: frame.maxY - 26, width: 1, height: 1), in: window)
+        try click(try #require(chip.frame()), in: window)
         await settle(host.view)
-        #expect(openedWorkingSet)
         #expect(findPreview(in: host.view) == nil)
     }
 
@@ -131,7 +112,7 @@ struct SessionFactsLayoutTests {
     }
 
     private func findPreview(in view: NSView) -> NSView? {
-        if view.identifier?.rawValue == "Working set preview" { return view }
+        if view.identifier?.rawValue == "Session details" { return view }
         return view.subviews.lazy.compactMap { findPreview(in: $0) }.first
     }
 

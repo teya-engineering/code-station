@@ -116,15 +116,19 @@ struct AppBackup: Codable, Equatable, Sendable {
     // Preferences that point at this Mac's sessions, cache what a server said, or belong
     // to AppKit stay behind. Everything else is a choice the person made.
     private static let machineKeys: Set<String> = [
-        "selectedSessionID", "selectedProjectID", "selectedWorkspaceID", "workingSetVisibility",
+        "selectedSessionID", "selectedProjectID", "selectedWorkspaceID",
         "hasCompletedOnboarding", "siteDefaultsPath", "appUpdateLastCheck",
         "cachedAppUpdateRelease", "dismissedAppUpdateVersion", "dayRibbonEntranceDay"
     ]
     private static let machinePrefixes = ["NS", "Apple", "com.apple.", "adoptedDefaultsFrom-",
                                           "skillsLastRefresh"]
 
+    // Retired settings can remain in older preferences and backups.
+    private static let retiredKeys: Set<String> = ["workingSetVisibility", "opensWorkingSetByDefault"]
+
     static func isPortable(_ key: String) -> Bool {
-        !machineKeys.contains(key) && !machinePrefixes.contains(where: key.hasPrefix)
+        !machineKeys.contains(key) && !retiredKeys.contains(key)
+            && !machinePrefixes.contains(where: key.hasPrefix)
     }
 
     // MARK: - Import

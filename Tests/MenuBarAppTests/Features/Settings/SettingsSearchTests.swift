@@ -53,14 +53,6 @@ struct SettingsSearchTests {
         #expect(result.target == .generalTitles)
     }
 
-    @Test func findsTheWorkingSetDefault() throws {
-        let result = try #require(SettingsSearchIndex.results(for: "working set").first)
-
-        #expect(result.title == "Open working set automatically")
-        #expect(result.tab == .appearance)
-        #expect(result.target == .appearanceWorkingSet)
-    }
-
     @Test func findsTheHeaderButtons() throws {
         let result = try #require(SettingsSearchIndex.results(for: "hide preview").first)
 

@@ -23,7 +23,7 @@ struct SettingsView: View {
     @State private var notes = 0
     @State private var appearanceBeforeReset: (
         appearance: Appearance, textSize: TextSize, messageColour: MessageColour,
-        iconStyle: DiceBearAvatarStyle, iconSet: SidebarIconSet, workingSet: Bool,
+        iconStyle: DiceBearAvatarStyle, iconSet: SidebarIconSet,
         sunlight: Bool, sunlightMode: SunlightMode, warmth: Double,
         cursorEffects: CursorEffectsSettings)?
     @State private var secondOpinion = Preferences.secondOpinionDefaults()
@@ -252,7 +252,7 @@ struct SettingsView: View {
 
     private func resetAppearance() {
         appearanceBeforeReset = (settings.appearance, settings.textSize, settings.messageColour,
-                                 settings.diceBearAvatarStyle, settings.sidebarIconSet, settings.opensWorkingSetByDefault,
+                                 settings.diceBearAvatarStyle, settings.sidebarIconSet,
                                  settings.sunlightEnabled, settings.sunlightMode, settings.sunlightNightKelvin,
                                  settings.cursorEffects)
         settings.resetAppearance()
@@ -265,7 +265,6 @@ struct SettingsView: View {
         settings.messageColour = previous.messageColour
         settings.diceBearAvatarStyle = previous.iconStyle
         settings.sidebarIconSet = previous.iconSet
-        settings.opensWorkingSetByDefault = previous.workingSet
         settings.sunlightEnabled = previous.sunlight
         settings.sunlightMode = previous.sunlightMode
         settings.sunlightNightKelvin = previous.warmth
@@ -342,7 +341,6 @@ struct SettingsView: View {
         case .appearance:
             VStack(alignment: .leading, spacing: Space.xxl) {
                 appearance.id(SettingsSearchTarget.appearanceTheme.id)
-                workingSet.id(SettingsSearchTarget.appearanceWorkingSet.id)
                 headerButtons.id(SettingsSearchTarget.appearanceHeaderButtons.id)
                 BotSettingsEntry {
                     show { bots.isPresented = true }
@@ -746,20 +744,6 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .surface(Theme.sunken, cornerRadius: Radius.card, border: Theme.settingsHairline)
         .accessibilityElement(children: .combine)
-    }
-
-    private var workingSet: some View {
-        @Bindable var settings = settings
-        return ChoiceBlock("SESSION LAYOUT") {
-            SettingsCard {
-                SettingsToggleRow(
-                    "Open working set automatically",
-                    detail: "Opens the Working Set when an agent starts work in a session with no saved panel choice. Opening or closing it yourself is remembered.",
-                    isOn: $settings.opensWorkingSetByDefault)
-                    .padding(.horizontal, Space.lg)
-                    .padding(.vertical, Space.lg)
-            }
-        }
     }
 
     private var headerButtons: some View {
