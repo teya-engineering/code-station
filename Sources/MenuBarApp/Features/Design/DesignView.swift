@@ -107,7 +107,7 @@ struct DesignView: View {
                 }
             } tools: {
                 if canvas.revision != nil {
-                    GlyphButton(icon: selectionEnabled ? "scope" : "cursorarrow", side: ControlHeight.md,
+                    GlyphButton(icon: "scope", side: ControlHeight.md,
                                 active: selectionEnabled, tint: Theme.accent) {
                         selectionEnabled.toggle()
                         // A pick lands in the composer, so the panel has to be open to show it.
