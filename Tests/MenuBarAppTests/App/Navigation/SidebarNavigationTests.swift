@@ -228,7 +228,8 @@ struct SidebarNavigationTests {
 
     // Holding a card down opens the selection. From then on a click ticks a row rather
     // than opening it, and Done puts the rail back the way it was.
-    @Test func holdingACardPicksRowsInsteadOfOpeningThem() async throws {
+    @Test(arguments: [false, true])
+    func holdingACardPicksRowsInsteadOfOpeningThem(reduceMotion: Bool) async throws {
         let expansion = Preferences.sidebarExpansion()
         defer { Preferences.setSidebarExpansion(expansion) }
         let harness = try SidebarHarness()
@@ -241,19 +242,28 @@ struct SidebarNavigationTests {
         harness.store.renameSession(second.id, to: "Second conversation")
         harness.store.selectProject(project.id)
         Preferences.setSidebarExpansion([project.id: true])
-        harness.mount()
+        harness.mount(reduceMotion: reduceMotion)
         await harness.settle()
         try harness.snapshot("hold-before")
 
         try await harness.hold(x: 200, yFromTop: 240)
         await harness.settle()
         try harness.snapshot("hold-after")
+        #expect(harness.picks.ids == [second.id])
         #expect(harness.store.selection == nil)
 
         try harness.click(x: 200, yFromTop: 300)
         await harness.settle()
         try harness.snapshot("hold-second")
+        #expect(harness.picks.ids == [first.id, second.id])
         #expect(harness.store.selection == nil)
+
+        try harness.click(x: 280, yFromTop: 128)
+        await harness.settle()
+        #expect(harness.picks.ids.isEmpty)
+        try harness.click(x: 200, yFromTop: 300)
+        await harness.settle()
+        #expect(harness.store.selection == .session(first.id))
     }
 }
 
@@ -265,6 +275,8 @@ private final class SidebarHarness {
     lazy var runner = SessionRunner(preferences: testPreferences.store, paths: [:])
     let settings: AppSettings
     let preferences: UserDefaults
+    let mouse = TestMouse()
+    let picks = SidebarMultiSelection()
     var window: NSWindow?
     var hosting: NSHostingController<AnyView>?
 
@@ -278,17 +290,18 @@ private final class SidebarHarness {
         settings.projectSort = .name
     }
 
-    func mount() {
+    func mount(reduceMotion: Bool = true) {
         let stats = GitStatsCache()
         let view = AppSidebar(
             skills: SkillsManager(cacheURL: scratch.path("skills.json"), preferences: preferences),
             tools: ToolsMenuActions(configureServers: {}, openSkills: {}, openDocker: {},
                                     openDispatch: {}, openShortcuts: {},
                                     openSettings: {}),
-            onReviewOldSessions: {}, paneOwnsFindShortcut: false)
+            onReviewOldSessions: {}, paneOwnsFindShortcut: false, picks: picks)
             .environment(store)
             .environment(runner)
             .environment(settings)
+            .environment(\.pressAndHoldMouseInput, mouse.input)
             .environment(ShortcutStore(storageURL: scratch.path("shortcuts.json"),
                                        siteDefaults: SiteDefaults()))
             .environment(AppUpdateChecker(installedVersion: nil, preferences: preferences))
@@ -303,8 +316,8 @@ private final class SidebarHarness {
                                            keychain: KeychainClient(read: { [:] }, write: { _ in }),
                                            siteDefaults: SiteDefaults()))
             // Explicit scroll animations bypass the view transaction and need AppKit's animation clock.
-            .environment(\._accessibilityReduceMotion, true)
-            .transaction { $0.disablesAnimations = true }
+            .environment(\._accessibilityReduceMotion, reduceMotion)
+            .transaction { $0.disablesAnimations = reduceMotion }
             .appOverlays()
         let hosting = NSHostingController(rootView: AnyView(view))
         hosting.sizingOptions = []
@@ -340,28 +353,16 @@ private final class SidebarHarness {
         let window = try #require(window)
         let point = NSPoint(x: x, y: 820 - yFromTop)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(
-                with: type, location: point, modifierFlags: [], timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-            window.sendEvent(event)
+            try mouse.send(type, at: point, in: window)
         }
     }
 
-    // Sent through the app rather than the window, so the event monitors that watch for
-    // a hold see the press.
     func hold(x: CGFloat, yFromTop: CGFloat) async throws {
         let window = try #require(window)
         let point = NSPoint(x: x, y: 820 - yFromTop)
-        func send(_ type: NSEvent.EventType) throws {
-            NSApp.sendEvent(try #require(NSEvent.mouseEvent(
-                with: type, location: point, modifierFlags: [], timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
-        }
-        try send(.leftMouseDown)
+        try mouse.send(.leftMouseDown, at: point, in: window)
         try? await Task.sleep(for: .seconds(PressAndHold.duration + 0.3))
-        try send(.leftMouseUp)
+        try mouse.send(.leftMouseUp, at: point, in: window)
     }
 
     func openFilter() throws {

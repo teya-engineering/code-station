@@ -32,7 +32,7 @@ struct AppSidebar: View {
     @State private var choosingSessionKind: Project?
     @State private var choosingWorkspaceSession: ProjectWorkspace?
     @State private var showingCloneProject = false
-    @State private var showingNewWorkspace = false
+    @State private var newWorkspace: NewWorkspaceRequest?
     @State private var showingNewTask = false
     @State private var askingTask: Project?
     @State private var importingSessions: SessionImportRequest?
@@ -46,8 +46,8 @@ struct AppSidebar: View {
     @State private var cleanupHighlight: CleanupHighlight?
     // The empty workspaces in their final hour, and when that hour ends.
     @State private var workspaceRemoval: EmptyWorkspaceSweep.Removal?
-    @State private var dropSlot: SidebarDropSlot?
-    @State private var picks = SidebarMultiSelection()
+    @State private var drag = SidebarDrag()
+    @State var picks = SidebarMultiSelection()
     @State private var note: String?
     @State private var noteIcon = "checkmark"
     @State private var notes = 0
@@ -148,8 +148,8 @@ struct AppSidebar: View {
             CloneProjectView(onCloned: addProjectNow)
                 .appOverlays()
         }
-        .sheet(isPresented: $showingNewWorkspace) {
-            NewWorkspaceView { workspace in
+        .sheet(item: $newWorkspace) { request in
+            NewWorkspaceView(initialProjectIDs: request.projectIDs) { workspace in
                 setExpanded(true, for: workspace.id)
                 choosingWorkspaceSession = workspace
             }
@@ -350,6 +350,24 @@ struct AppSidebar: View {
         guard let date = SidebarPlacement.date(moving: id, beside: targetID, after: after,
                                                in: rows) else { return }
         store.placeInSidebar(id, at: date)
+    }
+
+    private func canJoin(_ id: UUID, _ workspace: ProjectWorkspace) -> Bool {
+        store.project(id)?.kind == .project && !workspace.projectIDs.contains(id)
+    }
+
+    private func join(_ id: UUID, _ workspace: ProjectWorkspace) {
+        store.addProject(id, toWorkspace: workspace.id)
+        store.navigation.sidebarHighlight = workspace.id
+    }
+
+    private func canPair(_ id: UUID, with project: Project) -> Bool {
+        id != project.id && store.project(id)?.kind == .project
+    }
+
+    // The project dropped on leads, since it is the one the person aimed for.
+    private func pair(_ id: UUID, with project: Project) {
+        newWorkspace = NewWorkspaceRequest(projectIDs: [project.id, id])
     }
 
     // A session only moves among the other sessions under the same row.
@@ -557,9 +575,13 @@ struct AppSidebar: View {
             return entries
         }
         .sidebarRevealGlow(store.navigation.sidebarHighlight == workspace.id)
-        .sidebarReorder(workspace.id, enabled: canReorder, slot: $dropSlot) {
-            dropItem($0, beside: workspace.id, after: $1)
-        }
+        .sidebarDrag(workspace.id,
+                     reorders: canReorder,
+                     drags: canReorder,
+                     drag: $drag,
+                     takesIn: { canJoin($0, workspace) },
+                     onMove: { dropItem($0, beside: workspace.id, after: $1) },
+                     onDropInto: { join($0, workspace) })
         .id(workspace.id)
 
         if expanded, !visible.isEmpty {
@@ -630,9 +652,13 @@ struct AppSidebar: View {
             picks.isActive ? selectionMenu(adding: project.id) : headerMenu(project)
         }
         .sidebarRevealGlow(store.navigation.sidebarHighlight == project.id)
-        .sidebarReorder(project.id, enabled: canReorder, slot: $dropSlot) {
-            dropItem($0, beside: project.id, after: $1)
-        }
+        .sidebarDrag(project.id,
+                     reorders: canReorder,
+                     drags: canReorder || project.kind == .project,
+                     drag: $drag,
+                     takesIn: project.kind == .project ? { canPair($0, with: project) } : nil,
+                     onMove: { dropItem($0, beside: project.id, after: $1) },
+                     onDropInto: { pair($0, with: project) })
         .id(project.id)
 
         // An expanded project with nothing under it draws no cards at all: an empty rail
@@ -714,9 +740,11 @@ struct AppSidebar: View {
                     .sidebarRevealGlow(store.navigation.sidebarHighlight == session.id)
                     .sidebarCleanupMark(cleanupMark(session.id))
             }
-            .sidebarReorder(session.id, enabled: canReorder, slot: $dropSlot) {
-                dropSession($0, beside: session.id, after: $1, in: sessions)
-            }
+            .sidebarDrag(session.id,
+                         reorders: canReorder,
+                         drags: canReorder,
+                         drag: $drag,
+                         onMove: { dropSession($0, beside: session.id, after: $1, in: sessions) })
             .id(session.id)
             .background {
                 if selected {
@@ -1310,7 +1338,7 @@ struct AppSidebar: View {
             },
             .item("Create workspace", icon: "square.stack.3d.up.fill",
                   subtitle: "Group two or more projects.") {
-                showingNewWorkspace = true
+                newWorkspace = NewWorkspaceRequest(projectIDs: [])
             },
             .item("New task", icon: "bolt.fill",
                   subtitle: "A saved prompt you can run any time.") {
@@ -2720,6 +2748,11 @@ private struct SidebarCheckbox: View {
             .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .leading)))
             .accessibilityHidden(true)
     }
+}
+
+private struct NewWorkspaceRequest: Identifiable {
+    let id = UUID()
+    let projectIDs: [UUID]
 }
 
 // What decides a row's or a card's place in the rail that the person set themselves.
