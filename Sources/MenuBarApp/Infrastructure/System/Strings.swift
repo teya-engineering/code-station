@@ -3,6 +3,22 @@ import Foundation
 extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    // The same as `components(separatedBy: "\n")`, a "\r" before a break included, but
+    // split on the bytes instead of with Foundation's general search, which is slow.
+    var lines: [String] {
+        utf8.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
+            .map { String(Substring($0)) }
+    }
+
+    // `trimmingCharacters(in: .whitespaces)`, without the Foundation call for the usual
+    // line that starts and ends in printable ASCII and so has nothing to trim.
+    var trimmedSpaces: String {
+        let printable: ClosedRange<UInt8> = 0x21...0x7E
+        if let first = utf8.first, let last = utf8.last,
+           printable.contains(first), printable.contains(last) { return self }
+        return trimmingCharacters(in: .whitespaces)
+    }
+
     var isBlank: Bool { trimmed.isEmpty }
 
     // For a field that is optional in meaning but arrives as an empty string.

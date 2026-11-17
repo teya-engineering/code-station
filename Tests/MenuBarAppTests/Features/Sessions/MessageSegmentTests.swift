@@ -92,4 +92,18 @@ struct MessageSegmentTests {
 
         #expect(early.map(\.id) == Array(later.map(\.id).prefix(2)))
     }
+
+    // A streaming reply is read on from its last closed fence. Every prefix must split
+    // the same way as a fresh read of it, quoted and nested fences included.
+    @Test func readingOnFromAClosedFenceMatchesAFreshRead() {
+        let reply = "Intro\n\n```swift\nlet a = 1\n```\nMiddle\n\n> ```\n> quoted\n> ```\n"
+            + "````md\n```\ninner\n```\n````\r\n```suggestion\n```\n~~~\nopen at the end"
+        let ends = Array(reply.indices.dropFirst()) + [reply.endIndex]
+        let streamed = ends.map { MessageSegment.split(String(reply[..<$0])) }
+        let fresh = ends.map { end in
+            MessageSegment.checkpoints.withLock { $0.removeAll() }
+            return MessageSegment.split(String(reply[..<end]))
+        }
+        #expect(streamed == fresh)
+    }
 }
