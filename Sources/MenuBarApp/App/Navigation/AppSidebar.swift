@@ -47,7 +47,7 @@ struct AppSidebar: View {
     // The empty workspaces in their final hour, and when that hour ends.
     @State private var workspaceRemoval: EmptyWorkspaceSweep.Removal?
     @State private var drag = SidebarDrag()
-    @State private var picks = SidebarMultiSelection()
+    @State var picks = SidebarMultiSelection()
     @State private var note: String?
     @State private var noteIcon = "checkmark"
     @State private var notes = 0

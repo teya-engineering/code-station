@@ -15,6 +15,25 @@ enum PressAndHold {
     // A press that wanders further than this is a drag, not a hold.
     static let slop: CGFloat = 4
 
+    struct MouseState {
+        var location: NSPoint
+        var isLeftButtonDown: Bool
+
+        @MainActor static var current: MouseState {
+            MouseState(location: NSEvent.mouseLocation,
+                       isLeftButtonDown: NSEvent.pressedMouseButtons & 1 != 0)
+        }
+    }
+
+    final class MouseInput: Sendable {
+        static let live = MouseInput { .current }
+        let read: @MainActor @Sendable () -> MouseState
+
+        init(_ read: @escaping @MainActor @Sendable () -> MouseState) {
+            self.read = read
+        }
+    }
+
     // Runs `action` once the press now under way has been let go and its click has been
     // delivered. A view watching for its own release can be rebuilt during the hold and
     // miss it, so this watches the whole app instead.
@@ -29,17 +48,25 @@ enum PressAndHold {
     }
 }
 
+extension EnvironmentValues {
+    @Entry var pressAndHoldMouseInput = PressAndHold.MouseInput.live
+}
+
 private struct PressAndHoldCatcher: NSViewRepresentable {
     let onHold: () -> Void
+
+    @Environment(\.pressAndHoldMouseInput) private var mouseInput
 
     func makeNSView(context: Context) -> PressAndHoldView {
         let view = PressAndHoldView()
         view.onHold = onHold
+        view.mouseInput = mouseInput
         return view
     }
 
     func updateNSView(_ view: PressAndHoldView, context: Context) {
         view.onHold = onHold
+        view.mouseInput = mouseInput
     }
 }
 
@@ -47,6 +74,7 @@ private struct PressAndHoldCatcher: NSViewRepresentable {
 // still gets its click, its hover and its drag.
 private final class PressAndHoldView: NSView {
     var onHold: (() -> Void)?
+    var mouseInput = PressAndHold.MouseInput.live
 
     private var monitor: Any?
     private var timer: Timer?
@@ -78,17 +106,18 @@ private final class PressAndHoldView: NSView {
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point) else { return }
             pressedAt = event.locationInWindow
-            let pressedOnScreen = NSEvent.mouseLocation
+            let pressedOnScreen = mouseInput.read().location
             let timer = Timer(timeInterval: PressAndHold.duration, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.timer = nil
+                    guard let self else { return }
+                    self.timer = nil
                     // Once a drag session starts it takes the mouse events, so the monitor
                     // may never see the press wander or end. The pointer and button still tell.
-                    let now = NSEvent.mouseLocation
-                    guard NSEvent.pressedMouseButtons & 1 != 0,
-                          hypot(now.x - pressedOnScreen.x,
-                                now.y - pressedOnScreen.y) <= PressAndHold.slop else { return }
-                    self?.onHold?()
+                    let now = self.mouseInput.read()
+                    guard now.isLeftButtonDown,
+                          hypot(now.location.x - pressedOnScreen.x,
+                                now.location.y - pressedOnScreen.y) <= PressAndHold.slop else { return }
+                    self.onHold?()
                 }
             }
             // Common modes, so the hold still fires while AppKit is tracking the press.
