@@ -4,7 +4,7 @@
 
 Teya Code Station is a macOS app for running Claude Code, Codex and GitHub Copilot CLI across local projects. It keeps conversations, files, Git changes, and terminals in one window while each coding agent continues to use its own CLI and account.
 
-[![Teya Code Station showing a project and its coding-agent session](docs/images/code-station-hero.webp)](https://teya-engineering.github.io/code-station/)
+[![Loose editor and terminal windows gather into one Teya Code Station window, where the session that needs you rises to the top. Three projects are then grouped into a workspace and one prompt runs in every repo.](docs/images/code-station-hero.gif)](https://teya-engineering.github.io/code-station/)
 
 ## Why Code Station
 
