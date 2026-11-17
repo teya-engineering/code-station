@@ -33,6 +33,23 @@ enum Motion {
     // feels like waiting.
     static let leave = Animation.easeIn(duration: leaveDuration)
 
+    // Something carried across the window to where it lands. It moves across on an
+    // ease-out and down on an ease-in, and the two together bend its path into a curve.
+    // Going home is quicker, since that is a thing being put away.
+    static let flightDuration: TimeInterval = 0.36
+    static let flightHomeDuration: TimeInterval = 0.24
+    static func flightAcross(_ duration: TimeInterval = flightDuration) -> Animation {
+        .easeOut(duration: duration)
+    }
+    static func flightDown(_ duration: TimeInterval = flightDuration) -> Animation {
+        .easeIn(duration: duration)
+    }
+    // A ring spreading out from a mark that has just landed and fading as it goes. It
+    // starts on the curve a line draws on, held long enough to be seen spreading.
+    static let ringDuration: TimeInterval = 0.52
+    static let ringGap: TimeInterval = 0.09
+    static let ring = Animation.timingCurve(0.2, 0.7, 0.1, 1, duration: ringDuration)
+
     // How far a control swells under the pointer. Kept this small on purpose: at this
     // size the lift is felt as the control waking up, and much past it the window starts
     // to twitch as the mouse crosses a row of buttons.

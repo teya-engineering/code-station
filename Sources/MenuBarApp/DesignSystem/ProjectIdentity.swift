@@ -32,7 +32,7 @@ struct ProjectTileView: View {
         face
             // The stack rides behind without taking room, so the front tile keeps the
             // place a plain project tile would have and a column of them stays aligned.
-            .background(alignment: .center) { if stacked { backTile } }
+            .background(alignment: .center) { if stacked { ProjectTileBack(tint: tint, side: side) } }
     }
 
     private var face: some View {
@@ -55,16 +55,28 @@ struct ProjectTileView: View {
                 }
             }
     }
+}
 
-    // The tile underneath, shifted up and to the right. The part it would share with the
-    // front tile is cut away: both fills are translucent, so left whole it would darken
-    // the face instead of sitting behind it.
-    private var backTile: some View {
+// The tile underneath a stacked tile, shifted up and to the right. Put it behind any
+// front tile of the same side to make a pile, such as a project tucked behind another
+// before the two become a workspace. The part it would share with the front tile is cut
+// away: both fills are translucent, so left whole it would darken the face instead of
+// sitting behind it.
+struct ProjectTileBack: View {
+    let tint: Theme.ProjectTint
+    var side: CGFloat = 26
+
+    // How far the back tile peeks out, as a share of the side.
+    static let shift: CGFloat = 0.15
+
+    private var radius: CGFloat { side * 0.27 }
+
+    var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: radius)
                 .fill(tint.fill)
                 .overlay(RoundedRectangle(cornerRadius: radius).stroke(tint.ring))
-                .offset(x: side * 0.15, y: -side * 0.15)
+                .offset(x: side * Self.shift, y: -side * Self.shift)
             RoundedRectangle(cornerRadius: radius)
                 .blendMode(.destinationOut)
         }

@@ -894,14 +894,32 @@ final class ProjectStore {
         scheduleIndexSave()
     }
 
-    func addProject(_ projectID: UUID, toWorkspace id: UUID) {
+    @discardableResult
+    func addProject(_ projectID: UUID, toWorkspace id: UUID) -> Bool {
         guard let project = project(projectID), project.kind == .project,
               let i = workspaces.firstIndex(where: { $0.id == id }),
-              !workspaces[i].projectIDs.contains(projectID) else { return }
+              !workspaces[i].projectIDs.contains(projectID) else { return false }
         workspaces[i].projectIDs.append(projectID)
         if project.isGitRepository {
             workspaces[i].worktreeProjectIDs.append(projectID)
         }
+        saveIndex()
+        return true
+    }
+
+    // Takes back an add, leaving the workspace's projects and checkout choices as they
+    // were in `before`. Unlike a removal it may leave the workspace at two projects,
+    // since that is where it stood before the add.
+    func undoAddProject(_ projectID: UUID, toWorkspace before: ProjectWorkspace) {
+        guard let i = workspaces.firstIndex(where: { $0.id == before.id }),
+              workspaces[i].projectIDs.contains(projectID),
+              !before.projectIDs.contains(projectID) else { return }
+        let kept = workspaces[i].projectIDs.filter { $0 != projectID }
+        workspaces[i].projectIDs = kept
+        workspaces[i].worktreeProjectIDs = before.worktreeProjectIDs.filter(kept.contains)
+        workspaces[i].leadProjectID = kept.contains(before.leadProjectID)
+            ? before.leadProjectID
+            : kept.first ?? before.leadProjectID
         saveIndex()
     }
 

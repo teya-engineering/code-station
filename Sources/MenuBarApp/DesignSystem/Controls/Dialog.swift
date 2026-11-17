@@ -12,6 +12,7 @@ struct Dialog: Identifiable {
         let id = UUID()
         let label: String
         var kind: Kind = .plain
+        var icon: String? = nil
         var handler: () -> Void = {}
         // Asked each time the dialog draws, so a button can follow a choice made in the
         // dialog's own content without the dialog being shown again. It comes last so a
@@ -53,6 +54,7 @@ struct Dialog: Identifiable {
     var onCancel: () -> Void = {}
     var width: CGFloat = 340
     var impact: Impact?
+    var receipt: Receipt?
     var isModal = false
     // The content draws the whole card, its title and buttons included, for a dialog
     // whose header or footer follows what happens inside it. The title is still what a
@@ -108,7 +110,7 @@ final class DialogPresenter {
     private weak var presentingWindow: NSWindow?
 
     func show(_ dialog: Dialog) {
-        if current == nil, dialog.impact != nil || dialog.isModal {
+        if current == nil, dialog.impact != nil || dialog.receipt != nil || dialog.isModal {
             presentingWindow = NSApp?.keyWindow
             previousResponder = presentingWindow?.firstResponder
         }
@@ -161,7 +163,13 @@ struct DialogHost: View {
 
             if let dialog = presenter.current {
                 Group {
-                    if dialog.impact != nil {
+                    if dialog.receipt != nil {
+                        GeometryReader { geometry in
+                            ReceiptDialogCard(dialog: dialog, maxHeight: max(0, geometry.size.height - 32))
+                                .frame(width: min(dialog.width, max(0, geometry.size.width - 32)))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    } else if dialog.impact != nil {
                         GeometryReader { geometry in
                             ImpactDialogCard(dialog: dialog, maxHeight: max(0, geometry.size.height - 32))
                                 .frame(width: min(dialog.width, max(0, geometry.size.width - 32)))

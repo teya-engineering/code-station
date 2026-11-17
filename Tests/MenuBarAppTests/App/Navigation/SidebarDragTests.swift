@@ -25,4 +25,21 @@ struct SidebarDragTests {
     @Test func aRowThatDoesNeitherRefusesTheDrop() {
         #expect(Place.at(20, rowHeight: 40, reorders: false, takesIn: false) == nil)
     }
+
+    // A project is never reordered beside a workspace, so a workspace takes it in with
+    // the whole row rather than splitting into edges.
+    @Test func aRowThatTakesInWithTheWholeRowNeverReorders() {
+        #expect(Place.at(2, rowHeight: 40, reorders: true, takesIn: true, wholeRow: true) == .into)
+        #expect(Place.at(38, rowHeight: 40, reorders: true, takesIn: true, wholeRow: true) == .into)
+    }
+
+    @Test func aWholeRowStillReordersWhatItCannotTakeIn() {
+        #expect(Place.at(5, rowHeight: 40, reorders: true, takesIn: false, wholeRow: true) == .before)
+    }
+
+    // A workspace that already holds the project says so, wherever the pointer is.
+    @Test func aRowThatAlreadyHoldsTheDraggedOneRefusesIt() {
+        #expect(Place.at(2, rowHeight: 40, reorders: true, takesIn: false, wholeRow: true, holds: true) == .refused)
+        #expect(Place.at(20, rowHeight: 40, reorders: false, takesIn: false, holds: true) == .refused)
+    }
 }

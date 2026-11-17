@@ -21,10 +21,17 @@ private struct AppOverlays: ViewModifier {
     @State private var menus = MenuPresenter()
     @State private var tooltips = TooltipPresenter()
 
+    // A dialog that keeps focus inside itself also keeps the app behind it from taking
+    // keys or clicks, so Return and Escape can only mean the dialog's own buttons.
+    private var holdsFocus: Bool {
+        guard let current = dialogs.current else { return false }
+        return current.impact != nil || current.receipt != nil || current.isModal
+    }
+
     func body(content: Content) -> some View {
         content
-            .disabled(dialogs.current?.impact != nil || dialogs.current?.isModal == true)
-            .accessibilityHidden(dialogs.current?.impact != nil || dialogs.current?.isModal == true)
+            .disabled(holdsFocus)
+            .accessibilityHidden(holdsFocus)
             .overlay { TooltipHost() }
             .overlay { DialogHost() }
             // Last, so a menu opened from inside a dialog is not drawn behind it. It

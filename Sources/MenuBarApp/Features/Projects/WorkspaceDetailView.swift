@@ -147,6 +147,8 @@ struct WorkspaceDetailView: View {
         HStack(spacing: Space.lg) {
             StatusCaps(text: "WORKSPACE · \(workspace.projectIDs.count) PROJECTS",
                        tint: Theme.workspaceTint.ink)
+                .contentTransition(.numericText())
+                .motion(Motion.pop, value: workspace.projectIDs.count)
             StatusRule()
             if let lead { leadTag(lead) }
             if verdicts {
@@ -586,7 +588,7 @@ struct WorkspaceDetailView: View {
         let projectItems = projects.map { project in
             MenuItem(label: project.name, icon: "folder", subtitle: project.collapsedPath,
                      handler: {
-                         store.addProject(project.id, toWorkspace: workspace.id)
+                         add(project.id, to: workspace)
                      })
         }
 
@@ -755,8 +757,16 @@ struct WorkspaceDetailView: View {
             message: "Pick a folder to add to this workspace.") else { return }
         let added = store.addProject(at: url)
         guard let id = added?.id ?? store.selectedProjectID else { return }
-        store.addProject(id, toWorkspace: workspace.id)
         store.selectWorkspace(workspace.id)
+        add(id, to: workspace)
+    }
+
+    // The keyboard way to the same add a drop in the sidebar makes: the row folds into
+    // the card and the count rolls here, while the sidebar lands the tile in the
+    // workspace's row and follows with the receipt.
+    private func add(_ projectID: UUID, to workspace: ProjectWorkspace) {
+        guard let before = WorkspaceAddition.add(projectID, to: workspace.id, store: store) else { return }
+        store.navigation.workspaceAddition = WorkspaceAddition.Added(projectID: projectID, before: before)
     }
 
     private func reveal(_ project: Project) {

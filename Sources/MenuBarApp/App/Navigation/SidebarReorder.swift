@@ -6,11 +6,19 @@ struct SidebarDropSlot: Equatable {
         case before
         case after
         case into
+        // Over a row that would take the dragged one in, except that it already holds
+        // it. The row says so instead of quietly reordering.
+        case refused
 
         // When a row both reorders and takes rows in, its edges reorder and its middle
         // takes the dragged row in. Dropping on the top half of a row that only reorders
-        // puts the dragged one before it, the bottom half after.
-        static func at(_ y: CGFloat, rowHeight: CGFloat, reorders: Bool, takesIn: Bool) -> Place? {
+        // puts the dragged one before it, the bottom half after. A row that takes the
+        // dragged one in with all of itself never reorders it, which suits a row the
+        // dragged one could never sit beside, such as a workspace under a project.
+        static func at(_ y: CGFloat, rowHeight: CGFloat, reorders: Bool, takesIn: Bool,
+                       wholeRow: Bool = false, holds: Bool = false) -> Place? {
+            if holds { return .refused }
+            if takesIn && wholeRow { return .into }
             switch (reorders, takesIn) {
             case (true, true):
                 if y < rowHeight / 4 { return .before }
@@ -35,6 +43,9 @@ struct SidebarDropSlot: Equatable {
 struct SidebarDrag: Equatable {
     var itemID: UUID?
     var slot: SidebarDropSlot?
+
+    // Where the carry layer and the rows it reads from meet.
+    static let space = "sidebarDrag"
 }
 
 extension View {
@@ -44,14 +55,20 @@ extension View {
                      reorders: Bool,
                      drags: Bool,
                      drag: Binding<SidebarDrag>,
+                     carriesChip: Bool = false,
                      takesIn: ((UUID) -> Bool)? = nil,
+                     wholeRow: Bool = false,
+                     holds: ((UUID) -> Bool)? = nil,
                      onMove: @escaping (UUID, Bool) -> Void,
                      onDropInto: @escaping (UUID) -> Void = { _ in }) -> some View {
         modifier(SidebarDragModifier(id: id,
                                      reorders: reorders,
                                      drags: drags,
                                      drag: drag,
+                                     carriesChip: carriesChip,
                                      takesIn: takesIn,
+                                     wholeRow: wholeRow,
+                                     holds: holds,
                                      onMove: onMove,
                                      onDropInto: onDropInto))
     }
@@ -62,7 +79,10 @@ private struct SidebarDragModifier: ViewModifier {
     let reorders: Bool
     let drags: Bool
     @Binding var drag: SidebarDrag
+    let carriesChip: Bool
     let takesIn: ((UUID) -> Bool)?
+    let wholeRow: Bool
+    let holds: ((UUID) -> Bool)?
     let onMove: (UUID, Bool) -> Void
     let onDropInto: (UUID) -> Void
 
@@ -80,6 +100,8 @@ private struct SidebarDragModifier: ViewModifier {
                                                                         rowHeight: height,
                                                                         reorders: reorders,
                                                                         takesIn: takesIn,
+                                                                        wholeRow: wholeRow,
+                                                                        holds: holds,
                                                                         drag: $drag,
                                                                         onMove: onMove,
                                                                         onDropInto: onDropInto))
@@ -113,9 +135,23 @@ private struct SidebarDragModifier: ViewModifier {
         }
     }
 
+    // A row that carries a chip hands the system an empty drag image: the chip is drawn
+    // by the sidebar's carry layer instead, hanging clear of the pointer and saying what
+    // the row under it would do. While it is carried, the row itself stays behind as a
+    // ghost of where it came from.
     @ViewBuilder
     private func source(_ content: Content) -> some View {
-        if drags {
+        if drags && carriesChip {
+            content
+                .opacity(drag.itemID == id ? 0.35 : 1)
+                .motion(Motion.reveal, value: drag.itemID == id)
+                .onDrag {
+                    drag.itemID = id
+                    return NSItemProvider(object: id.uuidString as NSString)
+                } preview: {
+                    Color.clear.frame(width: 1, height: 1)
+                }
+        } else if drags {
             content.onDrag {
                 drag.itemID = id
                 return NSItemProvider(object: id.uuidString as NSString)
@@ -131,13 +167,18 @@ private struct SidebarDropDelegate: DropDelegate {
     let rowHeight: CGFloat
     let reorders: Bool
     let takesIn: ((UUID) -> Bool)?
+    let wholeRow: Bool
+    let holds: ((UUID) -> Bool)?
     @Binding var drag: SidebarDrag
     let onMove: (UUID, Bool) -> Void
     let onDropInto: (UUID) -> Void
 
     private func place(_ info: DropInfo) -> SidebarDropSlot.Place? {
-        let canTakeIn = drag.itemID.map { $0 != targetID && takesIn?($0) == true } ?? false
-        return .at(info.location.y, rowHeight: rowHeight, reorders: reorders, takesIn: canTakeIn)
+        let other = drag.itemID.flatMap { $0 == targetID ? nil : $0 }
+        return .at(info.location.y, rowHeight: rowHeight, reorders: reorders,
+                   takesIn: other.map { takesIn?($0) == true } ?? false,
+                   wholeRow: wholeRow,
+                   holds: other.map { holds?($0) == true } ?? false)
     }
 
     private func slot(_ info: DropInfo) -> SidebarDropSlot? {
@@ -155,7 +196,7 @@ private struct SidebarDropDelegate: DropDelegate {
     func dropUpdated(info: DropInfo) -> DropProposal? {
         let next = slot(info)
         if drag.slot != next { drag.slot = next }
-        return DropProposal(operation: next == nil ? .forbidden : .move)
+        return DropProposal(operation: next == nil || next?.place == .refused ? .forbidden : .move)
     }
 
     func dropExited(info: DropInfo) {
@@ -164,6 +205,7 @@ private struct SidebarDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         let place = place(info)
+        guard place != .refused else { return false }
         drag = SidebarDrag()
         guard let place, let provider = info.itemProviders(for: [.plainText]).first else { return false }
         _ = provider.loadTransferable(type: String.self) { result in

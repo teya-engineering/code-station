@@ -26,10 +26,12 @@ struct NewWorkspaceView: View {
 
     private static let maxListHeight: CGFloat = 390
 
-    init(initialProjectIDs: [UUID] = [], onCreate: @escaping (ProjectWorkspace) -> Void) {
+    init(initialProjectIDs: [UUID] = [], initialName: String = "",
+         onCreate: @escaping (ProjectWorkspace) -> Void) {
         var seen: Set<UUID> = []
         let projects = initialProjectIDs.filter { seen.insert($0).inserted }
         self.onCreate = onCreate
+        _name = State(initialValue: initialName)
         _selected = State(initialValue: projects)
         _leadProjectID = State(initialValue: projects.first)
     }

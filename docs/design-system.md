@@ -162,11 +162,14 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 | `Motion.pop` | A small mark landing, such as a badge. |
 | `Motion.draw` | A line drawing itself. |
 | `Motion.leave` | Anything put away. Leaving is always faster than arriving. |
+| `Motion.flightAcross`, `Motion.flightDown` | A small mark carried across the window. Across eases out and down eases in, which bends the path into a curve. Going home uses `Motion.flightHomeDuration`, which is shorter. |
+| `Motion.ring` | A ring spreading out from a mark that has just landed. |
 
 - Animate with `.motion(_:value:)`, so it turns off under Reduce Motion. Every transition takes `reduceMotion` and falls back to a plain fade.
 - Buttons and pills use `.hoverLift`. Rows use `.hoverFill`. Track the pointer with `.onPointerHover`.
 - Both also tell `PointerOverControl` when the pointer is on them. A surface that reacts to a press anywhere on itself checks it, so a press meant for a button inside goes only to that button.
 - Transitions: `.headerPage` for a tab page, `.popover` for a panel from a button, `.drawer(from:)` for a panel from an edge, `.fadeIn` for plain new content, `.fold` for content that closes.
+- A mark carried from one place to another, such as a tile dropped into a group, is a `FlightView` drawn in an overlay above both places (`Motion/Flight.swift`). The flying view must be plain SwiftUI, since it is scaled on the way. Where it lands, `.landingRings(_:colour:cornerRadius:)` sends out two rings in its colour. Under Reduce Motion neither is drawn: the flight lands at once.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
 - Motion confirms what the person did. It never makes them wait and never plays for something they did not cause.
 
@@ -274,6 +277,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | Tell or ask the person something | `Dialog.notice`, `Dialog.confirm`, shown through `DialogPresenter` |
 | Confirm a deletion | `Dialog.impact`: a row for each thing that goes, a row for each thing that stays, and a warning for anything that cannot be restored |
+| Say what an action already did, with a way back | `Dialog.receipt` (`Controls/ReceiptDialog.swift`): the impact card with a deck on top showing the group and the new member landing in it, a plus row for what came in, tick rows for what stays, an optional choice, and Undo in the footer. Return, Escape and a click outside all close it, since the action is already done. Use it for a cheap action that is fully undone, instead of asking first. |
 | A right-click menu | `.appContextMenu` |
 | A hint on hover | `.appTooltip` |
 | A click that did its work outside the window | `HeaderNote` |

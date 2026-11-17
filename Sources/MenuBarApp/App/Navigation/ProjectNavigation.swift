@@ -28,6 +28,10 @@ final class ProjectNavigation {
     var projectToReveal: UUID?
     var sessionToReveal: UUID?
     var sidebarHighlight: UUID?
+    // A project added to a workspace somewhere other than the sidebar. The sidebar plays
+    // the landing in the workspace's row and shows the receipt, so taking the add back
+    // flies the tile home the same way wherever it was added.
+    var workspaceAddition: WorkspaceAddition.Added?
     var pointedSidebarItem: UUID?
     @ObservationIgnored var lastSessionTabs: [UUID: SessionDestination] = [:]
     @ObservationIgnored var isWalkingHistory = false
