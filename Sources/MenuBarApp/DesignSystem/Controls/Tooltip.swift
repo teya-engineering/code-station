@@ -72,10 +72,13 @@ final class TooltipPresenter {
     private(set) var generation = 0
 
     private var owner: UUID?
+    // While something is being dragged no hint comes up.
+    @ObservationIgnored private var held = false
     @ObservationIgnored private var dismissal: Any?
     @ObservationIgnored private var pendingHide: Task<Void, Never>?
 
     func show(_ tooltip: Tooltip, from rect: CGRect, owner: UUID) {
+        guard !held else { return }
         pendingHide?.cancel()
         self.owner = owner
         current = tooltip
@@ -100,6 +103,11 @@ final class TooltipPresenter {
             guard !Task.isCancelled else { return }
             hideAll()
         }
+    }
+
+    func hold(_ held: Bool) {
+        self.held = held
+        if held { hideAll() }
     }
 
     func isShowing(owner: UUID) -> Bool {

@@ -5,6 +5,21 @@ import Testing
 
 @MainActor
 struct TooltipTests {
+    @Test func noHintComesUpWhileSomethingIsDragged() {
+        let presenter = TooltipPresenter()
+        let owner = UUID()
+        presenter.show(Tooltip(title: "Before"), from: .zero, owner: owner)
+
+        presenter.hold(true)
+        #expect(presenter.current == nil)
+        presenter.show(Tooltip(title: "During"), from: .zero, owner: owner)
+        #expect(presenter.current == nil)
+
+        presenter.hold(false)
+        presenter.show(Tooltip(title: "After"), from: .zero, owner: owner)
+        #expect(presenter.current?.title == "After")
+    }
+
     @Test func focusedTooltipUpdatesWithContentAndHidesOnBlur() async {
         let presenter = TooltipPresenter()
         func source(_ text: String, focused: Bool) -> some View {

@@ -20,6 +20,7 @@ private struct AppOverlays: ViewModifier {
     @State private var dialogs = DialogPresenter()
     @State private var menus = MenuPresenter()
     @State private var tooltips = TooltipPresenter()
+    @State private var carry = CarryPresenter()
 
     // A dialog that keeps focus inside itself also keeps the app behind it from taking
     // keys or clicks, so Return and Escape can only mean the dialog's own buttons.
@@ -33,6 +34,8 @@ private struct AppOverlays: ViewModifier {
             .disabled(holdsFocus)
             .accessibilityHidden(holdsFocus)
             .overlay { TooltipHost() }
+            // Over the hints, so what is being dragged is never hidden behind one.
+            .overlay { CarryHost() }
             .overlay { DialogHost() }
             // Last, so a menu opened from inside a dialog is not drawn behind it. It
             // draws nothing at all while closed, so nothing else moves under it.
@@ -42,6 +45,7 @@ private struct AppOverlays: ViewModifier {
             .environment(dialogs)
             .environment(menus)
             .environment(tooltips)
+            .environment(carry)
     }
 }
 

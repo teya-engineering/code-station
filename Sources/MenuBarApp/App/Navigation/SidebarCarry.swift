@@ -239,9 +239,54 @@ struct SidebarCarryFlight: Identifiable, Equatable {
     var landsBehind = false
 }
 
-// Drawn over the sidebar's list: the chip while a project is carried, and the tiles in
-// flight. The pointer is followed here, in a view of its own, so the rest of the sidebar
-// is not laid out again each time it moves.
+// The project in hand, as the window-wide layer draws it. The chip lives at the top of
+// the window rather than inside the sidebar, so it can hang past the sidebar's edge and
+// sit over hints and everything else, the way the thing in your hand should.
+@MainActor
+@Observable
+final class CarryPresenter {
+    private(set) var name: String?
+    private(set) var caption: SidebarCarryCaption?
+    // Where the pointer is in the window, measured from the top. Empty while the pointer
+    // is away from the sidebar, which hides the chip.
+    private(set) var pointer: CGPoint?
+
+    var isCarrying: Bool { name != nil }
+
+    func carry(_ name: String?, caption: SidebarCarryCaption?) {
+        if self.name != name { self.name = name }
+        if self.caption != caption { self.caption = caption }
+        if name == nil { pointer = nil }
+    }
+
+    func move(to point: CGPoint?) {
+        if pointer != point { pointer = point }
+    }
+}
+
+struct CarryHost: View {
+    @Environment(CarryPresenter.self) private var presenter
+
+    // The chip's corner sits this far below and to the right of the pointer.
+    static let hang = CGSize(width: 12, height: 16)
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let name = presenter.name, let pointer = presenter.pointer {
+                SidebarCarryChip(name: name, caption: presenter.caption)
+                    .offset(x: pointer.x + Self.hang.width, y: pointer.y + Self.hang.height)
+                    .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(Motion.leave)))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+// Drawn over the sidebar's list: the tiles in flight. The pointer is followed here, in a
+// view of its own, so the rest of the sidebar is not laid out again each time it moves.
 struct SidebarCarryLayer: View {
     let carried: String?
     let caption: SidebarCarryCaption?
@@ -253,21 +298,17 @@ struct SidebarCarryLayer: View {
     let onReleased: () -> Void
     let onLanded: (SidebarCarryFlight) -> Void
 
+    @Environment(CarryPresenter.self) private var carry: CarryPresenter?
+    @Environment(TooltipPresenter.self) private var tooltips: TooltipPresenter?
     @State private var pointer: CGPoint?
     // Where the chip's tile last was, so a flight can start from it after the chip is gone.
     @State private var chipTile: CGRect?
     @State private var flying: (request: SidebarCarryFlight, path: Flight)?
 
-    // The chip's corner sits this far below and to the right of the pointer.
-    private static let hang = CGSize(width: 12, height: 16)
+    private static let hang = CarryHost.hang
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if let carried, let pointer, proxy.frame(in: .local).insetBy(dx: -40, dy: -40).contains(pointer) {
-                SidebarCarryChip(name: carried, caption: caption)
-                    .offset(x: pointer.x + Self.hang.width, y: pointer.y + Self.hang.height)
-                    .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(Motion.leave)))
-            }
             if let flying {
                 FlightView(flight: flying.path, onLanded: { land(flying.request) }) {
                     ProjectTileView(name: flying.request.name,
@@ -281,7 +322,17 @@ struct SidebarCarryLayer: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .task(id: carried) { await follow() }
+        .onChange(of: carried, initial: true) { _, carried in
+            // A hint that comes up under the pointer mid-drag would only get in the way.
+            tooltips?.hold(carried != nil)
+            carry?.carry(carried, caption: caption)
+        }
+        .onChange(of: caption) { _, caption in carry?.carry(carried, caption: caption) }
         .onChange(of: flight) { _, request in start(request) }
+        .onDisappear {
+            tooltips?.hold(false)
+            carry?.carry(nil, caption: nil)
+        }
     }
 
     // Reads the pointer from the window server about once a frame while a project is
@@ -295,6 +346,8 @@ struct SidebarCarryLayer: View {
                 let global = CGPoint(x: point.x, y: content.bounds.height - point.y)
                 let origin = proxy.frame(in: .global).origin
                 let local = CGPoint(x: global.x - origin.x, y: global.y - origin.y)
+                let near = proxy.frame(in: .local).insetBy(dx: -40, dy: -40).contains(local)
+                carry?.move(to: near ? FrameAnchor.fromTop(point, in: content) : nil)
                 if local != pointer {
                     pointer = local
                     chipTile = CGRect(x: local.x + Self.hang.width + SidebarCarryChip.inset,
