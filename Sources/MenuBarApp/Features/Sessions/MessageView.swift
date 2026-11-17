@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Synchronization
 
 // One turn of the conversation. The user gets a bubble, Claude does not: long
 // answers read better as plain page text than as a giant tinted block.
@@ -465,15 +466,41 @@ struct MessageSegment: Identifiable, Equatable {
     // A block the app draws rather than prints.
     var isDrawn: Bool { isChart || isTrace || isLogs }
 
+    // Where reading a text can pick up again: just past the line that closed a fence, with
+    // what was read up to there. A reply streams in at its end, so the next flush starts
+    // with the same bytes and only reads what follows the last closed fence.
+    struct Checkpoint {
+        let text: String
+        let length: Int // UTF-8 bytes of `text` read, ending just after a "\n"
+        let segments: [MessageSegment]
+        let fences: Int
+
+        func resumes(_ other: String) -> Bool {
+            guard other.utf8.count >= length else { return false }
+            var mine = text, theirs = other
+            return mine.withUTF8 { a in theirs.withUTF8 { b in memcmp(a.baseAddress!, b.baseAddress!, length) == 0 } }
+        }
+    }
+
+    // A few, for replies streaming in more than one session at once.
+    static let checkpoints = Mutex<[Checkpoint]>([])
+
     static func split(_ text: String) -> [MessageSegment] {
-        var segments: [MessageSegment] = []
+        let resumed = checkpoints.withLock { saved in
+            saved.sorted { $0.length > $1.length }.first { $0.resumes(text) }
+        }
+        var segments = resumed?.segments ?? []
         var lines: [String] = []
         // Counts the fences seen so far, so a segment keeps its id as more of a streaming
         // reply arrives after it.
-        var fences = 0
+        var fences = resumed?.fences ?? 0
         var opened: (fence: Fence, depth: Int, language: String?)?
+        var read = resumed?.length ?? 0
+        var reached: Checkpoint?
+        let rest = resumed.map { String(Substring(text.utf8.dropFirst($0.length))) } ?? text
 
-        for line in text.lines {
+        for line in rest.lines {
+            read += line.utf8.count + 1
             if let block = opened {
                 let body = block.depth > 0 ? unquoted(line, depth: block.depth) : line
                 if let fence = Fence(body), block.fence.isClosed(by: fence) {
@@ -486,6 +513,10 @@ struct MessageSegment: Identifiable, Equatable {
                     lines = []
                     fences += 1
                     opened = nil
+                    // Only once the line has ended: "```" could still grow into "```x".
+                    if read <= text.utf8.count {
+                        reached = Checkpoint(text: text, length: read, segments: segments, fences: fences)
+                    }
                 } else {
                     lines.append(body)
                 }
@@ -522,6 +553,12 @@ struct MessageSegment: Identifiable, Equatable {
             let prose = lines.joined(separator: "\n").trimmed
             if !prose.isEmpty {
                 segments.append(MessageSegment(id: fences, text: prose, isCode: false))
+            }
+        }
+        if let reached {
+            checkpoints.withLock { saved in
+                saved.append(reached)
+                if saved.count > 8 { saved.removeFirst() }
             }
         }
         return segments

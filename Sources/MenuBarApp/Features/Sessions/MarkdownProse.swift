@@ -23,8 +23,32 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
     // `html` reads HTML blocks as the page they describe. A document asks for it; a
     // transcript does not, so a tag Claude writes on a line of its own stays visible.
     static func parse(_ text: String, html: Bool = false) -> [MarkdownBlock] {
-        var reader: MarkdownHTML.Reader? = html ? MarkdownHTML.Reader() : nil
-        return parse(text, reader: &reader)
+        if html {
+            var reader: MarkdownHTML.Reader? = MarkdownHTML.Reader()
+            return parse(text, reader: &reader)
+        }
+        let key = text as NSString
+        if let cached = parsed.object(forKey: key) { return cached.blocks }
+        var reader: MarkdownHTML.Reader?
+        let blocks = parse(text, reader: &reader)
+        parsed.setObject(Parsed(blocks: blocks), forKey: key)
+        return blocks
+    }
+
+    // A streaming reply is parsed again on every flush, but each prose segment before
+    // its last fence is the same text as last time. Keeping their blocks makes a flush
+    // cost what arrived since the last fence rather than the whole reply.
+    // NSCache is safe to share across threads; the transcript search reads it off the main
+    // thread. ponytail: bounded by count, size it by bytes if long transcripts show memory pressure.
+    nonisolated(unsafe) static let parsed: NSCache<NSString, Parsed> = {
+        let cache = NSCache<NSString, Parsed>()
+        cache.countLimit = 512
+        return cache
+    }()
+
+    final class Parsed: Sendable {
+        let blocks: [MarkdownBlock]
+        init(blocks: [MarkdownBlock]) { self.blocks = blocks }
     }
 
     // The prose of a whole document, read with one HTML reader, so a container opened
