@@ -347,7 +347,7 @@ struct SidebarCarryLayer: View {
                 let origin = proxy.frame(in: .global).origin
                 let local = CGPoint(x: global.x - origin.x, y: global.y - origin.y)
                 let near = proxy.frame(in: .local).insetBy(dx: -40, dy: -40).contains(local)
-                carry?.move(to: near ? FrameAnchor.fromTop(point, in: content) : nil)
+                carry?.move(to: near ? global : nil)
                 if local != pointer {
                     pointer = local
                     chipTile = CGRect(x: local.x + Self.hang.width + SidebarCarryChip.inset,
