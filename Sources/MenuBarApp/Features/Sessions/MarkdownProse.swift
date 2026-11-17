@@ -203,31 +203,29 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
         return MarkdownListItem(depth: depth, marker: marker, text: String(trimmed[end...]))
     }
 
-    // Where the text after a list marker starts: "-", "*" or "+", or one to three digits
-    // then "." or ")", followed by at least one space. A hand scan of what was a regex,
-    // since this runs on most lines of a reply on every flush while it streams.
+    // Where the text after a list marker starts: "-", "*" or "+", or one to three numbers
+    // then "." or ")", followed by at least one space. A hand scan rather than a regex,
+    // since this runs on most lines of a reply on every flush while it streams. It walks
+    // Characters and takes any `isNumber`, as the regex's `\d` did.
     private static func markerEnd(_ text: String) -> (end: String.Index, numbered: Bool)? {
-        let scalars = text.unicodeScalars
-        var index = scalars.startIndex
-        guard index < scalars.endIndex else { return nil }
+        var index = text.startIndex
+        guard index < text.endIndex else { return nil }
         let numbered: Bool
-        if "-*+".unicodeScalars.contains(scalars[index]) {
+        if "-*+".contains(text[index]) {
             numbered = false
-            index = scalars.index(after: index)
+            index = text.index(after: index)
         } else {
             var digits = 0
-            while index < scalars.endIndex, digits < 3,
-                  scalars[index].properties.generalCategory == .decimalNumber {
+            while index < text.endIndex, digits < 3, text[index].isNumber {
                 digits += 1
-                index = scalars.index(after: index)
+                index = text.index(after: index)
             }
-            guard digits > 0, index < scalars.endIndex,
-                  scalars[index] == "." || scalars[index] == ")" else { return nil }
+            guard digits > 0, index < text.endIndex, text[index] == "." || text[index] == ")" else { return nil }
             numbered = true
-            index = scalars.index(after: index)
+            index = text.index(after: index)
         }
-        guard index < scalars.endIndex, scalars[index] == " " else { return nil }
-        while index < scalars.endIndex, scalars[index] == " " { index = scalars.index(after: index) }
+        guard index < text.endIndex, text[index] == " " else { return nil }
+        while index < text.endIndex, text[index] == " " { index = text.index(after: index) }
         return (index, numbered)
     }
 }
@@ -664,11 +662,9 @@ struct MarkdownTable: Equatable, Sendable {
         return alignments
     }
 
-    // Dashes with an optional colon at either end, as `^:?-+:?$` matched. Like the regex's
-    // `$`, a line break ending the cell is let through.
+    // Dashes with an optional colon at either end, as `^:?-+:?$` matched.
     private static func isSeparatorCell(_ part: String) -> Bool {
         var body = Substring(part)
-        if body.last?.isNewline == true { body.removeLast() }
         if body.first == ":" { body.removeFirst() }
         if body.last == ":" { body.removeLast() }
         return !body.isEmpty && body.allSatisfy { $0 == "-" }
