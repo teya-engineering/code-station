@@ -466,38 +466,46 @@ struct MessageSegment: Identifiable, Equatable {
     // A block the app draws rather than prints.
     var isDrawn: Bool { isChart || isTrace || isLogs }
 
-    // Where reading a text can pick up again: just past the line that closed a fence, with
-    // what was read up to there. A reply streams in at its end, so the next flush starts
-    // with the same bytes and only reads what follows the last closed fence.
+    // Where reading a text can pick up again: just past the line that closed its last
+    // fence, with what was read up to there. A streaming reply only grows at its end, so
+    // the next flush starts with the same bytes and reads on from here.
     struct Checkpoint {
-        let text: String
-        let length: Int // UTF-8 bytes of `text` read, ending just after a "\n"
+        let read: String // ends just after a "\n"
         let segments: [MessageSegment]
         let fences: Int
 
-        func resumes(_ other: String) -> Bool {
-            guard other.utf8.count >= length else { return false }
-            var mine = text, theirs = other
-            return mine.withUTF8 { a in theirs.withUTF8 { b in memcmp(a.baseAddress!, b.baseAddress!, length) == 0 } }
+        func resumes(_ text: String) -> Bool {
+            let length = read.utf8.count
+            guard text.utf8.count >= length else { return false }
+            // A bridged string has no bytes to compare in place, so it is read from the start.
+            let same = read.utf8.withContiguousStorageIfAvailable { mine in
+                text.utf8.withContiguousStorageIfAvailable { theirs in
+                    memcmp(mine.baseAddress!, theirs.baseAddress!, length) == 0
+                }
+            }
+            return same == true
         }
     }
 
-    // A few, for replies streaming in more than one session at once.
+    // One for each reply drawn lately, the most recent last. A few, for replies streaming
+    // in more than one session at once.
     static let checkpoints = Mutex<[Checkpoint]>([])
 
-    static func split(_ text: String) -> [MessageSegment] {
-        let resumed = checkpoints.withLock { saved in
-            saved.sorted { $0.length > $1.length }.first { $0.resumes(text) }
-        }
+    // `resuming` is for the view that draws a reply as it streams. Anything that reads
+    // a whole transcript in one go leaves it off, or it would push out the live reply.
+    static func split(_ text: String, resuming: Bool = false) -> [MessageSegment] {
+        let resumed = resuming ? checkpoints.withLock { saved in
+            saved.firstIndex { $0.resumes(text) }.map { saved.remove(at: $0) }
+        } : nil
         var segments = resumed?.segments ?? []
         var lines: [String] = []
         // Counts the fences seen so far, so a segment keeps its id as more of a streaming
         // reply arrives after it.
         var fences = resumed?.fences ?? 0
         var opened: (fence: Fence, depth: Int, language: String?)?
-        var read = resumed?.length ?? 0
-        var reached: Checkpoint?
-        let rest = resumed.map { String(Substring(text.utf8.dropFirst($0.length))) } ?? text
+        var read = resumed?.read.utf8.count ?? 0
+        var reached: (read: Int, segments: [MessageSegment], fences: Int)?
+        let rest = resumed.map { String(Substring(text.utf8.dropFirst($0.read.utf8.count))) } ?? text
 
         for line in rest.lines {
             read += line.utf8.count + 1
@@ -515,7 +523,7 @@ struct MessageSegment: Identifiable, Equatable {
                     opened = nil
                     // Only once the line has ended: "```" could still grow into "```x".
                     if read <= text.utf8.count {
-                        reached = Checkpoint(text: text, length: read, segments: segments, fences: fences)
+                        reached = (read, segments, fences)
                     }
                 } else {
                     lines.append(body)
@@ -555,9 +563,12 @@ struct MessageSegment: Identifiable, Equatable {
                 segments.append(MessageSegment(id: fences, text: prose, isCode: false))
             }
         }
-        if let reached {
+        let kept = reached.map {
+            Checkpoint(read: String(Substring(text.utf8.prefix($0.read))), segments: $0.segments, fences: $0.fences)
+        } ?? resumed
+        if resuming, let kept {
             checkpoints.withLock { saved in
-                saved.append(reached)
+                saved.append(kept)
                 if saved.count > 8 { saved.removeFirst() }
             }
         }

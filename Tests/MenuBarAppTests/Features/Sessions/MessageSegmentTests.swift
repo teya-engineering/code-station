@@ -99,11 +99,23 @@ struct MessageSegmentTests {
         let reply = "Intro\n\n```swift\nlet a = 1\n```\nMiddle\n\n> ```\n> quoted\n> ```\n"
             + "````md\n```\ninner\n```\n````\r\n```suggestion\n```\n~~~\nopen at the end"
         let ends = Array(reply.indices.dropFirst()) + [reply.endIndex]
-        let streamed = ends.map { MessageSegment.split(String(reply[..<$0])) }
-        let fresh = ends.map { end in
-            MessageSegment.checkpoints.withLock { $0.removeAll() }
-            return MessageSegment.split(String(reply[..<end]))
-        }
+        let streamed = ends.map { MessageSegment.split(String(reply[..<$0]), resuming: true) }
+        let fresh = ends.map { MessageSegment.split(String(reply[..<$0])) }
         #expect(streamed == fresh)
+    }
+
+    // The segments come from the checkpoint, not from reading the text again.
+    @Test func resumesFromASavedCheckpoint() {
+        let read = "Checkpoint test\n```\nreal code\n```\n"
+        let kept = MessageSegment(id: 1, text: "kept code", isCode: true)
+        MessageSegment.checkpoints.withLock {
+            $0.append(.init(read: read, segments: [kept], fences: 2))
+        }
+
+        let segments = MessageSegment.split(read + "After", resuming: true)
+
+        #expect(segments.map(\.text) == ["kept code", "After"])
+        #expect(segments.map(\.id) == [1, 2])
+        #expect(MessageSegment.split(read + "After").map(\.text) == ["Checkpoint test", "real code", "After"])
     }
 }

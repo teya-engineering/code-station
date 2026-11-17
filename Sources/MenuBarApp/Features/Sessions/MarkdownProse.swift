@@ -23,30 +23,29 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
     // `html` reads HTML blocks as the page they describe. A document asks for it; a
     // transcript does not, so a tag Claude writes on a line of its own stays visible.
     static func parse(_ text: String, html: Bool = false) -> [MarkdownBlock] {
-        if html {
-            var reader: MarkdownHTML.Reader? = MarkdownHTML.Reader()
-            return parse(text, reader: &reader)
-        }
+        var reader: MarkdownHTML.Reader? = html ? MarkdownHTML.Reader() : nil
+        return parse(text, reader: &reader)
+    }
+
+    // A prose segment that a fence has closed off is the same text on every flush of a
+    // streaming reply, so its blocks are kept rather than read again. The segment still
+    // growing at the end must not come here: it would leave a new entry on every flush.
+    static func parse(settled text: String) -> [MarkdownBlock] {
         let key = text as NSString
-        if let cached = parsed.object(forKey: key) { return cached.blocks }
-        var reader: MarkdownHTML.Reader?
-        let blocks = parse(text, reader: &reader)
-        parsed.setObject(Parsed(blocks: blocks), forKey: key)
+        if let kept = settled.object(forKey: key) { return kept.blocks }
+        let blocks = parse(text)
+        settled.setObject(Parsed(blocks: blocks), forKey: key, cost: text.utf8.count)
         return blocks
     }
 
-    // A streaming reply is parsed again on every flush, but each prose segment before
-    // its last fence is the same text as last time. Keeping their blocks makes a flush
-    // cost what arrived since the last fence rather than the whole reply.
-    // NSCache is safe to share across threads; the transcript search reads it off the main
-    // thread. ponytail: bounded by count, size it by bytes if long transcripts show memory pressure.
-    nonisolated(unsafe) static let parsed: NSCache<NSString, Parsed> = {
+    // NSCache is safe to share across threads.
+    nonisolated(unsafe) private static let settled: NSCache<NSString, Parsed> = {
         let cache = NSCache<NSString, Parsed>()
-        cache.countLimit = 512
+        cache.totalCostLimit = 8 << 20
         return cache
     }()
 
-    final class Parsed: Sendable {
+    private final class Parsed: Sendable {
         let blocks: [MarkdownBlock]
         init(blocks: [MarkdownBlock]) { self.blocks = blocks }
     }
@@ -229,8 +228,8 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
 
     // Where the text after a list marker starts: "-", "*" or "+", or one to three numbers
     // then "." or ")", followed by at least one space. A hand scan rather than a regex,
-    // since this runs on most lines of a reply on every flush while it streams. It walks
-    // Characters and takes any `isNumber`, as the regex's `\d` did.
+    // since this runs on most lines of a reply on every flush while it streams. Any
+    // Character that `isNumber` counts as a digit, so "四." opens a list as "4." does.
     private static func markerEnd(_ text: String) -> (end: String.Index, numbered: Bool)? {
         var index = text.startIndex
         guard index < text.endIndex else { return nil }
@@ -686,7 +685,7 @@ struct MarkdownTable: Equatable, Sendable {
         return alignments
     }
 
-    // Dashes with an optional colon at either end, as `^:?-+:?$` matched.
+    // Dashes, with an optional colon at either end.
     private static func isSeparatorCell(_ part: String) -> Bool {
         var body = Substring(part)
         if body.first == ":" { body.removeFirst() }
@@ -2059,7 +2058,9 @@ struct MarkdownProse<Code: View>: View {
     private var blocks: some View {
         // A document drops its HTML comments first, so a fence inside one stays hidden
         // rather than splitting the comment in two.
-        let segments = MessageSegment.split(html ? MarkdownHTML.removingComments(text) : text)
+        let segments = html
+            ? MessageSegment.split(MarkdownHTML.removingComments(text))
+            : MessageSegment.split(text, resuming: true)
         let document = html ? MarkdownBlock.parse(document: segments) : [:]
         return ForEach(segments) { segment in
             if segment.isChart {
@@ -2078,7 +2079,10 @@ struct MarkdownProse<Code: View>: View {
                 codeBlock(segment)
                     .transition(.fadeIn)
             } else {
-                ForEach(proseRuns(document[segment.id] ?? MarkdownBlock.parse(segment.text))) { run in
+                let settled = segment.id != segments.last?.id
+                let blocks = document[segment.id]
+                    ?? (settled ? MarkdownBlock.parse(settled: segment.text) : MarkdownBlock.parse(segment.text))
+                ForEach(proseRuns(blocks)) { run in
                     ProseRunView(run: run,
                                  projectPath: projectPath,
                                  textScale: textScale)

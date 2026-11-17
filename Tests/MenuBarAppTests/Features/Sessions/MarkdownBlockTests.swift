@@ -148,7 +148,6 @@ struct MarkdownBlockTests {
         #expect(items.map(\.text) == ["first", "second"])
     }
 
-    // The marker is read by hand rather than by regex; these are the edges the regex drew.
     @Test func readsOnlyWellFormedListMarkers() {
         #expect(kinds("1234. not a list") == [.paragraph("1234. not a list")])
         #expect(kinds("-no space") == [.paragraph("-no space")])
