@@ -473,7 +473,7 @@ struct MessageSegment: Identifiable, Equatable {
         var fences = 0
         var opened: (fence: Fence, depth: Int, language: String?)?
 
-        for line in text.components(separatedBy: "\n") {
+        for line in text.lines {
             if let block = opened {
                 let body = block.depth > 0 ? unquoted(line, depth: block.depth) : line
                 if let fence = Fence(body), block.fence.isClosed(by: fence) {
@@ -560,6 +560,9 @@ struct Fence {
     let info: String
 
     init?(_ line: some StringProtocol) {
+        // Most lines are not fences: turn them away on the bytes before any Character work.
+        guard let byte = line.utf8.first(where: { $0 != UInt8(ascii: " ") }),
+              byte == UInt8(ascii: "`") || byte == UInt8(ascii: "~") else { return nil }
         let indent = line.prefix(while: { $0 == " " })
         let content = line.dropFirst(indent.count)
         let marker = content.prefix(while: { $0 == content.first })

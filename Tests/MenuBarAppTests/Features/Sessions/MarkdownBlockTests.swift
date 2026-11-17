@@ -148,6 +148,25 @@ struct MarkdownBlockTests {
         #expect(items.map(\.text) == ["first", "second"])
     }
 
+    // The marker is read by hand rather than by regex; these are the edges the regex drew.
+    @Test func readsOnlyWellFormedListMarkers() {
+        #expect(kinds("1234. not a list") == [.paragraph("1234. not a list")])
+        #expect(kinds("-no space") == [.paragraph("-no space")])
+        #expect(kinds("1.no space") == [.paragraph("1.no space")])
+        guard case .list(let items) = kinds("-   wide\n123) third").first else {
+            Issue.record("expected a list")
+            return
+        }
+        #expect(items.map(\.marker) == ["•", "123)"])
+        #expect(items.map(\.text) == ["wide", "third"])
+    }
+
+    @Test func splitsLinesAsFoundationDoes() {
+        for text in ["", "\n", "a\r\nb", "a\n\nb\n", "é\n\u{301}x"] {
+            #expect(text.lines == text.components(separatedBy: "\n"))
+        }
+    }
+
     @Test func turnsCheckboxesIntoTheirBoxes() {
         let text = "- [ ] todo\n- [x] done"
         guard case .list(let items) = kinds(text).first else {

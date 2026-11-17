@@ -40,7 +40,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
 
     // Reads HTML blocks when given a reader, carrying its open containers in and out.
     static func parse(_ text: String, reader: inout MarkdownHTML.Reader?) -> [MarkdownBlock] {
-        let lines = text.components(separatedBy: "\n")
+        let lines = text.lines
         var kinds: [Kind] = []
         var paragraph: [String] = []
         // Where Markdown began inside an HTML container that centres it.
@@ -63,7 +63,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
 
         var index = 0
         while index < lines.count {
-            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            let trimmed = lines[index].trimmedSpaces
 
             if trimmed.isEmpty {
                 flushParagraph()
@@ -83,7 +83,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
                 var title = String(trimmed.drop(while: { $0 == "#" }))
                 // "## Title ##" closes with hashes that are decoration, not content.
                 while title.hasSuffix("#") { title.removeLast() }
-                kinds.append(.heading(level: level, text: title.trimmingCharacters(in: .whitespaces)))
+                kinds.append(.heading(level: level, text: title.trimmedSpaces))
                 index += 1
             } else if isRule(trimmed) {
                 flushParagraph()
@@ -102,7 +102,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
                     if let item = listItem(line) {
                         items.append(item)
                         afterBlank = false
-                    } else if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    } else if line.trimmedSpaces.isEmpty {
                         // A blank line ends the list only when what follows is no part of it.
                         guard let next = lines[(index + 1)...].first(where: { !$0.trimmed.isEmpty }),
                               listItem(next) != nil || continuationDepth(next) != nil else { break }
@@ -110,7 +110,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
                     } else if let depth = continuationDepth(line), let last = items.last {
                         // Indented text under an item belongs to it. After a blank line it is
                         // a paragraph of its own, lined up with the item's text.
-                        let text = line.trimmingCharacters(in: .whitespaces)
+                        let text = line.trimmedSpaces
                         if afterBlank {
                             items.append(MarkdownListItem(depth: min(depth, last.depth), marker: "", text: text))
                         } else {
@@ -128,9 +128,9 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
                 flushParagraph()
                 var quoted: [String] = []
                 while index < lines.count {
-                    let line = lines[index].trimmingCharacters(in: .whitespaces)
+                    let line = lines[index].trimmedSpaces
                     guard line.hasPrefix(">") else { break }
-                    quoted.append(String(line.dropFirst()).trimmingCharacters(in: .whitespaces))
+                    quoted.append(String(line.dropFirst()).trimmedSpaces)
                     index += 1
                 }
                 kinds.append(.quote(quoted.joined(separator: "\n")))
@@ -150,10 +150,20 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
         return hashes
     }
 
+    // Three or more of the same "-", "*" or "_", with any spaces between them.
     private static func isRule(_ line: String) -> Bool {
-        let stripped = line.replacingOccurrences(of: " ", with: "")
-        guard stripped.count >= 3, let first = stripped.first, "-*_".contains(first) else { return false }
-        return stripped.allSatisfy { $0 == first }
+        var first: Character?
+        var count = 0
+        for character in line where character != " " {
+            if let first {
+                guard character == first else { return false }
+            } else {
+                guard "-*_".contains(character) else { return false }
+                first = character
+            }
+            count += 1
+        }
+        return count >= 3
     }
 
     static let bullets = ["•", "◦", "▪"]
@@ -163,7 +173,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
     // its own is left for the main parser.
     private static func continuationDepth(_ line: String) -> Int? {
         let indent = line.prefix(while: { $0 == " " }).count
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = line.trimmedSpaces
         guard indent >= 2, listItem(line) == nil,
               headingLevel(trimmed) == nil, !isRule(trimmed),
               !trimmed.hasPrefix("|"), !trimmed.hasPrefix(">"),
@@ -174,11 +184,11 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
     private static func listItem(_ line: String) -> MarkdownListItem? {
         let indent = line.prefix(while: { $0 == " " }).count
         let depth = min(indent / 2, bullets.count - 1)
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = line.trimmedSpaces
         // "* * *" is a rule, not a one-item list.
-        guard !isRule(trimmed) else { return nil }
-        if let range = trimmed.range(of: #"^[-*+] +"#, options: .regularExpression) {
-            var body = String(trimmed[range.upperBound...])
+        guard let (end, numbered) = markerEnd(trimmed), !isRule(trimmed) else { return nil }
+        if !numbered {
+            var body = String(trimmed[end...])
             var marker = bullets[depth]
             if body.hasPrefix("[ ] ") {
                 marker = "☐"
@@ -189,13 +199,36 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
             }
             return MarkdownListItem(depth: depth, marker: marker, text: body)
         }
-        if let range = trimmed.range(of: #"^\d{1,3}[.)] +"#, options: .regularExpression) {
-            let marker = trimmed[range.lowerBound..<range.upperBound]
-                .trimmingCharacters(in: .whitespaces)
-            return MarkdownListItem(depth: depth, marker: marker,
-                                    text: String(trimmed[range.upperBound...]))
+        let marker = trimmed[..<end].trimmingCharacters(in: .whitespaces)
+        return MarkdownListItem(depth: depth, marker: marker, text: String(trimmed[end...]))
+    }
+
+    // Where the text after a list marker starts: "-", "*" or "+", or one to three digits
+    // then "." or ")", followed by at least one space. A hand scan of what was a regex,
+    // since this runs on most lines of a reply on every flush while it streams.
+    private static func markerEnd(_ text: String) -> (end: String.Index, numbered: Bool)? {
+        let scalars = text.unicodeScalars
+        var index = scalars.startIndex
+        guard index < scalars.endIndex else { return nil }
+        let numbered: Bool
+        if "-*+".unicodeScalars.contains(scalars[index]) {
+            numbered = false
+            index = scalars.index(after: index)
+        } else {
+            var digits = 0
+            while index < scalars.endIndex, digits < 3,
+                  scalars[index].properties.generalCategory == .decimalNumber {
+                digits += 1
+                index = scalars.index(after: index)
+            }
+            guard digits > 0, index < scalars.endIndex,
+                  scalars[index] == "." || scalars[index] == ")" else { return nil }
+            numbered = true
+            index = scalars.index(after: index)
         }
-        return nil
+        guard index < scalars.endIndex, scalars[index] == " " else { return nil }
+        while index < scalars.endIndex, scalars[index] == " " { index = scalars.index(after: index) }
+        return (index, numbered)
     }
 }
 
@@ -571,14 +604,14 @@ struct MarkdownTable: Equatable, Sendable {
     // A header row, the row of dashes under it, and every row after it that starts with
     // a pipe. Returns the table and the index of the first line past it.
     static func read(_ lines: [String], from start: Int) -> (table: MarkdownTable, end: Int)? {
-        let first = lines[start].trimmingCharacters(in: .whitespaces)
+        let first = lines[start].trimmedSpaces
         guard first.hasPrefix("|"), start + 1 < lines.count else { return nil }
         let header = cells(first)
         guard let alignments = separatorAlignments(lines[start + 1], columns: header.count) else { return nil }
         var rows: [[String]] = []
         var index = start + 2
         while index < lines.count {
-            let row = lines[index].trimmingCharacters(in: .whitespaces)
+            let row = lines[index].trimmedSpaces
             guard row.hasPrefix("|") else { break }
             rows.append(sized(cells(row), to: header.count))
             index += 1
@@ -587,28 +620,41 @@ struct MarkdownTable: Equatable, Sendable {
     }
 
     private static func cells(_ line: String) -> [String] {
-        var content = line.trimmingCharacters(in: .whitespaces)
+        var content = Substring(line.trimmedSpaces)
         if content.hasPrefix("|") { content.removeFirst() }
         if content.hasSuffix("|") { content.removeLast() }
-        // A pipe inside a cell arrives escaped; hide it from the split and put it back after.
-        let hidden = "\u{0}"
-        content = content.replacingOccurrences(of: "\\|", with: hidden)
-        return content.components(separatedBy: "|").map {
-            $0.replacingOccurrences(of: hidden, with: "|").trimmingCharacters(in: .whitespaces)
+        // One pass over the row. A pipe inside a cell arrives escaped and stays in the cell.
+        var cells: [String] = []
+        var cell = ""
+        var index = content.startIndex
+        while index < content.endIndex {
+            let character = content[index]
+            index = content.index(after: index)
+            if character == "\\", index < content.endIndex, content[index] == "|" {
+                cell.append("|")
+                index = content.index(after: index)
+            } else if character == "|" {
+                cells.append(cell.trimmedSpaces)
+                cell = ""
+            } else {
+                cell.append(character)
+            }
         }
+        cells.append(cell.trimmedSpaces)
+        return cells
     }
 
     // The row of dashes under a header is what makes the pipes above it a table. Its
     // colons carry each column's alignment.
     private static func separatorAlignments(_ line: String,
                                             columns: Int) -> [ColumnAlignment]? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = line.trimmedSpaces
         guard trimmed.hasPrefix("|") else { return nil }
         let parts = cells(trimmed)
         guard parts.count == columns, !parts.isEmpty else { return nil }
         var alignments: [ColumnAlignment] = []
         for part in parts {
-            guard part.range(of: #"^:?-+:?$"#, options: .regularExpression) != nil else { return nil }
+            guard isSeparatorCell(part) else { return nil }
             switch (part.hasPrefix(":"), part.hasSuffix(":")) {
             case (true, true): alignments.append(.center)
             case (false, true): alignments.append(.trailing)
@@ -616,6 +662,16 @@ struct MarkdownTable: Equatable, Sendable {
             }
         }
         return alignments
+    }
+
+    // Dashes with an optional colon at either end, as `^:?-+:?$` matched. Like the regex's
+    // `$`, a line break ending the cell is let through.
+    private static func isSeparatorCell(_ part: String) -> Bool {
+        var body = Substring(part)
+        if body.last?.isNewline == true { body.removeLast() }
+        if body.first == ":" { body.removeFirst() }
+        if body.last == ":" { body.removeLast() }
+        return !body.isEmpty && body.allSatisfy { $0 == "-" }
     }
 
     private static func sized(_ row: [String], to count: Int) -> [String] {
