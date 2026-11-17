@@ -78,9 +78,16 @@ private final class PressAndHoldView: NSView {
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point) else { return }
             pressedAt = event.locationInWindow
+            let pressedOnScreen = NSEvent.mouseLocation
             let timer = Timer(timeInterval: PressAndHold.duration, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.timer = nil
+                    // Once a drag session starts it takes the mouse events, so the monitor
+                    // may never see the press wander or end. The pointer and button still tell.
+                    let now = NSEvent.mouseLocation
+                    guard NSEvent.pressedMouseButtons & 1 != 0,
+                          hypot(now.x - pressedOnScreen.x,
+                                now.y - pressedOnScreen.y) <= PressAndHold.slop else { return }
                     self?.onHold?()
                 }
             }
