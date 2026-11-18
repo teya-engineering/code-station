@@ -1061,8 +1061,7 @@ final class CommandListMonitor {
                 guard let window = anchor.view?.window, event.window === window else { return false }
                 if event.type == .leftMouseDown {
                     guard let content = window.contentView else { return false }
-                    let point = FrameAnchor.fromTop(event.locationInWindow, in: content)
-                    if !regions.contains(where: { $0.frame()?.contains(point) == true }) {
+                    if !Self.lands(event.locationInWindow, in: content, on: regions.compactMap { $0.frame() }) {
                         outside()
                     }
                     return false
@@ -1075,6 +1074,14 @@ final class CommandListMonitor {
             }
             return consumed ? nil : event
         }
+    }
+
+    // A window point counts from the bottom. Converting it into the content view first
+    // lets fromTop flip it only when that view is not already flipped, which the SwiftUI
+    // hosting view is.
+    static func lands(_ windowPoint: CGPoint, in content: NSView, on regions: [CGRect]) -> Bool {
+        let point = FrameAnchor.fromTop(content.convert(windowPoint, from: nil), in: content)
+        return regions.contains { $0.contains(point) }
     }
 
     func stop() {
