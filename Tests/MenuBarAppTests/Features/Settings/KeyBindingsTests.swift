@@ -92,7 +92,7 @@ struct KeyBindingsTests {
     // Two SwiftUI buttons on one key leave it undefined which one runs.
     @Test func aWindowKeyMayNotTakeAPaneKeyBoundToAButton() {
         #expect(KeyBindings().problem(with: KeyCombo("s"), for: .commandPalette) == .taken(by: "Save the file"))
-        #expect(KeyBindings().problem(with: KeyCombo("r"), for: .newSession) == .taken(by: "Run the last command"))
+        #expect(KeyBindings().problem(with: KeyCombo("r"), for: .newSession) == .taken(by: "Use the shortcut on the button"))
     }
 
     // A sheet is its own window, so its keys never meet the window's.
@@ -107,7 +107,7 @@ struct KeyBindingsTests {
         let bindings = KeyBindings()
 
         #expect(bindings.problem(with: KeyCombo("b"), for: .findInFile) == nil)
-        #expect(bindings.problem(with: KeyCombo("r"), for: .saveFile) == .taken(by: "Run the last command"))
+        #expect(bindings.problem(with: KeyCombo("r"), for: .saveFile) == .taken(by: "Use the shortcut on the button"))
         #expect(bindings.problem(with: KeyCombo("h", .control), for: .saveFile) == .taken(by: "Find in files"))
     }
 
@@ -201,6 +201,26 @@ struct KeyBindingsTests {
         #expect(KeyCombo(event: try press("k", [.command, .capsLock])) == KeyCombo("k"))
         #expect(KeyCombo("k").matches(try press("k", .command)))
         #expect(!KeyCombo("k").matches(try press("k", [.command, .shift])))
+    }
+
+    // On a layout where backtick is a dead key, such as Brazilian - Pro, AppKit leaves
+    // the plain character empty and only Control-backtick's typed character holds the mark.
+    @Test func aDeadKeyReadsAsTheMarkItTypesWithControl() throws {
+        let deadBacktick = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .control, timestamp: 0,
+            windowNumber: 0, context: nil, characters: "`", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: 50))
+        #expect(KeyCombo(event: deadBacktick) == KeyCombo("`", .control))
+    }
+
+    // With Option held, a dead key types whatever that composes, not the key itself, so
+    // reading it would record a different key from the one pressed.
+    @Test func aDeadKeyWithOptionIsNotReadAsWhatItComposes() throws {
+        let composed = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .option], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\u{00B4}", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: 50))
+        #expect(KeyCombo(event: composed) == nil)
     }
 
     @Test func labelsReadTheWayMacMenusWriteThem() {

@@ -283,7 +283,8 @@ struct SessionView: View {
                 if terminals.isOpen(terminalScope) {
                     TerminalDrawer(scope: terminalScope,
                                    directory: workingDirectory,
-                                   focusTerminal: $terminalFocused)
+                                   focusTerminal: $terminalFocused,
+                                   onBack: { composerFocused = true })
                         .transition(.drawer(from: .bottom, reduceMotion: reduceMotion))
                 }
             }
@@ -312,7 +313,8 @@ struct SessionView: View {
                 }
                 .appOverlays()
             }
-            .background(terminalShortcut(directory: workingDirectory))
+            .background(TerminalShortcut(scope: terminalScope, directory: workingDirectory,
+                                         focusTerminal: $terminalFocused))
             .background(tabShortcuts(headerTabs(for: session)))
             // A sent diagnosis has no brief form left to show; its findings are in the
             // conversation, which the Troubleshoot tab stands for from then on.
@@ -1344,23 +1346,6 @@ struct SessionView: View {
         .opacity(0)
     }
 
-    // Control-backtick reaches the terminal from the keyboard: it opens the drawer if
-    // it is shut, and otherwise moves focus between the composer and the shell. A
-    // hidden button is how a shortcut gets a home when there is no menu item for it.
-    private func terminalShortcut(directory: String) -> some View {
-        Button("") {
-            if !terminals.isOpen(terminalScope) {
-                terminals.setOpen(true, for: terminalScope, directory: directory)
-                terminalFocused = true
-            } else {
-                terminalFocused.toggle()
-                if !terminalFocused { composerFocused = true }
-            }
-        }
-        .appShortcut(.terminal)
-        .opacity(0)
-    }
-
     // MARK: - Find in chat
 
     private var currentMessages: [ChatMessage] {
@@ -1472,10 +1457,8 @@ struct SessionView: View {
     // The button both opens and shuts it; opening puts the cursor straight in the shell
     // so it can be used without reaching for the mouse again.
     private func toggleTerminal(directory: String) {
-        let opening = !terminals.isOpen(terminalScope)
-        terminals.setOpen(opening, for: terminalScope, directory: directory)
-        terminalFocused = opening
-        if !opening { composerFocused = true }
+        terminalFocused = terminals.toggle(terminalScope, directory: directory)
+        if !terminalFocused { composerFocused = true }
     }
 
     // A banner that names a problem and stops there leaves the reader hunting for the way

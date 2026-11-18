@@ -22,11 +22,9 @@ struct Shortcut: Identifiable, Codable, Equatable, Sendable {
     // A nil owner makes the shortcut available in every project.
     var projectID: UUID?
     var availableInAllProjects: Bool
-    var favorite: Bool
 
     init(id: UUID = UUID(), name: String, text: String, kind: ShortcutKind = .command,
-         icon: String? = nil, projectID: UUID? = nil, availableInAllProjects: Bool = false,
-         favorite: Bool = false) {
+         icon: String? = nil, projectID: UUID? = nil, availableInAllProjects: Bool = false) {
         self.id = id
         self.name = name
         self.text = text
@@ -34,16 +32,15 @@ struct Shortcut: Identifiable, Codable, Equatable, Sendable {
         self.icon = ShortcutIcon.resolve(icon)
         self.projectID = availableInAllProjects ? nil : projectID
         self.availableInAllProjects = availableInAllProjects || projectID == nil
-        self.favorite = favorite
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, kind, icon, projectID, availableInAllProjects, favorite
+        case id, name, kind, icon, projectID, availableInAllProjects
         case text = "command"
     }
 
     // Records without a kind are commands. Ownerless records join the global library;
-    // project ownership, text, icons and favorites survive that migration.
+    // project ownership, text and icons survive that migration.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(id: try container.decode(UUID.self, forKey: .id),
@@ -53,8 +50,7 @@ struct Shortcut: Identifiable, Codable, Equatable, Sendable {
                   icon: try container.decodeIfPresent(String.self, forKey: .icon),
                   projectID: try container.decodeIfPresent(UUID.self, forKey: .projectID),
                   availableInAllProjects: try container.decodeIfPresent(
-                    Bool.self, forKey: .availableInAllProjects) ?? false,
-                  favorite: try container.decodeIfPresent(Bool.self, forKey: .favorite) ?? false)
+                    Bool.self, forKey: .availableInAllProjects) ?? false)
     }
 
     // A shared command with no icon falls back to the globe to show its wider scope.
@@ -132,24 +128,55 @@ final class ShortcutStore {
         }
     }
 
+    // The orders are keyed by the UUID string, because a dictionary with UUID keys is
+    // written to JSON as a flat list of keys and values rather than as an object.
     private struct Persisted: Codable {
         var shortcuts: [Shortcut]
         var importedSiteShortcutIDs: [UUID]?
+        var projectOrders: [String: [UUID]]?
+        var sessionOrders: [String: [UUID]]?
+        // Files written before order decided the button could star shortcuts to keep them
+        // on top. Stars are read once, turned into order, and never written again.
+        var starred: Set<UUID> = []
 
-        enum CodingKeys: String, CodingKey {
-            case shortcuts, importedSiteShortcutIDs
+        private struct Star: Decodable {
+            let id: UUID
+            let favorite: Bool?
         }
 
-        init(shortcuts: [Shortcut], importedSiteShortcutIDs: [UUID]) {
+        enum CodingKeys: String, CodingKey {
+            case shortcuts, importedSiteShortcutIDs, projectOrders, sessionOrders
+        }
+
+        init(shortcuts: [Shortcut], importedSiteShortcutIDs: [UUID],
+             projectOrders: [UUID: [UUID]], sessionOrders: [UUID: [UUID]]) {
             self.shortcuts = shortcuts
             self.importedSiteShortcutIDs = importedSiteShortcutIDs
+            self.projectOrders = projectOrders.isEmpty ? nil : Self.encode(projectOrders)
+            self.sessionOrders = sessionOrders.isEmpty ? nil : Self.encode(sessionOrders)
         }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             shortcuts = try container.decode([Shortcut].self, forKey: .shortcuts)
+            starred = Set(try container.decode([Star].self, forKey: .shortcuts)
+                .filter { $0.favorite == true }.map(\.id))
             importedSiteShortcutIDs = try container.decodeIfPresent([UUID].self,
                                                                     forKey: .importedSiteShortcutIDs)
+            projectOrders = try container.decodeIfPresent([String: [UUID]].self, forKey: .projectOrders)
+            sessionOrders = try container.decodeIfPresent([String: [UUID]].self, forKey: .sessionOrders)
+        }
+
+        static func encode(_ orders: [UUID: [UUID]]) -> [String: [UUID]] {
+            Dictionary(uniqueKeysWithValues: orders.map { ($0.key.uuidString, $0.value) })
+        }
+
+        static func decode(_ orders: [String: [UUID]]?) -> [UUID: [UUID]] {
+            var decoded: [UUID: [UUID]] = [:]
+            for (key, value) in orders ?? [:] {
+                if let id = UUID(uuidString: key) { decoded[id] = value }
+            }
+            return decoded
         }
     }
 
@@ -165,13 +192,14 @@ final class ShortcutStore {
     // How long each run's last finish took. Kept beside the state rather than inside it,
     // so a state can still be compared and matched on without the timing in the way.
     private(set) var durations: [ShortcutRun: TimeInterval] = [:]
-    // The command each screen ran last, which is what its Run button offers again. It is
-    // here rather than in the view for the same reason the open output is.
-    private var lastStarted: [ShortcutScope: Shortcut.ID] = [:]
     // Which run each screen has its output open on. It is kept here rather than in the
     // view because a pane is thrown away and built again every time the sidebar moves,
     // and a command started before switching away is the one most worth coming back to.
     private var openOutput: [ShortcutScope: ShortcutRun] = [:]
+    // A project or a session can keep its own order of the shortcuts it shows. Without
+    // one, it follows the order of the saved list, which is the order set in Settings.
+    private(set) var projectOrders: [UUID: [Shortcut.ID]] = [:]
+    private(set) var sessionOrders: [UUID: [Shortcut.ID]] = [:]
     private(set) var loadError: String?
     private(set) var saveError: String?
     private var importedSiteShortcutIDs = Set(SiteDefaults.current.startingShortcuts.map(\.id))
@@ -246,28 +274,18 @@ final class ShortcutStore {
     }
 
     // The ones filed under the Mac, and the ones available to one project. Both keep the
-    // order they were added in, so a list never reshuffles itself under the reader.
+    // order of the saved list, which only changes when the reader drags a shortcut.
     var macShortcuts: [Shortcut] {
         shortcuts.filter { $0.projectID == nil }
     }
 
     func libraryShortcuts(query: String = "", kind: ShortcutKind? = nil) -> [Shortcut] {
-        let matches = macShortcuts.filter {
-            (kind == nil || $0.kind == kind)
-                && (query.isBlank || ($0.name + " " + $0.text).localizedStandardContains(query.trimmed))
-        }
-        return matches.filter(\.favorite) + matches.filter { !$0.favorite }
+        macShortcuts.filter { Self.matches($0, query: query, kind: kind) }
     }
 
-    @discardableResult
-    func toggleFavorite(_ id: Shortcut.ID) -> Bool {
-        guard let index = shortcuts.firstIndex(where: { $0.id == id }) else { return false }
-        shortcuts[index].favorite.toggle()
-        guard save() else {
-            shortcuts[index].favorite.toggle()
-            return false
-        }
-        return true
+    static func matches(_ shortcut: Shortcut, query: String, kind: ShortcutKind?) -> Bool {
+        (kind == nil || shortcut.kind == kind)
+            && (query.isBlank || (shortcut.name + " " + shortcut.text).localizedStandardContains(query.trimmed))
     }
 
     var siteConfigurationShortcuts: [SiteDefaults.ShortcutEntry] {
@@ -279,22 +297,136 @@ final class ShortcutStore {
     }
 
     func shortcuts(for projectID: UUID) -> [Shortcut] {
-        shortcuts.filter {
+        Self.ordering(shortcuts.filter {
             $0.projectID == projectID || ($0.projectID == nil && $0.availableInAllProjects)
-        }
+        }, by: projectOrders[projectID])
     }
 
     // A shared shortcut is available through every project, but a workspace should only
     // show one chip for it. The first project is the workspace lead, so it also supplies
     // the checkout where that single chip runs.
-    func shortcuts(for projectIDs: [UUID]) -> [ShortcutPlacement] {
+    func shortcuts(for projectIDs: [UUID], session sessionID: UUID? = nil) -> [ShortcutPlacement] {
         var seen: Set<Shortcut.ID> = []
-        return projectIDs.flatMap { projectID in
-            shortcuts(for: projectID).compactMap { shortcut in
+        let placements = projectIDs.flatMap { projectID in
+            shortcuts(for: projectID).compactMap { shortcut -> ShortcutPlacement? in
                 guard seen.insert(shortcut.id).inserted else { return nil }
                 return ShortcutPlacement(shortcut: shortcut, projectID: projectID)
             }
         }
+        return Self.ordering(placements, by: sessionID.flatMap { sessionOrders[$0] })
+    }
+
+    // MARK: - Order
+
+    // The ones the saved order names come first, in that order. Anything it does not name,
+    // such as a shortcut added after the order was set, follows in its default place.
+    static func ordering<Item: Identifiable>(_ items: [Item], by order: [Item.ID]?) -> [Item] {
+        guard let order, !order.isEmpty else { return items }
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let named = items.filter { rank[$0.id] != nil }.sorted { rank[$0.id]! < rank[$1.id]! }
+        return named + items.filter { rank[$0.id] == nil }
+    }
+
+    // Puts one id at a position in the list, counted as if it had already been taken out.
+    // A position past either end is held to that end, and an id that is missing leaves
+    // the list as it was.
+    static func moving<ID: Equatable>(_ id: ID, to position: Int, in ids: [ID]) -> [ID] {
+        guard let from = ids.firstIndex(of: id) else { return ids }
+        var moved = ids
+        moved.remove(at: from)
+        moved.insert(id, at: min(max(position, 0), moved.count))
+        return moved
+    }
+
+    func hasOwnOrder(_ scope: ShortcutScope) -> Bool {
+        switch scope {
+        case .project(let id): projectOrders[id] != nil
+        case .session(let id): sessionOrders[id] != nil
+        }
+    }
+
+    // Reorders the saved list itself, which is the default every project and session
+    // follows until it is given an order of its own. The position counts over the
+    // shortcuts Settings shows. Project shortcuts keep their places in the saved list,
+    // so only the slots the shared ones hold are shuffled.
+    @discardableResult
+    func moveInLibrary(_ id: Shortcut.ID, to position: Int) -> Bool {
+        let shown = macShortcuts.map(\.id)
+        let ids = Self.moving(id, to: position, in: shown)
+        guard ids != shown else { return false }
+        let previous = shortcuts
+        let byID = Dictionary(uniqueKeysWithValues: shortcuts.map { ($0.id, $0) })
+        var next = ids.makeIterator()
+        shortcuts = shortcuts.map { shortcut in
+            guard shortcut.projectID == nil, let id = next.next(), let moved = byID[id] else { return shortcut }
+            return moved
+        }
+        guard save() else {
+            shortcuts = previous
+            return false
+        }
+        return true
+    }
+
+    // Gives a project or session its own order. The caller passes every id the screen
+    // shows in the order it shows them, so the move is made on what the reader sees.
+    @discardableResult
+    func move(_ id: Shortcut.ID, to position: Int,
+              in shown: [Shortcut.ID], for scope: ShortcutScope) -> Bool {
+        let ids = Self.moving(id, to: position, in: shown)
+        guard ids != shown else { return false }
+        return setOrder(ids, for: scope)
+    }
+
+    // A session's order becomes its project's, so every session of the project that has
+    // no order of its own follows it.
+    @discardableResult
+    func keepSessionOrder(_ sessionID: UUID, for projectID: UUID) -> Bool {
+        guard let order = sessionOrders[sessionID] else { return false }
+        let previous = (projectOrders, sessionOrders)
+        projectOrders[projectID] = order
+        sessionOrders[sessionID] = nil
+        guard save() else {
+            (projectOrders, sessionOrders) = previous
+            return false
+        }
+        return true
+    }
+
+    var hasOwnOrders: Bool { !projectOrders.isEmpty || !sessionOrders.isEmpty }
+
+    // Every project and session goes back to the saved order, which Settings shows.
+    @discardableResult
+    func clearOwnOrders() -> Bool {
+        guard hasOwnOrders else { return true }
+        let previous = (projectOrders, sessionOrders)
+        projectOrders = [:]
+        sessionOrders = [:]
+        guard save() else {
+            (projectOrders, sessionOrders) = previous
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    func resetOrder(for scope: ShortcutScope) -> Bool {
+        guard hasOwnOrder(scope) else { return true }
+        return setOrder(nil, for: scope)
+    }
+
+    @discardableResult
+    private func setOrder(_ ids: [Shortcut.ID]?, for scope: ShortcutScope) -> Bool {
+        let previous = (projectOrders, sessionOrders)
+        switch scope {
+        case .project(let id): projectOrders[id] = ids
+        case .session(let id): sessionOrders[id] = ids
+        }
+        guard save() else {
+            (projectOrders, sessionOrders) = previous
+            return false
+        }
+        return true
     }
 
     func state(_ run: ShortcutRun) -> State {
@@ -315,10 +447,6 @@ final class ShortcutStore {
         logs[run] != nil
     }
 
-    func lastStarted(for scope: ShortcutScope) -> Shortcut.ID? {
-        lastStarted[scope]
-    }
-
     // MARK: - The output drawer
 
     func output(for scope: ShortcutScope) -> ShortcutRun? {
@@ -332,7 +460,7 @@ final class ShortcutStore {
     // A deleted project or session leaves nothing that can reach its drawer again.
     func discard(_ scope: ShortcutScope) {
         openOutput[scope] = nil
-        lastStarted[scope] = nil
+        if hasOwnOrder(scope) { setOrder(nil, for: scope) }
     }
 
     // MARK: - Persistence
@@ -344,6 +472,14 @@ final class ShortcutStore {
             if let projectID = persisted.shortcuts[index].projectID, let replacement = ids[projectID] {
                 persisted.shortcuts[index].projectID = replacement
             }
+        }
+        if let orders = persisted.projectOrders {
+            var remapped: [String: [UUID]] = [:]
+            for (key, order) in orders {
+                let replacement = UUID(uuidString: key).flatMap { ids[$0] }
+                remapped[replacement?.uuidString ?? key] = order
+            }
+            persisted.projectOrders = remapped
         }
         return try PersistentFile.makeEncoder().encode(persisted)
     }
@@ -362,6 +498,8 @@ final class ShortcutStore {
         guard let data else {
             shortcuts = siteDefaults.startingShortcuts
             importedSiteShortcutIDs = Set(shortcuts.map(\.id))
+            projectOrders = [:]
+            sessionOrders = [:]
             loadError = nil
             saveError = nil
             return
@@ -374,11 +512,17 @@ final class ShortcutStore {
                   persisted.shortcuts.allSatisfy({ !$0.name.isBlank && !$0.text.isBlank }) else {
                 throw InvalidFile()
             }
-            shortcuts = persisted.shortcuts
+            // Starred shortcuts used to sit above the rest, so they lead the order now.
+            let starred = persisted.starred
+            shortcuts = persisted.shortcuts.filter { starred.contains($0.id) }
+                + persisted.shortcuts.filter { !starred.contains($0.id) }
             importedSiteShortcutIDs = Set(persisted.importedSiteShortcutIDs
                 ?? siteDefaults.startingShortcuts.map(\.id))
+            projectOrders = Persisted.decode(persisted.projectOrders)
+            sessionOrders = Persisted.decode(persisted.sessionOrders)
             loadError = nil
             saveError = nil
+            if !starred.isEmpty { save() }
         } catch {
             loadError = PersistentFile.decodeMessage(for: storageURL, error: error)
         }
@@ -394,7 +538,8 @@ final class ShortcutStore {
         do {
             let importedIDs = importedSiteShortcutIDs.sorted { $0.uuidString < $1.uuidString }
             try PersistentFile.saveJSON(
-                Persisted(shortcuts: shortcuts, importedSiteShortcutIDs: importedIDs),
+                Persisted(shortcuts: shortcuts, importedSiteShortcutIDs: importedIDs,
+                          projectOrders: projectOrders, sessionOrders: sessionOrders),
                 to: storageURL)
             saveError = nil
             return true
@@ -418,8 +563,6 @@ final class ShortcutStore {
         if saved.availableInAllProjects { saved.projectID = nil }
         if saved.projectID == nil { saved.availableInAllProjects = true }
         if let index = shortcuts.firstIndex(where: { $0.id == saved.id }) {
-            // Stars save independently of an open editor's draft.
-            saved.favorite = shortcuts[index].favorite
             shortcuts[index] = saved
         } else {
             shortcuts.append(saved)
@@ -431,9 +574,6 @@ final class ShortcutStore {
         if let old = previous.first(where: { $0.id == saved.id }),
            old.text != saved.text || old.kind != saved.kind {
             forgetRuns(of: saved.id)
-        }
-        if saved.kind == .prompt {
-            lastStarted = lastStarted.filter { $0.value != saved.id }
         }
         return true
     }
@@ -483,10 +623,9 @@ final class ShortcutStore {
 
     // MARK: - Running
 
-    func start(_ run: ShortcutRun, for scope: ShortcutScope? = nil) {
+    func start(_ run: ShortcutRun) {
         guard !state(run).isActive, let shortcut = shortcut(run.shortcutID),
               shortcut.kind == .command else { return }
-        if let scope { lastStarted[scope] = run.shortcutID }
 
         let token = UUID()
         runTokens[run] = token

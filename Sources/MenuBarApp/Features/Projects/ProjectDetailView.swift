@@ -72,7 +72,9 @@ struct ProjectDetailView: View {
                 }
                 .motion(Motion.reveal, value: note)
             }
-            .background(terminalShortcut(project))
+            .background(TerminalShortcut(scope: terminalScope, directory: project.path,
+                                         focusTerminal: $terminalFocused)
+                            .disabled(store.isMissing(project)))
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
                     shortcuts.saveShortcut(shortcut)
@@ -576,24 +578,8 @@ struct ProjectDetailView: View {
 
     // MARK: - Terminal
 
-    private func terminalShortcut(_ project: Project) -> some View {
-        Button("") {
-            if !terminals.isOpen(terminalScope) {
-                terminals.setOpen(true, for: terminalScope, directory: project.path)
-                terminalFocused = true
-            } else {
-                terminalFocused.toggle()
-            }
-        }
-        .appShortcut(.terminal)
-        .opacity(0)
-        .disabled(store.isMissing(project))
-    }
-
     private func toggleTerminal(directory: String) {
-        let opening = !terminals.isOpen(terminalScope)
-        terminals.setOpen(opening, for: terminalScope, directory: directory)
-        terminalFocused = opening
+        terminalFocused = terminals.toggle(terminalScope, directory: directory)
     }
 
     // The banner asks for a removal, so it carries the button for it: the same action

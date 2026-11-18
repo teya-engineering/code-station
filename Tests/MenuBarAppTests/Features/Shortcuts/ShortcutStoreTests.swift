@@ -324,25 +324,6 @@ struct ShortcutStoreTests {
         #expect(store.duration(fail) != nil)
     }
 
-    // Run offers again what this session ran last, and another session keeps its own.
-    @Test func remembersTheLastCommandEachScreenStarted() throws {
-        let store = emptyStore(url)
-        let build = try #require(store.add(name: "Build", text: "true"))
-        let lint = try #require(store.add(name: "Lint", text: "true"))
-        let folder = FileManager.default.temporaryDirectory.path
-        let one = ShortcutScope.session(UUID())
-        let two = ShortcutScope.session(UUID())
-
-        store.start(ShortcutRun(build, in: folder), for: one)
-        store.start(ShortcutRun(lint, in: folder), for: two)
-
-        #expect(store.lastStarted(for: one) == build)
-        #expect(store.lastStarted(for: two) == lint)
-
-        store.discard(one)
-        #expect(store.lastStarted(for: one) == nil)
-    }
-
     // A deleted project or session cannot be reached again, so nothing should stay
     // filed under it.
     @Test func discardsTheOutputOfADeletedScreen() throws {
@@ -420,7 +401,6 @@ struct ShortcutStoreTests {
         let store = emptyStore(url)
         #expect(store.loadError == nil)
         #expect(store.shortcuts.map(\.id) == [command, prompt, explicitCommand])
-        #expect(store.shortcut(command)?.favorite == true)
         let run = ShortcutRun(prompt, in: FileManager.default.temporaryDirectory.path)
         store.start(run)
         #expect(store.state(run) == .stopped)
@@ -460,7 +440,6 @@ struct ShortcutStoreTests {
         """.utf8).write(to: url)
         let store = emptyStore(url)
         #expect(store.shortcut(global)?.availableInAllProjects == true)
-        #expect(store.shortcut(global)?.favorite == true)
         #expect(store.shortcut(global)?.icon == "hammer")
         #expect(store.shortcut(global)?.text == "make")
         #expect(store.shortcut(local)?.projectID == project)
@@ -476,18 +455,16 @@ struct ShortcutStoreTests {
         let id = try #require(store.add(name: "Build", text: "true"))
         let scope = ShortcutScope.session(UUID())
         let run = ShortcutRun(id, in: FileManager.default.temporaryDirectory.path)
-        store.start(run, for: scope)
+        store.start(run)
         #expect(await waitUntil { !store.state(run).isActive })
         store.showOutput(run, for: scope)
         var prompt = try #require(store.shortcut(id))
         prompt.kind = .prompt
         #expect(store.saveShortcut(prompt))
-        #expect(store.lastStarted(for: scope) == nil)
         #expect(store.output(for: scope) == nil)
-        store.start(run, for: scope)
+        store.start(run)
         #expect(store.state(run) == .stopped)
         #expect(!store.hasStarted(run))
-        #expect(store.lastStarted(for: scope) == nil)
     }
 
     private func emptyStore(_ url: URL) -> ShortcutStore {

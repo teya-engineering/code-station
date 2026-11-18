@@ -337,6 +337,27 @@ final class TerminalStore {
         }
     }
 
+    // The header's button: it shuts an open drawer and opens a shut one, and says which
+    // it did, since the cursor goes into the shell only when it opened.
+    func toggle(_ scope: TerminalScope, directory: String) -> Bool {
+        let opening = !isOpen(scope)
+        setOpen(opening, for: scope, directory: directory)
+        return opening
+    }
+
+    // The terminal key pressed anywhere but the shell. The shell takes the key for itself
+    // when it has the cursor, so a press that arrives here always means "take me there":
+    // the drawer opens if it is shut, and the cursor goes into the shell either way. An
+    // open drawer's shell is asked for focus directly, since the screen's own flag may
+    // already say it has it.
+    func reveal(_ scope: TerminalScope, directory: String) {
+        if isOpen(scope) {
+            selection(for: scope)?.surface.takeFocus()
+        } else {
+            setOpen(true, for: scope, directory: directory)
+        }
+    }
+
     func setDrawerVisible(_ visible: Bool, for scope: TerminalScope) {
         if visible {
             visibleDrawers.insert(scope)

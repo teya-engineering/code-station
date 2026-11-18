@@ -7,48 +7,6 @@ import Testing
 struct ShortcutLibraryTests {
     private let scratch = ScratchDirectory(prefix: "shortcut-library-tests")
 
-    @Test func favoritesKeepSavedOrderAcrossSearchAndReloads() throws {
-        let url = scratch.path("shortcuts.json")
-        let store = ShortcutStore(storageURL: url, siteDefaults: SiteDefaults())
-        let first = Shortcut(name: "Build", text: "make")
-        let second = Shortcut(name: "Rebuild", text: "make clean build")
-        let third = Shortcut(name: "Tests", text: "make test")
-        for shortcut in [first, second, third] { #expect(store.saveShortcut(shortcut)) }
-
-        #expect(store.toggleFavorite(third.id))
-        #expect(store.toggleFavorite(second.id))
-        #expect(store.libraryShortcuts().map(\.id) == [second.id, third.id, first.id])
-        #expect(store.libraryShortcuts(query: "build").map(\.id) == [second.id, first.id])
-        #expect(store.shortcuts.map(\.id) == [first.id, second.id, third.id])
-
-        let reloaded = ShortcutStore(storageURL: url, siteDefaults: SiteDefaults())
-        #expect(reloaded.libraryShortcuts().map(\.id) == [second.id, third.id, first.id])
-        #expect(reloaded.toggleFavorite(third.id))
-        #expect(reloaded.libraryShortcuts().map(\.id) == [second.id, first.id, third.id])
-    }
-
-    @Test func favoriteChangesDoNotOverwriteAnOpenDraft() {
-        let store = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
-        let shortcut = Shortcut(name: "Tests", text: "make test")
-        #expect(store.saveShortcut(shortcut))
-        let draft = ShortcutDraft(request: ShortcutEditorRequest(shortcut: shortcut))
-        draft.value.text = "make test-all"
-        #expect(store.toggleFavorite(shortcut.id))
-        #expect(draft.isDirty)
-        #expect(draft.value.text == "make test-all")
-        #expect(store.saveShortcut(draft.shortcut))
-        #expect(store.shortcut(shortcut.id)?.favorite == true)
-        #expect(store.shortcut(shortcut.id)?.text == "make test-all")
-    }
-
-    @Test func oldCommandsAreNotFavorites() throws {
-        let data = Data("""
-        {"id":"\(UUID())", "name":"Build", "command":"make"}
-        """.utf8)
-        let shortcut = try JSONDecoder().decode(Shortcut.self, from: data)
-        #expect(!shortcut.favorite)
-    }
-
     @Test func draftPreservesItsIdentityAndPrivateScope() {
         let project = UUID()
         let original = Shortcut(name: "Build", text: "make", projectID: project)
@@ -142,13 +100,13 @@ struct ShortcutLibraryTests {
         #expect(!draft.canSave)
     }
 
-    @Test func typeFiltersSearchBothNamesAndBodiesAndKeepFavoritesFirst() {
+    @Test func typeFiltersSearchBothNamesAndBodiesAndKeepTheOrder() {
         let store = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
         let command = Shortcut(name: "Review", text: "make review")
         let prompt = Shortcut(name: "Review changes", text: "Review the diff", kind: .prompt)
-        let favorite = Shortcut(name: "Explain", text: "Review this code", kind: .prompt, favorite: true)
-        for shortcut in [command, prompt, favorite] { #expect(store.saveShortcut(shortcut)) }
-        #expect(store.libraryShortcuts(query: "review", kind: .prompt).map(\.id) == [favorite.id, prompt.id])
+        let explain = Shortcut(name: "Explain", text: "Review this code", kind: .prompt)
+        for shortcut in [command, prompt, explain] { #expect(store.saveShortcut(shortcut)) }
+        #expect(store.libraryShortcuts(query: "review", kind: .prompt).map(\.id) == [prompt.id, explain.id])
         #expect(store.libraryShortcuts(kind: .command).map(\.id) == [command.id])
         #expect(store.libraryShortcuts(query: "missing").isEmpty)
     }

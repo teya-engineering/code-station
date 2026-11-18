@@ -52,6 +52,10 @@ struct Composer<Above: View, Accessory: View>: View {
     @State private var fieldLink = ComposerFieldLink()
     @State private var dictateShortcut = WindowKeyMonitor(AppCommand.dictate.info.keys)
     @State private var dictationKeys = DictationKeys()
+    // The composer's and the field's frames in the window, so a prompt chip flying in
+    // from the shortcut list can be drawn from where it starts to where it lands.
+    @State private var frame: CGRect = .zero
+    @State private var fieldFrame: CGRect = .zero
 
     private var attachments: [Attachment] { runner.composer.draft(sessionID).attachments }
 
@@ -143,6 +147,9 @@ struct Composer<Above: View, Accessory: View>: View {
                         accessory
                     }
                 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { fieldFrame = $0 }
+                .landingRings(runner.composer.landing(sessionID), colour: Theme.accent,
+                              cornerRadius: Radius.card, reach: 1.08)
 
                 // Send and Stop share one place, so a turn starting reads as the button
                 // turning into the other, and the field never changes width over it.
@@ -195,6 +202,19 @@ struct Composer<Above: View, Accessory: View>: View {
             .stroke(Theme.accent, lineWidth: dropTargeted ? 2 : 0)
             .padding(Space.sm))
         .motion(Motion.hover, value: dropTargeted)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
+        .overlay(alignment: .topLeading) { promptFlight }
+        .onChange(of: runner.composer.flight(sessionID)?.id) { _, id in
+            // A box that has not been laid out yet has nowhere to fly to.
+            if id != nil, fieldFrame == .zero, let flight = runner.composer.flight(sessionID) {
+                runner.composer.land(flight, in: sessionID)
+            }
+        }
+        // A chip still in the air when the composer goes away lands at once, so its text
+        // is never lost.
+        .onDisappear {
+            if let flight = runner.composer.flight(sessionID) { runner.composer.land(flight, in: sessionID) }
+        }
         // Saved drafts need the command names too. Refresh as the menu opens or closes,
         // since command files can change between prompts.
         .task(id: [agent.rawValue, String(query == nil)] + roots) {
@@ -259,6 +279,26 @@ struct Composer<Above: View, Accessory: View>: View {
             attach(Attachments.fromDrop(urls))
             return true
         } isTargeted: { dropTargeted = $0 }
+    }
+
+    // A prompt chosen from the shortcut list flies to the top of the message box, across
+    // easing out and down easing in, and its text is inserted where it lands. Under
+    // Reduce Motion the flight lands at once.
+    @ViewBuilder private var promptFlight: some View {
+        if let flight = runner.composer.flight(sessionID), fieldFrame != .zero {
+            let size = PromptFlightChip.size
+            let from = CGRect(x: flight.from.minX + Space.md - frame.minX,
+                              y: flight.from.midY - size.height / 2 - frame.minY,
+                              width: size.width, height: size.height)
+            let to = CGRect(x: fieldFrame.minX + Space.md - frame.minX,
+                            y: fieldFrame.minY + Space.sm - frame.minY,
+                            width: size.width, height: size.height)
+            FlightView(flight: Flight(from: from, to: to),
+                       onLanded: { runner.composer.land(flight, in: sessionID) }) {
+                PromptFlightChip(shortcut: flight.shortcut)
+            }
+            .id(flight.id)
+        }
     }
 
     private func announceInsertion(_ message: String) {
@@ -557,5 +597,28 @@ final class TurnRingView: LoopLayerView {
         turn.toValue = CGFloat.pi * 2
         turn.duration = Self.lap
         turner.add(LayerLoop.repeating(turn, period: Self.lap), forKey: "turn")
+    }
+}
+
+// The small chip a prompt rides in on its way to the message box. Plain SwiftUI, since
+// a flight may scale what it carries.
+struct PromptFlightChip: View {
+    let shortcut: Shortcut
+
+    static let size = CGSize(width: 220, height: ControlHeight.xl)
+
+    var body: some View {
+        HStack(spacing: Space.sm) {
+            KindTile(kind: .prompt, icon: shortcut.icon ?? ShortcutKind.prompt.icon, side: ControlHeight.sm)
+            Text(shortcut.name)
+                .font(Typography.detail.weight(.semibold))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.sm)
+        .frame(width: Self.size.width, height: Self.size.height)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Theme.accent, lineWidth: 1))
+        .elevation(.floating)
     }
 }

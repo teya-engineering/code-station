@@ -102,14 +102,14 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
                  keys: nil, scope: .window, alsoKeys: (1...9).map { KeyCombo("\($0)") }, label: "⌘ 1 … ⌘ 9")
         case .terminal:
             Info(title: "Terminal",
-                 detail: "Open the terminal drawer, then move between the shell and the composer.",
+                 detail: "Open the terminal drawer, move the cursor into it, or close it from the shell.",
                  keys: KeyCombo("`", .control), scope: .window, canChange: true)
         case .findInConversation:
             Info(title: "Find in the conversation", detail: "Search what was said in this session. ⌃ F works too.",
                  keys: KeyCombo("f"), scope: .pane(.conversation, firstClaim: true), canChange: true,
                  alsoKeys: [KeyCombo("f", .control)])
         case .runLastCommand:
-            Info(title: "Run the last command", detail: "Run the saved command you ran last in this session again.",
+            Info(title: "Use the shortcut on the button", detail: "Run or insert the first shortcut in this session's list.",
                  keys: KeyCombo("r"), scope: .pane(.session), canChange: true)
         case .savedCommands:
             Info(title: "All saved commands", detail: "Open the list of saved commands for this session.",

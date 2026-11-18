@@ -49,6 +49,9 @@ struct TaskDetailView: View {
                 }
             }
             .background(Theme.background)
+            .background(TerminalShortcut(scope: terminalScope, directory: task.path,
+                                         focusTerminal: $terminalFocused)
+                            .disabled(store.isMissing(task)))
             .overlay(alignment: .topTrailing) {
                 ZStack {
                     if let note {
@@ -781,9 +784,7 @@ struct TaskDetailView: View {
     // MARK: - Terminal
 
     private func toggleTerminal(directory: String) {
-        let opening = !terminals.isOpen(terminalScope)
-        terminals.setOpen(opening, for: terminalScope, directory: directory)
-        terminalFocused = opening
+        terminalFocused = terminals.toggle(terminalScope, directory: directory)
     }
 
     // A task's folder belongs to the app, so a missing one is unlikely to come back: the
