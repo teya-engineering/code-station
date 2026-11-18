@@ -10,14 +10,44 @@ final class SessionComposerStore {
     @ObservationIgnored private var walks: [UUID: PromptWalk] = [:]
     private var insertions: [UUID: PromptInsertion] = [:]
     private var focusRequests: [UUID: UUID] = [:]
+    private var flights: [UUID: PromptFlight] = [:]
+    private var landings: [UUID: Int] = [:]
 
     struct PromptInsertion {
         let name: String
         let previous: Draft
     }
 
+    // A prompt on its way from the shortcut list or the button to the message box. Its
+    // text is only inserted when it lands, so the words arrive where the chip does.
+    struct PromptFlight: Identifiable, Equatable {
+        let id = UUID()
+        let shortcut: Shortcut
+        // Where it starts, in the window, measured from the top.
+        let from: CGRect
+    }
+
     func insertion(_ sessionID: UUID) -> PromptInsertion? { insertions[sessionID] }
     func focusRequest(_ sessionID: UUID) -> UUID? { focusRequests[sessionID] }
+    func flight(_ sessionID: UUID) -> PromptFlight? { flights[sessionID] }
+    // Counts every prompt inserted, so the message box can play its rings once for each.
+    func landing(_ sessionID: UUID) -> Int? { landings[sessionID] }
+
+    // A second prompt sent while one is still in the air lands the first at once, so
+    // both texts arrive and in the order they were chosen.
+    @discardableResult
+    func launch(_ shortcut: Shortcut, in sessionID: UUID, from: CGRect) -> Bool {
+        guard shortcut.kind == .prompt, !shortcut.text.isBlank else { return false }
+        if let pending = flights[sessionID] { land(pending, in: sessionID) }
+        flights[sessionID] = PromptFlight(shortcut: shortcut, from: from)
+        return true
+    }
+
+    func land(_ flight: PromptFlight, in sessionID: UUID) {
+        guard flights[sessionID]?.id == flight.id else { return }
+        flights[sessionID] = nil
+        insert(flight.shortcut, in: sessionID)
+    }
 
     @discardableResult
     func insert(_ shortcut: Shortcut, in sessionID: UUID) -> Bool {
@@ -31,6 +61,7 @@ final class SessionComposerStore {
         walks[sessionID] = nil
         insertions[sessionID] = PromptInsertion(name: shortcut.name, previous: previous)
         focusRequests[sessionID] = UUID()
+        landings[sessionID, default: 0] += 1
         return true
     }
 

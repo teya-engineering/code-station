@@ -27,4 +27,17 @@ struct CommandListMonitorTests {
         #expect(CommandListMonitor.lands(nearTop, in: content, on: [list]))
         #expect(!CommandListMonitor.lands(nearBottom, in: content, on: [list]))
     }
+
+    // Option with an arrow sorts the highlighted shortcut; any other held key leaves the
+    // press to the window.
+    @Test func optionArrowsSortAndOtherModifiersPassThrough() {
+        #expect(CommandListMonitor.key(for: 126, modifiers: []) == .up)
+        #expect(CommandListMonitor.key(for: 125, modifiers: []) == .down)
+        #expect(CommandListMonitor.key(for: 126, modifiers: .option) == .moveUp)
+        #expect(CommandListMonitor.key(for: 125, modifiers: [.option, .shift]) == .moveDown)
+        #expect(CommandListMonitor.key(for: 36, modifiers: .option) == nil)
+        #expect(CommandListMonitor.key(for: 126, modifiers: .command) == nil)
+        #expect(CommandListMonitor.key(for: 126, modifiers: [.command, .option]) == nil)
+        #expect(CommandListMonitor.key(for: 53, modifiers: []) == .close)
+    }
 }

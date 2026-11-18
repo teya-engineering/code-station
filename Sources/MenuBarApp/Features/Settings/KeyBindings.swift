@@ -109,7 +109,7 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
                  keys: KeyCombo("f"), scope: .pane(.conversation, firstClaim: true), canChange: true,
                  alsoKeys: [KeyCombo("f", .control)])
         case .runLastCommand:
-            Info(title: "Run the last command", detail: "Run the saved command you ran last in this session again.",
+            Info(title: "Use the shortcut on the button", detail: "Run or insert the first shortcut in this session's list.",
                  keys: KeyCombo("r"), scope: .pane(.session), canChange: true)
         case .savedCommands:
             Info(title: "All saved commands", detail: "Open the list of saved commands for this session.",

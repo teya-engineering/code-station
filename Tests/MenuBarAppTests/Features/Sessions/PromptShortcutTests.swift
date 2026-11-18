@@ -5,6 +5,43 @@ import Testing
 
 @MainActor
 struct PromptShortcutTests {
+    // The text waits for the chip to land, and a second prompt chosen mid-flight lands
+    // the first at once so both arrive in the order they were chosen.
+    @Test func aPromptInFlightInsertsWhenItLands() {
+        let composer = SessionComposerStore()
+        let session = UUID()
+        let first = Shortcut(name: "Review", text: "Review the diff.", kind: .prompt)
+        let second = Shortcut(name: "Handoff", text: "Write the handoff.", kind: .prompt)
+        let from = CGRect(x: 10, y: 20, width: 300, height: 58)
+
+        #expect(composer.launch(first, in: session, from: from))
+        #expect(composer.draft(session).text.isEmpty)
+        #expect(composer.landing(session) == nil)
+        let flying = try! #require(composer.flight(session))
+        #expect(flying.from == from)
+
+        #expect(composer.launch(second, in: session, from: from))
+        #expect(composer.draft(session).text == first.text)
+        #expect(composer.landing(session) == 1)
+
+        // A stale landing, from the flight that was already set down, does nothing.
+        composer.land(flying, in: session)
+        #expect(composer.draft(session).text == first.text)
+
+        composer.land(try! #require(composer.flight(session)), in: session)
+        #expect(composer.flight(session) == nil)
+        #expect(composer.draft(session).text == first.text + "\n\n" + second.text)
+        #expect(composer.landing(session) == 2)
+        #expect(composer.insertion(session)?.name == "Handoff")
+    }
+
+    @Test func commandsNeverFly() {
+        let composer = SessionComposerStore()
+        let session = UUID()
+        #expect(!composer.launch(Shortcut(name: "Build", text: "make"), in: session, from: .zero))
+        #expect(composer.flight(session) == nil)
+    }
+
     @Test func insertionPreservesTheDraftAndUndoRestoresItExactly() {
         let composer = SessionComposerStore()
         let session = UUID()

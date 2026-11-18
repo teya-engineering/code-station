@@ -2,8 +2,9 @@ import AppKit
 import Foundation
 import SwiftUI
 
-// Commands and prompts share one picker. The main Run action only follows commands;
-// inserting a prompt changes the session-owned draft without starting a turn.
+// Commands and prompts share one list in one order, and the first of them is on the split
+// button beside the message box: a command runs, a prompt is inserted into the draft
+// without starting a turn. The button only changes when the order does.
 struct SessionRunButton: View {
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(ProjectStore.self) private var store
@@ -19,6 +20,7 @@ struct SessionRunButton: View {
     @State private var listOpen = false
     @State private var libraryOpen = false
     @State private var query = ""
+    @State private var kind: ShortcutKind?
     @FocusState private var pickerFocused: Bool
     @FocusState private var focusedRow: String?
     // The card the arrow keys are on, counted from the top of the list.
@@ -26,15 +28,30 @@ struct SessionRunButton: View {
     @State private var buttonAnchor = FrameAnchor()
     @State private var listAnchor = FrameAnchor()
     @State private var listMonitor = CommandListMonitor()
-    @State private var drag = SidebarDrag()
+    @State private var reorder = LiveReorder()
+    @State private var contentHeight: CGFloat = 0
+    // Counts each new shortcut landing on the button, to play the rings once for each.
+    @State private var landings: Int?
+    // Where the button and each card are in the window, so an inserted prompt can fly
+    // from the place it was chosen.
+    @State private var buttonFrame: CGRect = .zero
+    @State private var cardFrames: [Shortcut.ID: CGRect] = [:]
+    @Namespace private var filterTrack
 
     private var scope: ShortcutScope { .session(session.id) }
 
+    static let rowGap = Space.md
+
     var body: some View {
-        let current = current(in: commands)
+        let entries = entries
+        // While a row is in the air the button already shows what would be on top if it
+        // were let go there, so the drag says what it will do before it is done.
+        let top = reorder.isDragging
+            ? reorder.preview(entries.map(\.id)).first.flatMap { id in entries.first { $0.id == id } }
+            : entries.first
         HStack(spacing: 0) {
-            if let current {
-                splitButton(current)
+            if let top {
+                splitButton(top, entries: entries)
             } else {
                 Button(action: toggleList) {
                     Label("Shortcuts", systemImage: "bolt")
@@ -56,15 +73,18 @@ struct SessionRunButton: View {
             // `if`, SwiftUI drops it and the panel hangs down over the composer.
             ZStack {
                 if listOpen {
-                    list.transition(.popover(reduceMotion: reduceMotion))
+                    list(entries).transition(.popover(reduceMotion: reduceMotion))
                 }
             }
             .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
-        .background(keyShortcuts(current: current))
+        .background(keyShortcuts(top: entries.first))
         .motion(listOpen ? Motion.reveal : Motion.leave, value: listOpen)
         .onChange(of: listOpen) { _, open in
             open ? startListening() : listMonitor.stop()
+        }
+        .onChange(of: entries.first?.id) { old, new in
+            if old != nil, new != nil { landings = (landings ?? 0) + 1 }
         }
         .onDisappear { listMonitor.stop() }
         .sheet(isPresented: $libraryOpen) { ShortcutsView().appOverlays() }
@@ -72,41 +92,69 @@ struct SessionRunButton: View {
 
     // MARK: - The button
 
-    private func splitButton(_ current: Entry) -> some View {
-        HStack(spacing: 0) {
-            RunHalf(name: current.shortcut.name, state: shortcuts.state(current.run)) {
-                activate(current)
+    private func splitButton(_ top: Entry, entries: [Entry]) -> some View {
+        let verb = Self.verb(for: top.shortcut, state: shortcuts.state(top.run))
+        // Commands started from the list that are not on the button still need a way
+        // back, so the list half counts them.
+        let othersRunning = entries.count(where: { $0.id != top.id && shortcuts.state($0.run).isActive })
+        return HStack(spacing: 0) {
+            RunHalf(name: top.shortcut.name, kind: top.shortcut.kind, state: shortcuts.state(top.run)) {
+                use(top, from: buttonFrame)
             }
-            .appContextMenu { commandMenu(current) }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { buttonFrame = $0 }
+            .appContextMenu { menu(for: top, entries: entries) }
             .appTooltip {
-                Tooltip(title: shortcuts.state(current.run).isActive
-                            ? "Show what \(current.shortcut.name) is printing"
-                            : keyBindings.tooltip("Run \(current.shortcut.name)", for: .runLastCommand),
-                        subtitle: current.shortcut.text)
+                Tooltip(title: shortcuts.state(top.run).isActive
+                            ? "Show what \(top.shortcut.name) is printing"
+                            : keyBindings.tooltip("\(verb) \(top.shortcut.name)", for: .runLastCommand),
+                        subtitle: top.shortcut.text)
             }
 
             Rectangle()
                 .fill(Theme.onFill.opacity(0.18))
                 .frame(width: 1, height: ControlHeight.md)
 
-            ListHalf(open: listOpen) { toggleList() }
+            ListHalf(open: listOpen, running: othersRunning) { toggleList() }
                 .appTooltip(keyBindings.tooltip("All shortcuts", for: .savedCommands))
         }
         .fixedSize()
+        .landingRings(landings, colour: Theme.brand, cornerRadius: Radius.card, reach: 1.2)
+    }
+
+    static func verb(for shortcut: Shortcut, state: ShortcutStore.State) -> String {
+        if shortcut.kind == .prompt { return "Insert" }
+        return state.isActive ? "Output" : "Run"
     }
 
     // MARK: - The list
 
-    private var list: some View {
-        let rows = rows
+    private func list(_ entries: [Entry]) -> some View {
+        let shown = shown(entries)
+        let rows = rows(entries)
+        let filtered = isFiltered
         return VStack(spacing: Space.md) {
-            HStack {
+            HStack(spacing: Space.sm) {
                 Text("Shortcuts").font(Typography.body.weight(.semibold))
+                CountBadge(count: entries.count)
                 Spacer()
+                if !filtered && entries.count > 1 {
+                    HStack(spacing: Space.xxs) {
+                        Keycap("⌥")
+                        Keycap("↑")
+                        Keycap("↓")
+                        Text("to sort").padding(.leading, Space.xxs)
+                    }
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Option Up and Option Down sort the highlighted shortcut")
+                    .transition(.fadeIn)
+                }
                 GlyphButton(icon: "xmark", side: ControlHeight.sm, tint: .secondary, action: closeList)
                     .accessibilityLabel("Close shortcuts")
             }
             .padding(.horizontal, Space.sm)
+            .motion(Motion.reveal, value: filtered)
             HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Find a shortcut", text: $query)
@@ -120,53 +168,55 @@ struct SessionRunButton: View {
             }
             .font(Typography.detail)
             .padding(.horizontal, Space.md)
-            .frame(height: 32)
+            .frame(height: ControlHeight.lg)
             .fieldSurface(cornerRadius: Radius.control)
             .overlay(RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(pickerFocused ? Theme.accent : .clear, lineWidth: 2))
+            HStack(spacing: Space.xxs) {
+                filter("All", kind: nil, entries: entries)
+                filter("Commands", kind: .command, entries: entries)
+                filter("Prompts", kind: .prompt, entries: entries)
+            }
+            .padding(Space.xxs)
+            .fieldSurface(cornerRadius: Radius.card)
+            .motion(Motion.control, value: kind)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Filter shortcuts by type")
             ScrollViewReader { scroller in
                 ScrollView {
-                    VStack(spacing: Space.sm) {
-                        ForEach([ShortcutKind.prompt, .command], id: \.self) { kind in
-                            HStack {
-                                Text(kind == .prompt ? "Prompts" : "Commands").fontWeight(.semibold)
-                                Spacer()
-                                Text(kind == .prompt ? "Insert into message" : "Run in this worktree")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(Typography.caption)
-                            .padding(.horizontal, Space.sm)
-                            .padding(.top, Space.xs)
-                            let group = rows.enumerated().filter { $0.element.kind == kind }
-                            if group.isEmpty {
-                                Text(query.isBlank ? "No \(kind == .prompt ? "prompts" : "commands") saved. Add a shortcut below."
-                                     : "No matches. Try another phrase or clear the search.")
-                                    .font(Typography.caption)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(Space.md)
-                            }
-                            ForEach(group, id: \.element.id) { index, row in
-                                card(row, highlighted: highlighted == index)
-                                    .focused($focusedRow, equals: row.id)
-                                    .id(index)
-                            }
+                    VStack(spacing: Self.rowGap) {
+                        if shown.isEmpty {
+                            emptyMessage(entries)
+                        } else {
+                            cards(shown, entries: entries, rows: rows)
+                        }
+                        if !filtered, let last = saveLastCommand(entries) {
+                            let index = rows.firstIndex { $0.id == Row.saveLast(last).id } ?? -1
+                            CommandCard(kind: nil, icon: "square.and.arrow.down",
+                                        name: "Save the agent's last command",
+                                        detail: .command(last), tint: nil, dashed: true,
+                                        highlighted: highlighted == index) { choose(.saveLast(last)) }
+                                .padding(.horizontal, LeadSlot.inset)
+                                .id(index)
+                                .transition(.fadeIn)
                         }
                     }
+                    .padding(.bottom, Space.xxs)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                 }
-                .frame(height: min(330, CGFloat(rows.count - 2) * 58 + 120))
+                .frame(height: min(360, max(contentHeight, 60)))
                 .onChange(of: highlighted) { _, index in scroller.scrollTo(index) }
             }
-            orderNote
+            orderNote(entries)
             Divider().overlay(Theme.hairline)
             HStack {
-                footerAction("Add shortcut", icon: "plus", row: .new)
-                Spacer(minLength: 8)
-                footerAction("Manage shortcuts", row: .manage)
+                footerAction("New shortcut", icon: "plus", row: .new, rows: rows)
+                Spacer(minLength: Space.md)
+                footerAction("Manage shortcuts", row: .manage, rows: rows)
             }
         }
         .padding(Space.md)
-        .frame(width: min(380, max(240, availableWidth)))
+        .frame(width: min(400, max(260, availableWidth)))
         .background {
             RoundedRectangle(cornerRadius: Radius.floating)
                 .fill(Theme.sidebar)
@@ -177,10 +227,101 @@ struct SessionRunButton: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Shortcuts")
         .motion(Motion.reveal, value: orderSource)
+        .motion(Motion.control, value: shown.map(\.id))
         .onChange(of: query) { _, _ in highlighted = 0 }
+        .onChange(of: kind) { _, _ in highlighted = 0 }
         .onChange(of: focusedRow) { _, id in
             if let index = rows.firstIndex(where: { $0.id == id }) { highlighted = index }
         }
+    }
+
+    // The shortcuts in order. The first one sits in the slot marked as the button's, and
+    // the rows can be dragged into a new order while nothing hides any of them.
+    private func cards(_ shown: [Entry], entries: [Entry], rows: [Row]) -> some View {
+        let ids = shown.map(\.id)
+        let slotShown = shown.first?.id == entries.first?.id
+        let sortable = !isFiltered
+        return VStack(spacing: Self.rowGap) {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, entry in
+                card(entry, index: index, count: entries.count, isTop: entry.id == entries.first?.id,
+                     sortable: sortable, highlighted: highlighted == index)
+                    .focused($focusedRow, equals: Row.shortcut(entry).id)
+                    .liveReorder(entry.id, in: ids, spacing: Self.rowGap, enabled: sortable,
+                                 cornerRadius: Radius.floating, state: $reorder) { id, position in
+                        move(id, to: position, entries: entries)
+                    }
+                    .id(index)
+            }
+        }
+        .padding(.horizontal, LeadSlot.inset)
+        .padding(.top, slotShown ? LeadSlot.topRoom : 0)
+        .background(alignment: .top) {
+            if slotShown, let first = shown.first {
+                LeadSlot(caption: "On the button",
+                         keys: keyBindings.keys(for: .runLastCommand)?.compactLabel,
+                         rowHeight: reorder.height(first.id))
+                    .transition(.fadeIn)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Shortcuts, in order")
+    }
+
+    private func card(_ entry: Entry, index: Int, count: Int, isTop: Bool,
+                      sortable: Bool, highlighted: Bool) -> some View {
+        let shortcut = entry.shortcut
+        let detail: CommandCard.Detail = shortcut.kind == .prompt
+            ? .plain(shortcut.text) : .outcome(summary(of: entry))
+        let position = "Position \(index + 1) of \(count)" + (isTop ? ", on the button" : "")
+        return CommandCard(kind: shortcut.kind,
+                           icon: shortcut.kind == .prompt ? shortcut.icon ?? ShortcutKind.prompt.icon
+                                                          : shortcut.glyph ?? "terminal",
+                           name: shortcut.name, detail: detail, tint: entry.tint, dashed: false,
+                           highlighted: highlighted,
+                           verb: Self.verb(for: shortcut, state: shortcuts.state(entry.run)),
+                           lead: isTop, grip: sortable ? .on : .dimmed,
+                           position: position) { choose(.shortcut(entry)) }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { cardFrames[entry.id] = $0 }
+            .appContextMenu { menu(for: entry, entries: entries) }
+            .accessibilityAction(named: "Put on the button") { move(entry.id, to: 0, entries: entries) }
+            .accessibilityAction(named: "Move up") { move(entry.id, by: -1, entries: entries) }
+            .accessibilityAction(named: "Move down") { move(entry.id, by: 1, entries: entries) }
+    }
+
+    private func filter(_ title: String, kind choice: ShortcutKind?, entries: [Entry]) -> some View {
+        let count = choice.map { choice in entries.count(where: { $0.shortcut.kind == choice }) } ?? entries.count
+        return ChoicePill(title: title, selected: kind == choice, thumb: filterTrack,
+                          fills: true, count: count) { kind = choice }
+            .accessibilityLabel(title)
+            .accessibilityValue("\(count)")
+    }
+
+    @ViewBuilder private func emptyMessage(_ entries: [Entry]) -> some View {
+        VStack(spacing: Space.sm) {
+            if entries.isEmpty {
+                Text("No shortcuts saved. Add one below.")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("No shortcuts found").font(Typography.detail.weight(.semibold))
+                let within = kind.map { " in \($0.title.lowercased())s" } ?? ""
+                Text(query.isBlank ? "No \(kind?.title.lowercased() ?? "shortcut")s saved yet."
+                                   : "Nothing is called “\(query.trimmed)”\(within).")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                InlineLink(title: query.isBlank ? "Show all" : "Clear search",
+                           size: Typography.Size.caption, action: showAll)
+            }
+        }
+        .font(Typography.caption)
+        .frame(maxWidth: .infinity)
+        .padding(Space.lg)
+        .transition(.fadeIn)
+    }
+
+    private func showAll() {
+        query = ""
+        kind = nil
+        pickerFocused = true
     }
 
     // MARK: - Sorting
@@ -197,67 +338,101 @@ struct SessionRunButton: View {
         return .standard
     }
 
-    // A drag sorts this session only. The note says whose order the list is in and
-    // offers the two ways out: hand it to the project, or go back to the one above.
-    @ViewBuilder private var orderNote: some View {
+    private var isFiltered: Bool { !query.isBlank || kind != nil }
+
+    // The line under the list says whose order this is and how to leave it. A drag sorts
+    // this session only, and the way out is to hand the order to the project or go back
+    // to the one above.
+    @ViewBuilder private func orderNote(_ entries: [Entry]) -> some View {
         let source = orderSource
-        if source != .standard {
-            let projectName = store.project(session.projectID)?.name ?? "the project"
-            HStack(spacing: Space.sm) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .accessibilityHidden(true)
-                Text(source == .session ? "Sorted for this session" : "Sorted for \(projectName)")
+        let projectName = store.project(session.projectID)?.name ?? "the project"
+        HStack(spacing: Space.sm) {
+            if isFiltered {
+                Image(systemName: "arrow.up.arrow.down").accessibilityHidden(true)
+                Text("Sorting is off while the list is filtered.")
                     .lineLimit(1)
-                    .truncationMode(.middle)
                 Spacer(minLength: Space.sm)
-                if source == .session {
-                    InlineLink(title: "Use for project", size: Typography.Size.caption) {
-                        sort { shortcuts.keepSessionOrder(session.id, for: session.projectID) }
+                InlineLink(title: "Show all \(entries.count)", size: Typography.Size.caption, action: showAll)
+            } else {
+                switch source {
+                case .standard:
+                    Image(systemName: "arrow.up.arrow.down").accessibilityHidden(true)
+                    Text("In the order set in Settings. Drag a card to sort this session.")
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                case .session:
+                    Image(systemName: "arrow.up.arrow.down").accessibilityHidden(true)
+                    Text("Sorted for this session").lineLimit(1)
+                    Spacer(minLength: Space.sm)
+                    InlineLink(title: "Use for \(projectName)", size: Typography.Size.caption) {
+                        sort("Every session in \(projectName) now uses this order.") {
+                            shortcuts.keepSessionOrder(session.id, for: session.projectID)
+                        }
                     }
                     .appTooltip("Sort every session in \(projectName) this way")
+                    resetLink(source, projectName: projectName)
+                case .project:
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(Theme.dotOnText)
+                        .accessibilityHidden(true)
+                    Text("Sorted for every session in \(projectName)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: Space.sm)
+                    resetLink(source, projectName: projectName)
                 }
-                InlineLink(title: "Reset", size: Typography.Size.caption) {
-                    sort { shortcuts.resetOrder(for: source == .session ? scope : .project(session.projectID)) }
-                }
-                .appTooltip(source == .session && shortcuts.hasOwnOrder(.project(session.projectID))
-                            ? "Go back to the order of \(projectName)" : "Go back to the order in Settings")
             }
-            .font(Typography.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, Space.sm)
-            .transition(.fadeIn)
+        }
+        .font(Typography.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, Space.sm)
+        .id(isFiltered ? "filtered" : "\(source)")
+        .transition(.fadeIn)
+    }
+
+    private func resetLink(_ source: OrderSource, projectName: String) -> some View {
+        InlineLink(title: "Reset", size: Typography.Size.caption) {
+            sort(nil) { shortcuts.resetOrder(for: source == .session ? scope : .project(session.projectID)) }
+            if let top = entries.first { announce("Order reset. \(top.shortcut.name) is on the button.") }
+        }
+        .appTooltip(source == .session && shortcuts.hasOwnOrder(.project(session.projectID))
+                    ? "Go back to the order of \(projectName)" : "Go back to the order in Settings")
+    }
+
+    @discardableResult
+    private func sort(_ announcement: String?, _ change: () -> Bool) -> Bool {
+        let changed = withAnimation(reduceMotion ? nil : Motion.control) { change() }
+        if changed, let announcement { announce(announcement) }
+        return changed
+    }
+
+    // Moves are made on the whole list, so they only happen while nothing is hidden.
+    private func move(_ id: Shortcut.ID, to position: Int, entries: [Entry]) {
+        guard !isFiltered, let entry = entries.first(where: { $0.id == id }) else { return }
+        let ids = entries.map(\.id)
+        let target = min(max(position, 0), ids.count - 1)
+        guard ids.firstIndex(of: id) != target else { return }
+        let message = "\(entry.shortcut.name) moved to position \(target + 1) of \(ids.count)."
+            + (target == 0 ? " It is now on the button." : "")
+        if sort(message, { shortcuts.move(id, to: target, in: ids, for: scope) }) {
+            highlighted = target
         }
     }
 
-    private func sort(_ change: () -> Void) {
-        withAnimation(reduceMotion ? nil : Motion.control) { change() }
+    private func move(_ id: Shortcut.ID, by step: Int, entries: [Entry]) {
+        guard let from = entries.firstIndex(where: { $0.id == id }) else { return }
+        move(id, to: from + step, entries: entries)
     }
 
-    // Prompts and commands sit in their own groups, and starred ones above the rest of
-    // their group, so a card only takes a drop from a card in the same place. Anywhere
-    // else the drop would land somewhere other than where the line showed it.
-    private func takesDrop(beside target: Entry) -> Bool {
-        guard let dragged = drag.itemID.flatMap({ id in entries.first { $0.id == id } }) else { return true }
-        return dragged.shortcut.kind == target.shortcut.kind
-            && dragged.shortcut.favorite == target.shortcut.favorite
+    private func announce(_ message: String) {
+        guard let window = buttonAnchor.view?.window else { return }
+        NSAccessibility.post(element: window, notification: .announcementRequested,
+                             userInfo: [.announcement: message,
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
-    // Sorting a filtered list would have to guess where the hidden cards go, so cards
-    // only move while the whole list is showing.
-    private func sortable(_ entry: Entry, card: some View) -> some View {
-        card.sidebarDrag(entry.id, reorders: query.isBlank && takesDrop(beside: entry),
-                         drags: query.isBlank, drag: $drag) { id, after in
-            let shown = rows.compactMap { row -> Shortcut.ID? in
-                switch row {
-                case .prompt(let entry), .command(let entry): entry.id
-                default: nil
-                }
-            }
-            sort { shortcuts.move(id, beside: entry.id, after: after, in: shown, for: scope) }
-        }
-    }
-
-    private func footerAction(_ title: String, icon: String? = nil, row: Row) -> some View {
+    private func footerAction(_ title: String, icon: String? = nil, row: Row, rows: [Row]) -> some View {
         Button { choose(row) } label: {
             HStack(spacing: Space.xs) {
                 if let icon { Image(systemName: icon) }
@@ -275,65 +450,37 @@ struct SessionRunButton: View {
             .stroke((rows.indices.contains(highlighted) && rows[highlighted].id == row.id) ? Theme.accent : .clear, lineWidth: 2))
     }
 
-    @ViewBuilder private func card(_ row: Row, highlighted: Bool) -> some View {
-        switch row {
-        case .new, .manage: EmptyView()
-        case .saveLast(let command):
-            CommandCard(icon: "square.and.arrow.down", name: "Save the agent's last command",
-                        detail: .command(command),
-                        tint: nil, dashed: true, highlighted: highlighted) { choose(row) }
-        case .prompt(let entry):
-            sortable(entry, card: CommandCard(icon: entry.shortcut.icon ?? ShortcutKind.prompt.icon,
-                                              name: entry.shortcut.name, detail: .plain(entry.shortcut.text),
-                                              tint: entry.tint, dashed: false, highlighted: highlighted,
-                                              verb: "Insert") { choose(row) })
-                .appContextMenu { promptMenu(entry) }
-        case .command(let command):
-            sortable(command, card: CommandCard(icon: command.shortcut.glyph ?? "terminal",
-                                                name: command.shortcut.name,
-                                                detail: .outcome(summary(of: command)),
-                                                tint: command.tint, dashed: false, highlighted: highlighted,
-                                                verb: shortcuts.state(command.run).isActive ? "Output" : "Run") { choose(row) })
-                .appContextMenu { commandMenu(command) }
-        }
-    }
-
     private enum Row: Identifiable {
         case new
         case manage
         case saveLast(String)
-        case prompt(Entry)
-        case command(Entry)
+        case shortcut(Entry)
 
         var id: String {
             switch self {
             case .new: "new"
             case .manage: "manage"
             case .saveLast: "save-last"
-            case .prompt(let entry), .command(let entry): entry.id.uuidString
-            }
-        }
-
-        var kind: ShortcutKind? {
-            switch self {
-            case .prompt: .prompt
-            case .command, .saveLast: .command
-            case .new, .manage: nil
+            case .shortcut(let entry): entry.id.uuidString
             }
         }
     }
 
-    private var rows: [Row] {
-        let matches = entries.filter {
-            query.isBlank || ($0.shortcut.name + " " + $0.shortcut.text).localizedStandardContains(query.trimmed)
-        }
-        let sorted = matches.filter { $0.shortcut.favorite } + matches.filter { !$0.shortcut.favorite }
-        var rows = sorted.filter { $0.shortcut.kind == .prompt }.map(Row.prompt)
-            + sorted.filter { $0.shortcut.kind == .command }.map(Row.command)
-        if query.isBlank, let last = SessionShortcuts.lastAgentCommand(in: session),
-           !commands.contains(where: { $0.shortcut.text == last }) {
-            rows.append(.saveLast(last))
-        }
+    private func shown(_ entries: [Entry]) -> [Entry] {
+        entries.filter { ShortcutStore.matches($0.shortcut, query: query, kind: kind) }
+    }
+
+    private func saveLastCommand(_ entries: [Entry]) -> String? {
+        guard let last = SessionShortcuts.lastAgentCommand(in: session),
+              !entries.contains(where: { $0.shortcut.kind == .command && $0.shortcut.text == last })
+        else { return nil }
+        return last
+    }
+
+    // Everything the arrow keys walk through, in the order it is drawn.
+    private func rows(_ entries: [Entry]) -> [Row] {
+        var rows = shown(entries).map(Row.shortcut)
+        if !isFiltered, let last = saveLastCommand(entries) { rows.append(.saveLast(last)) }
         return rows + [.new, .manage]
     }
 
@@ -350,13 +497,7 @@ struct SessionRunButton: View {
     }
 
     private func openList() {
-        let commands = commands
-        let rows = rows
-        let current = current(in: commands)?.id
-        highlighted = rows.firstIndex {
-            if case .command(let command) = $0 { return command.id == current }
-            return false
-        } ?? 0
+        highlighted = 0
         listOpen = true
         pickerFocused = true
     }
@@ -366,14 +507,16 @@ struct SessionRunButton: View {
     }
 
     // The arrow keys and Return belong to the list while it is open, even with the cursor
-    // still in the prompt, and Escape closes it before it can stop the turn. A click
-    // anywhere else puts it away, the way a menu goes.
+    // still in the prompt, and Escape closes it before it can stop the turn. Option with
+    // an arrow moves the highlighted shortcut. A click anywhere else puts it away, the
+    // way a menu goes.
     private func startListening() {
         listMonitor.start(
             anchor: buttonAnchor,
             regions: [buttonAnchor, listAnchor],
             key: { key in
-                let rows = self.rows
+                let entries = self.entries
+                let rows = self.rows(entries)
                 switch key {
                 case .up:
                     highlighted = max(0, highlighted - 1)
@@ -381,6 +524,10 @@ struct SessionRunButton: View {
                 case .down:
                     highlighted = min(rows.count - 1, highlighted + 1)
                     focusedRow = rows[highlighted].id
+                case .moveUp, .moveDown:
+                    guard rows.indices.contains(highlighted),
+                          case .shortcut(let entry) = rows[highlighted] else { return }
+                    move(entry.id, by: key == .moveUp ? -1 : 1, entries: entries)
                 case .choose:
                     guard rows.indices.contains(highlighted) else { return }
                     choose(rows[highlighted])
@@ -391,27 +538,28 @@ struct SessionRunButton: View {
     }
 
     private func choose(_ row: Row) {
+        // A drag that ends over the row it started on must not also count as a click.
+        guard !reorder.isDragging else { return }
         closeList()
         switch row {
         case .new: edit(blankRequest)
         case .manage: libraryOpen = true
-        case .prompt(let entry): runner.composer.insert(entry.shortcut, in: session.id)
         case .saveLast(let command):
             var request = blankRequest
             request.text = command
             request.kind = .command
             edit(request)
-        case .command(let command): activate(command)
+        case .shortcut(let entry): use(entry, from: cardFrames[entry.id] ?? buttonFrame)
         }
     }
 
     // MARK: - Keys
 
-    // One key runs the last command again and another opens the list.
-    private func keyShortcuts(current: Entry?) -> some View {
+    // One key uses the shortcut on the button and another opens the list.
+    private func keyShortcuts(top: Entry?) -> some View {
         ZStack {
-            if let current {
-                Button("") { activate(current) }
+            if let top {
+                Button("") { use(top, from: buttonFrame) }
                     .appShortcut(.runLastCommand)
             }
             Button("") { toggleList() }
@@ -423,89 +571,94 @@ struct SessionRunButton: View {
         .accessibilityHidden(true)
     }
 
-    // MARK: - Running
+    // MARK: - Using a shortcut
+
+    // A prompt flies from where it was chosen and its text lands in the message box. The
+    // message box announces it once the text is in.
+    private func use(_ entry: Entry, from: CGRect) {
+        switch entry.shortcut.kind {
+        case .prompt:
+            closeList()
+            runner.composer.launch(entry.shortcut, in: session.id, from: from)
+        case .command:
+            activate(entry)
+        }
+    }
 
     // While a command runs, its button is the way back to what it is printing, not the
     // way to kill it. Stopping is the rarer of the two and stays in its menu and in the
     // drawer the output opens in.
     private func activate(_ command: Entry) {
         guard shortcuts.shortcut(command.id)?.kind == .command else { return }
-        if shortcuts.state(command.run).isActive {
-            shortcuts.showOutput(command.run, for: scope)
-        } else {
-            shortcuts.start(command.run, for: scope)
-            shortcuts.showOutput(command.run, for: scope)
+        if !shortcuts.state(command.run).isActive {
+            shortcuts.start(command.run)
         }
+        shortcuts.showOutput(command.run, for: scope)
     }
 
-    private func toggle(_ command: Entry) {
-        if shortcuts.state(command.run).isActive {
-            shortcuts.stop(command.run)
+    private func menu(for entry: Entry, entries: [Entry]) -> [MenuEntry] {
+        let shortcut = entry.shortcut
+        let index = entries.firstIndex { $0.id == entry.id } ?? 0
+        let sortable = !isFiltered
+        var items: [MenuEntry]
+        if shortcut.kind == .prompt {
+            items = [.item("Insert", icon: "text.insert", action: {
+                use(entry, from: cardFrames[entry.id] ?? buttonFrame)
+            })]
         } else {
-            activate(command)
+            let running = shortcuts.state(entry.run).isActive
+            items = [
+                running
+                    ? .item("Stop", icon: "stop.fill", action: { shortcuts.stop(entry.run) })
+                    : .item("Run", icon: "play.fill", action: { activate(entry) }),
+                .item("Show output", icon: "terminal", action: {
+                    closeList()
+                    shortcuts.showOutput(entry.run, for: scope)
+                })
+            ]
         }
-    }
-
-    private func commandMenu(_ command: Entry) -> [MenuEntry] {
-        var entries: [MenuEntry] = [
-            shortcuts.state(command.run).isActive
-                ? .item("Stop", action: { toggle(command) })
-                : .item("Run", action: { toggle(command) }),
-            .item("Show output", action: { shortcuts.showOutput(command.run, for: scope) }),
-            .item(command.shortcut.favorite ? "Remove from favorites" : "Add to favorites", action: {
-                shortcuts.toggleFavorite(command.id)
+        items += [
+            .separator,
+            .item("Put on the button", icon: "capsule", disabled: index == 0 || !sortable, action: {
+                move(entry.id, to: 0, entries: entries)
             }),
+            .item("Move up", icon: "arrow.up", disabled: index == 0 || !sortable, action: {
+                move(entry.id, by: -1, entries: entries)
+            }),
+            .item("Move down", icon: "arrow.down", disabled: index == entries.count - 1 || !sortable, action: {
+                move(entry.id, by: 1, entries: entries)
+            }),
+            .separator,
             .item("Edit", action: {
                 closeList()
-                edit(ShortcutEditorRequest(shortcut: command.shortcut,
-                                           projectID: command.checkout.projectID,
-                                           projectName: command.projectName))
+                edit(ShortcutEditorRequest(shortcut: shortcut,
+                                           projectID: entry.checkout.projectID,
+                                           projectName: entry.projectName))
             })
         ]
-        if !command.shortcut.availableInAllProjects {
-            entries.append(.separator)
-            entries.append(.item("Remove", kind: .destructive, action: { confirmRemove(command) }))
+        if !shortcut.availableInAllProjects {
+            items.append(.item("Remove", kind: .destructive, action: { confirmRemove(entry) }))
         }
-        return entries
+        return items
     }
 
     // The list goes away first, or its key monitor would take the Return and Escape
     // meant for the dialog.
-    private func confirmRemove(_ command: Entry) {
+    private func confirmRemove(_ entry: Entry) {
         closeList()
-        let shortcut = command.shortcut
+        let shortcut = entry.shortcut
         var rows = [Dialog.Impact.Row(title: "Saved \(shortcut.kind.rawValue)", detail: "Removed from this project.")]
         if shortcuts.isRunningAnywhere(shortcut.id) {
             rows.append(.init(title: "Running commands", detail: "Stopped right away."))
         }
         rows.append(.init(title: "Projects and conversations", detail: "Kept unchanged.", kept: true))
         dialogs.show(.impact("Remove \(shortcut.name)?",
-                             subject: command.projectName.map { .init(name: $0) },
+                             subject: entry.projectName.map { .init(name: $0) },
                              rows: rows,
                              warning: "This shortcut cannot be restored after removal.",
                              action: "Remove shortcut") {
             shortcuts.remove(shortcut.id)
         })
-    }
-
-    private func promptMenu(_ entry: Entry) -> [MenuEntry] {
-        var items: [MenuEntry] = [
-            .item("Insert", action: { choose(.prompt(entry)) }),
-            .item(entry.shortcut.favorite ? "Remove from favorites" : "Add to favorites", action: {
-                shortcuts.toggleFavorite(entry.id)
-            }),
-            .item("Edit", action: {
-                closeList()
-                edit(ShortcutEditorRequest(shortcut: entry.shortcut,
-                                           projectID: entry.checkout.projectID,
-                                           projectName: entry.projectName))
-            })
-        ]
-        if !entry.shortcut.availableInAllProjects {
-            items.append(.separator)
-            items.append(.item("Remove", kind: .destructive, action: { confirmRemove(entry) }))
-        }
-        return items
     }
 
     private var blankRequest: ShortcutEditorRequest {
@@ -515,7 +668,7 @@ struct SessionRunButton: View {
                               kind: .prompt)
     }
 
-    // MARK: - The commands
+    // MARK: - The shortcuts
 
     private struct Entry: Identifiable {
         let shortcut: Shortcut
@@ -526,8 +679,6 @@ struct SessionRunButton: View {
 
         var id: Shortcut.ID { shortcut.id }
     }
-
-    private var commands: [Entry] { entries.filter { $0.shortcut.kind == .command } }
 
     private var entries: [Entry] {
         let checkouts = store.checkoutProjects(for: session)
@@ -547,19 +698,14 @@ struct SessionRunButton: View {
                 tint: tinted ? Theme.projectTint(for: project?.name ?? "") : nil)
         }
     }
-
-    // What Run offers before this session has run anything is the first command, the
-    // one sorted to the top of the list.
-    private func current(in commands: [Entry]) -> Entry? {
-        let last = shortcuts.lastStarted(for: scope)
-        return commands.first { $0.id == last } ?? commands.first
-    }
 }
+
 
 // MARK: - The two halves
 
 private struct RunHalf: View {
     let name: String
+    let kind: ShortcutKind
     let state: ShortcutStore.State
     let action: () -> Void
 
@@ -575,13 +721,14 @@ private struct RunHalf: View {
                     if running {
                         RunSpinner().transition(.opacity)
                     } else {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 9, weight: .bold))
+                        Image(systemName: kind == .prompt ? "text.insert" : "play.fill")
+                            .font(Typography.micro.weight(.bold))
+                            .id(kind)
                             .transition(.opacity)
                     }
                 }
                 .frame(width: 12, height: 12)
-                RollingText(running ? name : "Run \(name)",
+                RollingText(running ? name : "\(verb) \(name)",
                             font: Typography.body.weight(.semibold))
                 if case .running(let since) = state {
                     TimelineView(.periodic(from: since, by: 0.1)) { context in
@@ -614,12 +761,18 @@ private struct RunHalf: View {
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
         .motion(Motion.control, value: running)
-        .accessibilityLabel(running ? "Show the output of \(name)" : "Run \(name)")
+        .motion(Motion.control, value: kind)
+        .accessibilityLabel(running ? "Show the output of \(name)" : "\(verb) \(name)")
+        .accessibilityHint("The first shortcut in the list is on this button.")
     }
+
+    private var verb: String { kind == .prompt ? "Insert" : "Run" }
 }
 
 private struct ListHalf: View {
     let open: Bool
+    // Commands running from the list that are not on the button.
+    let running: Int
     let action: () -> Void
 
     @State private var hovering = false
@@ -634,6 +787,16 @@ private struct ListHalf: View {
                     .font(Typography.detail.weight(.medium))
                     .monospacedDigit()
                     .opacity(0.75)
+                if running > 0 {
+                    HStack(spacing: Space.xxs) {
+                        Circle().fill(Theme.brand).frame(width: 6, height: 6)
+                        Text(verbatim: "\(running)")
+                            .font(Typography.micro)
+                            .monospacedDigit()
+                            .contentTransition(.numericText(value: Double(running)))
+                    }
+                    .transition(.opacity)
+                }
                 Chevron()
                     .stroke(Theme.onFill, style: StrokeStyle(lineWidth: 1.6, lineCap: .round,
                                                        lineJoin: .round))
@@ -655,7 +818,8 @@ private struct ListHalf: View {
         .hoverLift(hovering)
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
-        .accessibilityLabel("All shortcuts")
+        .motion(Motion.pop, value: running)
+        .accessibilityLabel(running > 0 ? "All shortcuts, \(running) running" : "All shortcuts")
         .accessibilityValue(open ? "Expanded" : "Collapsed")
     }
 }
@@ -818,6 +982,11 @@ private struct CommandCard: View {
         case outcome(CommandRunSummary)
     }
 
+    enum Grip { case none, on, dimmed }
+
+    // A command or a prompt wears its kind's tile; nil draws the plain glyph of a row
+    // that is not a saved shortcut.
+    let kind: ShortcutKind?
     let icon: String
     let name: String
     let detail: Detail
@@ -825,19 +994,26 @@ private struct CommandCard: View {
     let dashed: Bool
     let highlighted: Bool
     var verb: String? = nil
+    // The first shortcut, the one on the button, carries a rail on its leading edge.
+    var lead = false
+    var grip: Grip = .none
+    var position: String? = nil
     let action: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Space.lg) {
-                Image(systemName: icon)
-                    .font(Typography.body.weight(.semibold))
-                    .foregroundStyle(dashed ? Color.secondary : Theme.accent)
-                    .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: Radius.control)
-                        .fill(dashed ? Color.clear : Theme.sunken))
+            HStack(spacing: Space.md) {
+                if grip != .none {
+                    Image(systemName: "line.3.horizontal")
+                        .font(Typography.micro)
+                        .foregroundStyle(grip == .on && hovering ? AnyShapeStyle(Theme.accent)
+                                                                  : AnyShapeStyle(.tertiary))
+                        .opacity(grip == .dimmed ? 0.4 : 1)
+                        .accessibilityHidden(true)
+                }
+                tile
                     .overlay(alignment: .topTrailing) {
                         if let tint { ProjectDot(tint: tint, size: 6).padding(Space.xxs) }
                     }
@@ -858,10 +1034,20 @@ private struct CommandCard: View {
                         .fixedSize()
                 }
             }
-            .padding(.leading, Space.md)
+            .padding(.leading, grip == .none ? Space.md : Space.sm)
             .padding(.trailing, Space.lg)
             .padding(.vertical, Space.md)
             .background(fill)
+            .overlay(alignment: .leading) {
+                if lead {
+                    Capsule()
+                        .fill(Theme.accent)
+                        .frame(width: SubjectRail.width)
+                        .padding(.vertical, Space.lg)
+                        .transition(.opacity)
+                        .accessibilityHidden(true)
+                }
+            }
             .overlay(RoundedRectangle(cornerRadius: Radius.floating)
                 .strokeBorder(stroke,
                               style: StrokeStyle(lineWidth: highlighted ? 1.5 : 1,
@@ -873,9 +1059,21 @@ private struct CommandCard: View {
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
+        .motion(Motion.control, value: lead)
         .accessibilityLabel(verb.map { "\($0) \(name)" } ?? name)
-        .accessibilityValue(accessibilityDetail)
+        .accessibilityValue([accessibilityDetail, position].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(highlighted ? .isSelected : [])
+    }
+
+    @ViewBuilder private var tile: some View {
+        if let kind {
+            KindTile(kind: kind, icon: icon, side: ControlHeight.lg)
+        } else {
+            Image(systemName: icon)
+                .font(Typography.body.weight(.semibold))
+                .foregroundStyle(Color.secondary)
+                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+        }
     }
 
     // Every fill is solid. `field` is see-through, so it is only ever laid over a card,
@@ -1049,7 +1247,7 @@ struct CommandRunSummary: Equatable {
 // move through the list while the cursor is still in the prompt.
 @MainActor
 final class CommandListMonitor {
-    enum Key { case up, down, choose, close }
+    enum Key { case up, down, moveUp, moveDown, choose, close }
 
     private var token: Any?
 
@@ -1067,8 +1265,8 @@ final class CommandListMonitor {
                     return false
                 }
                 guard WindowKeyMonitor.routes(to: window, frontmost: NSApp.keyWindow),
-                      event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-                      let pressed = Self.key(for: event.keyCode) else { return false }
+                      let pressed = Self.key(for: event.keyCode, modifiers: event.modifierFlags)
+                else { return false }
                 key(pressed)
                 return true
             }
@@ -1089,13 +1287,24 @@ final class CommandListMonitor {
         token = nil
     }
 
-    private static func key(for code: UInt16) -> Key? {
+    // Option with an arrow sorts. Any other held key leaves the press to the window, so
+    // Command-Up and the rest keep their usual meaning.
+    static func key(for code: UInt16, modifiers: NSEvent.ModifierFlags) -> Key? {
+        let held = modifiers.intersection([.command, .option, .control])
+        if held == .option {
+            switch code {
+            case 126: return .moveUp
+            case 125: return .moveDown
+            default: return nil
+            }
+        }
+        guard held.isEmpty else { return nil }
         switch code {
-        case 126: .up
-        case 125: .down
-        case 36, 76: .choose
-        case 53: .close
-        default: nil
+        case 126: return .up
+        case 125: return .down
+        case 36, 76: return .choose
+        case 53: return .close
+        default: return nil
         }
     }
 }

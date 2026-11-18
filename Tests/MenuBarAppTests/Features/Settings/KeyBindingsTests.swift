@@ -92,7 +92,7 @@ struct KeyBindingsTests {
     // Two SwiftUI buttons on one key leave it undefined which one runs.
     @Test func aWindowKeyMayNotTakeAPaneKeyBoundToAButton() {
         #expect(KeyBindings().problem(with: KeyCombo("s"), for: .commandPalette) == .taken(by: "Save the file"))
-        #expect(KeyBindings().problem(with: KeyCombo("r"), for: .newSession) == .taken(by: "Run the last command"))
+        #expect(KeyBindings().problem(with: KeyCombo("r"), for: .newSession) == .taken(by: "Use the shortcut on the button"))
     }
 
     // A sheet is its own window, so its keys never meet the window's.
@@ -107,7 +107,7 @@ struct KeyBindingsTests {
         let bindings = KeyBindings()
 
         #expect(bindings.problem(with: KeyCombo("b"), for: .findInFile) == nil)
-        #expect(bindings.problem(with: KeyCombo("r"), for: .saveFile) == .taken(by: "Run the last command"))
+        #expect(bindings.problem(with: KeyCombo("r"), for: .saveFile) == .taken(by: "Use the shortcut on the button"))
         #expect(bindings.problem(with: KeyCombo("h", .control), for: .saveFile) == .taken(by: "Find in files"))
     }
 
