@@ -8,14 +8,24 @@ struct StatsDashboard: View {
     @Binding var subject: UUID?
     let tint: (StatsSubject) -> Theme.ProjectTint
 
-    private static let columns = [GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading),
-                                  GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading)]
-    private static let factColumns = [GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading),
-                                      GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading),
-                                      GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading)]
+    private static let two = [GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading),
+                              GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading)]
+    private static let three = two + [GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading)]
+
+    // One colour per kind of reading, kept wherever that reading appears.
+    private enum Ink {
+        static let time = Theme.accent
+        static let prompts = Theme.plan
+        static let waiting = Theme.attention
+        static let cost = Theme.secret
+        // Neighbours always differ in hue: the two golds never sit side by side.
+        static let shares = [Theme.accent, Theme.plan, Theme.secret, Theme.showcase, Theme.attention,
+                             Theme.workspaceTint.colour]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xxl) {
+            headline
             tiles
             timeChart
             HStack(alignment: .top, spacing: Space.xxl) {
@@ -31,25 +41,102 @@ struct StatsDashboard: View {
         }
     }
 
+    // MARK: - Headline
+
+    // The stretch said as one sentence, so the screen opens on what it means rather than
+    // on four numbers to add up.
+    private var headline: some View {
+        let focus = subject.flatMap { id in report.subjects.first { $0.subject.id == id } }
+        let projects = report.subjects.filter { $0.seconds > 0 }.count
+        let time = Text(StatsFormat.time(report.agentTime.value)).foregroundStyle(Ink.time)
+        let sentence: Text = if let focus {
+            Text("Your agents worked \(time) on \(Text(focus.subject.name).foregroundStyle(Ink.time)).")
+        } else {
+            Text("Your agents worked \(time) across \(Text(counted(projects, "project")).foregroundStyle(Ink.time)).")
+        }
+        return HStack(alignment: .center, spacing: Space.xxl) {
+            VStack(alignment: .leading, spacing: Space.sm) {
+                Text(eyebrow)
+                    .capsText()
+                    .foregroundStyle(Ink.time)
+                sentence
+                    .font(Typography.display)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+                Text(summary(focus: focus))
+                    .font(Typography.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: Space.lg) {
+                headlineMark(icon: "flame.fill", tint: Ink.waiting,
+                             value: report.streak > 0 ? "\(report.streak)" : "–",
+                             label: "day streak")
+                headlineMark(icon: "square.stack.3d.up.fill", tint: Ink.prompts,
+                             value: report.peakAtOnce > 0 ? "\(report.peakAtOnce)" : "–",
+                             label: "at once, at most")
+            }
+        }
+        .padding(Space.xl)
+        .featureSurface(tint: Ink.time)
+        .motion(Motion.reveal, value: subject)
+    }
+
+    private var eyebrow: String {
+        switch range {
+        case .today: "TODAY"
+        case .week: "THE LAST 7 DAYS"
+        case .month: "THE LAST 30 DAYS"
+        case .all: "ALL TIME"
+        }
+    }
+
+    private func summary(focus: StatsReport.SubjectRow?) -> String {
+        var parts: [String] = []
+        if focus == nil, let lead = report.subjects.first(where: { $0.seconds > 0 }) {
+            parts.append("Mostly on \(lead.subject.name)")
+        }
+        parts.append(counted(Int(report.prompts.value), "prompt"))
+        if let day = report.busiestDay { parts.append("busiest on \(day.name)") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func headlineMark(icon: String, tint: Color, value: String, label: String) -> some View {
+        VStack(spacing: Space.xs) {
+            IconBadge(icon: icon, tint: tint, side: ControlHeight.xl, round: true)
+            Text(value)
+                .font(Typography.title)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            Text(label)
+                .font(Typography.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: ControlHeight.xl * 2)
+    }
+
     // MARK: - Tiles
 
     private var tiles: some View {
         HStack(alignment: .top, spacing: Space.lg) {
-            StatTile(title: "AGENT TIME", value: StatsFormat.time(report.agentTime.value),
-                     reading: report.agentTime.value, change: report.agentTime.change,
-                     comparison: comparison(report.agentTime), spark: report.agentTime.spark)
-            StatTile(title: "PROMPTS", value: StatsFormat.count(Int(report.prompts.value)),
-                     reading: report.prompts.value, change: report.prompts.change,
-                     comparison: comparison(report.prompts), spark: report.prompts.spark)
-            StatTile(title: "WAITING ON YOU", value: StatsFormat.time(report.waiting.value),
-                     reading: report.waiting.value, change: report.waiting.change,
-                     lowerIsBetter: true, comparison: comparison(report.waiting),
-                     spark: report.waiting.spark, tint: Theme.attention)
-            StatTile(title: "COST", value: StatsFormat.money(report.cost.value),
-                     reading: report.cost.value, change: report.cost.change,
-                     lowerIsBetter: true, comparison: comparison(report.cost),
-                     spark: report.cost.spark, tint: Theme.secret)
+            tile("AGENT TIME", icon: "timer", tint: Ink.time, value: StatsFormat.time(report.agentTime.value),
+                 report.agentTime)
+            tile("PROMPTS", icon: "text.bubble.fill", tint: Ink.prompts,
+                 value: StatsFormat.count(Int(report.prompts.value)), report.prompts)
+            tile("WAITING ON YOU", icon: "hourglass", tint: Ink.waiting,
+                 value: StatsFormat.time(report.waiting.value), report.waiting, lowerIsBetter: true)
+            tile("COST", icon: "dollarsign", tint: Ink.cost, value: StatsFormat.money(report.cost.value),
+                 report.cost, lowerIsBetter: true)
         }
+    }
+
+    private func tile(_ title: String, icon: String, tint: Color, value: String,
+                      _ reading: StatsReport.Tile, lowerIsBetter: Bool = false) -> some View {
+        let comparison = comparison(reading)
+        return StatTile(title: title, value: value, reading: reading.value, icon: icon,
+                        change: comparison == nil ? nil : reading.change, lowerIsBetter: lowerIsBetter,
+                        comparison: comparison, spark: reading.spark, tint: tint)
     }
 
     // A tile is only compared with a stretch that had something in it. Before Stats was
@@ -74,8 +161,8 @@ struct StatsDashboard: View {
                 StackedBarChart(bars: bars, labelled: labelled, format: StatsFormat.axis)
                 legend
             }
-            .padding(Space.card)
-            .cardSurface()
+            .padding(Space.lg)
+            .cardSurface(cornerRadius: Radius.floating)
         }
     }
 
@@ -143,25 +230,27 @@ struct StatsDashboard: View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionRule(title: "PROJECTS & WORKSPACES") {
                 if subject != nil {
-                    InlineLink(title: "Show all", size: Typography.Size.caption) { choose(nil) }
+                    InlineLink(title: "Show all", size: Typography.Size.caption) { subject = nil }
                         .fixedSize()
                         .transition(.fadeIn)
                 }
             }
             let rows = Array(report.subjects.prefix(8))
             let scale = rows.map(\.seconds).max() ?? 0
+            let total = max(report.agentTime.value, 1)
             VStack(spacing: Space.xxs) {
                 ForEach(rows) { row in
-                    Button { choose(subject == row.subject.id ? nil : row.subject.id) } label: {
-                        ShareBarRow(name: row.subject.name, dot: tint(row.subject),
+                    Button { subject = subject == row.subject.id ? nil : row.subject.id } label: {
+                        ShareBarRow(name: row.subject.name, dot: tint(row.subject), tile: true,
                                     value: row.seconds, scale: scale,
                                     reading: StatsFormat.time(row.seconds),
-                                    detail: "\(StatsFormat.count(row.prompts)) · \(StatsFormat.money(row.cost))")
+                                    detail: "\(StatsFormat.percent(row.seconds / total)) · \(StatsFormat.money(row.cost))")
                             .padding(.horizontal, Space.md)
                             .padding(.vertical, Space.sm)
                             .background {
                                 if subject == row.subject.id {
-                                    RoundedRectangle(cornerRadius: Radius.control).fill(Theme.accent.opacity(0.1))
+                                    RoundedRectangle(cornerRadius: Radius.control)
+                                        .fill(tint(row.subject).fill)
                                 }
                             }
                             .contentShape(RoundedRectangle(cornerRadius: Radius.control))
@@ -177,17 +266,13 @@ struct StatsDashboard: View {
                         .padding(.horizontal, Space.md)
                 }
             }
-            .padding(.vertical, Space.sm)
-            .cardSurface()
-            Text("Time · prompts · cost")
+            .padding(Space.sm)
+            .cardSurface(cornerRadius: Radius.floating)
+            Text("Time · share of it · cost. Click one to see only its numbers.")
                 .font(Typography.caption)
                 .foregroundStyle(.tertiary)
         }
         .motion(Motion.control, value: subject)
-    }
-
-    private func choose(_ id: UUID?) {
-        subject = id
     }
 
     // MARK: - The back and forth
@@ -196,32 +281,35 @@ struct StatsDashboard: View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionRule("THE BACK AND FORTH")
             VStack(alignment: .leading, spacing: Space.lg) {
-                LazyVGrid(columns: Self.columns, alignment: .leading, spacing: Space.lg) {
-                    StatFact(label: "Agents at once",
-                             value: report.peakAtOnce > 0
-                                ? "\(StatsFormat.average(report.averageAtOnce)) avg · \(report.peakAtOnce) peak"
-                                : "–",
-                             detail: "While any was working")
+                LazyVGrid(columns: Self.two, alignment: .leading, spacing: Space.lg) {
                     StatFact(label: "Median turn", value: StatsFormat.short(report.medianTurn),
-                             detail: "How long you wait for a reply")
+                             detail: "How long you wait for a reply", tint: Ink.time, icon: "timer")
                     StatFact(label: "Your reply", value: StatsFormat.short(report.medianReply),
-                             detail: "From a reply to your next prompt")
+                             detail: "From a reply to your next prompt", tint: Ink.prompts,
+                             icon: "arrowshape.turn.up.left.fill")
                     StatFact(label: "Longest wait on you", value: StatsFormat.short(report.longestWait),
-                             detail: "\(counted(report.questions, "question")) asked")
+                             detail: "\(counted(report.questions, "question")) asked", tint: Ink.waiting,
+                             icon: "hourglass")
                     StatFact(label: "Permissions",
                              value: report.permissions > 0
                                 ? "\(StatsFormat.count(report.permissions)) · \(StatsFormat.percent(report.allowRate)) allowed"
                                 : "–",
-                             detail: "Tools the agents asked to use")
+                             detail: "Tools the agents asked to use", tint: Theme.dotOnText,
+                             icon: "checkmark.shield.fill")
+                    StatFact(label: "Agents at once",
+                             value: report.peakAtOnce > 0
+                                ? "\(StatsFormat.average(report.averageAtOnce)) avg · \(report.peakAtOnce) peak"
+                                : "–",
+                             detail: "While any was working", tint: Theme.showcase,
+                             icon: "square.stack.3d.up.fill")
                     StatFact(label: "Turns cut short",
                              value: "\(report.stopped) stopped · \(report.failed) failed",
-                             tint: report.failed > 0 ? Theme.attentionText : nil)
+                             tint: report.failed > 0 ? Theme.deletion : Theme.secondaryText,
+                             icon: "stop.circle.fill")
                 }
                 if let rule = report.alwaysAllowed.first {
-                    HStack(alignment: .top, spacing: Space.sm) {
-                        Image(systemName: "lightbulb")
-                            .font(Typography.detail)
-                            .foregroundStyle(Theme.attentionText)
+                    HStack(alignment: .top, spacing: Space.md) {
+                        IconBadge(icon: "lightbulb.fill", tint: Ink.waiting)
                         Text("You let **\(rule.name)** through all \(Int(rule.value)) times you were asked. A permission rule for it would save you the wait.")
                             .font(Typography.detail)
                             .foregroundStyle(.secondary)
@@ -229,7 +317,8 @@ struct StatsDashboard: View {
                     }
                     .padding(Space.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.attention.opacity(0.1)))
+                    .surface(Ink.waiting.opacity(0.08), cornerRadius: Radius.control,
+                             border: Ink.waiting.opacity(0.22))
                     .transition(.fadeIn)
                 }
                 if let since = report.waitsSince, since > report.interval.start {
@@ -239,8 +328,8 @@ struct StatsDashboard: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(Space.card)
-            .cardSurface()
+            .padding(Space.lg)
+            .cardSurface(cornerRadius: Radius.floating)
         }
     }
 
@@ -250,12 +339,12 @@ struct StatsDashboard: View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionRule("WHEN YOU WORK")
             HeatGrid(rows: Self.weekdays, values: report.heat,
-                     columnLabels: [0: "00", 6: "06", 12: "12", 18: "18"]) { row, column, value in
+                     columnLabels: [0: "00", 6: "06", 12: "12", 18: "18"], tint: Ink.prompts) { row, column, value in
                 let hours = String(format: "%02d:00–%02d:00", column, (column + 1) % 24)
                 return "\(Self.weekdays[row]) \(hours) · \(counted(value, "prompt"))"
             }
-            .padding(Space.card)
-            .cardSurface()
+            .padding(Space.lg)
+            .cardSurface(cornerRadius: Radius.floating)
         }
     }
 
@@ -272,32 +361,29 @@ struct StatsDashboard: View {
     private var agentsAndModels: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionRule("AGENTS & MODELS")
-            VStack(alignment: .leading, spacing: Space.md) {
-                shares(report.agents, tint: Theme.accent)
-                if !report.models.isEmpty {
-                    SettingsRowDivider().padding(.horizontal, -Space.lg)
-                    shares(Array(report.models.prefix(4)), tint: Theme.plan)
-                }
+            VStack(alignment: .leading, spacing: Space.lg) {
                 if report.agents.isEmpty {
                     Text("No agent worked in this stretch.")
                         .font(Typography.detail)
                         .foregroundStyle(.secondary)
+                } else {
+                    ShareDonut(parts: parts(report.agents, palette: Ink.shares), format: StatsFormat.time)
+                    if !report.models.isEmpty {
+                        SettingsRowDivider().padding(.horizontal, -Space.lg)
+                        ShareDonut(parts: parts(Array(report.models.prefix(4)),
+                                                palette: [Theme.plan, Theme.showcase, Theme.secret, Theme.attention]),
+                                   format: StatsFormat.time)
+                    }
                 }
             }
-            .padding(Space.card)
-            .cardSurface()
+            .padding(Space.lg)
+            .cardSurface(cornerRadius: Radius.floating)
         }
     }
 
-    private func shares(_ shares: [StatsReport.Share], tint: Color) -> some View {
-        let total = shares.reduce(0) { $0 + $1.value }
-        let scale = shares.map(\.value).max() ?? 0
-        return VStack(spacing: Space.sm) {
-            ForEach(shares) { share in
-                ShareBarRow(name: share.name, tint: tint, value: share.value, scale: scale,
-                            reading: StatsFormat.time(share.value),
-                            detail: StatsFormat.percent(total > 0 ? share.value / total : nil))
-            }
+    private func parts(_ shares: [StatsReport.Share], palette: [Color]) -> [ShareStrip.Part] {
+        shares.enumerated().map { index, share in
+            ShareStrip.Part(name: share.name, value: share.value, tint: palette[index % palette.count])
         }
     }
 
@@ -312,51 +398,61 @@ struct StatsDashboard: View {
                     .monospacedDigit()
                     .fixedSize()
             }
-            HStack(alignment: .top, spacing: Space.xxl) {
-                let tools = Array(report.tools.prefix(6))
-                let scale = tools.map(\.value).max() ?? 0
-                VStack(spacing: Space.sm) {
-                    ForEach(tools) { tool in
-                        ShareBarRow(name: tool.name, tint: Theme.accent, value: tool.value, scale: scale,
-                                    reading: StatsFormat.count(Int(tool.value)),
-                                    detail: StatsFormat.percent(report.calls > 0 ? tool.value / Double(report.calls) : nil))
-                    }
-                    if tools.isEmpty {
-                        Text("No tool calls in this stretch.")
-                            .font(Typography.detail)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+            VStack(alignment: .leading, spacing: Space.xl) {
+                if report.tools.isEmpty {
+                    Text("No tool calls in this stretch.")
+                        .font(Typography.detail)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ShareStrip(parts: toolParts, format: { StatsFormat.count(Int($0)) })
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                Rectangle().fill(Theme.hairline).frame(width: 1)
-                LazyVGrid(columns: Self.factColumns, alignment: .leading, spacing: Space.lg) {
+                LazyVGrid(columns: Self.three, alignment: .leading, spacing: Space.lg) {
                     VStack(alignment: .leading, spacing: Space.xxs) {
-                        Text("Lines changed")
-                            .font(Typography.caption)
-                            .foregroundStyle(.secondary)
-                        DiffPair(added: report.added, removed: report.removed, size: Typography.Size.body)
+                        HStack(alignment: .top, spacing: Space.md) {
+                            IconBadge(icon: "plusminus", tint: Theme.dotOnText)
+                            VStack(alignment: .leading, spacing: Space.xxs) {
+                                Text("Lines changed")
+                                    .font(Typography.caption)
+                                    .foregroundStyle(.secondary)
+                                DiffPair(added: report.added, removed: report.removed, size: Typography.Size.body)
+                            }
+                        }
                     }
-                    StatFact(label: "Pull requests", value: StatsFormat.count(report.pullRequests))
-                    StatFact(label: "Sub-agents", value: StatsFormat.count(report.subAgents))
+                    StatFact(label: "Pull requests", value: StatsFormat.count(report.pullRequests),
+                             tint: Theme.showcase, icon: "arrow.triangle.pull")
+                    StatFact(label: "Sub-agents", value: StatsFormat.count(report.subAgents),
+                             tint: Ink.prompts, icon: "person.2.fill")
                     StatFact(label: "Tool errors", value: StatsFormat.percent(report.callErrorRate),
-                             detail: "\(StatsFormat.count(report.failedCalls)) failed")
+                             detail: "\(StatsFormat.count(report.failedCalls)) failed", tint: Theme.deletion,
+                             icon: "exclamationmark.triangle.fill")
                     StatFact(label: "Tokens",
                              value: StatsFormat.tokens(report.inputTokens + report.outputTokens
                                                        + report.cacheReadTokens + report.cacheWriteTokens),
-                             detail: "\(StatsFormat.tokens(report.outputTokens)) written")
+                             detail: "\(StatsFormat.tokens(report.outputTokens)) written", tint: Ink.cost,
+                             icon: "circle.hexagongrid.fill")
                     StatFact(label: "Cache hits", value: StatsFormat.percent(report.cacheHitRate),
-                             detail: "Of what was read in")
+                             detail: "Of what was read in", tint: Ink.time, icon: "bolt.fill")
                     StatFact(label: "Sessions", value: StatsFormat.count(report.sessions),
-                             detail: "\(report.worktreeSessions) in a worktree")
-                    StatFact(label: "Spoken prompts", value: StatsFormat.count(report.dictated))
-                    StatFact(label: "Sent mid-turn", value: StatsFormat.count(report.steered))
+                             detail: "\(report.worktreeSessions) in a worktree", tint: Ink.time,
+                             icon: "bubble.left.and.bubble.right.fill")
+                    StatFact(label: "Spoken prompts", value: StatsFormat.count(report.dictated),
+                             tint: Ink.prompts, icon: "mic.fill")
+                    StatFact(label: "Sent mid-turn", value: StatsFormat.count(report.steered),
+                             tint: Ink.waiting, icon: "arrow.turn.down.right")
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(Space.card)
-            .cardSurface()
+            .padding(Space.lg)
+            .cardSurface(cornerRadius: Radius.floating)
         }
+    }
+
+    // The busiest tools by name, and the rest as one part, so the bar stays readable.
+    private var toolParts: [ShareStrip.Part] {
+        let shown = Array(report.tools.prefix(5))
+        var parts = parts(shown, palette: Ink.shares)
+        let rest = report.tools.dropFirst(5).reduce(0) { $0 + $1.value }
+        if rest > 0 { parts.append(ShareStrip.Part(name: "Other", value: rest, tint: Theme.dotOff)) }
+        return parts
     }
 
     // MARK: - Records
@@ -364,19 +460,20 @@ struct StatsDashboard: View {
     private var records: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionRule("RECORDS")
-            HStack(alignment: .top, spacing: Space.lg) {
-                StatFact(label: "Streak",
-                         value: report.streak > 0 ? counted(report.streak, "day") : "–",
-                         detail: "Days in a row with a prompt")
-                StatFact(label: "Busiest day", value: report.busiestDay?.name ?? "–",
-                         detail: report.busiestDay.map { StatsFormat.time($0.value) + " of agent work" })
-                StatFact(label: "Longest turn", value: StatsFormat.short(report.longestTurn))
-                StatFact(label: "Longest session",
-                         value: report.longestSession.map { StatsFormat.time($0.seconds) } ?? "–",
-                         detail: report.longestSession.map { "\($0.title) · \($0.subject.name)" })
+            LazyVGrid(columns: Self.two, alignment: .leading, spacing: Space.lg) {
+                RecordBadge(icon: "flame.fill", label: "STREAK",
+                            value: report.streak > 0 ? counted(report.streak, "day") : "–",
+                            detail: "Days in a row with a prompt", tint: Ink.waiting)
+                RecordBadge(icon: "calendar", label: "BUSIEST DAY", value: report.busiestDay?.name ?? "–",
+                            detail: report.busiestDay.map { StatsFormat.time($0.value) + " of agent work" },
+                            tint: Ink.time)
+                RecordBadge(icon: "timer", label: "LONGEST TURN", value: StatsFormat.short(report.longestTurn),
+                            detail: "One reply, start to finish", tint: Ink.prompts)
+                RecordBadge(icon: "trophy.fill", label: "LONGEST SESSION",
+                            value: report.longestSession.map { StatsFormat.time($0.seconds) } ?? "–",
+                            detail: report.longestSession.map { "\($0.title) · \($0.subject.name)" },
+                            tint: Ink.cost)
             }
-            .padding(Space.card)
-            .cardSurface()
         }
     }
 }
