@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import MenuBarApp
 
-// What the header's button and the terminal key ask of the drawer, and where each one
-// leaves the cursor. Every screen goes through these, so they decide the behaviour once.
+// What the header's button and the terminal key ask of the drawer. Every screen goes
+// through these, so they decide the behaviour once.
 @MainActor
 struct TerminalDrawerFocusTests {
 
@@ -24,17 +24,17 @@ struct TerminalDrawerFocusTests {
         let store = makeStore()
         defer { closeShells(in: store) }
 
-        #expect(store.toggle(scope, directory: directory) == .shell)
+        #expect(store.toggle(scope, directory: directory), "it says it opened")
         #expect(store.isOpen(scope))
         #expect(store.sessions(for: scope).count == 1)
     }
 
-    @Test func theButtonShutsAnOpenDrawerAndSendsTheCursorBack() {
+    @Test func theButtonShutsAnOpenDrawer() {
         let store = makeStore()
         defer { closeShells(in: store) }
         _ = store.toggle(scope, directory: directory)
 
-        #expect(store.toggle(scope, directory: directory) == .back)
+        #expect(!store.toggle(scope, directory: directory), "it says it shut")
         #expect(!store.isOpen(scope))
     }
 
@@ -44,23 +44,23 @@ struct TerminalDrawerFocusTests {
         let store = makeStore()
         defer { closeShells(in: store) }
 
-        #expect(store.reveal(scope, directory: directory) == .shell)
+        store.reveal(scope, directory: directory)
         #expect(store.isOpen(scope))
-        #expect(store.reveal(scope, directory: directory) == .shell)
+        store.reveal(scope, directory: directory)
         #expect(store.isOpen(scope))
         #expect(store.sessions(for: scope).count == 1, "an open drawer gets no second shell")
     }
 
     // Putting the drawer away leaves its shell running, so the next open finds it.
-    @Test func dismissingKeepsTheShellForNextTime() {
+    @Test func puttingTheDrawerAwayKeepsTheShellForNextTime() {
         let store = makeStore()
         defer { closeShells(in: store) }
-        _ = store.reveal(scope, directory: directory)
+        store.reveal(scope, directory: directory)
         let shell = store.sessions(for: scope).first
 
-        #expect(store.dismiss(scope) == .back)
+        store.setOpen(false, for: scope, directory: directory)
         #expect(!store.isOpen(scope))
-        _ = store.reveal(scope, directory: directory)
+        store.reveal(scope, directory: directory)
         #expect(store.sessions(for: scope).first?.id == shell?.id)
     }
 }

@@ -30,11 +30,8 @@ struct TerminalDrawer: View {
             strip
             Divider().overlay(Theme.hairline)
             if let current {
-                TerminalScreen(terminal: current, isFocused: $focusTerminal) {
-                    focusTerminal = false
-                    _ = terminals.dismiss(scope)
-                    onBack()
-                }
+                TerminalScreen(terminal: current, isFocused: $focusTerminal,
+                               onDrawerKey: putAway)
                     .frame(height: height)
             }
         }
@@ -101,12 +98,16 @@ struct TerminalDrawer: View {
     // Closing only puts the drawer away; every shell keeps running.
     @State private var hoveringClose = false
 
+    // The shell's own key and the Close button both end here, so the cursor always
+    // lands in the same place once the drawer is gone.
+    private func putAway() {
+        focusTerminal = false
+        terminals.setOpen(false, for: scope, directory: directory)
+        onBack()
+    }
+
     private var closeButton: some View {
-        Button {
-            focusTerminal = false
-            _ = terminals.dismiss(scope)
-            onBack()
-        } label: {
+        Button(action: putAway) {
             HStack(spacing: Space.xs) {
                 Image(systemName: "xmark")
                     .font(Typography.micro)
@@ -268,7 +269,8 @@ struct TerminalShortcut: View {
 
     var body: some View {
         Button("") {
-            focusTerminal = terminals.reveal(scope, directory: directory) == .shell
+            terminals.reveal(scope, directory: directory)
+            focusTerminal = true
         }
         .appShortcut(.terminal)
         .opacity(0)

@@ -736,7 +736,7 @@ struct WorkspaceDetailView: View {
 
     private func toggleTerminal(_ workspace: ProjectWorkspace) {
         guard let lead = store.project(workspace.leadProjectID) else { return }
-        terminalFocused = terminals.toggle(terminalScope, directory: lead.path) == .shell
+        terminalFocused = terminals.toggle(terminalScope, directory: lead.path)
     }
 
     private func missingFolders(_ workspace: ProjectWorkspace) -> some View {

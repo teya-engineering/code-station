@@ -784,7 +784,7 @@ struct TaskDetailView: View {
     // MARK: - Terminal
 
     private func toggleTerminal(directory: String) {
-        terminalFocused = terminals.toggle(terminalScope, directory: directory) == .shell
+        terminalFocused = terminals.toggle(terminalScope, directory: directory)
     }
 
     // A task's folder belongs to the app, so a missing one is unlikely to come back: the

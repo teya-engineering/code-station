@@ -1457,7 +1457,7 @@ struct SessionView: View {
     // The button both opens and shuts it; opening puts the cursor straight in the shell
     // so it can be used without reaching for the mouse again.
     private func toggleTerminal(directory: String) {
-        terminalFocused = terminals.toggle(terminalScope, directory: directory) == .shell
+        terminalFocused = terminals.toggle(terminalScope, directory: directory)
         if !terminalFocused { composerFocused = true }
     }
 

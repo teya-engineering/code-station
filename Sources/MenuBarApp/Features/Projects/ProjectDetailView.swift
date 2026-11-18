@@ -579,7 +579,7 @@ struct ProjectDetailView: View {
     // MARK: - Terminal
 
     private func toggleTerminal(directory: String) {
-        terminalFocused = terminals.toggle(terminalScope, directory: directory) == .shell
+        terminalFocused = terminals.toggle(terminalScope, directory: directory)
     }
 
     // The banner asks for a removal, so it carries the button for it: the same action
