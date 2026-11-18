@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import MenuBarApp
 
@@ -83,6 +84,32 @@ struct InlineDiffTests {
     @Test func lonelyAdditionsAreNotMarked() {
         let lines = [DiffLine(id: 0, kind: .addition, text: "+brand new")]
         #expect(InlineDiff.ranges(lines).isEmpty)
+    }
+
+    @Test func theSideBySideCellPaintsTheChangedWordsOnly() {
+        let lines = [
+            DiffLine(id: 0, kind: .deletion, text: "-let total = price"),
+            DiffLine(id: 1, kind: .addition, text: "+let total = cost")
+        ]
+        let marks = InlineDiff.ranges(lines)
+        func painted(_ line: DiffLine) -> [String] {
+            let code = SideBySideDiff.code(line, marks: marks)
+            return code.runs.compactMap { run in
+                run.backgroundColor == nil ? nil : String(code[run.range].characters)
+            }
+        }
+        #expect(painted(lines[0]) == ["price"])
+        #expect(painted(lines[1]) == ["cost"])
+        // The sign sits in its own column, so the cell holds only the code.
+        #expect(String(SideBySideDiff.code(lines[1], marks: marks).characters) == "let total = cost")
+    }
+
+    @Test func aMarkThatNoLongerFitsItsLineIsDropped() {
+        // Marks worked out for one diff and read against another must never reach past
+        // the end of the line they land on.
+        let line = DiffLine(id: 0, kind: .addition, text: "+short")
+        let code = SideBySideDiff.code(line, marks: [0: [NSRange(location: 3, length: 40)]])
+        #expect(code.runs.allSatisfy { $0.backgroundColor == nil })
     }
 
     @Test func theUnifiedDiffPaintsTheChangedWordsOnly() {
