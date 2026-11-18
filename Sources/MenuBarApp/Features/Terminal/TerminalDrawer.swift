@@ -9,6 +9,9 @@ struct TerminalDrawer: View {
     let scope: TerminalScope
     let directory: String
     @Binding var focusTerminal: Bool
+    // Where the cursor goes once the drawer is put away. The window keeps the keyboard
+    // when a screen has nothing better to offer it.
+    var onBack: () -> Void = {}
 
     @State private var renaming: TerminalSession?
     @State private var draftName = ""
@@ -27,7 +30,11 @@ struct TerminalDrawer: View {
             strip
             Divider().overlay(Theme.hairline)
             if let current {
-                TerminalScreen(terminal: current, isFocused: $focusTerminal)
+                TerminalScreen(terminal: current, isFocused: $focusTerminal) {
+                    focusTerminal = false
+                    _ = terminals.dismiss(scope)
+                    onBack()
+                }
                     .frame(height: height)
             }
         }
@@ -96,8 +103,9 @@ struct TerminalDrawer: View {
 
     private var closeButton: some View {
         Button {
-            terminals.setOpen(false, for: scope, directory: directory)
             focusTerminal = false
+            _ = terminals.dismiss(scope)
+            onBack()
         } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: "xmark")
@@ -246,4 +254,23 @@ struct TerminalToggle: View {
         note?("Opened a shell in \(SystemTerminal.appName)", "arrow.up.forward.app")
     }
     return Preferences.terminalBundleID == nil ? [here, app] : [app, here]
+}
+
+// The one way a screen reaches its terminal from the keyboard: a hidden button holding
+// the terminal key, which only ever hears it from outside the shell, because the shell
+// answers the key itself (see `TerminalScreen.onDrawerKey`). A hidden button is how a
+// shortcut gets a home when there is no menu item for it.
+struct TerminalShortcut: View {
+    @Environment(TerminalStore.self) private var terminals
+    let scope: TerminalScope
+    let directory: String
+    @Binding var focusTerminal: Bool
+
+    var body: some View {
+        Button("") {
+            focusTerminal = terminals.reveal(scope, directory: directory) == .shell
+        }
+        .appShortcut(.terminal)
+        .opacity(0)
+    }
 }

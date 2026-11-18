@@ -337,6 +337,39 @@ final class TerminalStore {
         }
     }
 
+    // Where the cursor goes once the drawer has been asked for. Each screen decides what
+    // going back means for it: the composer in a session, the window everywhere else.
+    enum DrawerFocus: Equatable {
+        case shell
+        case back
+    }
+
+    // The header's button: it shuts an open drawer and opens a shut one.
+    func toggle(_ scope: TerminalScope, directory: String) -> DrawerFocus {
+        isOpen(scope) ? dismiss(scope) : reveal(scope, directory: directory)
+    }
+
+    // The terminal key pressed anywhere but the shell. The shell takes the key for itself
+    // when it has the cursor, so a press that arrives here always means "take me there":
+    // the drawer opens if it is shut, and the cursor goes into the shell either way. An
+    // open drawer's shell is asked for focus directly, since the screen's own flag may
+    // already say it has it.
+    func reveal(_ scope: TerminalScope, directory: String) -> DrawerFocus {
+        if isOpen(scope) {
+            selection(for: scope)?.surface.takeFocus()
+        } else {
+            setOpen(true, for: scope, directory: directory)
+        }
+        return .shell
+    }
+
+    // The terminal key pressed in the shell, or the drawer's own Close button.
+    func dismiss(_ scope: TerminalScope) -> DrawerFocus {
+        open.remove(scope)
+        setDrawerVisible(false, for: scope)
+        return .back
+    }
+
     func setDrawerVisible(_ visible: Bool, for scope: TerminalScope) {
         if visible {
             visibleDrawers.insert(scope)

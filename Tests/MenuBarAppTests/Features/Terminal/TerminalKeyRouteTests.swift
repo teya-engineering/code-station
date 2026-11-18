@@ -50,10 +50,10 @@ struct TerminalKeyRouteTests {
         #expect(route(press("k", .command)) == .clear)
     }
 
-    // The drawer's key is how the shell is left, so it is passed on to the window,
-    // where the hidden button behind the shortcut picks it up.
-    @Test func theDrawerKeyIsLeftForTheApp() {
-        #expect(route(press("`", .control)) == .app)
+    // The drawer's key is how the shell is left, so the terminal answers it itself
+    // rather than leaving it for a button the screen may not have.
+    @Test func theDrawerKeyPutsTheDrawerAway() {
+        #expect(route(press("`", .control)) == .drawer)
     }
 
     // Where backtick is a dead key the press carries no plain character, and it must
@@ -63,26 +63,28 @@ struct TerminalKeyRouteTests {
             with: .keyDown, location: .zero, modifierFlags: .control, timestamp: 0,
             windowNumber: 0, context: nil, characters: "`", charactersIgnoringModifiers: "",
             isARepeat: false, keyCode: 50)!
-        #expect(route(deadBacktick) == .app)
+        #expect(route(deadBacktick) == .drawer)
     }
 
     // A key the person has moved follows them into the shell, and the key it used to be
     // goes back to the shell, which has its own uses for it.
-    @Test func aChangedDrawerKeyIsLeftForTheAppInstead() {
+    @Test func aChangedDrawerKeyPutsTheDrawerAwayInstead() {
         let moved = KeyCombo("t", .control)
-        #expect(route(press("t", .control), drawerKeys: moved) == .app)
+        #expect(route(press("t", .control), drawerKeys: moved) == .drawer)
         #expect(route(press("`", .control), drawerKeys: moved) == .shell)
     }
 
     // Set to the key that clears the screen, the drawer still wins: otherwise there
     // would be no way out of the shell from the keyboard.
     @Test func theDrawerKeyWinsOverClearingTheScreen() {
-        #expect(route(press("k", .command), drawerKeys: KeyCombo("k")) == .app)
+        #expect(route(press("k", .command), drawerKeys: KeyCombo("k")) == .drawer)
     }
 
-    // With the key taken away, nothing in the shell is held back for it.
+    // With the key taken away, or no drawer around the shell, nothing in the shell is
+    // held back for it, and Command-K clears the screen again.
     @Test func noDrawerKeyLeavesControlBacktickToTheShell() {
         #expect(route(press("`", .control), drawerKeys: nil) == .shell)
+        #expect(route(press("k", .command), drawerKeys: nil) == .clear)
     }
 
     // A dialog or a menu is drawn over the terminal and answers Escape and Return

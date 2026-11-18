@@ -72,7 +72,9 @@ struct ProjectDetailView: View {
                 }
                 .motion(Motion.reveal, value: note)
             }
-            .background(terminalShortcut(project))
+            .background(TerminalShortcut(scope: terminalScope, directory: project.path,
+                                         focusTerminal: $terminalFocused)
+                            .disabled(store.isMissing(project)))
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
                     shortcuts.saveShortcut(shortcut)
@@ -576,25 +578,8 @@ struct ProjectDetailView: View {
 
     // MARK: - Terminal
 
-    // Opens the drawer, takes the cursor into an open one, and shuts it from inside the
-    // shell, the same three steps as in a session.
-    private func terminalShortcut(_ project: Project) -> some View {
-        Button("") {
-            if terminals.isOpen(terminalScope), !terminalFocused {
-                terminalFocused = true
-            } else {
-                toggleTerminal(directory: project.path)
-            }
-        }
-        .appShortcut(.terminal)
-        .opacity(0)
-        .disabled(store.isMissing(project))
-    }
-
     private func toggleTerminal(directory: String) {
-        let opening = !terminals.isOpen(terminalScope)
-        terminals.setOpen(opening, for: terminalScope, directory: directory)
-        terminalFocused = opening
+        terminalFocused = terminals.toggle(terminalScope, directory: directory) == .shell
     }
 
     // The banner asks for a removal, so it carries the button for it: the same action

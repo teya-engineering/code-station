@@ -213,6 +213,16 @@ struct KeyBindingsTests {
         #expect(KeyCombo(event: deadBacktick) == KeyCombo("`", .control))
     }
 
+    // With Option held, a dead key types whatever that composes, not the key itself, so
+    // reading it would record a different key from the one pressed.
+    @Test func aDeadKeyWithOptionIsNotReadAsWhatItComposes() throws {
+        let composed = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .option], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\u{00B4}", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: 50))
+        #expect(KeyCombo(event: composed) == nil)
+    }
+
     @Test func labelsReadTheWayMacMenusWriteThem() {
         let keys = KeyCombo("a", [.shift, .command, .control])
 
