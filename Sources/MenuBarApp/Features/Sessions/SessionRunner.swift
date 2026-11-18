@@ -142,6 +142,10 @@ final class SessionRunner {
     let followUps: SessionFollowUps
     // Called once for every turn that ends, however it ended.
     @ObservationIgnored var onTurnEnded: (UUID) -> Void = { _ in }
+    // Told how each turn ended and when the person answered a question, for Stats. Both
+    // are only ever a time and a name; what was asked and said stays in the transcript.
+    @ObservationIgnored var onTurnRecorded: (UUID, TurnEnding) -> Void = { _, _ in }
+    @ObservationIgnored var onQuestionAnswered: (PermissionRequest, Bool, UUID) -> Void = { _, _, _ in }
 
     // How a CLI says it no longer holds the conversation we asked to resume. Codex has
     // no such message: a thread it cannot find is a failed turn like any other.
@@ -275,6 +279,11 @@ final class SessionRunner {
         refreshCodexContext(threadID: threadID, sessionID: sessionID, store: store)
     }
 
+    private func endTurn(_ ending: TurnEnding, for sessionID: UUID) {
+        records[sessionID]?.lastEnding = ending
+        onTurnRecorded(sessionID, ending)
+    }
+
     private func setState(_ state: SessionState, for sessionID: UUID) {
         guard self.state(sessionID) != state else { return }
         recordAddingIfMissing(sessionID).state = state
@@ -371,6 +380,7 @@ final class SessionRunner {
               record.asked.contains(where: { $0.id == request.id }) else { return }
         records[sessionID]?.asked.removeAll { $0.id == request.id }
         AppNotifier.shared.clear(sessionID: store.userFacingSessionID(for: sessionID))
+        onQuestionAnswered(request, answer.allows, sessionID)
         SessionLog.note("answered \(request.toolName) \(request.id) with \(answer.logLabel)",
                         session: sessionID)
 
@@ -2751,9 +2761,9 @@ final class SessionRunner {
                 return
             }
             let unseen: Bool
-            records[sessionID]?.lastEnding = TurnEnding(
+            endTurn(TurnEnding(
                 started: turn.startedAt, ended: Date(),
-                outcome: turn.stopFailure == nil ? .stopped : .failed, startHeads: turn.startHeads)
+                outcome: turn.stopFailure == nil ? .stopped : .failed, startHeads: turn.startHeads), for: sessionID)
             if let failure = turn.stopFailure {
                 setState(.failed(failure), for: sessionID)
                 unseen = store.noteTurnEnded(for: sessionID)
@@ -2774,8 +2784,8 @@ final class SessionRunner {
         let missingCompletion = turn.agent != .claudeCode && !turn.receivedCompletion
         guard turn.failure != nil || status != 0 || missingCompletion else {
             SessionLog.note("turn finished", session: sessionID)
-            records[sessionID]?.lastEnding = TurnEnding(started: turn.startedAt, ended: Date(),
-                                                        outcome: .finished, startHeads: turn.startHeads)
+            endTurn(TurnEnding(started: turn.startedAt, ended: Date(),
+                                                        outcome: .finished, startHeads: turn.startHeads), for: sessionID)
             setState(.idle, for: sessionID)
             let titleQueued = queueAutomaticTitle(after: turn, sessionID: sessionID,
                                                   store: store)
@@ -2842,8 +2852,8 @@ final class SessionRunner {
         if store.session(sessionID)?.hasAgentConversation == true {
             records[sessionID]?.continuable = .failedTurn
         }
-        records[sessionID]?.lastEnding = TurnEnding(started: turn.startedAt, ended: Date(),
-                                                    outcome: .failed, startHeads: turn.startHeads)
+        endTurn(TurnEnding(started: turn.startedAt, ended: Date(),
+                                                    outcome: .failed, startHeads: turn.startHeads), for: sessionID)
         setState(.failed(message), for: sessionID)
         store.release(sessionID, for: .running)
         resumeDesignWorkflowQueues(after: sessionID, store: store)

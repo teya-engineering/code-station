@@ -49,6 +49,16 @@ final class AppSettings {
         }
     }
 
+    var statsEnabled: Bool {
+        didSet { Preferences.setStatsEnabled(statsEnabled, in: preferences) }
+    }
+
+    var statsKeepsRemovedSessions: Bool {
+        didSet {
+            Preferences.setStatsKeepsRemovedSessions(statsKeepsRemovedSessions, in: preferences)
+        }
+    }
+
     var cleanupRule: CleanupRule {
         CleanupRule(deletesOnItsOwn: oldSessionsDeleteOnTheirOwn,
                     asked: oldSessionAskReasons,
@@ -206,6 +216,8 @@ final class AppSettings {
         oldSessionAskReasons = Preferences.oldSessionAskReasons(in: preferences)
         sweepsOrphanedWorktrees = Preferences.sweepsOrphanedWorktrees(in: preferences)
         sessionMemoryLimit = Preferences.sessionMemoryLimit(in: preferences)
+        statsEnabled = Preferences.statsEnabled(in: preferences)
+        statsKeepsRemovedSessions = Preferences.statsKeepsRemovedSessions(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         skillsRefreshInterval = Preferences.skillsRefreshInterval(in: preferences)
         projectSort = Preferences.projectSort(in: preferences)

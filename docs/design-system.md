@@ -264,6 +264,12 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
+| One headline number, how it moved and how it got there | `StatTile` (`Layout/StatParts.swift`): caps title, the number, the change against the stretch before (pass `lowerIsBetter` for a wait or a cost) and a `Sparkline`. The figures roll with `.numericText` when the reading moves. |
+| A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means |
+| One thing's share of a whole, beside others | `ShareBarRow`, one per thing, sharing one `scale`. The bar draws out with `Motion.draw` when the row arrives. |
+| The key to a chart's colours | `LegendItem` |
+| Totals over time, each split into its parts | `StackedBarChart`: hovering a bar picks it out and the line above says what it holds |
+| A count by weekday and hour | `HeatGrid`: hovering a cell says what it holds on the line under the grid |
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
