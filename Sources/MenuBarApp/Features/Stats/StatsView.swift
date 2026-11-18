@@ -104,14 +104,16 @@ struct StatsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xxl) {
                 controls
-                if let report {
+                if let report, !(report.isEmpty && stats.isReading) {
+                    if stats.isReading {
+                        readingStrip
+                            .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
+                    }
                     if report.isEmpty {
                         PaneMessage(icon: "chart.bar",
-                                    title: stats.isReading ? "Reading your sessions" : "Nothing here yet",
-                                    detail: stats.isReading
-                                        ? "Stats fill in as each session is read."
-                                        : "No agent worked and no prompt was sent in this stretch. Try a longer one.") {
-                            if !stats.isReading && range != .all {
+                                    title: "Nothing here yet",
+                                    detail: "No agent worked and no prompt was sent in this stretch. Try a longer one.") {
+                            if range != .all {
                                 ActionButton(title: "Show all time", tone: .outlined) { pick(.all) }
                             }
                         }
@@ -123,13 +125,12 @@ struct StatsView: View {
                             .transition(.fadeIn)
                     }
                 } else {
-                    HStack(spacing: Space.sm) {
-                        RunningDot()
-                        Text("Reading your sessions…")
-                            .font(Typography.detail)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 320)
+                    // Nothing to show yet: the read is the whole screen.
+                    ProgressCard(title: "Reading your sessions",
+                                 detail: "Stats reads each session once and then only what is new, so this first read is the slow one.",
+                                 done: stats.total - stats.pending, total: stats.total, unit: "sessions")
+                        .frame(maxWidth: .infinity, minHeight: 360)
+                        .transition(.fadeIn)
                 }
                 settingsBlock
             }
@@ -138,6 +139,15 @@ struct StatsView: View {
         }
         .scrollIndicators(.visible)
         .motion(Motion.reveal, value: report?.isEmpty)
+        .motion(Motion.reveal, value: stats.isReading)
+    }
+
+    // More sessions are still landing under numbers already on screen.
+    private var readingStrip: some View {
+        ProgressCard(title: "Reading your sessions",
+                     detail: "Numbers fill in as each one lands.",
+                     done: stats.total - stats.pending, total: stats.total,
+                     unit: "sessions", compact: true)
     }
 
     private var controls: some View {
@@ -149,17 +159,6 @@ struct StatsView: View {
                 }
             }
             Spacer(minLength: Space.md)
-            if stats.isReading {
-                HStack(spacing: Space.sm) {
-                    RunningDot()
-                    Text("Reading \(stats.total - stats.pending) of \(stats.total) sessions")
-                        .font(Typography.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                }
-                .transition(.fadeIn)
-            }
             OptionMenu(value: subjectName) {
                 [.item("All projects and workspaces", checked: subject == nil) { subject = nil },
                  .separator]
@@ -169,7 +168,6 @@ struct StatsView: View {
                 }
             }
         }
-        .motion(Motion.reveal, value: stats.isReading)
     }
 
     private func pick(_ choice: StatsRange) {

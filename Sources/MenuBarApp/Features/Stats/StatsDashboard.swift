@@ -37,19 +37,26 @@ struct StatsDashboard: View {
         HStack(alignment: .top, spacing: Space.lg) {
             StatTile(title: "AGENT TIME", value: StatsFormat.time(report.agentTime.value),
                      reading: report.agentTime.value, change: report.agentTime.change,
-                     comparison: range.comparison, spark: report.agentTime.spark)
+                     comparison: comparison(report.agentTime), spark: report.agentTime.spark)
             StatTile(title: "PROMPTS", value: StatsFormat.count(Int(report.prompts.value)),
                      reading: report.prompts.value, change: report.prompts.change,
-                     comparison: range.comparison, spark: report.prompts.spark)
+                     comparison: comparison(report.prompts), spark: report.prompts.spark)
             StatTile(title: "WAITING ON YOU", value: StatsFormat.time(report.waiting.value),
                      reading: report.waiting.value, change: report.waiting.change,
-                     lowerIsBetter: true, comparison: range.comparison,
+                     lowerIsBetter: true, comparison: comparison(report.waiting),
                      spark: report.waiting.spark, tint: Theme.attention)
             StatTile(title: "COST", value: StatsFormat.money(report.cost.value),
                      reading: report.cost.value, change: report.cost.change,
-                     lowerIsBetter: true, comparison: range.comparison,
+                     lowerIsBetter: true, comparison: comparison(report.cost),
                      spark: report.cost.spark, tint: Theme.secret)
         }
+    }
+
+    // A tile is only compared with a stretch that had something in it. Before Stats was
+    // on no waits were recorded, and "no change" against nothing would be untrue.
+    private func comparison(_ tile: StatsReport.Tile) -> String? {
+        guard let previous = tile.previous, previous > 0 else { return nil }
+        return range.comparison
     }
 
     // MARK: - Where the time went

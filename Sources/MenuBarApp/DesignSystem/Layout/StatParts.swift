@@ -259,10 +259,15 @@ struct StackedBarChart: View {
             .chartXScale(domain: bars.map(\.id))
             .chartXSelection(value: $selected)
             .chartXAxis {
-                AxisMarks(values: labelled ?? bars.map(\.id)) { _ in
-                    AxisValueLabel()
-                        .font(Typography.caption)
-                        .foregroundStyle(Theme.secondaryText)
+                // Every bar has a mark, but only the labelled ones write their name, so a
+                // month does not run thirty dates into one another under the axis.
+                let named = Set(labelled ?? bars.map(\.id))
+                AxisMarks(values: bars.map(\.id)) { value in
+                    if let id = value.as(String.self), named.contains(id) {
+                        AxisValueLabel(collisionResolution: .disabled)
+                            .font(Typography.caption)
+                            .foregroundStyle(Theme.secondaryText)
+                    }
                 }
             }
             .chartYAxis {
@@ -370,5 +375,93 @@ struct HeatGrid: View {
                 .padding(.top, Space.xs)
         }
         .motion(Motion.hover, value: hovered)
+    }
+}
+
+// MARK: - Progress
+
+// Work the person is waiting on, with how far it has got. On its own (`compact: false`)
+// it stands in the middle of an empty pane for a first load; compact, it is a strip over
+// content already on screen, saying that more is still arriving. With no total yet it
+// shows the spinner and words without a bar.
+struct ProgressCard: View {
+    let title: String
+    let detail: String
+    var done = 0
+    var total = 0
+    // What is being counted, such as "sessions".
+    var unit = "items"
+    var compact = false
+
+    static let width: CGFloat = 440
+    static let compactBarWidth: CGFloat = 160
+
+    private var fraction: Double { total > 0 ? Double(done) / Double(total) : 0 }
+
+    var body: some View {
+        Group {
+            if compact { strip } else { card }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(total > 0 ? "\(done) of \(total) \(unit)" : "")
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
+                LoopSpinner(colour: Theme.accent, size: Typography.Size.title)
+                Text(title).font(Typography.title)
+            }
+            Text(detail)
+                .font(Typography.body)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if total > 0 {
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    Meter(fraction: fraction, colour: Theme.accent)
+                        .motion(Motion.draw, value: fraction)
+                    HStack {
+                        Text("\(done) of \(total) \(unit)")
+                            .contentTransition(.numericText(value: Double(done)))
+                        Spacer()
+                        Text(fraction.formatted(.percent.precision(.fractionLength(0))))
+                            .contentTransition(.numericText(value: fraction))
+                    }
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                }
+                .padding(.top, Space.xs)
+                .transition(.fadeIn)
+            }
+        }
+        .padding(Space.xl)
+        .frame(width: Self.width, alignment: .leading)
+        .cardSurface(cornerRadius: Radius.floating)
+        .motion(Motion.reveal, value: total > 0)
+    }
+
+    private var strip: some View {
+        HStack(spacing: Space.md) {
+            LoopSpinner(colour: Theme.accent, size: Typography.Size.body)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(total > 0 ? "\(title) · \(done) of \(total)" : title)
+                    .font(Typography.body.weight(.semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(done)))
+                Text(detail)
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: Space.md)
+            if total > 0 {
+                Meter(fraction: fraction, colour: Theme.accent)
+                    .frame(width: Self.compactBarWidth)
+                    .motion(Motion.draw, value: fraction)
+            }
+        }
+        .padding(.horizontal, Space.card)
+        .padding(.vertical, Space.md)
+        .surface(Theme.accent.opacity(0.08), cornerRadius: Radius.card, border: Theme.accent.opacity(0.25))
     }
 }

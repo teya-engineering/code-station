@@ -270,6 +270,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | The key to a chart's colours | `LegendItem` |
 | Totals over time, each split into its parts | `StackedBarChart`: hovering a bar picks it out and the line above says what it holds |
 | A count by weekday and hour | `HeatGrid`: hovering a cell says what it holds on the line under the grid |
+| Work the person is waiting on, with how far it has got | `ProgressCard`: a `LoopSpinner`, a title, a sentence and a `Meter` with "120 of 412 sessions". On its own in an empty pane for a first load; `compact: true` for a tinted strip over content already on screen while more arrives. |
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
