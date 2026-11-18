@@ -166,6 +166,21 @@ struct MarkdownBlockTests {
         }
     }
 
+    // Prose that opens, closes and centres alike must not share a hash, and text that is
+    // only canonically equal must not share blocks, since its blocks hold its own bytes.
+    @Test func keepsSettledProseByItsExactBytes() {
+        // As NSStrings these 90 share one hash.
+        let texts = (10...99).map {
+            "A paragraph that opens the same way each time, then says \($0)" + String(repeating: " and closes alike", count: 6) + "."
+        }
+        #expect(Set(texts.map { MarkdownBlock.SettledKey($0).hash }).count == texts.count)
+
+        _ = MarkdownBlock.parse(settled: "# caf\u{e9}")
+        let decomposed = MarkdownBlock.parse(settled: "# cafe\u{301}")
+        #expect("\(decomposed)".utf8.elementsEqual("\(MarkdownBlock.parse("# cafe\u{301}"))".utf8))
+        #expect("\(decomposed)".utf8.elementsEqual("\(MarkdownBlock.parse("# caf\u{e9}"))".utf8) == false)
+    }
+
     @Test func turnsCheckboxesIntoTheirBoxes() {
         let text = "- [ ] todo\n- [x] done"
         guard case .list(let items) = kinds(text).first else {

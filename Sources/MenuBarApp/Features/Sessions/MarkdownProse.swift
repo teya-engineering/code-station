@@ -31,7 +31,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
     // streaming reply, so its blocks are kept rather than read again. The segment still
     // growing at the end must not come here: it would leave a new entry on every flush.
     static func parse(settled text: String) -> [MarkdownBlock] {
-        let key = text as NSString
+        let key = SettledKey(text)
         if let kept = settled.object(forKey: key) { return kept.blocks }
         let blocks = parse(text)
         settled.setObject(Parsed(blocks: blocks), forKey: key, cost: text.utf8.count)
@@ -39,11 +39,51 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
     }
 
     // NSCache is safe to share across threads.
-    nonisolated(unsafe) private static let settled: NSCache<NSString, Parsed> = {
-        let cache = NSCache<NSString, Parsed>()
+    nonisolated(unsafe) private static let settled: NSCache<SettledKey, Parsed> = {
+        let cache = NSCache<SettledKey, Parsed>()
         cache.totalCostLimit = 8 << 20
         return cache
     }()
+
+    // An NSString key hashes only its length and a few runs of characters, so segments
+    // that open, close and centre alike all share one hash and every lookup walks them
+    // all. This one hashes every byte, eight at a time: each settled segment is looked up
+    // on every flush, so a slower hash costs more than the parse it saves. Bytes are
+    // compared, not Characters, as NSString does: "é" and "e\u{301}" are equal Strings
+    // but parse into different text.
+    final class SettledKey: NSObject, Sendable {
+        let text: String
+        init(_ text: String) { self.text = text }
+
+        override var hash: Int {
+            var bytes = text
+            return bytes.withUTF8 { buffer in
+                let raw = UnsafeRawBufferPointer(buffer)
+                var hash = UInt64(raw.count)
+                func mix(_ word: UInt64) {
+                    hash = (hash ^ word) &* 0x9E37_79B9_7F4A_7C15
+                    hash ^= hash >> 32
+                }
+                var offset = 0
+                while offset + 8 <= raw.count {
+                    mix(raw.loadUnaligned(fromByteOffset: offset, as: UInt64.self))
+                    offset += 8
+                }
+                var tail: UInt64 = 0
+                for byte in raw[offset...].reversed() { tail = tail << 8 | UInt64(byte) }
+                mix(tail)
+                return Int(truncatingIfNeeded: hash)
+            }
+        }
+
+        override func isEqual(_ object: Any?) -> Bool {
+            guard let other = object as? SettledKey else { return false }
+            var mine = text, theirs = other.text
+            return mine.withUTF8 { a in
+                theirs.withUTF8 { b in a.count == b.count && (a.isEmpty || memcmp(a.baseAddress!, b.baseAddress!, a.count) == 0) }
+            }
+        }
+    }
 
     private final class Parsed: Sendable {
         let blocks: [MarkdownBlock]
