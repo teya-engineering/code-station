@@ -98,8 +98,8 @@ struct ShortcutsView: View {
                 .motion(Motion.control, value: kind)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Filter shortcuts by type")
-                Label(shortcuts.contains(where: \.favorite) ? "Starred shortcuts stay at the top."
-                      : "Star a shortcut to keep it at the top.", systemImage: "star")
+                Label(shortcuts.contains(where: \.favorite) ? "Drag to sort. Starred shortcuts stay at the top."
+                      : "Drag to sort. Star one to keep it at the top.", systemImage: "star")
                     .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Space.xxs)
@@ -114,6 +114,7 @@ struct ShortcutsView: View {
                                 emptyDetail: emptyDetail,
                                 clearSearch: { query = ""; kind = nil },
                                 select: { shortcut in guardChanges { select(shortcut) } },
+                                move: { store.moveInLibrary($0, beside: $1, after: $2) },
                                 favorite: { shortcut in
                                     if store.toggleFavorite(shortcut.id) {
                                         let message = "\(shortcut.name) \(shortcut.favorite ? "removed from" : "added to") favorites"
@@ -303,9 +304,20 @@ struct ShortcutLibraryList: View {
     let emptyDetail: String
     let clearSearch: () -> Void
     let select: (Shortcut) -> Void
+    // Puts the first shortcut just before the second, or after it when the flag is set.
+    let move: (Shortcut.ID, Shortcut.ID, Bool) -> Void
     let favorite: (Shortcut) -> Void
     @FocusState private var focusedStar: Shortcut.ID?
     @State private var movingID: Shortcut.ID?
+    @State private var drag = SidebarDrag()
+
+    // Starred shortcuts always sit above the rest, so a row only takes a drop from its
+    // own side of that line. Anywhere else the drop would land somewhere other than
+    // where the line showed it.
+    private func takesDrop(beside target: Shortcut) -> Bool {
+        guard let dragged = drag.itemID.flatMap({ id in shortcuts.first { $0.id == id } }) else { return true }
+        return dragged.favorite == target.favorite
+    }
 
     static let rowHeight: CGFloat = 52
 
@@ -335,6 +347,13 @@ struct ShortcutLibraryList: View {
                             Task { @MainActor in
                                 await Task.yield()
                                 scroller.scrollTo(shortcut.id)
+                            }
+                        }
+                        .sidebarDrag(shortcut.id, reorders: takesDrop(beside: shortcut), drags: true,
+                                     drag: $drag) { id, after in
+                            movingID = id
+                            withAnimation(reduceMotion ? nil : Motion.control) {
+                                move(id, shortcut.id, after)
                             }
                         }
                         .id(shortcut.id)

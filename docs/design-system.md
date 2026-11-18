@@ -240,6 +240,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A key beside its value | `LabeledRow` |
 | A reviewer's model or effort menu | `SeatPill` (`Controls/SeatPill.swift`), with `.appMenu`. Pass `form: true` to fill the available width and wrap long labels, keeping a minimum `ControlHeight.sm` height. The default stays compact. |
 | A keyboard shortcut the person sets by pressing it | `KeyRecorder` |
+| Sort a list by dragging its rows | `.sidebarDrag(_:reorders:drags:drag:onMove:)` (`App/Navigation/SidebarReorder.swift`), with one `SidebarDrag` state per list. It draws the line where the row will land. Set `reorders` to false on rows the dragged one may not sit beside. |
 
 **Structure**
 

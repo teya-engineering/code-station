@@ -26,6 +26,7 @@ struct SessionRunButton: View {
     @State private var buttonAnchor = FrameAnchor()
     @State private var listAnchor = FrameAnchor()
     @State private var listMonitor = CommandListMonitor()
+    @State private var drag = SidebarDrag()
 
     private var scope: ShortcutScope { .session(session.id) }
 
@@ -156,6 +157,7 @@ struct SessionRunButton: View {
                 .frame(height: min(330, CGFloat(rows.count - 2) * 58 + 120))
                 .onChange(of: highlighted) { _, index in scroller.scrollTo(index) }
             }
+            orderNote
             Divider().overlay(Theme.hairline)
             HStack {
                 footerAction("Add shortcut", icon: "plus", row: .new)
@@ -174,9 +176,84 @@ struct SessionRunButton: View {
         .background(FrameAnchorView(anchor: listAnchor))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Shortcuts")
+        .motion(Motion.reveal, value: orderSource)
         .onChange(of: query) { _, _ in highlighted = 0 }
         .onChange(of: focusedRow) { _, id in
             if let index = rows.firstIndex(where: { $0.id == id }) { highlighted = index }
+        }
+    }
+
+    // MARK: - Sorting
+
+    private enum OrderSource: Equatable {
+        case standard
+        case project
+        case session
+    }
+
+    private var orderSource: OrderSource {
+        if shortcuts.hasOwnOrder(scope) { return .session }
+        if shortcuts.hasOwnOrder(.project(session.projectID)) { return .project }
+        return .standard
+    }
+
+    // A drag sorts this session only. The note says whose order the list is in and
+    // offers the two ways out: hand it to the project, or go back to the one above.
+    @ViewBuilder private var orderNote: some View {
+        let source = orderSource
+        if source != .standard {
+            let projectName = store.project(session.projectID)?.name ?? "the project"
+            HStack(spacing: Space.sm) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .accessibilityHidden(true)
+                Text(source == .session ? "Sorted for this session" : "Sorted for \(projectName)")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: Space.sm)
+                if source == .session {
+                    InlineLink(title: "Use for project", size: Typography.Size.caption) {
+                        sort { shortcuts.keepSessionOrder(session.id, for: session.projectID) }
+                    }
+                    .appTooltip("Sort every session in \(projectName) this way")
+                }
+                InlineLink(title: "Reset", size: Typography.Size.caption) {
+                    sort { shortcuts.resetOrder(for: source == .session ? scope : .project(session.projectID)) }
+                }
+                .appTooltip(source == .session && shortcuts.hasOwnOrder(.project(session.projectID))
+                            ? "Go back to the order of \(projectName)" : "Go back to the order in Settings")
+            }
+            .font(Typography.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Space.sm)
+            .transition(.fadeIn)
+        }
+    }
+
+    private func sort(_ change: () -> Void) {
+        withAnimation(reduceMotion ? nil : Motion.control) { change() }
+    }
+
+    // Prompts and commands sit in their own groups, and starred ones above the rest of
+    // their group, so a card only takes a drop from a card in the same place. Anywhere
+    // else the drop would land somewhere other than where the line showed it.
+    private func takesDrop(beside target: Entry) -> Bool {
+        guard let dragged = drag.itemID.flatMap({ id in entries.first { $0.id == id } }) else { return true }
+        return dragged.shortcut.kind == target.shortcut.kind
+            && dragged.shortcut.favorite == target.shortcut.favorite
+    }
+
+    // Sorting a filtered list would have to guess where the hidden cards go, so cards
+    // only move while the whole list is showing.
+    private func sortable(_ entry: Entry, card: some View) -> some View {
+        card.sidebarDrag(entry.id, reorders: query.isBlank && takesDrop(beside: entry),
+                         drags: query.isBlank, drag: $drag) { id, after in
+            let shown = rows.compactMap { row -> Shortcut.ID? in
+                switch row {
+                case .prompt(let entry), .command(let entry): entry.id
+                default: nil
+                }
+            }
+            sort { shortcuts.move(id, beside: entry.id, after: after, in: shown, for: scope) }
         }
     }
 
@@ -206,17 +283,17 @@ struct SessionRunButton: View {
                         detail: .command(command),
                         tint: nil, dashed: true, highlighted: highlighted) { choose(row) }
         case .prompt(let entry):
-            CommandCard(icon: entry.shortcut.icon ?? ShortcutKind.prompt.icon,
-                        name: entry.shortcut.name, detail: .plain(entry.shortcut.text),
-                        tint: entry.tint, dashed: false, highlighted: highlighted,
-                        verb: "Insert") { choose(row) }
+            sortable(entry, card: CommandCard(icon: entry.shortcut.icon ?? ShortcutKind.prompt.icon,
+                                              name: entry.shortcut.name, detail: .plain(entry.shortcut.text),
+                                              tint: entry.tint, dashed: false, highlighted: highlighted,
+                                              verb: "Insert") { choose(row) })
                 .appContextMenu { promptMenu(entry) }
         case .command(let command):
-            CommandCard(icon: command.shortcut.glyph ?? "terminal",
-                        name: command.shortcut.name,
-                        detail: .outcome(summary(of: command)),
-                        tint: command.tint, dashed: false, highlighted: highlighted,
-                        verb: shortcuts.state(command.run).isActive ? "Output" : "Run") { choose(row) }
+            sortable(command, card: CommandCard(icon: command.shortcut.glyph ?? "terminal",
+                                                name: command.shortcut.name,
+                                                detail: .outcome(summary(of: command)),
+                                                tint: command.tint, dashed: false, highlighted: highlighted,
+                                                verb: shortcuts.state(command.run).isActive ? "Output" : "Run") { choose(row) })
                 .appContextMenu { commandMenu(command) }
         }
     }
@@ -455,7 +532,7 @@ struct SessionRunButton: View {
     private var entries: [Entry] {
         let checkouts = store.checkoutProjects(for: session)
         let tinted = checkouts.count > 1
-        return shortcuts.shortcuts(for: checkouts.map(\.projectID)).compactMap { placement in
+        return shortcuts.shortcuts(for: checkouts.map(\.projectID), session: session.id).compactMap { placement in
             guard let checkout = checkouts.first(where: { $0.projectID == placement.projectID })
             else { return nil }
             let project = store.project(checkout.projectID)
@@ -472,7 +549,7 @@ struct SessionRunButton: View {
     }
 
     // What Run offers before this session has run anything is the first command, the
-    // one the project put at the top of its list.
+    // one sorted to the top of the list.
     private func current(in commands: [Entry]) -> Entry? {
         let last = shortcuts.lastStarted(for: scope)
         return commands.first { $0.id == last } ?? commands.first

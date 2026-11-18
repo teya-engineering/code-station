@@ -132,17 +132,24 @@ final class ShortcutStore {
         }
     }
 
+    // The orders are keyed by the UUID string, because a dictionary with UUID keys is
+    // written to JSON as a flat list of keys and values rather than as an object.
     private struct Persisted: Codable {
         var shortcuts: [Shortcut]
         var importedSiteShortcutIDs: [UUID]?
+        var projectOrders: [String: [UUID]]?
+        var sessionOrders: [String: [UUID]]?
 
         enum CodingKeys: String, CodingKey {
-            case shortcuts, importedSiteShortcutIDs
+            case shortcuts, importedSiteShortcutIDs, projectOrders, sessionOrders
         }
 
-        init(shortcuts: [Shortcut], importedSiteShortcutIDs: [UUID]) {
+        init(shortcuts: [Shortcut], importedSiteShortcutIDs: [UUID],
+             projectOrders: [UUID: [UUID]], sessionOrders: [UUID: [UUID]]) {
             self.shortcuts = shortcuts
             self.importedSiteShortcutIDs = importedSiteShortcutIDs
+            self.projectOrders = projectOrders.isEmpty ? nil : Self.encode(projectOrders)
+            self.sessionOrders = sessionOrders.isEmpty ? nil : Self.encode(sessionOrders)
         }
 
         init(from decoder: any Decoder) throws {
@@ -150,6 +157,20 @@ final class ShortcutStore {
             shortcuts = try container.decode([Shortcut].self, forKey: .shortcuts)
             importedSiteShortcutIDs = try container.decodeIfPresent([UUID].self,
                                                                     forKey: .importedSiteShortcutIDs)
+            projectOrders = try container.decodeIfPresent([String: [UUID]].self, forKey: .projectOrders)
+            sessionOrders = try container.decodeIfPresent([String: [UUID]].self, forKey: .sessionOrders)
+        }
+
+        static func encode(_ orders: [UUID: [UUID]]) -> [String: [UUID]] {
+            Dictionary(uniqueKeysWithValues: orders.map { ($0.key.uuidString, $0.value) })
+        }
+
+        static func decode(_ orders: [String: [UUID]]?) -> [UUID: [UUID]] {
+            var decoded: [UUID: [UUID]] = [:]
+            for (key, value) in orders ?? [:] {
+                if let id = UUID(uuidString: key) { decoded[id] = value }
+            }
+            return decoded
         }
     }
 
@@ -172,6 +193,10 @@ final class ShortcutStore {
     // view because a pane is thrown away and built again every time the sidebar moves,
     // and a command started before switching away is the one most worth coming back to.
     private var openOutput: [ShortcutScope: ShortcutRun] = [:]
+    // A project or a session can keep its own order of the shortcuts it shows. Without
+    // one, it follows the order of the saved list, which is the order set in Settings.
+    private(set) var projectOrders: [UUID: [Shortcut.ID]] = [:]
+    private(set) var sessionOrders: [UUID: [Shortcut.ID]] = [:]
     private(set) var loadError: String?
     private(set) var saveError: String?
     private var importedSiteShortcutIDs = Set(SiteDefaults.current.startingShortcuts.map(\.id))
@@ -246,7 +271,7 @@ final class ShortcutStore {
     }
 
     // The ones filed under the Mac, and the ones available to one project. Both keep the
-    // order they were added in, so a list never reshuffles itself under the reader.
+    // order of the saved list, which only changes when the reader drags a shortcut.
     var macShortcuts: [Shortcut] {
         shortcuts.filter { $0.projectID == nil }
     }
@@ -279,22 +304,113 @@ final class ShortcutStore {
     }
 
     func shortcuts(for projectID: UUID) -> [Shortcut] {
-        shortcuts.filter {
+        Self.ordering(shortcuts.filter {
             $0.projectID == projectID || ($0.projectID == nil && $0.availableInAllProjects)
-        }
+        }, by: projectOrders[projectID])
     }
 
     // A shared shortcut is available through every project, but a workspace should only
     // show one chip for it. The first project is the workspace lead, so it also supplies
     // the checkout where that single chip runs.
-    func shortcuts(for projectIDs: [UUID]) -> [ShortcutPlacement] {
+    func shortcuts(for projectIDs: [UUID], session sessionID: UUID? = nil) -> [ShortcutPlacement] {
         var seen: Set<Shortcut.ID> = []
-        return projectIDs.flatMap { projectID in
-            shortcuts(for: projectID).compactMap { shortcut in
+        let placements = projectIDs.flatMap { projectID in
+            shortcuts(for: projectID).compactMap { shortcut -> ShortcutPlacement? in
                 guard seen.insert(shortcut.id).inserted else { return nil }
                 return ShortcutPlacement(shortcut: shortcut, projectID: projectID)
             }
         }
+        return Self.ordering(placements, by: sessionID.flatMap { sessionOrders[$0] })
+    }
+
+    // MARK: - Order
+
+    // The ones the saved order names come first, in that order. Anything it does not name,
+    // such as a shortcut added after the order was set, follows in its default place.
+    static func ordering<Item: Identifiable>(_ items: [Item], by order: [Item.ID]?) -> [Item] {
+        guard let order, !order.isEmpty else { return items }
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let named = items.filter { rank[$0.id] != nil }.sorted { rank[$0.id]! < rank[$1.id]! }
+        return named + items.filter { rank[$0.id] == nil }
+    }
+
+    // Puts one id just before or after another. An id that is missing from the list, or
+    // dropped on itself, leaves the list as it was.
+    static func moving<ID: Equatable>(_ id: ID, beside target: ID, after: Bool, in ids: [ID]) -> [ID] {
+        guard id != target, let from = ids.firstIndex(of: id), ids.contains(target) else { return ids }
+        var moved = ids
+        moved.remove(at: from)
+        let to = moved.firstIndex(of: target)! + (after ? 1 : 0)
+        moved.insert(id, at: to)
+        return moved
+    }
+
+    func hasOwnOrder(_ scope: ShortcutScope) -> Bool {
+        switch scope {
+        case .project(let id): projectOrders[id] != nil
+        case .session(let id): sessionOrders[id] != nil
+        }
+    }
+
+    // Reorders the saved list itself, which is the default every project and session
+    // follows until it is given an order of its own.
+    @discardableResult
+    func moveInLibrary(_ id: Shortcut.ID, beside target: Shortcut.ID, after: Bool) -> Bool {
+        let ids = Self.moving(id, beside: target, after: after, in: shortcuts.map(\.id))
+        guard ids != shortcuts.map(\.id) else { return false }
+        let previous = shortcuts
+        let byID = Dictionary(uniqueKeysWithValues: shortcuts.map { ($0.id, $0) })
+        shortcuts = ids.compactMap { byID[$0] }
+        guard save() else {
+            shortcuts = previous
+            return false
+        }
+        return true
+    }
+
+    // Gives a project or session its own order. The caller passes every id the screen
+    // shows in the order it shows them, so the move is made on what the reader sees.
+    @discardableResult
+    func move(_ id: Shortcut.ID, beside target: Shortcut.ID, after: Bool,
+              in shown: [Shortcut.ID], for scope: ShortcutScope) -> Bool {
+        let ids = Self.moving(id, beside: target, after: after, in: shown)
+        guard ids != shown else { return false }
+        return setOrder(ids, for: scope)
+    }
+
+    // A session's order becomes its project's, so every session of the project that has
+    // no order of its own follows it.
+    @discardableResult
+    func keepSessionOrder(_ sessionID: UUID, for projectID: UUID) -> Bool {
+        guard let order = sessionOrders[sessionID] else { return false }
+        let previous = (projectOrders, sessionOrders)
+        projectOrders[projectID] = order
+        sessionOrders[sessionID] = nil
+        guard save() else {
+            (projectOrders, sessionOrders) = previous
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    func resetOrder(for scope: ShortcutScope) -> Bool {
+        guard hasOwnOrder(scope) else { return true }
+        return setOrder(nil, for: scope)
+    }
+
+    @discardableResult
+    private func setOrder(_ ids: [Shortcut.ID]?, for scope: ShortcutScope) -> Bool {
+        let previous = (projectOrders, sessionOrders)
+        switch scope {
+        case .project(let id): projectOrders[id] = ids
+        case .session(let id): sessionOrders[id] = ids
+        }
+        guard save() else {
+            (projectOrders, sessionOrders) = previous
+            return false
+        }
+        return true
     }
 
     func state(_ run: ShortcutRun) -> State {
@@ -333,6 +449,7 @@ final class ShortcutStore {
     func discard(_ scope: ShortcutScope) {
         openOutput[scope] = nil
         lastStarted[scope] = nil
+        if hasOwnOrder(scope) { setOrder(nil, for: scope) }
     }
 
     // MARK: - Persistence
@@ -344,6 +461,14 @@ final class ShortcutStore {
             if let projectID = persisted.shortcuts[index].projectID, let replacement = ids[projectID] {
                 persisted.shortcuts[index].projectID = replacement
             }
+        }
+        if let orders = persisted.projectOrders {
+            var remapped: [String: [UUID]] = [:]
+            for (key, order) in orders {
+                let replacement = UUID(uuidString: key).flatMap { ids[$0] }
+                remapped[replacement?.uuidString ?? key] = order
+            }
+            persisted.projectOrders = remapped
         }
         return try PersistentFile.makeEncoder().encode(persisted)
     }
@@ -362,6 +487,8 @@ final class ShortcutStore {
         guard let data else {
             shortcuts = siteDefaults.startingShortcuts
             importedSiteShortcutIDs = Set(shortcuts.map(\.id))
+            projectOrders = [:]
+            sessionOrders = [:]
             loadError = nil
             saveError = nil
             return
@@ -377,6 +504,8 @@ final class ShortcutStore {
             shortcuts = persisted.shortcuts
             importedSiteShortcutIDs = Set(persisted.importedSiteShortcutIDs
                 ?? siteDefaults.startingShortcuts.map(\.id))
+            projectOrders = Persisted.decode(persisted.projectOrders)
+            sessionOrders = Persisted.decode(persisted.sessionOrders)
             loadError = nil
             saveError = nil
         } catch {
@@ -394,7 +523,8 @@ final class ShortcutStore {
         do {
             let importedIDs = importedSiteShortcutIDs.sorted { $0.uuidString < $1.uuidString }
             try PersistentFile.saveJSON(
-                Persisted(shortcuts: shortcuts, importedSiteShortcutIDs: importedIDs),
+                Persisted(shortcuts: shortcuts, importedSiteShortcutIDs: importedIDs,
+                          projectOrders: projectOrders, sessionOrders: sessionOrders),
                 to: storageURL)
             saveError = nil
             return true
