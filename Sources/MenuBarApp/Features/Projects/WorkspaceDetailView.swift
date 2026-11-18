@@ -45,6 +45,11 @@ struct WorkspaceDetailView: View {
                 }
             }
             .background(Theme.background)
+            .background(TerminalShortcut(scope: terminalScope,
+                                         directory: store.project(workspace.leadProjectID)?.path ?? "",
+                                         focusTerminal: $terminalFocused)
+                            .disabled(hasMissingProjects(workspace)
+                                      || store.project(workspace.leadProjectID) == nil))
             .overlay(alignment: .topTrailing) {
                 ZStack {
                     if let note {
@@ -731,9 +736,7 @@ struct WorkspaceDetailView: View {
 
     private func toggleTerminal(_ workspace: ProjectWorkspace) {
         guard let lead = store.project(workspace.leadProjectID) else { return }
-        let opening = !terminals.isOpen(terminalScope)
-        terminals.setOpen(opening, for: terminalScope, directory: lead.path)
-        terminalFocused = opening
+        terminalFocused = terminals.toggle(terminalScope, directory: lead.path)
     }
 
     private func missingFolders(_ workspace: ProjectWorkspace) -> some View {
