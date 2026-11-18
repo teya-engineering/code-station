@@ -774,6 +774,7 @@ enum DiffText {
         // files instead, and each section heading names the file the following lines
         // belong to, so the language follows the headings.
         var activeLanguage = withinLimit ? language : nil
+        let marks = withinLimit ? InlineDiff.ranges(lines) : [:]
         let result = NSMutableAttributedString()
         var numbers: [Int: (Int?, Int?)] = [:]
         if numbered {
@@ -824,12 +825,22 @@ enum DiffText {
                 }
                 result.append(NSAttributedString(string: prefix, attributes: numberAttributes))
             }
+            let lineStart = result.length
             if let gap = line.gap {
                 result.append(controls(gap, attributes: attributes))
             } else if let activeLanguage, isCode {
                 result.append(codeLine(line, language: activeLanguage, attributes: attributes))
             } else {
                 result.append(NSAttributedString(string: line.text, attributes: attributes))
+            }
+            // The words that changed sit a shade stronger on the band. The plain
+            // background colour is right here: it stops at the glyphs, which is the point.
+            if let changed = marks[line.id] {
+                let tint = line.kind == .addition ? Theme.additionEmphasisNSColor : Theme.deletionEmphasisNSColor
+                for range in changed {
+                    result.addAttribute(.backgroundColor, value: tint,
+                                        range: NSRange(location: lineStart + 1 + range.location, length: range.length))
+                }
             }
             if comments?.threads.contains(line.id) == true {
                 result.append(NSAttributedString(string: "\n", attributes: attributes))

@@ -72,6 +72,9 @@ struct SideBySideDiff: View {
     @State private var numberFrames: [DiffAnchor: CGRect] = [:]
     @State private var dragStart: DiffAnchor?
     @State private var dragEnd: DiffAnchor?
+    // The words within each changed line that changed, kept rather than worked out on
+    // every pass, since a drag down the numbers redraws the rows many times.
+    @State private var marks: [Int: [NSRange]] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let space = "sideBySideRows"
@@ -125,6 +128,21 @@ struct SideBySideDiff: View {
             }
           }
         }
+        .onChange(of: lines, initial: true) { _, lines in marks = InlineDiff.ranges(lines) }
+    }
+
+    // A line's code, with the words that changed picked out on its band.
+    private func code(_ line: DiffLine?) -> AttributedString {
+        guard let line else { return AttributedString(" ") }
+        let text = String(line.text.dropFirst())
+        var result = AttributedString(text)
+        let tint = line.kind == .addition ? Theme.additionEmphasis : Theme.deletionEmphasis
+        for mark in marks[line.id] ?? [] {
+            guard let range = Range<String.Index>(mark, in: text),
+                  let marked = Range<AttributedString.Index>(range, in: result) else { continue }
+            result[marked].backgroundColor = tint
+        }
+        return result
     }
 
     // A context line is numbered on both sides but commented on in the new version, so
@@ -196,7 +214,7 @@ struct SideBySideDiff: View {
         return HStack(alignment: .top, spacing: Space.md) {
             self.number(number, anchor: anchor)
             Text(line.map { String($0.text.prefix(1)) } ?? "").frame(width: 10)
-            Text(line.map { String($0.text.dropFirst()) } ?? " ")
+            Text(code(line))
                 .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
