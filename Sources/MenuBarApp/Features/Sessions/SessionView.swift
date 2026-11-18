@@ -1345,16 +1345,15 @@ struct SessionView: View {
     }
 
     // Control-backtick reaches the terminal from the keyboard: it opens the drawer if
-    // it is shut, and otherwise moves focus between the composer and the shell. A
-    // hidden button is how a shortcut gets a home when there is no menu item for it.
+    // it is shut, takes the cursor into the shell if the drawer is open but typing goes
+    // elsewhere, and shuts the drawer from inside the shell. A hidden button is how a
+    // shortcut gets a home when there is no menu item for it.
     private func terminalShortcut(directory: String) -> some View {
         Button("") {
-            if !terminals.isOpen(terminalScope) {
-                terminals.setOpen(true, for: terminalScope, directory: directory)
+            if terminals.isOpen(terminalScope), !terminalFocused {
                 terminalFocused = true
             } else {
-                terminalFocused.toggle()
-                if !terminalFocused { composerFocused = true }
+                toggleTerminal(directory: directory)
             }
         }
         .appShortcut(.terminal)

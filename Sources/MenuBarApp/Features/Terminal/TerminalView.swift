@@ -12,13 +12,15 @@ struct TerminalScreen: View {
     // shell can also be hosted by a sheet that carries no overlays of its own.
     @Environment(DialogPresenter.self) private var dialogs: DialogPresenter?
     @Environment(MenuPresenter.self) private var menus: MenuPresenter?
+    @Environment(\.keyBindings) private var keyBindings
 
     let terminal: TerminalSession
     @Binding var isFocused: Bool
 
     var body: some View {
         TerminalHost(surface: terminal.surface, isFocused: $isFocused, textScale: textScale,
-                     claimsKeys: dialogs?.current == nil && menus?.isOpen != true)
+                     claimsKeys: dialogs?.current == nil && menus?.isOpen != true,
+                     drawerKeys: keyBindings.keys(for: .terminal))
             .id(terminal.id)
             .background(Theme.background)
             .overlay {
@@ -48,10 +50,12 @@ private struct TerminalHost: NSViewRepresentable {
     @Binding var isFocused: Bool
     let textScale: CGFloat
     let claimsKeys: Bool
+    let drawerKeys: KeyCombo?
 
     func makeNSView(context: Context) -> NSView {
         surface.applyTextScale(textScale)
         surface.claimsKeys = claimsKeys
+        surface.drawerKeys = drawerKeys
         let container = NSView()
         install(in: container)
         return container
@@ -60,6 +64,7 @@ private struct TerminalHost: NSViewRepresentable {
     func updateNSView(_ container: NSView, context: Context) {
         if surface.superview !== container { install(in: container) }
         surface.claimsKeys = claimsKeys
+        surface.drawerKeys = drawerKeys
         // Resizing the type reflows the shell, so this only runs when the size has
         // actually changed rather than on every pass through here.
         surface.applyTextScale(textScale)
@@ -93,6 +98,9 @@ final class TerminalSurface: SwiftTerm.TerminalView {
     // Whether the shell is the one being typed into, or something the app has drawn over
     // it is. Only the view layer can tell, so it says.
     var claimsKeys = true
+    // The key that opens and shuts the drawer, as the person has it set. It is the way
+    // back out of a focused shell, so the shell never gets it.
+    var drawerKeys: KeyCombo?
     // What the app wants, as opposed to what AppKit currently has. The two come apart
     // whenever the window stops being the key one.
     var wantsFocus = false
@@ -167,19 +175,19 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         case shell
         case app
         case clear
-        case focusOut
     }
 
-    static func route(_ event: NSEvent, claimsKeys: Bool) -> KeyRoute {
+    static func route(_ event: NSEvent, claimsKeys: Bool, drawerKeys: KeyCombo?) -> KeyRoute {
         guard claimsKeys else { return .app }
+        // The drawer's own key is checked first, so it still works when it has been set
+        // to a Control key, or to the Command key the shell would otherwise clear with.
+        // Nothing else would be left to leave the shell with.
+        if drawerKeys?.matches(event) == true { return .app }
         let characters = event.charactersIgnoringModifiers
         if event.modifierFlags.contains(.command) {
             // Clearing the screen is the one Command key the shell answers.
             return characters == "k" ? .clear : .app
         }
-        // Control-backtick is the way back out of a focused terminal, so the app keeps
-        // it. Nothing else would be left to move focus with.
-        if event.modifierFlags.contains(.control), characters == "`" { return .focusOut }
         return .shell
     }
 
@@ -187,19 +195,19 @@ final class TerminalSurface: SwiftTerm.TerminalView {
     // that split: a menu item and the hidden button behind a SwiftUI keyboard shortcut
     // are each offered a key press before the first responder sees it, so a plain Escape
     // or a Control key bound anywhere else in the window would never arrive. A monitor
-    // runs ahead of both, and hands the shell its keys directly.
+    // runs ahead of both, and hands the shell its keys directly. A key left for the app
+    // is passed on untouched, so it takes the same way to a menu item or a hidden
+    // shortcut button that it would with any other view focused.
     private func interceptAppKeys() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, self.window?.firstResponder === self,
                       event.window === self.window else { return false }
-                switch Self.route(event, claimsKeys: self.claimsKeys) {
+                switch Self.route(event, claimsKeys: self.claimsKeys, drawerKeys: self.drawerKeys) {
                 case .app:
                     return false
                 case .clear:
                     self.onClear?()
-                case .focusOut:
-                    self.nextResponder?.keyDown(with: event)
                 case .shell:
                     self.keyDown(with: event)
                 }

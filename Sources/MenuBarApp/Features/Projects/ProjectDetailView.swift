@@ -576,13 +576,14 @@ struct ProjectDetailView: View {
 
     // MARK: - Terminal
 
+    // Opens the drawer, takes the cursor into an open one, and shuts it from inside the
+    // shell, the same three steps as in a session.
     private func terminalShortcut(_ project: Project) -> some View {
         Button("") {
-            if !terminals.isOpen(terminalScope) {
-                terminals.setOpen(true, for: terminalScope, directory: project.path)
+            if terminals.isOpen(terminalScope), !terminalFocused {
                 terminalFocused = true
             } else {
-                terminalFocused.toggle()
+                toggleTerminal(directory: project.path)
             }
         }
         .appShortcut(.terminal)

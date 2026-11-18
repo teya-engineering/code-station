@@ -102,7 +102,7 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
                  keys: nil, scope: .window, alsoKeys: (1...9).map { KeyCombo("\($0)") }, label: "⌘ 1 … ⌘ 9")
         case .terminal:
             Info(title: "Terminal",
-                 detail: "Open the terminal drawer, then move between the shell and the composer.",
+                 detail: "Open the terminal drawer, move the cursor into it, or close it from the shell.",
                  keys: KeyCombo("`", .control), scope: .window, canChange: true)
         case .findInConversation:
             Info(title: "Find in the conversation", detail: "Search what was said in this session. ⌃ F works too.",

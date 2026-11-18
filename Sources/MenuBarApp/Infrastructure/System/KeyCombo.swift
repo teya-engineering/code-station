@@ -38,7 +38,11 @@ struct KeyCombo: Hashable, Codable, Sendable {
         if let name = Self.names[event.keyCode] {
             self.init(name, modifiers)
         } else {
-            guard let characters = event.charactersIgnoringModifiers, characters.count == 1,
+            // A dead key, such as the backtick on a Brazilian or international layout,
+            // types nothing on its own, so AppKit leaves its plain character empty. Held
+            // with Control it still types its own mark, which is the key it is.
+            let plain = event.charactersIgnoringModifiers ?? ""
+            guard let characters = plain.isEmpty ? event.characters : plain, characters.count == 1,
                   let scalar = characters.unicodeScalars.first,
                   !CharacterSet.controlCharacters.contains(scalar),
                   // The arrow, function and page keys type characters from a private range.
