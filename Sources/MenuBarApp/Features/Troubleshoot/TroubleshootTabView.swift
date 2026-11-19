@@ -469,7 +469,8 @@ struct TroubleshootTabView: View {
             defer { isStarting = false }
             let managedServers = configs.servers
             var disabledServers: [DisabledMCPServer] = []
-            if session.agent != .claudeCode, let directory, !enableMCPServers {
+            // Kiro is handed no servers of the app's, so there is nothing to switch off.
+            if [.codex, .copilot].contains(session.agent), let directory, !enableMCPServers {
                 do {
                     disabledServers = try await session.agent == .copilot
                         ? copilot.enabledServers(in: directory)

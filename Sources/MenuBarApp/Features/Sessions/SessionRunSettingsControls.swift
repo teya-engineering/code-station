@@ -26,9 +26,9 @@ struct SessionRunSettingsControls: View {
                     .appTooltip("This session always runs on \(agent.title).")
                     .accessibilityLabel("Agent: \(agent.title)")
                 modelControl(session, lastRan: session.usage?.model(for: agent))
-                effortControl(agent: agent)
+                if agent.choosesEffort { effortControl(agent: agent) }
                 switch agent {
-                case .claudeCode: permissionsControl(agent: agent)
+                case .claudeCode, .kiro: permissionsControl(agent: agent)
                 case .codex: codexAccessControl(agent: agent)
                 case .copilot: copilotAccessControl(agent: agent)
                 }
@@ -194,7 +194,7 @@ struct SessionRunSettingsControls: View {
             overridden: settings.permissionMode != nil,
             help: "How much the agent asks before it acts.",
             defaultEntry: (title: defaultTitle(appDefault.shortTitle), tone: TrustTone(appDefault)),
-            options: PermissionMode.allCases.map {
+            options: PermissionMode.choices(for: agent).map {
                 ShieldOption(id: $0, title: $0.shortTitle, detail: $0.title,
                              tone: TrustTone($0))
             },

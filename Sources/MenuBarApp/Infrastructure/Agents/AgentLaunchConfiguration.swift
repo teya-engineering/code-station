@@ -97,6 +97,10 @@ struct AgentLaunchConfiguration: Sendable {
             if let effort { arguments += ["--effort", effort] }
             for directory in addDirectories { arguments += ["--add-dir", directory] }
             return arguments
+        case .kiro:
+            // Kiro always runs as a session server (see AgentServerLaunch); these are the
+            // same arguments, for anything that asks before the server launch is made.
+            return ["acp", "--agent-engine", "v3"]
         }
     }
 

@@ -267,10 +267,12 @@ struct SessionTitleRunnerTests {
 
     private func script(_ agent: AgentKind, holdsTitle: Bool = false,
                         titleOutcome: String = "success") -> String {
+        if agent == .kiro { return kiroScript(holdsTitle: holdsTitle, titleOutcome: titleOutcome) }
         let read = switch agent {
         case .claudeCode: "IFS= read -r input"
         case .codex: "input=$(cat)"
         case .copilot: "input=\"$*\""
+        case .kiro: fatalError("Kiro is scripted by kiroScript")
         }
         let output = switch agent {
         case .claudeCode:
@@ -287,6 +289,7 @@ struct SessionTitleRunnerTests {
             """
             printf '%s\\n' '{"type":"assistant.message","data":{"messageId":"answer","content":"'"$answer"'"}}'
             """
+        case .kiro: fatalError("Kiro is scripted by kiroScript")
         }
         let completion = switch agent {
         case .claudeCode:
@@ -301,6 +304,7 @@ struct SessionTitleRunnerTests {
             """
             printf '%s\\n' '{"type":"result","sessionId":"copilot-1","exitCode":0}'
             """
+        case .kiro: fatalError("Kiro is scripted by kiroScript")
         }
         return """
         \(read)
@@ -325,5 +329,31 @@ struct SessionTitleRunnerTests {
         fi
         \(completion)
         """
+    }
+
+    // Kiro is a session server speaking ACP, so the turn's choices are made per prompt.
+    private func kiroScript(holdsTitle: Bool, titleOutcome: String) -> String {
+        FixtureCLI.kiroServer(onPrompt: """
+            kind=work
+            answer='Work complete'
+            case "$line" in
+                *'Return only the title.'*) kind=title; answer='Fix login retries' ;;
+                *'Return only the recap.'*) kind=recap; answer='The retry fix is complete. Review it next.' ;;
+            esac
+            printf '%s\\n' "$kind" >> "$folder/starts"
+            if [ "$kind" = title ]; then
+                case '\(titleOutcome)' in
+                    failure) exit 1 ;;
+                    empty) answer='' ;;
+                    verbose) answer='Here is a title and an explanation of all of the changes made in this session' ;;
+                esac
+            fi
+            kiro_say "$answer"
+            if [ "$kind" = title ] && [ '\(holdsTitle)' = true ]; then
+                : > "$folder/title-streamed"
+                wait_for "$folder/release-title"
+            fi
+            kiro_end
+            """)
     }
 }

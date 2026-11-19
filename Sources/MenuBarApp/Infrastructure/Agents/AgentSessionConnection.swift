@@ -9,6 +9,8 @@ final class AgentSessionConnection: @unchecked Sendable {
         case agentStatus(String, Int)
         case cancel, ignore
         case steer
+        // Kiro: a session option set before the first prompt, such as the model.
+        case configure
     }
 
     private let lock = NSLock()
@@ -32,12 +34,17 @@ final class AgentSessionConnection: @unchecked Sendable {
     private var agentReads: Set<String> = []
     private var terminals: [BackgroundTask] = []
     private let copilot = CopilotStream()
+    private let kiro = KiroStream()
+    // Kiro's permission requests waiting on the person, by the id the card carries.
+    private var kiroPermissions: [String: (id: Any, options: [[String: Any]])] = [:]
+    // Kiro session options still to be set before the first prompt goes out.
+    private var kiroOptions: [(id: String, value: String)] = []
     private var usageBaseline: [String: Int]?
     private var activeTurnID: String?
     private var questions: [String: (id: Any, method: String, params: [String: Any])] = [:]
 
     init(launch: AgentServerLaunch, write: @escaping @Sendable (Data) -> Bool) {
-        framer = AgentMessageFramer(format: launch.agent == .codex ? .jsonLines : .contentLength)
+        framer = AgentMessageFramer(format: launch.agent == .copilot ? .contentLength : .jsonLines)
         self.launch = launch
         self.write = write
     }
@@ -48,6 +55,16 @@ final class AgentSessionConnection: @unchecked Sendable {
             if launch.agent == .codex {
                 request("initialize", ["clientInfo": ["name": "code_station", "version": "1.0"],
                                        "capabilities": ["experimentalApi": true]], as: .initialize)
+            } else if launch.agent == .kiro {
+                // The app reads and writes no files on the agent's behalf and runs no
+                // terminals for it. It does run sign-in in a terminal of its own, which
+                // is what the terminal-auth flag tells Kiro.
+                request("initialize", [
+                    "protocolVersion": 1,
+                    "clientCapabilities": ["fs": ["readTextFile": false, "writeTextFile": false],
+                                           "terminal": false, "_meta": ["terminal-auth": true]],
+                    "clientInfo": ["name": "code-station", "version": "1.0"],
+                ], as: .initialize)
             } else {
                 openSession()
             }
@@ -100,6 +117,10 @@ final class AgentSessionConnection: @unchecked Sendable {
             idle = false
             if launch.agent == .codex {
                 request("thread/backgroundTerminals/clean", ["threadId": sessionID], as: .cancel)
+            } else if launch.agent == .kiro {
+                // ACP's cancel is a notification. The prompt it stops answers with a
+                // cancelled stop reason, which is what ends the turn.
+                emit(["jsonrpc": "2.0", "method": "session/cancel", "params": ["sessionId": sessionID]])
             } else {
                 for task in tasks {
                     request("session.tasks.cancel", ["sessionId": sessionID, "id": task.id], as: .cancel)
@@ -138,10 +159,10 @@ final class AgentSessionConnection: @unchecked Sendable {
             writeFailed = true
             return
         }
-        var bytes = launch.agent == .codex ? Data()
-            : Data("Content-Length: \(body.count)\r\n\r\n".utf8)
+        var bytes = launch.agent == .copilot
+            ? Data("Content-Length: \(body.count)\r\n\r\n".utf8) : Data()
         bytes.append(body)
-        if launch.agent == .codex { bytes.append(0x0A) }
+        if launch.agent != .copilot { bytes.append(0x0A) }
         if !write(bytes) { writeFailed = true }
     }
 
@@ -153,6 +174,12 @@ final class AgentSessionConnection: @unchecked Sendable {
     private func openSession() {
         var params = (try? JSONSerialization.jsonObject(with: launch.sessionParameters)) as? [String: Any] ?? [:]
         if let initial = params.removeValue(forKey: "initialPrompt") as? String { prompt = initial }
+        if launch.agent == .kiro {
+            // Loading answers without the id it loaded, so the id asked for is the one kept.
+            sessionID = launch.resume ? params["sessionId"] as? String : nil
+            request(launch.resume ? "session/load" : "session/new", params, as: .session)
+            return
+        }
         request(launch.agent == .codex ? (launch.resume ? "thread/resume" : "thread/start")
                 : (launch.resume ? "session.resume" : "session.create"), params, as: .session)
     }
@@ -167,12 +194,18 @@ final class AgentSessionConnection: @unchecked Sendable {
         if launch.agent == .codex {
             request("turn/start", ["threadId": sessionID,
                                    "input": [["type": "text", "text": prompt]]], as: .send)
+        } else if launch.agent == .kiro {
+            request("session/prompt", ["sessionId": sessionID,
+                                       "prompt": [["type": "text", "text": prompt]]], as: .send)
         } else {
             request("session.send", ["sessionId": sessionID, "prompt": prompt], as: .send)
         }
     }
 
     private func requestTasks(cursor: String? = nil) {
+        // Kiro has no list of background work to ask for: a turn is over when its prompt
+        // is answered.
+        guard launch.agent != .kiro else { return }
         guard let sessionID, cursor != nil || !taskRequestPending else { return }
         taskRequestPending = true
         var params: [String: Any] = [launch.agent == .codex ? "threadId" : "sessionId": sessionID]
@@ -188,7 +221,11 @@ final class AgentSessionConnection: @unchecked Sendable {
             guard !ending else { return [] }
             let params = message.params
             if let id = message.id { return serverRequest(id: id, method: method, params: params) }
-            return launch.agent == .codex ? codexNotification(method, params) : copilotNotification(method, params)
+            switch launch.agent {
+            case .codex: return codexNotification(method, params)
+            case .kiro: return kiroNotification(method, params)
+            default: return copilotNotification(method, params)
+            }
         }
         guard let id = message.id as? Int, let kind = requests.remove(id) else { return [] }
         switch kind {
@@ -220,9 +257,18 @@ final class AgentSessionConnection: @unchecked Sendable {
         let result = message.result
         switch kind {
         case .initialize:
-            emit(["jsonrpc": "2.0", "method": "initialized", "params": [:]])
+            if launch.agent != .kiro { emit(["jsonrpc": "2.0", "method": "initialized", "params": [:]]) }
             openSession()
         case .session:
+            if launch.agent == .kiro {
+                sessionID = sessionID ?? result["sessionId"] as? String
+                guard let sessionID else {
+                    return [.finished(isError: true, message: "Kiro did not return a session ID.")]
+                }
+                kiroOptions = kiroSessionOptions(current: result["configOptions"] as? [[String: Any]])
+                configureKiroOrSend()
+                return [.initialized(sessionID: sessionID)]
+            }
             sessionID = launch.agent == .codex
                 ? (result["thread"] as? [String: Any])?["id"] as? String : result["sessionId"] as? String
             guard let sessionID else {
@@ -279,10 +325,57 @@ final class AgentSessionConnection: @unchecked Sendable {
                 tasks = []
                 return [.backgroundTasks([]), .finished(isError: false, message: nil)]
             }
+        case .configure:
+            configureKiroOrSend()
+        case .send where launch.agent == .kiro:
+            // The prompt's answer is the end of the turn: ACP has nothing else to wait on.
+            idle = true
+            var events = kiro.finish()
+            switch result["stopReason"] as? String {
+            case "refusal":
+                events.append(.finished(isError: true, message: "Kiro declined to answer this request."))
+            case "max_tokens":
+                events.append(.finished(isError: true, message: "Kiro stopped: the reply reached its length limit."))
+            case "max_turn_requests":
+                events.append(.finished(isError: true, message: "Kiro stopped: the turn made too many model requests."))
+            default:
+                events.append(.finished(isError: false, message: nil))
+            }
+            return events
         case .send, .ignore, .steer:
             break
         }
         return []
+    }
+
+    // The options a Kiro session is opened with before its first prompt: the model the
+    // session chose, and Kiro's own planning mode for a plan-first session. An option the
+    // session already has is not set again.
+    private func kiroSessionOptions(current: [[String: Any]]?) -> [(id: String, value: String)] {
+        func now(_ id: String) -> String? {
+            current?.first { $0["id"] as? String == id }?["currentValue"] as? String
+        }
+        var wanted: [(id: String, value: String)] = []
+        if let model = launch.model, now("model") != model { wanted.append(("model", model)) }
+        // Planning is asked for outright. Leaving it is only sent to a session Kiro says
+        // is still planning, which a resumed one can be.
+        if launch.permissionMode == .plan {
+            if now("mode") != "plan" { wanted.append(("mode", "plan")) }
+        } else if now("mode") == "plan" {
+            wanted.append(("mode", "vibe"))
+        }
+        return wanted
+    }
+
+    private func configureKiroOrSend() {
+        guard let sessionID else { return }
+        guard !kiroOptions.isEmpty else {
+            sendPrompt(prompt)
+            return
+        }
+        let option = kiroOptions.removeFirst()
+        request("session/set_config_option",
+                ["sessionId": sessionID, "configId": option.id, "value": option.value], as: .configure)
     }
 
     private func taskEvents() -> [StreamEvent] {
@@ -443,7 +536,58 @@ private extension AgentSessionConnection {
         return copilot.events(event)
     }
 
+    func kiroNotification(_ method: String, _ params: [String: Any]) -> [StreamEvent] {
+        guard method == "session/update", params["sessionId"] as? String == sessionID,
+              let update = params["update"] as? [String: Any] else { return [] }
+        let events = kiro.events(update)
+        if events.contains(where: { if case .turnStarted = $0 { return true }; return false }) {
+            hasStartedTurn = true
+            generation += 1
+            idle = false
+        }
+        return events
+    }
+
+    // Kiro asks before a call its own settings do not already allow. The session's access
+    // mode answers what it covers - edits inside the session's folders, when edits are
+    // allowed - and everything else goes to the person.
+    func kiroPermission(id: Any, params: [String: Any]) -> [StreamEvent] {
+        let options = params["options"] as? [[String: Any]] ?? []
+        let toolCall = params["toolCall"] as? [String: Any] ?? [:]
+        let callID = toolCall["toolCallId"] as? String ?? ""
+        let consent = ((params["_meta"] as? [String: Any])?["kiro"] as? [String: Any])?["consent"]
+            as? [String: Any]
+        if allowsWithoutAsking(capability: consent?["capability"] as? String,
+                               resource: consent?["resource"] as? String),
+           let allow = options.first(where: { $0["kind"] as? String == "allow_once" })?["optionId"] {
+            emit(["jsonrpc": "2.0", "id": id,
+                  "result": ["outcome": ["outcome": "selected", "optionId": allow]]])
+            return []
+        }
+        let key = UUID().uuidString
+        kiroPermissions[key] = (id, options)
+        return [.permissionRequest(.kiro(id: key, call: kiro.call(callID),
+                                         title: toolCall["title"] as? String ?? "Tool",
+                                         projectPath: launch.directory))]
+    }
+
+    private func allowsWithoutAsking(capability: String?, resource: String?) -> Bool {
+        guard capability == "fs_write",
+              [.acceptEdits, .auto].contains(launch.permissionMode),
+              let resource, !resource.isEmpty else { return false }
+        // Kiro names a file inside the workspace relative to it.
+        guard resource.hasPrefix("/") else { return !resource.hasPrefix("..") }
+        let path = URL(fileURLWithPath: resource).standardizedFileURL.path
+        return ([launch.directory] + launch.directories).contains { root in
+            let root = URL(fileURLWithPath: root).standardizedFileURL.path
+            return path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        }
+    }
+
     func serverRequest(id: Any, method: String, params: [String: Any]) -> [StreamEvent] {
+        if launch.agent == .kiro, method == "session/request_permission" {
+            return kiroPermission(id: id, params: params)
+        }
         if method == "item/tool/requestUserInput" || method == "userInput.request" {
             let raw: [[String: Any]] = method == "userInput.request"
                 ? [["id": "answer", "question": params["question"] as? String ?? "",
@@ -476,6 +620,21 @@ private extension AgentSessionConnection {
 extension AgentSessionConnection {
     func answer(_ request: PermissionRequest, with answer: PermissionAnswer) -> Bool {
         lock.withLock {
+            if let pending = kiroPermissions.removeValue(forKey: request.id) {
+                guard !closed else { return false }
+                // Kiro names its own options; the answer picks the one of the matching kind.
+                let kind = switch answer {
+                case .allowAlways: "allow_always"
+                case .deny, .revise: "reject_once"
+                case .allowOnce, .allowAddingDirectory, .answers: "allow_once"
+                }
+                let option = pending.options.first { $0["kind"] as? String == kind }?["optionId"]
+                    ?? pending.options.first { $0["kind"] as? String == (answer.allows ? "allow_once" : "reject_once") }?["optionId"]
+                let outcome: [String: Any] = option.map { ["outcome": "selected", "optionId": $0] }
+                    ?? ["outcome": "cancelled"]
+                emit(["jsonrpc": "2.0", "id": pending.id, "result": ["outcome": outcome]])
+                return !writeFailed
+            }
             guard !closed, let pending = questions.removeValue(forKey: request.id) else { return false }
             let given: [String: String]
             if case .answers(let answers) = answer { given = answers } else { given = [:] }

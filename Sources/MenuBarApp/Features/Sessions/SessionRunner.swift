@@ -150,6 +150,9 @@ final class SessionRunner {
         case .claudeCode: "No conversation found with session ID"
         case .codex: nil
         case .copilot: "No session, task, or name matched"
+        // Loading an id Kiro does not know quietly opens an empty session under it, so
+        // there is no message to watch for.
+        case .kiro: nil
         }
     }
     // How each CLI says its login has lapsed. Matched loosely and without case, since the
@@ -163,6 +166,8 @@ final class SessionRunner {
                       "refresh token", "401 unauthorized"]
         case .copilot: ["copilot login", "not authenticated", "not logged in",
                         "no authentication information"]
+        case .kiro: ["authentication required", "kiro-cli login", "not logged in",
+                     "token has expired", "session has expired"]
         }
         let lowered = message.lowercased()
         return phrases.contains { lowered.contains($0) }
@@ -877,6 +882,7 @@ final class SessionRunner {
         store.restoreAgentSessionIDs(claudeSessionID: checkpoint.claudeSessionID,
                                      codexSessionID: checkpoint.codexSessionID,
                                      copilotSessionID: checkpoint.copilotSessionID,
+                                     kiroSessionID: checkpoint.kiroSessionID,
                                      for: sessionID)
         // How full the window was described the discarded turns; the next turn
         // measures the conversation as it stands now.
@@ -1213,7 +1219,8 @@ final class SessionRunner {
         let checkpoint = ConversationCheckpoint(agent: session.agent,
                                                 claudeSessionID: session.claudeSessionID,
                                                 codexSessionID: session.codexSessionID,
-                                                copilotSessionID: session.copilotSessionID)
+                                                copilotSessionID: session.copilotSessionID,
+                                                kiroSessionID: session.kiroSessionID)
         let titleSession = store.session(store.userFacingSessionID(for: sessionID)) ?? session
         let isFirstTurn = !next.isAppCommand && !session.hasStarted && !titleSession.hasStarted
             && titleSession.title == "New session"
@@ -1604,7 +1611,8 @@ final class SessionRunner {
             } ?? implementationReference.map(AgentInstructions.implementationSystemPrompt),
             suggestsPrompts: suggestsPrompts,
             discovered: discoveredModels[agent])
-        let serverLaunch = persistentAgentSessions && agent != .claudeCode
+        // Kiro has no one-shot streaming mode, so it is always run as a session server.
+        let serverLaunch = (persistentAgentSessions || agent == .kiro) && agent != .claudeCode
             ? try AgentServerLaunch(configuration: configuration, directory: workingDirectories[0]) : nil
         return TurnPlan(agent: agent, arguments: serverLaunch?.arguments ?? configuration.arguments, prompt: promptForAgent,
                         resumeSessionID: resume, presetSessionID: presetSessionID,
@@ -1697,6 +1705,8 @@ final class SessionRunner {
             case .claudeCode: StreamEvent.parse(line, projectPath: workingDirectory)
             case .codex: StreamEvent.parseCodex(line)
             case .copilot: copilotStream.parse(line)
+            // Kiro always runs as a session server, so its output goes to the connection.
+            case .kiro: [StreamEvent]()
             }
             let detail = events.isEmpty
                 ? "stream event ignored bytes=\(line.utf8.count)"
@@ -1828,6 +1838,9 @@ final class SessionRunner {
                 // close before it starts, so the pipe is shut straight away.
                 sent = true
                 turn.closeInput()
+            case .kiro:
+                // Only reached without a session server, which Kiro always has.
+                sent = false
             }
         }
         guard sent else {

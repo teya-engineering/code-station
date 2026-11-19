@@ -410,7 +410,7 @@ struct SettingsView: View {
             SettingsCard {
                 SettingsToggleRow(
                     "Suggest the next prompt",
-                    detail: "Offers a likely next prompt above the composer once a turn ends. Claude Code predicts one as part of the turn. Codex and Copilot cannot, so they are asked in a short separate run that costs a little on every turn.",
+                    detail: "Offers a likely next prompt above the composer once a turn ends. Claude Code predicts one as part of the turn. Codex, Copilot and Kiro cannot, so they are asked in a short separate run that costs a little on every turn.",
                     isOn: $settings.promptSuggestionsEnabled)
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
@@ -425,7 +425,7 @@ struct SettingsView: View {
             SettingsCard {
                 OptionRow(
                     title: "Steer the running turn",
-                    detail: "The agent reads the prompt at its next step. Copilot cannot take a prompt mid-turn, so it always queues.",
+                    detail: "The agent reads the prompt at its next step. Copilot and Kiro cannot take a prompt mid-turn, so for them it always queues.",
                     selected: settings.midTurnPromptDelivery == .now) {
                         settings.midTurnPromptDelivery = .now
                 }

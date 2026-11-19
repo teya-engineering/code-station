@@ -119,6 +119,7 @@ struct SecondOpinionSettingsView: View {
         case .claudeCode: "Anthropic"
         case .codex: "OpenAI"
         case .copilot: reviewer.model == nil ? "Copilot picks the model" : "Several makers"
+        case .kiro: reviewer.model == nil || reviewer.model == "auto" ? "Kiro picks the model" : "Several makers"
         }
     }
 

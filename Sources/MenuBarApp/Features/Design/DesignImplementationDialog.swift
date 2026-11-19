@@ -236,7 +236,7 @@ struct DesignImplementationDialog: View {
 
     private var permissionTone: TrustTone {
         switch draft.agent {
-        case .claudeCode: TrustTone(draft.permission)
+        case .claudeCode, .kiro: TrustTone(draft.permission)
         case .codex: TrustTone(draft.codexAccess)
         case .copilot: TrustTone(draft.copilotAccess)
         }
@@ -245,10 +245,11 @@ struct DesignImplementationDialog: View {
     private var permissionEntries: [MenuEntry] {
         let defaults = draft.catalog.defaults(for: draft.agent)
         switch draft.agent {
-        case .claudeCode:
+        case .claudeCode, .kiro:
+            let agent = draft.agent
             return permissions(defaultTitle: (defaults.permissionMode ?? .fallback).shortTitle,
-                               selected: draft.settings.permissionMode, choices: PermissionMode.allCases,
-                               title: { $0.shortTitle }, detail: { $0.detail }, tone: { TrustTone($0) }) { mode in
+                               selected: draft.settings.permissionMode, choices: PermissionMode.choices(for: agent),
+                               title: { $0.shortTitle }, detail: { $0.detail(for: agent) }, tone: { TrustTone($0) }) { mode in
                 draft.edit { $0.permissionMode = mode }
             }
         case .codex:
