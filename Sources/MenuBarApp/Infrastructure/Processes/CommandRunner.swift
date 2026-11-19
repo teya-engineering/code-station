@@ -424,7 +424,7 @@ enum CommandRunner {
 
     // Keeps a pipe out of the descriptor table of every process the app starts other than
     // the one it was made for. The spawn below already refuses to hand anything else over,
-    // but a terminal tab is started by forkpty inside SwiftTerm, which copies the whole
+    // but a terminal tab is started by forkpty in pty_spawn, which copies the whole
     // table and then execs a shell that lives as long as the tab does. One stray copy of a
     // write end is enough to keep a pipe from ever reaching end of file, and then whoever
     // is reading it waits for a close that cannot come. dup2 clears the mark, so the child

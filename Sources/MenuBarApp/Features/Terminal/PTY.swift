@@ -1,14 +1,14 @@
 import Darwin
 import Foundation
-import SwiftTerm
+import PTYSpawn
 
 // A shell running on a pseudo terminal. The child gets a real tty, so programs behave
 // the way they do in Terminal.app: colours stay on, progress lines redraw, and job
 // control works.
 //
-// SwiftTerm's launcher prepares the process arguments before forkpty and moves
-// straight to exec in the child. forkpty is required here because the shell needs
-// the slave to be its controlling terminal, not merely its standard input.
+// The arguments are prepared here, before the fork, and pty_spawn moves straight to
+// exec in the child. forkpty is required because the shell needs the slave to be its
+// controlling terminal, not merely its standard input.
 final class PTY: @unchecked Sendable {
     private let lock = NSLock()
     private var master: Int32 = -1
@@ -99,28 +99,32 @@ final class PTY: @unchecked Sendable {
         }
         defer { pthread_sigmask(SIG_SETMASK, &appSignalMask, nil) }
 
-        guard let process = PseudoTerminalHelpers.fork(
-            andExec: shell,
-            args: [shell] + arguments,
-            env: environment.map { "\($0.key)=\($0.value)" },
-            currentDirectory: directory,
-            desiredWindowSize: &size
-        ) else {
-            throw Failure(message: "Could not start \(shell) in a pseudo terminal.")
+        guard let argv = CStringArray([shell] + arguments),
+              let envp = CStringArray(environment.map { "\($0.key)=\($0.value)" }) else {
+            throw Failure(message: "Could not start \(shell): out of memory.")
+        }
+        var masterFd: Int32 = -1
+        let pid = argv.withPointers { argv in
+            envp.withPointers { envp in
+                pty_spawn(shell, argv, envp, directory, &size, &masterFd)
+            }
+        }
+        guard pid > 0 else {
+            throw Failure(message: "Could not start \(shell) in a pseudo terminal: \(String(cString: strerror(errno))).")
         }
 
         // Written down before anything else is set up: from here on the shell is a live
         // process that outlives this one unless something closes it.
-        let shell = ProcessIdentity.of(process.pid)
+        let shell = ProcessIdentity.of(pid)
         if let shell { registry.record(shell) }
 
         lock.withLock {
-            master = process.masterFd
+            master = masterFd
             child = shell
         }
 
-        startReading(master: process.masterFd)
-        startWatching(pid: process.pid)
+        startReading(master: masterFd)
+        startWatching(pid: pid)
     }
 
     private func startReading(master: Int32) {
@@ -225,4 +229,30 @@ final class PTY: @unchecked Sendable {
     }
 
     deinit { stop() }
+}
+
+// Strings copied into C memory for argv and envp, ending with the nil that exec looks
+// for. The copies are made in the parent, because the child of a fork must not allocate.
+private final class CStringArray {
+    private let pointers: [UnsafeMutablePointer<CChar>?]
+
+    init?(_ strings: [String]) {
+        var pointers: [UnsafeMutablePointer<CChar>?] = []
+        pointers.reserveCapacity(strings.count + 1)
+        for string in strings {
+            guard let copy = strdup(string) else {
+                pointers.forEach { free($0) }
+                return nil
+            }
+            pointers.append(copy)
+        }
+        pointers.append(nil)
+        self.pointers = pointers
+    }
+
+    func withPointers<R>(_ body: (UnsafePointer<UnsafeMutablePointer<CChar>?>) -> R) -> R {
+        pointers.withUnsafeBufferPointer { body($0.baseAddress!) }
+    }
+
+    deinit { pointers.forEach { free($0) } }
 }
