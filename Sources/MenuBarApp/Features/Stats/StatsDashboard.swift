@@ -317,8 +317,7 @@ struct StatsDashboard: View {
                     }
                     .padding(Space.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .surface(Ink.waiting.opacity(0.08), cornerRadius: Radius.control,
-                             border: Ink.waiting.opacity(0.22))
+                    .washSurface(tint: Ink.waiting)
                     .transition(.fadeIn)
                 }
                 if let since = report.waitsSince, since > report.interval.start {

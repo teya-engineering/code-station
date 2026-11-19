@@ -137,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func connectStats() {
         stats.isEnabled = { [appSettings] in appSettings.statsEnabled }
         stats.keepsRemoved = { [appSettings] in appSettings.statsKeepsRemovedSessions }
+        stats.isRunning = { [runner] id in runner.state(id).isBusy }
         let subject: (UUID) -> UUID? = { [projects] id in
             projects.session(id).map { $0.workspaceID ?? $0.projectID }
         }

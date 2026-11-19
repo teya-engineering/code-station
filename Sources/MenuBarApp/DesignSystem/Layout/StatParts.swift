@@ -21,6 +21,12 @@ extension View {
         }
         .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(tint.opacity(0.22)))
     }
+
+    // A note set apart inside a card, such as a tip: a faint wash of its colour and an
+    // edge in the same colour, quieter than the card that leads the screen.
+    func washSurface(tint: Color, cornerRadius: CGFloat = Radius.control) -> some View {
+        surface(tint.opacity(0.08), cornerRadius: cornerRadius, border: tint.opacity(0.22))
+    }
 }
 
 // A symbol on a soft square of its own colour, naming what a number measures.

@@ -14,6 +14,7 @@ struct StatsView: View {
     @State private var range = StatsRange.week
     @State private var subject: UUID?
     @State private var report: StatsReport?
+    @State private var subjects: [StatsSubject] = []
     @State private var showsWhy = false
     @State private var keepsRemovedOnStart = false
     @Namespace private var rangeTrack
@@ -175,9 +176,9 @@ struct StatsView: View {
     }
 
     // Every project and workspace that has something counted, most recent first.
-    private var subjects: [StatsSubject] {
+    private nonisolated static func subjects(of digests: [StatsDigest]) -> [StatsSubject] {
         var seen: [UUID: (subject: StatsSubject, last: Date)] = [:]
-        for digest in stats.digests {
+        for digest in digests {
             let last = digest.spans.last?.end ?? digest.header.createdAt
             if let known = seen[digest.subject.id], known.last >= last { continue }
             seen[digest.subject.id] = (digest.subject, last)
@@ -253,6 +254,7 @@ struct StatsView: View {
                 withAnimation(reduceMotion ? nil : Motion.reveal) {
                     settings.statsEnabled = false
                     report = nil
+                    subjects = []
                     subject = nil
                 }
                 stats.erase()
@@ -287,11 +289,13 @@ struct StatsView: View {
         let since = stats.archive.enabledAt
         let range = range
         let subject = subject
-        let built = await Task.detached(priority: .userInitiated) {
-            StatsReport.build(digests: digests, events: events, range: range,
-                              subject: subject, waitsSince: since)
+        let (built, listed) = await Task.detached(priority: .userInitiated) {
+            (StatsReport.build(digests: digests, events: events, range: range,
+                               subject: subject, waitsSince: since),
+             Self.subjects(of: digests))
         }.value
         guard !Task.isCancelled else { return }
+        subjects = listed
         withAnimation(reduceMotion ? nil : Motion.control) { report = built }
     }
 

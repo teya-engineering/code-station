@@ -27,7 +27,29 @@ final class StatsStore {
         var cache: [UUID: Cached] = [:]
     }
 
-    private(set) var archive = Archive()
+    // What a session's turns are read from. Turning messages or a file into turns is real
+    // work for a long session, so it happens away from the main actor.
+    enum Source: Sendable {
+        case messages([ChatMessage])
+        case file(URL)
+        case bytes(Data)
+
+        nonisolated var turns: [StatsTurn] {
+            switch self {
+            case .messages(let messages):
+                StatsTurn.of(messages)
+            case .file(let url):
+                StatsStore.readTurns(url)
+            case .bytes(let data):
+                (try? PersistentFile.makeDecoder().decode([StatsTurn].self, from: data)) ?? []
+            }
+        }
+    }
+
+    // Not observed: the sheet follows `revision` instead, so a first read that lands
+    // hundreds of sessions does not draw it again for each one.
+    @ObservationIgnored private(set) var archive = Archive()
+    private(set) var keptCount = 0
     private(set) var loadError: String?
     // How far the first read of a long history has got, for the line that says so.
     private(set) var pending = 0
@@ -39,6 +61,11 @@ final class StatsStore {
     @ObservationIgnored private let transcripts: URL
     @ObservationIgnored private let loaded: LoadedReader
     @ObservationIgnored private var scanning: Set<UUID> = []
+    // Sessions last read while a turn was running. Its calls keep landing without the
+    // summary changing, so such a session is read again once the turn has stopped.
+    @ObservationIgnored private var readWhileRunning: Set<UUID> = []
+    // Moves on when Stats is turned off, so a read begun before then lands on nothing.
+    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var hasLoaded = false
     @ObservationIgnored private var landed = 0
     private static let revisionStep = 25
@@ -50,6 +77,7 @@ final class StatsStore {
     // once everywhere that records.
     @ObservationIgnored var isEnabled: () -> Bool = { false }
     @ObservationIgnored var keepsRemoved: () -> Bool = { false }
+    @ObservationIgnored var isRunning: (UUID) -> Bool = { _ in false }
 
     init(fileURL: URL = AppPaths.supportFile("stats.json"),
          transcripts: URL,
@@ -64,7 +92,6 @@ final class StatsStore {
         let live = archive.cache
         return live.values.map(\.digest) + archive.kept.filter { live[$0.id] == nil }
     }
-    var keptCount: Int { archive.kept.count }
     var isReading: Bool { pending > 0 }
 
     // MARK: - Turning on and off
@@ -72,6 +99,7 @@ final class StatsStore {
     func turnOn(at date: Date = Date()) {
         loadIfNeeded()
         if archive.enabledAt == nil { archive.enabledAt = date }
+        revision += 1
         saver.schedule()
     }
 
@@ -79,7 +107,10 @@ final class StatsStore {
     func erase() {
         saver.cancel()
         archive = Archive()
+        keptCount = 0
         scanning = []
+        readWhileRunning = []
+        generation += 1
         pending = 0
         total = 0
         revision += 1
@@ -96,6 +127,7 @@ final class StatsStore {
     func forgetKept() {
         let ids = Set(archive.kept.map(\.id))
         archive.kept = []
+        keptCount = 0
         archive.events.removeAll { ids.contains($0.sessionID) }
         revision += 1
         saver.schedule()
@@ -112,10 +144,13 @@ final class StatsStore {
         archive.cache = archive.cache.filter { live.contains($0.key) }
         var changed = archive.cache.count != before
 
-        var due: [(header: StatsDigest.Header, mark: SessionSummary, path: String)] = []
+        var due: [(header: StatsDigest.Header, mark: SessionSummary, running: Bool,
+                   path: String)] = []
         for session in sessions {
             let header = Self.header(of: session, store: store)
-            if var cached = archive.cache[session.id], cached.mark == session.summary {
+            let running = isRunning(session.id)
+            if var cached = archive.cache[session.id], cached.mark == session.summary,
+               readWhileRunning.contains(session.id) == running {
                 // A rename or a new pull request changes the header but not what the
                 // turns say, so it is put right without reading the transcript again.
                 if cached.digest.header != header {
@@ -126,7 +161,8 @@ final class StatsStore {
                 continue
             }
             guard scanning.insert(session.id).inserted else { continue }
-            due.append((header, session.summary, store.workingDirectory(for: session) ?? ""))
+            due.append((header, session.summary, running,
+                        store.workingDirectory(for: session) ?? ""))
         }
         if changed {
             revision += 1
@@ -136,22 +172,26 @@ final class StatsStore {
         pending += due.count
         total = max(total, pending)
 
+        let started = generation
         Task {
             for item in due {
-                let digest: StatsDigest
-                if let messages = loaded(item.header.id) {
-                    let turns = StatsTurn.of(messages)
-                    digest = await Self.measure(item.header, turns: turns, path: item.path)
-                } else {
-                    digest = await Self.measure(item.header, url: transcript(for: item.header.id),
-                                                path: item.path)
-                }
-                scanning.remove(item.header.id)
+                let id = item.header.id
+                let source = loaded(id).map(Source.messages) ?? .file(transcript(for: id))
+                let digest = await Self.measure(item.header, source: source, path: item.path)
+                guard generation == started else { return }
                 pending = max(0, pending - 1)
                 if pending == 0 { total = 0 }
-                // Turned off while the read was under way: what it found is not wanted.
-                guard isEnabled() else { continue }
-                archive.cache[item.header.id] = Archive.Cached(mark: item.mark, digest: digest)
+                // The session was removed, or Stats turned off, while the read was under
+                // way: what it found is not wanted.
+                guard scanning.remove(id) != nil, isEnabled() else { continue }
+                // Stamped with what was asked about rather than with what stands now, so
+                // a turn that landed mid-read is picked up by the next pass.
+                archive.cache[id] = Archive.Cached(mark: item.mark, digest: digest)
+                if item.running {
+                    readWhileRunning.insert(id)
+                } else {
+                    readWhileRunning.remove(id)
+                }
                 // A first read of a long history lands hundreds of sessions in a row, and
                 // the numbers are worked out again on each revision, so they move on in
                 // steps rather than once per session.
@@ -162,25 +202,58 @@ final class StatsStore {
         }
     }
 
-    // Called just before a session leaves the app for good. Its stats stay only if the
-    // person asked for that; otherwise the waits recorded against it go too.
+    // Called once a session's removal is certain, while its transcript is still on disk.
+    // Its stats stay only if the person asked for that; otherwise the waits recorded
+    // against it go too.
     func sessionLeaving(_ session: ChatSession, store: ProjectStore) {
         guard isEnabled() else { return }
         loadIfNeeded()
         let cached = archive.cache.removeValue(forKey: session.id)
-        if keepsRemoved() {
-            let header = Self.header(of: session, store: store)
-            var digest = cached?.digest ?? StatsDigestBuilder.digest(
-                header, turns: Self.readTurns(transcript(for: session.id)),
-                projectPath: store.workingDirectory(for: session) ?? "")
-            digest.header = header
-            archive.kept.removeAll { $0.id == session.id }
-            archive.kept.append(digest)
-        } else {
-            archive.events.removeAll { $0.sessionID == session.id }
+        let isCurrent = cached?.mark == session.summary
+            && !readWhileRunning.contains(session.id)
+        scanning.remove(session.id)
+        readWhileRunning.remove(session.id)
+        defer {
+            revision += 1
+            saver.schedule()
         }
-        revision += 1
-        saver.schedule()
+        guard keepsRemoved() else {
+            archive.events.removeAll { $0.sessionID == session.id }
+            return
+        }
+
+        let header = Self.header(of: session, store: store)
+        // What was read before stands in at once, so a quit before the new read lands
+        // still keeps something.
+        if var digest = cached?.digest {
+            digest.header = header
+            keep(digest)
+        }
+        guard !isCurrent else { return }
+
+        // The transcript is deleted as soon as this returns, so its bytes are taken now
+        // and turned into turns away from the main actor.
+        let source = loaded(session.id).map(Source.messages)
+            ?? .bytes(((try? PersistentFile.readIfPresent(transcript(for: session.id))) ?? nil) ?? Data())
+        let path = store.workingDirectory(for: session) ?? ""
+        let started = generation
+        Task {
+            let digest = await Self.measure(header, source: source, path: path)
+            guard generation == started, isEnabled() else { return }
+            if keepsRemoved() {
+                keep(digest)
+            } else {
+                archive.events.removeAll { $0.sessionID == header.id }
+            }
+            revision += 1
+            saver.schedule()
+        }
+    }
+
+    private func keep(_ digest: StatsDigest) {
+        archive.kept.removeAll { $0.id == digest.id }
+        archive.kept.append(digest)
+        keptCount = archive.kept.count
     }
 
     // MARK: - Recording
@@ -229,6 +302,8 @@ final class StatsStore {
             loadError = PersistentFile.decodeMessage(for: fileURL, error: error)
             archive = Archive()
         }
+        keptCount = archive.kept.count
+        revision += 1
     }
 
     private func save() {
@@ -257,8 +332,8 @@ final class StatsStore {
     // MARK: - Reading one session
 
     static func header(of session: ChatSession, store: ProjectStore) -> StatsDigest.Header {
-        let workspace = session.workspaceID.flatMap(store.workspace)
-        let project = store.project(session.projectID)
+        let workspace = session.workspaceID.flatMap(store.owningWorkspace)
+        let project = store.owningProject(session.projectID)
         let subject = StatsSubject(id: workspace?.id ?? session.projectID,
                                    name: workspace?.name ?? project?.name ?? "Removed project",
                                    isWorkspace: workspace != nil)
@@ -276,17 +351,10 @@ final class StatsStore {
     }
 
     // Sizing a patch is real work, so it is done away from whatever is being drawn.
-    private nonisolated static func measure(_ header: StatsDigest.Header, url: URL,
+    private nonisolated static func measure(_ header: StatsDigest.Header, source: Source,
                                             path: String) async -> StatsDigest {
         await Task.detached(priority: .utility) {
-            StatsDigestBuilder.digest(header, turns: readTurns(url), projectPath: path)
-        }.value
-    }
-
-    private nonisolated static func measure(_ header: StatsDigest.Header, turns: [StatsTurn],
-                                            path: String) async -> StatsDigest {
-        await Task.detached(priority: .utility) {
-            StatsDigestBuilder.digest(header, turns: turns, projectPath: path)
+            StatsDigestBuilder.digest(header, turns: source.turns, projectPath: path)
         }.value
     }
 }
