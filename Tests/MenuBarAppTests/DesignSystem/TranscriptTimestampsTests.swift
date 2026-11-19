@@ -7,12 +7,12 @@ import Testing
 struct TranscriptTimestampsTests {
     private let moment = Date()
 
-    @Test func secondsAndMessagesAndStepsAreTheDefaultAndThePickIsKept() throws {
+    @Test func offAndMessagesAndStepsAreTheDefaultAndThePickIsKept() throws {
         let suite = "TranscriptTimestampsTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        #expect(Preferences.timestampFormat(in: defaults) == .seconds)
+        #expect(Preferences.timestampFormat(in: defaults) == .off)
         #expect(Preferences.timestampScope(in: defaults) == .messagesAndSteps)
         Preferences.setTimestampFormat(.smart, in: defaults)
         Preferences.setTimestampScope(.messages, in: defaults)
@@ -20,7 +20,7 @@ struct TranscriptTimestampsTests {
         #expect(Preferences.timestampScope(in: defaults) == .messages)
         defaults.set("not-a-format", forKey: "timestampFormat")
         defaults.set("not-a-scope", forKey: "timestampScope")
-        #expect(Preferences.timestampFormat(in: defaults) == .seconds)
+        #expect(Preferences.timestampFormat(in: defaults) == .off)
         #expect(Preferences.timestampScope(in: defaults) == .messagesAndSteps)
     }
 

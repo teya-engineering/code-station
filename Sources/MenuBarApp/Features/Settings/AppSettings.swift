@@ -280,7 +280,7 @@ final class AppSettings {
         cursorEffects = CursorEffectsSettings()
         textSize = .standard
         messageColour = .projectIcon
-        timestampFormat = .seconds
+        timestampFormat = .off
         timestampScope = .messagesAndSteps
         diceBearAvatarStyle = .waves
         sidebarIconSet = .diceBear

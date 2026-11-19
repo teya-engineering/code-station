@@ -552,7 +552,7 @@ enum Preferences {
     // How a transcript writes the time of each entry, and which entries carry one.
     static func timestampFormat(in store: UserDefaults = .standard) -> TimestampFormat {
         store.string(forKey: "timestampFormat").flatMap(TimestampFormat.init(rawValue:))
-            ?? .seconds
+            ?? .off
     }
 
     static func setTimestampFormat(_ format: TimestampFormat,
