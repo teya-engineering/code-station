@@ -277,7 +277,10 @@ struct FirstRunWizardContent: View {
                         .frame(width: 30, height: 30)
                         .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
                     VStack(alignment: .leading, spacing: Space.xxs) {
-                        Text(agent.title).font(.system(size: 13 * scale, weight: .semibold))
+                        HStack(spacing: Space.xs) {
+                            Text(agent.title).font(.system(size: 13 * scale, weight: .semibold))
+                            if agent.isBeta { BetaChip() }
+                        }
                         Text(agent.vendor).font(.system(size: 11 * scale)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)

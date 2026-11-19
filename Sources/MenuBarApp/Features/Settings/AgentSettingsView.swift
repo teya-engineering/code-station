@@ -616,7 +616,7 @@ struct AgentSettingsView: View {
     private func agentSection(for agent: AgentKind) -> some View {
         let profile = profile(for: agent)
         return VStack(alignment: .leading, spacing: Space.xxl) {
-            ChoiceBlock(profile.heading) {
+            ChoiceBlock(profile.heading, note: agent.betaNote, badge: agent.isBeta ? "BETA" : nil) {
                 SettingsCard {
                     statusRow(installed: profile.path != nil,
                               signedIn: profile.signedIn,

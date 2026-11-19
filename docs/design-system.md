@@ -265,6 +265,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Need | Use |
 | --- | --- |
 | A small tag or value | `MonoChip` |
+| Something offered before it is supported in full | `BetaChip` beside its name. A settings group says it with `ChoiceBlock(badge: "BETA")` and a note on what beta means. |
 | Lines added and removed | `DiffPair` |
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |

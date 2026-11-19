@@ -323,6 +323,14 @@ struct KiroServiceTests {
         #expect(other.input.contains("\"query\" : \"auth\""))
     }
 
+    @Test func onlyKiroIsMarkedBeta() {
+        #expect(AgentKind.allCases.filter(\.isBeta) == [.kiro])
+        #expect(AgentKind.kiro.blurb.hasPrefix("Beta"))
+        #expect(AgentKind.kiro.betaNote?.contains("beta") == true)
+        #expect(AgentKind.codex.betaNote == nil)
+        #expect(AgentKind.codex.blurb == "OpenAI's coding agent.")
+    }
+
     @Test func offersOnlyTheModesKiroCanHonour() {
         #expect(PermissionMode.choices(for: .kiro) == [.acceptEdits, .manual, .plan])
         #expect(PermissionMode.choices(for: .claudeCode) == PermissionMode.allCases)

@@ -2,13 +2,13 @@
 
 [![Latest release](https://img.shields.io/github/v/release/teya-engineering/code-station?logo=github&label=Download)](https://github.com/teya-engineering/code-station/releases/latest) [![Website](https://img.shields.io/badge/Website-Visit-222222?logo=githubpages)](https://teya-engineering.github.io/code-station/) [![Contributing](https://img.shields.io/badge/Contributing-Guide-F05032?logo=git&logoColor=white)](CONTRIBUTING.md) [![Licence](https://img.shields.io/github/license/teya-engineering/code-station?logo=opensourceinitiative&label=Licence)](LICENSE)
 
-Teya Code Station is a macOS app for running Claude Code, Codex, GitHub Copilot CLI and AWS Kiro CLI across local projects. It keeps conversations, files, Git changes, and terminals in one window while each coding agent continues to use its own CLI and account.
+Teya Code Station is a macOS app for running Claude Code, Codex, GitHub Copilot CLI and AWS Kiro CLI (beta) across local projects. It keeps conversations, files, Git changes, and terminals in one window while each coding agent continues to use its own CLI and account.
 
 [![Loose editor and terminal windows gather into one Teya Code Station window, where the session that needs you rises to the top. Three projects are then grouped into a workspace and one prompt runs in every repo.](docs/images/code-station-hero.gif)](https://teya-engineering.github.io/code-station/)
 
 ## Why Code Station
 
-- **Run agents side by side.** Choose Claude Code, Codex, Copilot or Kiro for each session, then run independent sessions in their own Git worktrees without having them edit the same checkout.
+- **Run agents side by side.** Choose Claude Code, Codex, Copilot or Kiro (beta) for each session, then run independent sessions in their own Git worktrees without having them edit the same checkout.
 - **Work across repositories.** Group related projects into a reusable workspace with one lead working directory and attach the others to the same conversation.
 - **Come back caught up.** Ask for a short session recap at any time, or create one automatically when a turn finishes while you are elsewhere. Recaps stay outside the conversation, so they do not add noise to the agent's context.
 - **Review like a pull request.** Click a line number in a session's changes to ask a question or request a change. A side copy of the session answers questions right there, without touching the chat. Ask another agent for a second opinion that lands as more comments, then send the changes back to the session as one prompt.
@@ -35,7 +35,7 @@ You need:
 - macOS 15 or later
 - Xcode 26 or another Swift 6.2 toolchain
 - Git
-- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in.
+- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in. Kiro support is in beta: Code Station's MCP servers, past Kiro sessions and credit usage are not supported yet.
 
 Clone the repository and create a double-clickable app bundle:
 

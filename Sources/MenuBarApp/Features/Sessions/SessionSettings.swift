@@ -34,7 +34,19 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         }
     }
 
-    var blurb: String { "\(vendor)'s coding agent." }
+    // Beta leads, so a menu that cuts the line short still shows it.
+    var blurb: String { isBeta ? "Beta · \(vendor)'s coding agent." : "\(vendor)'s coding agent." }
+
+    // An agent the app runs but does not yet support in full. It is marked BETA wherever
+    // it can be picked, and says what that means where its settings are.
+    var isBeta: Bool { self == .kiro }
+
+    // What beta means for this agent, in one sentence a person can act on.
+    var betaNote: String? {
+        guard isBeta else { return nil }
+        return "\(title) support is in beta. Sessions, permissions and models work. Code Station's MCP servers, "
+            + "past sessions and credit usage are not supported yet, and replies appear a block at a time."
+    }
 
     var symbol: String {
         switch self {

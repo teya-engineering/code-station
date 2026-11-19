@@ -23,8 +23,9 @@ struct SessionRunSettingsControls: View {
             let layout = wraps ? AnyLayout(FlowRow(spacing: Space.md)) : AnyLayout(HStackLayout(spacing: Space.md))
             layout {
                 AgentPill(agent: agent)
-                    .appTooltip("This session always runs on \(agent.title).")
-                    .accessibilityLabel("Agent: \(agent.title)")
+                    .appTooltip(["This session always runs on \(agent.title).", agent.betaNote]
+                        .compactMap { $0 }.joined(separator: " "))
+                    .accessibilityLabel("Agent: \(agent.title)\(agent.isBeta ? ", beta" : "")")
                 modelControl(session, lastRan: session.usage?.model(for: agent))
                 if agent.choosesEffort { effortControl(agent: agent) }
                 switch agent {
@@ -299,6 +300,7 @@ private struct AgentPill: View {
             Text(agent.title)
                 .font(Typography.label)
                 .foregroundStyle(.secondary)
+            if agent.isBeta { BetaChip() }
         }
         .lineLimit(1)
         .padding(.horizontal, Space.md)
