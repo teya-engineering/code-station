@@ -110,6 +110,7 @@ struct TranscriptAgentGroup: View {
                         heading(agents.count)
                         Spacer(minLength: 8)
                         reading(agents)
+                        TimeStamp(date: agents.compactMap(\.startedAt).min(), step: true)
                         chevron(isExpanded)
                     }
                     VStack(alignment: .leading, spacing: Space.xs) {

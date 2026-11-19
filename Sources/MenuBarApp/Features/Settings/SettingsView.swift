@@ -25,6 +25,7 @@ struct SettingsView: View {
     @State private var notes = 0
     @State private var appearanceBeforeReset: (
         appearance: Appearance, textSize: TextSize, messageColour: MessageColour,
+        timestampFormat: TimestampFormat, timestampScope: TimestampScope,
         iconStyle: DiceBearAvatarStyle, iconSet: SidebarIconSet,
         sunlight: Bool, sunlightMode: SunlightMode, warmth: Double,
         cursorEffects: CursorEffectsSettings)?
@@ -257,6 +258,7 @@ struct SettingsView: View {
 
     private func resetAppearance() {
         appearanceBeforeReset = (settings.appearance, settings.textSize, settings.messageColour,
+                                 settings.timestampFormat, settings.timestampScope,
                                  settings.diceBearAvatarStyle, settings.sidebarIconSet,
                                  settings.sunlightEnabled, settings.sunlightMode, settings.sunlightNightKelvin,
                                  settings.cursorEffects)
@@ -268,6 +270,8 @@ struct SettingsView: View {
         settings.appearance = previous.appearance
         settings.textSize = previous.textSize
         settings.messageColour = previous.messageColour
+        settings.timestampFormat = previous.timestampFormat
+        settings.timestampScope = previous.timestampScope
         settings.diceBearAvatarStyle = previous.iconStyle
         settings.sidebarIconSet = previous.iconSet
         settings.sunlightEnabled = previous.sunlight
@@ -622,6 +626,9 @@ struct SettingsView: View {
                 }
                 .padding(Space.lg)
                 .id(SettingsSearchTarget.appearanceMessages.id)
+
+                SettingsRowDivider()
+                TimestampSettingsRow().id(SettingsSearchTarget.appearanceTimestamps.id)
 
                 SettingsRowDivider()
                 sidebarIcons.id(SettingsSearchTarget.appearanceSidebarIcons.id)
@@ -999,6 +1006,12 @@ struct SettingsView: View {
     }
 
     private func settingCopy(title: String, detail: String) -> some View {
+        Self.settingCopy(title: title, detail: detail)
+    }
+
+    // A setting's name over the sentence that says what it changes, shared with the rows
+    // that live in views of their own.
+    static func settingCopy(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)
                 .font(Typography.body.weight(.semibold))

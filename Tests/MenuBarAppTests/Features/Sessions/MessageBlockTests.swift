@@ -11,7 +11,7 @@ struct MessageBlockTests {
     }
 
     private func prose(_ block: MessageBlock) -> String? {
-        guard case .prose(_, let text) = block else { return nil }
+        guard case .prose(_, let text, _) = block else { return nil }
         return text
     }
 
@@ -21,7 +21,7 @@ struct MessageBlockTests {
     }
 
     private func thought(_ block: MessageBlock) -> String? {
-        guard case .thinking(_, let text) = block else { return nil }
+        guard case .thinking(_, let text, _) = block else { return nil }
         return text
     }
 
@@ -30,6 +30,51 @@ struct MessageBlockTests {
         segment.textOffset = textOffset
         segment.toolOffset = toolOffset
         return segment
+    }
+
+    @Test func aThoughtCarriesTheTimeItArrived() {
+        let arrived = Date(timeIntervalSince1970: 1_800_000_000)
+        var thought = segment("Hmm", at: 0, tool: 0)
+        thought.date = arrived
+        let message = ChatMessage(role: .assistant, text: "", thinking: [thought])
+        guard case .thinking(_, _, let date)? = message.blocks.first else {
+            Issue.record("expected a thought"); return
+        }
+        #expect(date == arrived)
+    }
+
+    @Test func eachStretchOfTextCarriesTheTimeItArrived() {
+        let first = Date(timeIntervalSince1970: 1_800_000_000)
+        let second = first.addingTimeInterval(30)
+        let text = "Looking now.\n\nFound it."
+        var message = ChatMessage(role: .assistant, text: text, tools: [tool("a", at: 12)])
+        message.textMarks = [TextMark(offset: 0, date: first), TextMark(offset: 14, date: second)]
+        let dates = message.blocks.compactMap { block -> Date? in
+            guard case .prose(_, _, let date) = block else { return nil }
+            return date
+        }
+        #expect(dates == [first, second])
+    }
+
+    // Text saved before it was dated was written after the calls above it finished.
+    @Test func undatedTextTakesTheTimeTheCallsAboveItFinished() {
+        let opened = Date(timeIntervalSince1970: 1_800_000_000)
+        var call = tool("a", at: 12)
+        call.finishedAt = opened.addingTimeInterval(9)
+        let message = ChatMessage(role: .assistant, text: "Looking now.\n\nFound it.",
+                                  tools: [call], date: opened)
+        let dates = message.blocks.compactMap { block -> Date? in
+            guard case .prose(_, _, let date) = block else { return nil }
+            return date
+        }
+        #expect(dates == [opened, opened.addingTimeInterval(9)])
+    }
+
+    @Test func aThoughtSavedBeforeThoughtsWereDatedStillReads() throws {
+        let saved = #"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","text":"Hmm","textOffset":0,"toolOffset":0}"#
+        let thought = try JSONDecoder().decode(ThinkingSegment.self, from: Data(saved.utf8))
+        #expect(thought.text == "Hmm")
+        #expect(thought.date == nil)
     }
 
     @Test func putsACallMadeAfterSpeakingBelowTheWords() {

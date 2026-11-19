@@ -249,11 +249,11 @@ struct RemoteBlock: Encodable, Equatable {
 
     init(_ block: MessageBlock, projectPath: String) {
         switch block {
-        case .prose(_, let text):
+        case .prose(_, let text, _):
             kind = "prose"
             self.text = text
             tools = nil
-        case .thinking(_, let text):
+        case .thinking(_, let text, _):
             kind = "thinking"
             self.text = text
             tools = nil

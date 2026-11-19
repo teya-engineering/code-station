@@ -424,7 +424,8 @@ struct DesignConversation: View {
                                     openPreview: openPreview ?? { _ in false },
                                     availableWidth: width - 28,
                                     arriving: message.isArriving(sentAt: promptSentAt),
-                                    bubble: bubble)
+                                    bubble: bubble,
+                                    timestamps: appSettings.transcriptTimestamps)
                             .equatable()
                             .environment(\.runningAgents, runner.runningAgents(sessionID))
                             .environment(\.previewsLocalServers, openPreview != nil)

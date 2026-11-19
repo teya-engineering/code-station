@@ -23,6 +23,9 @@ struct MessageView: View, Equatable {
     // Whether this is the prompt the composer has just sent, which lifts into place.
     var arriving = false
     var bubble = UserMessageStyle.leaf
+    // How times are written beside the message and its steps. Passed in rather than read
+    // from the environment, since an equatable view only redraws for what it compares.
+    var timestamps = TranscriptTimestamps.off
     // Opens the second opinion ask dialog on this answer, from its hover actions. Nil where
     // the answer is not one to judge, such as one still being written.
     var secondOpinion: (@MainActor () -> Void)?
@@ -39,12 +42,15 @@ struct MessageView: View, Equatable {
         a.message == b.message && a.projectPath == b.projectPath
             && a.textScale == b.textScale && a.availableWidth == b.availableWidth
             && a.arriving == b.arriving && a.bubble == b.bubble
+            && a.timestamps == b.timestamps
             && (a.secondOpinion == nil) == (b.secondOpinion == nil)
     }
 
     var body: some View {
         content
             .environment(\.transcriptMessageID, message.id)
+            .environment(\.transcriptTimestamps, timestamps)
+            .motion(Motion.reveal, value: timestamps)
     }
 
     @ViewBuilder private var content: some View {
@@ -61,14 +67,18 @@ struct MessageView: View, Equatable {
         case .assistant:
             assistantBody
         case .system:
-            SelectableText(plain: message.text,
-                           size: 11,
-                           design: .monospaced,
-                           secondary: true)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.trailing, 32)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transcriptCopyButton(for: message.text)
+            HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                SelectableText(plain: message.text,
+                               size: 11,
+                               design: .monospaced,
+                               secondary: true)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                TimeStamp(date: message.date)
+            }
+            .padding(.trailing, 32)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .transcriptCopyButton(for: message.text)
         case .instructions:
             InstructionBubble(text: message.text)
                 .transcriptCopyButton(for: message.text)
@@ -97,10 +107,12 @@ struct MessageView: View, Equatable {
                         SentPromptText(text: message.text)
                     }
                 }
-                if message.steered == true || message.dictated == true {
+                if message.steered == true || message.dictated == true
+                    || timestamps.label(for: message.date) != nil {
                     HStack(spacing: Space.md) {
                         if message.steered == true { SteeredTag() }
                         if message.dictated == true { DictatedTag() }
+                        TimeStamp(date: message.date)
                     }
                 }
             }
@@ -216,20 +228,24 @@ struct MessageView: View, Equatable {
                                   openChange: openChange,
                                   runInShell: runInShell)
                         .transition(.fadeIn)
-                case .prose(_, let text):
+                case .prose(_, let text, let date):
                     // The shared block keeps file previews and transcripts visually
                     // aligned. Chat adds its own copy affordance because the preview
                     // already supports text selection.
-                    MarkdownProse(text: text, projectPath: projectPath, textScale: textScale) { segment in
-                        MarkdownCodeBlock(segment: segment)
-                            .equatable()
-                            .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
+                    VStack(alignment: .leading, spacing: Space.sm) {
+                        MarkdownProse(text: text, projectPath: projectPath, textScale: textScale) { segment in
+                            MarkdownCodeBlock(segment: segment)
+                                .equatable()
+                                .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
+                        }
+                        .padding(.trailing, 32)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transcriptCopyButton(for: text.trimmed, secondOpinion: secondOpinion)
+                        // When this stretch of the answer arrived, under the words it dates.
+                        TimeStamp(date: date)
                     }
-                    .padding(.trailing, 32)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transcriptCopyButton(for: text.trimmed, secondOpinion: secondOpinion)
-                case .thinking(_, let text):
-                    ThinkingBlock(text: text)
+                case .thinking(_, let text, let date):
+                    ThinkingBlock(text: text, date: date)
                         .transition(.fadeIn)
                 }
             }
@@ -307,20 +323,25 @@ private struct InstructionBubble: View {
 // folds down to one dim line and opens as dim italic text rather than as page prose.
 private struct ThinkingBlock: View {
     let text: String
+    var date: Date? = nil
     @State private var expanded = false
     @Environment(\.transcriptFind) private var find
     @Environment(\.transcriptMessageID) private var messageID
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            DisclosureHeader(isExpanded: $expanded, show: "Show thinking", hide: "Hide thinking") {
-                Text(expanded ? "Thought" : "Thought · \(firstLine)")
-                    .scaledText(Typography.Size.detail)
-                    .italic()
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            HStack(spacing: Space.md) {
+                DisclosureHeader(isExpanded: $expanded, show: "Show thinking", hide: "Hide thinking") {
+                    Text(expanded ? "Thought" : "Thought · \(firstLine)")
+                        .scaledText(Typography.Size.detail)
+                        .italic()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                TimeStamp(date: date, step: true)
             }
-            .foregroundStyle(.secondary)
 
             if expanded {
                 SelectableText(plain: text.trimmed,

@@ -19,11 +19,16 @@ struct ImportedTranscript {
         switch event {
         case .text(let text):
             if !message.text.isEmpty { message.text += "\n\n" }
+            if let date {
+                message.textMarks = (message.textMarks ?? [])
+                    + [TextMark(offset: message.text.count, date: date)]
+            }
             message.text += text
         case .thinking(let text):
             var thought = ThinkingSegment(text: text)
             thought.textOffset = message.text.count
             thought.toolOffset = message.tools.count
+            thought.date = date
             message.thinking = (message.thinking ?? []) + [thought]
         case .toolUse(var tool):
             guard tool.parentID == nil else { return }

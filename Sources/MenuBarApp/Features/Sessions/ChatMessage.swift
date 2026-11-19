@@ -165,19 +165,28 @@ struct ThinkingSegment: Identifiable, Codable, Equatable, Sendable {
     // How many calls the turn had made when this arrived. Text alone cannot place a
     // thought between two rounds of calls that spoke no words between them.
     var toolOffset = 0
+    // When the thought arrived. Transcripts saved before thoughts were dated have none.
+    var date: Date? = nil
+}
+
+// Where a block of the reply's text begins and when it arrived. The text is stored as one
+// string, so this is what lets each stretch of it carry its own time.
+struct TextMark: Codable, Equatable, Sendable {
+    var offset: Int
+    var date: Date
 }
 
 // A run of the turn laid out in the order it happened: some text Claude wrote, a stretch
 // of thinking, or the calls it made at that point. Adjacent calls that started at the
 // same point ran as one round, so they stay together and are drawn as a single spine.
 enum MessageBlock: Identifiable {
-    case prose(id: Int, text: String)
-    case thinking(id: Int, text: String)
+    case prose(id: Int, text: String, date: Date? = nil)
+    case thinking(id: Int, text: String, date: Date? = nil)
     case tools(id: Int, [ToolNode])
 
     var id: Int {
         switch self {
-        case .prose(let id, _), .thinking(let id, _), .tools(let id, _): return id
+        case .prose(let id, _, _), .thinking(let id, _, _), .tools(let id, _): return id
         }
     }
 }
@@ -207,6 +216,8 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     // The model's reasoning, in the order it happened. Optional so conversations written
     // before the app kept thinking still decode.
     var thinking: [ThinkingSegment]?
+    // When each block of the text arrived. Replies saved before text was dated have none.
+    var textMarks: [TextMark]?
     // Where the conversation stood when this prompt ran. Only prompts that start a turn
     // carry one; a prompt sent into a turn already running does not mark a point the
     // conversation could go back to.
@@ -299,12 +310,24 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         var cursor = 0
         var cursorIndex = text.startIndex
         let length = text.count
+        // When the last call so far finished. Text saved without marks was written after
+        // the calls above it, so that is the nearest time it can be given.
+        var lastFinished: Date?
+
+        func proseDate(from start: Int, to end: Int) -> Date? {
+            if let mark = textMarks?.first(where: { $0.offset >= start && $0.offset < end }) {
+                return mark.date
+            }
+            if let mark = textMarks?.last(where: { $0.offset < start }) { return mark.date }
+            return lastFinished ?? date
+        }
 
         func emitProse(upTo offset: Int) {
             let end = min(max(offset, cursor), length)
             guard end > cursor else { return }
             let endIndex = text.index(cursorIndex, offsetBy: end - cursor)
-            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex..<endIndex])))
+            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex..<endIndex]),
+                                 date: proseDate(from: cursor, to: end)))
             cursor = end
             cursorIndex = endIndex
         }
@@ -318,7 +341,7 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
                   thought.textOffset < textOffset
                     || (thought.textOffset == textOffset && thought.toolOffset <= toolOrder) {
                 emitProse(upTo: thought.textOffset)
-                blocks.append(.thinking(id: blocks.count, text: thought.text))
+                blocks.append(.thinking(id: blocks.count, text: thought.text, date: thought.date))
                 thoughts.removeFirst()
             }
         }
@@ -339,14 +362,18 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
             } else {
                 blocks.append(.tools(id: blocks.count, [node]))
             }
+            if let finished = node.tool.finishedAt {
+                lastFinished = max(lastFinished ?? finished, finished)
+            }
         }
         for thought in thoughts {
             emitProse(upTo: thought.textOffset)
-            blocks.append(.thinking(id: blocks.count, text: thought.text))
+            blocks.append(.thinking(id: blocks.count, text: thought.text, date: thought.date))
         }
 
         if cursor < length {
-            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex...])))
+            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex...]),
+                                 date: proseDate(from: cursor, to: length)))
         }
         return blocks
     }

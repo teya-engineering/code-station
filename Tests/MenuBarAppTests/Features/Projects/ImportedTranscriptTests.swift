@@ -7,6 +7,16 @@ struct ImportedTranscriptTests {
         String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
     }
 
+    @Test func anImportedThoughtKeepsItsTime() {
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        var transcript = ImportedTranscript()
+        transcript.prompt("Go", at: at)
+        transcript.apply(.thinking("Considering"), at: at.addingTimeInterval(2))
+        transcript.close()
+        let reply = transcript.finish().last
+        #expect(reply?.thinking?.first?.date == at.addingTimeInterval(2))
+    }
+
     @Test func claudeRewindsExcludeAbandonedBranchesAndRepeatedRecords() throws {
         func record(_ role: String, _ id: String, _ parent: String?, _ text: String) throws -> String {
             try line(["type": role, "uuid": id, "parentUuid": parent as Any? ?? NSNull(),
