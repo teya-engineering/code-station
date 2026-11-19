@@ -136,7 +136,10 @@ struct GlanceSection: View {
         let ribbon = ribbon
         let shape = shape(ribbon)
         VStack(alignment: .leading, spacing: Space.lg) {
+            // The "How Stats counts" panel hangs out of the title row over the card, so the
+            // row has to draw above the card or the card hides the panel.
             titleRow
+                .zIndex(1)
             TimelineView(.animation(paused: !isMoving)) { context in
                 glanceCard(ribbon: ribbon, shape: shape, moment: moment(at: context.date))
             }
@@ -209,7 +212,6 @@ struct GlanceSection: View {
         case .today: "Your day"
         case .week: "Your week"
         case .month: "Your month"
-        case .all: "All your work"
         }
     }
 
@@ -309,14 +311,15 @@ struct GlanceSection: View {
                         .fixedSize()
                 }
             }
-            lenses(ribbon: ribbon, moment: moment)
             chart(shape, moment: moment)
                 .padding(.horizontal, Space.xxl)
-                .padding(.vertical, Space.xl)
+                .padding(.top, Space.xs)
+                .padding(.bottom, Space.xl)
+            lenses(ribbon: ribbon, moment: moment)
             if !statsOn {
                 statsOffNote
                     .padding(.horizontal, Space.xxl)
-                    .padding(.bottom, Space.xl)
+                    .padding(.vertical, Space.xl)
                     .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
             }
             footer
@@ -431,7 +434,7 @@ struct GlanceSection: View {
         if stretch == .today && !scanned { return " " }
         if agentSeconds <= 0 {
             if stretch == .today { return statsOn ? "Look back further to see the week." : " " }
-            return stretch == .all ? " " : "Try a longer stretch."
+            return stretch == .month ? " " : "Try a longer stretch."
         }
         var parts: [String] = []
         if shownSubject == nil {
@@ -482,8 +485,9 @@ struct GlanceSection: View {
         var spark: [Double] = []
     }
 
-    // Four cells of the card, split by hairlines. The one picked decides what the chart
-    // measures, and an underline slides to it.
+    // Four cells under the chart, split by hairlines. The one picked decides what the chart
+    // measures, and a mark slides along their top edge to it, pointing up at the chart.
+    // The footer draws the line underneath.
     private func lenses(ribbon: DayRibbon, moment: Moment) -> some View {
         let rest = moment.play?.restOpacity(at: moment.time) ?? 1
         return HStack(spacing: 0) {
@@ -498,7 +502,6 @@ struct GlanceSection: View {
         .opacity(rest)
         .offset(y: (1 - rest) * Space.sm)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
         .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
             step(lens: press.key == .rightArrow ? 1 : -1)
         }
@@ -517,7 +520,7 @@ struct GlanceSection: View {
                 .padding(.horizontal, Space.sm)
                 .padding(.top, Space.xs)
                 .background(picked ? Theme.sunken : Color.clear)
-                .overlay(alignment: .bottom) {
+                .overlay(alignment: .top) {
                     if picked {
                         Rectangle()
                             .fill(choice.tint)
@@ -554,14 +557,8 @@ struct GlanceSection: View {
         let compared = (tile.previous ?? 0) > 0
         return Reading(value: tile.value, text: choice.format(tile.value),
                        change: compared ? tile.change : nil,
-                       comparison: compared ? stretch.comparison : since(report),
+                       comparison: compared ? stretch.comparison : " ",
                        spark: tile.spark)
-    }
-
-    private func since(_ report: StatsReport) -> String {
-        stretch == .all
-            ? "since " + report.interval.start.formatted(.dateTime.day().month(.abbreviated))
-            : " "
     }
 
     // MARK: - Chart
@@ -609,12 +606,13 @@ struct GlanceSection: View {
         HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
             Text(shape.lens.title)
                 .font(Typography.detail.weight(.semibold))
+                .foregroundStyle(shape.lens.tint)
                 .contentTransition(.opacity)
             Text(phrase(shape))
                 .font(Typography.detail)
                 .foregroundStyle(.secondary)
             if shape.wide && !shape.isEmpty {
-                Text("The dashed line is the average, \(shape.lens.format(shape.average))\(unit(shape))")
+                Text("The dashed line is the average, \(shape.lens.format(shape.average)) a day")
                     .font(Typography.caption)
                     .foregroundStyle(.tertiary)
                     .contentTransition(.numericText(value: shape.average))
@@ -637,14 +635,7 @@ struct GlanceSection: View {
         case .today: "over the last 24 hours"
         case .week: "by day, over the last 7 days"
         case .month: "by day, over the last 30 days"
-        case .all:
-            (report?.grain == .week ? "by week, since " : "by day, since ")
-                + shape.domain.start.formatted(.dateTime.day().month(.abbreviated))
         }
-    }
-
-    private func unit(_ shape: GlanceShape) -> String {
-        report?.grain == .week ? " a week" : " a day"
     }
 
     private enum BandRole { case shown, leaving }
@@ -838,17 +829,12 @@ struct GlanceSection: View {
         let text: String
     }
 
-    // A week names every day; a month or more names one bar in a few, so the dates do
-    // not run into one another.
+    // A week names every day; a month names one bar in a few, so the dates do not run
+    // into one another.
     private func axisLabels(_ shape: GlanceShape) -> [AxisLabel] {
         let calendar = Calendar.current
         let bars = shape.bars
-        let every: Int, offset: Int
-        switch (shape.stretch, report?.grain) {
-        case (.week, _): (every, offset) = (1, 0)
-        case (_, .week): (every, offset) = (4, 1)
-        default: (every, offset) = (5, 4)
-        }
+        let (every, offset) = shape.stretch == .week ? (1, 0) : (5, 4)
         return bars.indices.filter { $0 % every == offset % every }.map { index in
             let start = bars[index].interval.start
             let text: String = if shape.stretch == .week {
@@ -869,10 +855,11 @@ struct GlanceSection: View {
             Text(shape.stretch == .today ? "No sessions ran in the last 24 hours" : "Nothing ran in this stretch")
                 .font(Typography.detail)
                 .foregroundStyle(.secondary)
-            if statsOn, shape.stretch != .all {
-                ActionButton(title: shape.stretch == .today ? "Show 7 days" : "Show all time",
+            if statsOn, shape.stretch != .month {
+                let longer: StatsRange = shape.stretch == .today ? .week : .month
+                ActionButton(title: "Show \(longer.title)",
                              tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
-                    pick(shape.stretch == .today ? .week : .all)
+                    pick(longer)
                 }
             }
         }
@@ -966,7 +953,6 @@ struct GlanceSection: View {
         case .today: "today"
         case .week: "in 7 days"
         case .month: "in 30 days"
-        case .all: "in all"
         }
     }
 
@@ -1300,7 +1286,6 @@ extension StatsRange {
         switch self {
         case .today, .week: .today
         case .month: .week
-        case .all: .month
         }
     }
 
@@ -1309,7 +1294,6 @@ extension StatsRange {
         case .today: "the last 24 hours"
         case .week: "the last 7 days"
         case .month: "the last 30 days"
-        case .all: "all time"
         }
     }
 }
@@ -1511,11 +1495,8 @@ private struct GlanceCard: View {
         switch shape.stretch {
         case .today:
             return "\(clock(start)) - \(clock(bar.interval.end))"
-        case .week, .month, .all:
-            let days = bar.interval.duration > 2 * 86_400
-            return days
-                ? "Week of " + start.formatted(.dateTime.day().month(.abbreviated))
-                : start.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
+        case .week, .month:
+            return start.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
         }
     }
 
@@ -1592,7 +1573,7 @@ private struct GlanceCard: View {
         switch shape.stretch {
         case .today:
             return (Calendar.current.isDateInToday(start) ? "Today" : "Yesterday") + " · " + projects
-        case .week, .month, .all:
+        case .week, .month:
             return bar.interval.contains(Date()) ? "So far · " + projects : projects
         }
     }

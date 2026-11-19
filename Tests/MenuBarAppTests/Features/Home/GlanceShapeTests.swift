@@ -81,7 +81,6 @@ struct GlanceShapeTests {
     }
 
     @Test func zoomingInGoesOneStepShorter() {
-        #expect(StatsRange.all.zoomedIn == .month)
         #expect(StatsRange.month.zoomedIn == .week)
         #expect(StatsRange.week.zoomedIn == .today)
     }

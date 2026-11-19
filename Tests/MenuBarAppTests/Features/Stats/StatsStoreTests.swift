@@ -180,4 +180,12 @@ struct StatsStoreTests {
         #expect(stats.keptCount == 0)
         #expect(stats.digests.isEmpty)
     }
+
+    // Home looks back 30 days at most, so a longer choice saved earlier comes back as 30.
+    @Test func keepsPastSessionsForThirtyDaysAtMost() {
+        #expect(StatsStore.resolvedKeptDays(90) == 30)
+        #expect(StatsStore.resolvedKeptDays(30) == 30)
+        #expect(StatsStore.resolvedKeptDays(7) == 7)
+        #expect(StatsStore.resolvedKeptDays(-1) == 0)
+    }
 }

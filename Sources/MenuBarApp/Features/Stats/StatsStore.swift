@@ -79,7 +79,8 @@ final class StatsStore {
     @ObservationIgnored var keptDays: () -> Int = { 0 }
     @ObservationIgnored var isRunning: (UUID) -> Bool = { _ in false }
 
-    nonisolated static let keptDayRange = 0...365
+    // Home looks back 30 days at most, so a past session kept longer would never be counted.
+    nonisolated static let keptDayRange = 0...30
     nonisolated static let defaultKeptDays = 30
 
     nonisolated static func resolvedKeptDays(_ days: Int) -> Int {

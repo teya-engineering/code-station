@@ -5,52 +5,44 @@ import Foundation
 // ranges run to the end of today and start on a day boundary, so "7 days" is this week as
 // the calendar has it, today included.
 enum StatsRange: String, CaseIterable, Hashable, Sendable {
-    case today, week, month, all
+    case today, week, month
 
     var title: String {
         switch self {
         case .today: "Today"
         case .week: "7 days"
         case .month: "30 days"
-        case .all: "All time"
         }
     }
 
     // What a change is measured against, said the way the tiles say it.
-    var comparison: String? {
+    var comparison: String {
         switch self {
         case .today: "vs yesterday"
         case .week: "vs the 7 days before"
         case .month: "vs the 30 days before"
-        case .all: nil
         }
     }
 
-    private var days: Int? {
+    private var days: Int {
         switch self {
         case .today: 1
         case .week: 7
         case .month: 30
-        case .all: nil
         }
     }
 
-    func interval(now: Date, earliest: Date?, calendar: Calendar) -> DateInterval {
+    func interval(now: Date, calendar: Calendar) -> DateInterval {
         if self == .today {
             return DateInterval(start: now.addingTimeInterval(-DayRibbon.window), end: now)
         }
         let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
-        guard let days else {
-            let start = calendar.startOfDay(for: min(earliest ?? now, now))
-            return DateInterval(start: start, end: end)
-        }
         let start = calendar.date(byAdding: .day, value: -days, to: end) ?? end
         return DateInterval(start: start, end: end)
     }
 
-    func previous(before interval: DateInterval) -> DateInterval? {
-        guard days != nil else { return nil }
-        return DateInterval(start: interval.start.addingTimeInterval(-interval.duration),
+    func previous(before interval: DateInterval) -> DateInterval {
+        DateInterval(start: interval.start.addingTimeInterval(-interval.duration),
                             end: interval.start)
     }
 }
@@ -110,7 +102,7 @@ struct StatsReport: Equatable, Sendable {
 
     // A slot is one of the equal pieces the rolling day is cut into, the same pieces the
     // day ribbon draws.
-    enum Grain: Equatable, Sendable { case slot, day, week }
+    enum Grain: Equatable, Sendable { case slot, day }
 
     struct SubjectRow: Equatable, Sendable, Identifiable {
         var subject: StatsSubject
@@ -222,8 +214,7 @@ extension StatsReport {
                       now: Date = Date(), calendar: Calendar = .current) -> StatsReport {
         let digests = subject.map { id in digests.filter { $0.subject.id == id } } ?? digests
         let events = subject.map { id in events.filter { $0.subjectID == id } } ?? events
-        let earliest = digests.map(\.header.createdAt).min()
-        let interval = range.interval(now: now, earliest: earliest, calendar: calendar)
+        let interval = range.interval(now: now, calendar: calendar)
 
         var report = StatsReport(interval: interval)
         report.waitsSince = waitsSince
@@ -235,16 +226,15 @@ extension StatsReport {
         report.prompts.value = Double(Self.promptCount(digests, in: interval))
         report.waiting.value = Self.waitSeconds(events, in: interval)
         report.cost.value = Self.cost(digests, in: interval)
-        if let previous = range.previous(before: interval) {
-            report.agentTime.previous = Self.agentSeconds(digests, in: previous)
-            report.prompts.previous = Double(Self.promptCount(digests, in: previous))
-            // Waits are only recorded from when Stats was turned on, so a stretch from
-            // before that has nothing to compare against rather than a wait of zero.
-            if waitsSince.map({ $0 <= previous.start }) ?? true {
-                report.waiting.previous = Self.waitSeconds(events, in: previous)
-            }
-            report.cost.previous = Self.cost(digests, in: previous)
+        let previous = range.previous(before: interval)
+        report.agentTime.previous = Self.agentSeconds(digests, in: previous)
+        report.prompts.previous = Double(Self.promptCount(digests, in: previous))
+        // Waits are only recorded from when Stats was turned on, so a stretch from
+        // before that has nothing to compare against rather than a wait of zero.
+        if waitsSince.map({ $0 <= previous.start }) ?? true {
+            report.waiting.previous = Self.waitSeconds(events, in: previous)
         }
+        report.cost.previous = Self.cost(digests, in: previous)
 
         // The chart, split by subject in every lens, and the line under each tile.
         report.buckets = Self.split(digests: digests, events: events, into: buckets)
@@ -468,28 +458,21 @@ extension StatsReport {
 
     static func buckets(for range: StatsRange, interval: DateInterval,
                         calendar: Calendar) -> (Grain, [DateInterval]) {
-        let grain: Grain
-        switch range {
-        case .today:
+        if range == .today {
             let step = interval.duration / Double(slots)
             return (.slot, (0..<slots).map { index in
                 DateInterval(start: interval.start.addingTimeInterval(Double(index) * step),
                              duration: step)
             })
-        case .week, .month: grain = .day
-        case .all: grain = interval.duration > 60 * 86_400 ? .week : .day
         }
-        let component: Calendar.Component = grain == .week ? .weekOfYear : .day
-        var start = grain == .week
-            ? calendar.dateInterval(of: .weekOfYear, for: interval.start)?.start ?? interval.start
-            : interval.start
+        var start = interval.start
         var windows: [DateInterval] = []
         while start < interval.end {
-            guard let next = calendar.date(byAdding: component, value: 1, to: start), next > start else { break }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: start), next > start else { break }
             windows.append(DateInterval(start: start, end: next))
             start = next
         }
-        return (grain, windows)
+        return (.day, windows)
     }
 
     static func split(_ span: StatsDigest.Span, by component: Calendar.Component,
