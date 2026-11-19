@@ -81,7 +81,14 @@ struct SettingsView: View {
         .interactiveDismissDisabled(bots.draft?.isDirty == true)
         .onAppear {
             loginItem.refresh()
-            if let initialTarget { searchTarget = initialTarget }
+            if let initialTarget {
+                // A link from elsewhere in the app names a setting, not a tab, so it keeps
+                // working when the setting moves to another tab.
+                if let entry = SettingsSearchIndex.entries.first(where: { $0.target == initialTarget }) {
+                    tab = entry.tab
+                }
+                searchTarget = initialTarget
+            }
         }
         .onChange(of: secondOpinion) { _, defaults in Preferences.setSecondOpinionDefaults(defaults) }
         .sheet(isPresented: $reviewingOldSessions) {
@@ -337,16 +344,19 @@ struct SettingsView: View {
         switch tab {
         case .general:
             VStack(alignment: .leading, spacing: Space.xxl) {
+                system.id(SettingsSearchTarget.generalSystem.id)
                 sidebar.id(SettingsSearchTarget.generalSidebar.id)
-                recaps.id(SettingsSearchTarget.generalRecaps.id)
-                midTurnPrompts.id(SettingsSearchTarget.generalMidTurnPrompts.id)
-                finishedSound.id(SettingsSearchTarget.generalSound.id)
+                skillRefresh.id(SettingsSearchTarget.generalSkills.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
                 orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
                 statsRetention.id(SettingsSearchTarget.generalStats.id)
-                sessionMemory.id(SettingsSearchTarget.generalSessionMemory.id)
-                skillRefresh.id(SettingsSearchTarget.generalSkills.id)
-                system.id(SettingsSearchTarget.generalSystem.id)
+            }
+        case .sessions:
+            VStack(alignment: .leading, spacing: Space.xxl) {
+                midTurnPrompts.id(SettingsSearchTarget.sessionsMidTurnPrompts.id)
+                recaps.id(SettingsSearchTarget.sessionsRecaps.id)
+                finishedSound.id(SettingsSearchTarget.sessionsSound.id)
+                sessionMemory.id(SettingsSearchTarget.sessionsMemory.id)
             }
         case .appearance:
             VStack(alignment: .leading, spacing: Space.xxl) {
@@ -369,6 +379,14 @@ struct SettingsView: View {
         case .advanced:
             VStack(alignment: .leading, spacing: Space.xxl) {
                 SiteConfigurationSection(skills: skills)
+                ChoiceBlock("DIAGNOSTICS") {
+                    SettingsCard {
+                        log
+                            .padding(.horizontal, Space.lg)
+                            .padding(.vertical, Space.lg)
+                    }
+                }
+                .id(SettingsSearchTarget.advancedSessionLog.id)
             }
         }
     }
@@ -399,7 +417,7 @@ struct SettingsView: View {
 
     private var recaps: some View {
         @Bindable var settings = settings
-        return ChoiceBlock("SESSION RETURN") {
+        return ChoiceBlock("WHEN A TURN ENDS") {
             SettingsCard {
                 SettingsToggleRow(
                     "Automatic session recaps",
@@ -416,7 +434,7 @@ struct SettingsView: View {
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
             }
-            .id(SettingsSearchTarget.generalTitles.id)
+            .id(SettingsSearchTarget.sessionsTitles.id)
             SettingsCard {
                 SettingsToggleRow(
                     "Suggest the next prompt",
@@ -425,7 +443,7 @@ struct SettingsView: View {
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
             }
-            .id(SettingsSearchTarget.generalSuggestions.id)
+            .id(SettingsSearchTarget.sessionsSuggestions.id)
         }
     }
 
@@ -871,10 +889,6 @@ struct SettingsView: View {
                     .padding(.vertical, Space.lg)
                 SettingsRowDivider()
                 startAtLogin
-                    .padding(.horizontal, Space.lg)
-                    .padding(.vertical, Space.lg)
-                SettingsRowDivider()
-                log
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
             }
