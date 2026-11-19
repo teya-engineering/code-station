@@ -1,15 +1,20 @@
 import SwiftUI
 
-// A count of days typed or stepped, held to the range old session cleanup allows. Old
-// session settings and the new workspace sheet both ask in days, so they share one field.
+// A count of days typed or stepped, held to a range. Old session cleanup, the new
+// workspace sheet and Stats all ask in days, so they share one field.
 struct DayField: View {
     @Binding var days: Int
+    var range = OldSessions.dayRange
     var accessibilityLabel = "Old session age in days"
+
+    private func resolved(_ value: Int) -> Int {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
 
     private var value: Binding<Int> {
         Binding(
             get: { days },
-            set: { days = OldSessions.resolvedDays($0) }
+            set: { days = resolved($0) }
         )
     }
 
@@ -27,12 +32,12 @@ struct DayField: View {
                 .foregroundStyle(.secondary)
             VStack(spacing: 0) {
                 DayStepButton(icon: "chevron.up", label: "One more day",
-                              enabled: days < OldSessions.dayRange.upperBound) {
-                    days = OldSessions.resolvedDays(days + 1)
+                              enabled: days < range.upperBound) {
+                    days = resolved(days + 1)
                 }
                 DayStepButton(icon: "chevron.down", label: "One less day",
-                              enabled: days > OldSessions.dayRange.lowerBound) {
-                    days = OldSessions.resolvedDays(days - 1)
+                              enabled: days > range.lowerBound) {
+                    days = resolved(days - 1)
                 }
             }
         }

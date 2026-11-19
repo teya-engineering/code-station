@@ -22,7 +22,7 @@ final class StatsStore {
 
         var enabledAt: Date?
         var events: [StatsEvent] = []
-        // Sessions that were removed while the person asked to keep their stats.
+        // Removed sessions whose stats are still inside the days the person chose.
         var kept: [StatsDigest] = []
         var cache: [UUID: Cached] = [:]
     }
@@ -76,8 +76,15 @@ final class StatsStore {
     // Read on each use rather than copied in, so the switch in the sheet takes effect at
     // once everywhere that records.
     @ObservationIgnored var isEnabled: () -> Bool = { false }
-    @ObservationIgnored var keepsRemoved: () -> Bool = { false }
+    @ObservationIgnored var keptDays: () -> Int = { 0 }
     @ObservationIgnored var isRunning: (UUID) -> Bool = { _ in false }
+
+    nonisolated static let keptDayRange = 0...365
+    nonisolated static let defaultKeptDays = 30
+
+    nonisolated static func resolvedKeptDays(_ days: Int) -> Int {
+        min(max(days, keptDayRange.lowerBound), keptDayRange.upperBound)
+    }
 
     init(fileURL: URL = AppPaths.supportFile("stats.json"),
          transcripts: URL,
@@ -122,15 +129,19 @@ final class StatsStore {
         }
     }
 
-    // Drops the stats of sessions that are already gone, for when the person stops
-    // wanting them kept.
-    func forgetKept() {
-        let ids = Set(archive.kept.map(\.id))
-        archive.kept = []
-        keptCount = 0
-        archive.events.removeAll { ids.contains($0.sessionID) }
-        revision += 1
-        saver.schedule()
+    // Drops removed sessions whose last turn is older than the days the person chose,
+    // with the waits recorded against them. Done when Stats is read rather than when the
+    // setting moves, so stepping the days down past a value and back loses nothing.
+    @discardableResult
+    func pruneKept(now: Date = Date()) -> Bool {
+        let days = keptDays()
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        let gone = Set(archive.kept.filter { days == 0 || $0.lastActive < cutoff }.map(\.id))
+        guard !gone.isEmpty else { return false }
+        archive.kept.removeAll { gone.contains($0.id) }
+        keptCount = archive.kept.count
+        archive.events.removeAll { gone.contains($0.sessionID) }
+        return true
     }
 
     // MARK: - Reading the sessions
@@ -143,6 +154,7 @@ final class StatsStore {
         let before = archive.cache.count
         archive.cache = archive.cache.filter { live.contains($0.key) }
         var changed = archive.cache.count != before
+        if pruneKept() { changed = true }
 
         var due: [(header: StatsDigest.Header, mark: SessionSummary, running: Bool,
                    path: String)] = []
@@ -203,8 +215,8 @@ final class StatsStore {
     }
 
     // Called once a session's removal is certain, while its transcript is still on disk.
-    // Its stats stay only if the person asked for that; otherwise the waits recorded
-    // against it go too.
+    // Its stats stay only while the person keeps removed sessions for some days; otherwise
+    // the waits recorded against it go too.
     func sessionLeaving(_ session: ChatSession, store: ProjectStore) {
         guard isEnabled() else { return }
         loadIfNeeded()
@@ -217,7 +229,7 @@ final class StatsStore {
             revision += 1
             saver.schedule()
         }
-        guard keepsRemoved() else {
+        guard keptDays() > 0 else {
             archive.events.removeAll { $0.sessionID == session.id }
             return
         }
@@ -240,7 +252,7 @@ final class StatsStore {
         Task {
             let digest = await Self.measure(header, source: source, path: path)
             guard generation == started, isEnabled() else { return }
-            if keepsRemoved() {
+            if keptDays() > 0 {
                 keep(digest)
             } else {
                 archive.events.removeAll { $0.sessionID == header.id }
@@ -254,6 +266,7 @@ final class StatsStore {
         archive.kept.removeAll { $0.id == digest.id }
         archive.kept.append(digest)
         keptCount = archive.kept.count
+        pruneKept()
     }
 
     // MARK: - Recording

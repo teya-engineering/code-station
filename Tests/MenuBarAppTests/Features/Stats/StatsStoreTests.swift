@@ -13,13 +13,13 @@ struct StatsStoreTests {
         (store, scratch) = TestStore.make()
     }
 
-    private func makeStats(keepsRemoved: Bool, in store: ProjectStore? = nil) -> StatsStore {
+    private func makeStats(keptDays: Int, in store: ProjectStore? = nil) -> StatsStore {
         let store = store ?? self.store
         let stats = StatsStore(fileURL: scratch.path("stats-\(UUID().uuidString).json"),
                                transcripts: store.transcriptsURL,
                                loaded: { [store] in store.loadedTranscript(of: $0) })
         stats.isEnabled = { true }
-        stats.keepsRemoved = { keepsRemoved }
+        stats.keptDays = { keptDays }
         stats.turnOn()
         store.onSessionLeaving = { [stats, store] in stats.sessionLeaving($0, store: store) }
         return stats
@@ -41,7 +41,7 @@ struct StatsStoreTests {
             SessionProject(projectID: first.id, worktreePath: nil, worktreeBranch: nil),
             SessionProject(projectID: second.id, worktreePath: nil, worktreeBranch: nil)
         ]).get()
-        let stats = makeStats(keepsRemoved: true)
+        let stats = makeStats(keptDays: 30)
 
         store.removeWorkspace(workspace.id)
 
@@ -57,7 +57,7 @@ struct StatsStoreTests {
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
         prompt("First", to: session.id)
-        let stats = makeStats(keepsRemoved: true)
+        let stats = makeStats(keptDays: 30)
         stats.refresh(store)
         #expect(await waitUntil { !stats.isReading })
         #expect(stats.digests.first?.prompts.count == 1)
@@ -73,7 +73,7 @@ struct StatsStoreTests {
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
         prompt("Hello", to: session.id)
-        let stats = makeStats(keepsRemoved: false)
+        let stats = makeStats(keptDays: 0)
 
         stats.refresh(store)
         #expect(stats.isReading)
@@ -101,7 +101,7 @@ struct StatsStoreTests {
                                  files: failing)
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
-        let stats = makeStats(keepsRemoved: false, in: store)
+        let stats = makeStats(keptDays: 0, in: store)
         let ending = TurnEnding(started: Date().addingTimeInterval(-60), ended: Date(),
                                 outcome: .finished)
         stats.recordTurn(ending, sessionID: session.id, subjectID: project.id)
@@ -121,7 +121,7 @@ struct StatsStoreTests {
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
         prompt("Go", to: session.id)
-        let stats = makeStats(keepsRemoved: false)
+        let stats = makeStats(keptDays: 0)
         var running = true
         stats.isRunning = { _ in running }
 
@@ -136,5 +136,48 @@ struct StatsStoreTests {
         #expect(await waitUntil { !stats.isReading })
         stats.refresh(store)
         #expect(!stats.isReading)
+    }
+
+    // A removed session's stats last as many days as the person chose, counted from its
+    // last turn, and the waits recorded against it go with them.
+    @Test func dropsKeptStatsOnceTheirLastTurnIsOlderThanTheDaysKept() async throws {
+        let project = try TestStore.project(in: store)
+        let session = store.newSession(in: project.id)
+        prompt("Hello", to: session.id)
+        var days = 30
+        let stats = makeStats(keptDays: 30)
+        stats.keptDays = { days }
+        let ending = TurnEnding(started: Date().addingTimeInterval(-60), ended: Date(),
+                                outcome: .finished)
+        stats.recordTurn(ending, sessionID: session.id, subjectID: project.id)
+        try store.removeSession(session.id).get()
+        #expect(await waitUntil { stats.keptCount == 1 })
+
+        #expect(!stats.pruneKept(now: Date().addingTimeInterval(29 * 86_400)))
+        #expect(stats.keptCount == 1)
+
+        #expect(stats.pruneKept(now: Date().addingTimeInterval(31 * 86_400)))
+        #expect(stats.keptCount == 0)
+        #expect(stats.archive.events.isEmpty)
+
+        days = 0
+        #expect(!stats.pruneKept())
+    }
+
+    @Test func dropsEveryKeptSessionWhenTheDaysGoToZero() async throws {
+        let project = try TestStore.project(in: store)
+        let session = store.newSession(in: project.id)
+        prompt("Hello", to: session.id)
+        var days = 30
+        let stats = makeStats(keptDays: 30)
+        stats.keptDays = { days }
+        try store.removeSession(session.id).get()
+        #expect(await waitUntil { stats.keptCount == 1 })
+
+        days = 0
+        stats.refresh(store)
+
+        #expect(stats.keptCount == 0)
+        #expect(stats.digests.isEmpty)
     }
 }

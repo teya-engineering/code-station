@@ -334,6 +334,7 @@ struct SettingsView: View {
                 finishedSound.id(SettingsSearchTarget.generalSound.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
                 orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
+                statsRetention.id(SettingsSearchTarget.generalStats.id)
                 sessionMemory.id(SettingsSearchTarget.generalSessionMemory.id)
                 skillRefresh.id(SettingsSearchTarget.generalSkills.id)
                 system.id(SettingsSearchTarget.generalSystem.id)
@@ -484,6 +485,25 @@ struct SettingsView: View {
                     isOn: $settings.sweepsOrphanedWorktrees)
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
+            }
+        }
+    }
+
+    private var statsRetention: some View {
+        @Bindable var settings = settings
+        return ChoiceBlock("STATS") {
+            SettingsCard {
+                HStack(alignment: .top, spacing: Space.lg) {
+                    settingCopy(
+                        title: "Keep stats for removed sessions",
+                        detail: "Counted from the session's last turn. Times, prompts and cost stay, never the words. At 0 a session's stats go when it does.")
+                    Spacer(minLength: 0)
+                    DayField(days: $settings.statsRemovedSessionDays,
+                             range: StatsStore.keptDayRange,
+                             accessibilityLabel: "Days to keep stats for removed sessions")
+                }
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
             }
         }
     }

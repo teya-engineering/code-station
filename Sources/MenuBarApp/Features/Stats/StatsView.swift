@@ -16,7 +16,6 @@ struct StatsView: View {
     @State private var report: StatsReport?
     @State private var subjects: [StatsSubject] = []
     @State private var showsWhy = false
-    @State private var keepsRemovedOnStart = false
     @Namespace private var rangeTrack
 
     private struct BuildKey: Equatable {
@@ -37,7 +36,7 @@ struct StatsView: View {
                     dashboard
                         .transition(.headerPage(reduceMotion: reduceMotion))
                 } else {
-                    StatsOptIn(keepsRemoved: $keepsRemovedOnStart, turnOn: turnOn)
+                    StatsOptIn(turnOn: turnOn)
                         .transition(.headerPage(reduceMotion: reduceMotion))
                 }
             }
@@ -52,10 +51,7 @@ struct StatsView: View {
         .frame(width: 960)
         .frame(minHeight: 420, idealHeight: 780, maxHeight: 780)
         .background(Theme.background)
-        .onAppear {
-            keepsRemovedOnStart = settings.statsKeepsRemovedSessions
-            stats.refresh(store)
-        }
+        .onAppear { stats.refresh(store) }
         .task(id: settings.statsEnabled) {
             // Sessions keep working while the sheet is open, so it reads them again now
             // and then rather than only once.
@@ -196,13 +192,6 @@ struct StatsView: View {
     private var settingsBlock: some View {
         ChoiceBlock("STATS SETTINGS") {
             SettingsCard {
-                SettingsToggleRow(
-                    "Keep stats for removed sessions",
-                    detail: keptDetail,
-                    isOn: Binding(get: { settings.statsKeepsRemovedSessions },
-                                  set: setKeepsRemoved))
-                    .padding(Space.lg)
-                SettingsRowDivider()
                 HStack(alignment: .center, spacing: Space.lg) {
                     VStack(alignment: .leading, spacing: Space.xxs) {
                         Text("Turn off Stats")
@@ -220,16 +209,9 @@ struct StatsView: View {
         }
     }
 
-    private var keptDetail: String {
-        let base = "When a session is removed, by you or by cleanup, its times, prompts and cost stay in Stats. Never its words."
-        guard stats.keptCount > 0 else { return base }
-        return base + " Keeping \(counted(stats.keptCount, "removed session"))."
-    }
-
     // MARK: - Actions
 
     private func turnOn() {
-        settings.statsKeepsRemovedSessions = keepsRemovedOnStart
         withAnimation(reduceMotion ? nil : Motion.reveal) {
             settings.statsEnabled = true
         }
@@ -258,27 +240,6 @@ struct StatsView: View {
                     subject = nil
                 }
                 stats.erase()
-            })
-    }
-
-    private func setKeepsRemoved(_ keeps: Bool) {
-        guard !keeps, stats.keptCount > 0 else {
-            settings.statsKeepsRemovedSessions = keeps
-            return
-        }
-        dialogs.show(.impact(
-            "Stop keeping removed sessions?",
-            rows: [
-                Dialog.Impact.Row(title: "Stats for \(counted(stats.keptCount, "removed session"))",
-                                  detail: "Their times, prompts and costs"),
-                Dialog.Impact.Row(title: "Stats for sessions still in the app",
-                                  detail: "Read again from the sessions themselves", kept: true)
-            ],
-            warning: "The removed sessions are gone, so their stats cannot be restored.",
-            compact: true,
-            action: "Delete their stats") {
-                settings.statsKeepsRemovedSessions = false
-                stats.forgetKept()
             })
     }
 
@@ -323,8 +284,9 @@ struct StatsView: View {
 
 // What Stats counts and where it keeps it, said before anything is counted.
 private struct StatsOptIn: View {
-    @Binding var keepsRemoved: Bool
     let turnOn: () -> Void
+
+    @Environment(AppSettings.self) private var settings
 
     var body: some View {
         ScrollView {
@@ -351,21 +313,10 @@ private struct StatsOptIn: View {
                     SettingsRowDivider()
                     promise("lock", "Stays on this Mac",
                             "Nothing is sent anywhere. Turning Stats off deletes everything it kept.")
+                    SettingsRowDivider()
+                    promise("trash", "Removed sessions", removedDetail)
                 }
                 .cardSurface(cornerRadius: Radius.floating)
-
-                VStack(alignment: .leading, spacing: Space.xxs) {
-                    Toggle(isOn: $keepsRemoved) {
-                        Text("Keep stats for sessions I remove")
-                            .font(Typography.body.weight(.semibold))
-                    }
-                    .toggleStyle(.appCheckbox)
-                    Text("Otherwise a session's stats go when the session does. You can change this later.")
-                        .font(Typography.detail)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
                 ActionButton(title: "Turn on Stats", tone: .green, height: ControlHeight.xl,
                              size: Typography.Size.body, icon: "chart.bar.xaxis", action: turnOn)
@@ -378,6 +329,14 @@ private struct StatsOptIn: View {
     }
 
     static let width: CGFloat = 520
+
+    private var removedDetail: String {
+        let days = settings.statsRemovedSessionDays
+        let kept = days == 0
+            ? "A session's stats go when the session does."
+            : "A session's stats stay for \(counted(days, "day")) after its last turn, even once it is removed."
+        return kept + " Change this in Settings, General."
+    }
 
     private func promise(_ icon: String, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: Space.lg) {

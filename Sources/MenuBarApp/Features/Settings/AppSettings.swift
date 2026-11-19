@@ -53,9 +53,9 @@ final class AppSettings {
         didSet { Preferences.setStatsEnabled(statsEnabled, in: preferences) }
     }
 
-    var statsKeepsRemovedSessions: Bool {
+    var statsRemovedSessionDays: Int {
         didSet {
-            Preferences.setStatsKeepsRemovedSessions(statsKeepsRemovedSessions, in: preferences)
+            Preferences.setStatsRemovedSessionDays(statsRemovedSessionDays, in: preferences)
         }
     }
 
@@ -217,7 +217,7 @@ final class AppSettings {
         sweepsOrphanedWorktrees = Preferences.sweepsOrphanedWorktrees(in: preferences)
         sessionMemoryLimit = Preferences.sessionMemoryLimit(in: preferences)
         statsEnabled = Preferences.statsEnabled(in: preferences)
-        statsKeepsRemovedSessions = Preferences.statsKeepsRemovedSessions(in: preferences)
+        statsRemovedSessionDays = Preferences.statsRemovedSessionDays(in: preferences)
         sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
         skillsRefreshInterval = Preferences.skillsRefreshInterval(in: preferences)
         projectSort = Preferences.projectSort(in: preferences)
