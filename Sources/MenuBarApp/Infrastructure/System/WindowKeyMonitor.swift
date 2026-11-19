@@ -64,7 +64,7 @@ final class WindowKeyMonitor {
     // for the sheet's own. A shell is typed into directly, so a stroke landing there is
     // its own and never a shortcut.
     static func routes(to window: NSWindow, frontmost: NSWindow?) -> Bool {
-        window === frontmost && !(window.firstResponder is TerminalSurface)
+        window === frontmost && !(window.firstResponder is any TerminalKeyboardResponder)
     }
 
     // Which of a sheet and the window it hangs off counts as key is not worth relying on,

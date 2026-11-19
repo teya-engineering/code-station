@@ -97,11 +97,16 @@ private struct TerminalHost: NSViewRepresentable {
 }
 
 // SwiftTerm's view dressed in the app's palette, with the few keys the app keeps for
-// itself carved out.
-final class TerminalSurface: SwiftTerm.TerminalView {
+// itself carved out. SwiftTerm stays inside this file: the session talks to it as a
+// TerminalEngine and hears from it through the callbacks below.
+final class TerminalSurface: SwiftTerm.TerminalView, TerminalKeyboardResponder {
     var onClear: (() -> Void)?
     var onDrawerKey: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    // Bytes typed or pasted, on their way to the shell.
+    var onInput: ((Data) -> Void)?
+    // The grid the view now fits, which the shell has to be told about.
+    var onResize: ((_ columns: Int, _ rows: Int) -> Void)?
     // Whether the shell is the one being typed into, or something the app has drawn over
     // it is. Only the view layer can tell, so it says.
     var claimsKeys = true
@@ -118,6 +123,8 @@ final class TerminalSurface: SwiftTerm.TerminalView {
     nonisolated(unsafe) private var keyWindowObserver: NSObjectProtocol?
     private var responderObservation: NSKeyValueObservation?
     nonisolated(unsafe) private var keyMonitor: Any?
+    // SwiftTerm holds its delegate weakly, so the surface keeps the relay alive.
+    private var relay: Relay?
 
     // The size the shell's own text is drawn at, before the reading scale is applied.
     private static let baseFontSize: CGFloat = 12
@@ -136,12 +143,20 @@ final class TerminalSurface: SwiftTerm.TerminalView {
                    font: NSFont.monospacedSystemFont(ofSize: Self.baseFontSize, weight: .regular))
         applyTheme()
         interceptAppKeys()
+        relayToCallbacks()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         applyTheme()
         interceptAppKeys()
+        relayToCallbacks()
+    }
+
+    private func relayToCallbacks() {
+        let relay = Relay(surface: self)
+        self.relay = relay
+        terminalDelegate = relay
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -175,31 +190,6 @@ final class TerminalSurface: SwiftTerm.TerminalView {
 
     // MARK: - Keys
 
-    // Where one key press goes while the shell holds the keyboard. Command belongs to
-    // the app, which is where a Mac shortcut lives and what keeps Copy, Paste and Quit
-    // working over a terminal; everything else belongs to the shell, because Escape,
-    // Control-C and the rest are how a terminal is driven.
-    enum KeyRoute: Equatable {
-        case shell
-        case app
-        case clear
-        case drawer
-    }
-
-    static func route(_ event: NSEvent, claimsKeys: Bool, drawerKeys: KeyCombo?) -> KeyRoute {
-        guard claimsKeys else { return .app }
-        // The drawer's own key is checked first, so it still works when it has been set
-        // to a Control key, or to the Command key the shell would otherwise clear with.
-        // Nothing else would be left to leave the shell with.
-        if drawerKeys?.matches(event) == true { return .drawer }
-        let characters = event.charactersIgnoringModifiers
-        if event.modifierFlags.contains(.command) {
-            // Clearing the screen is the one Command key the shell answers.
-            return characters == "k" ? .clear : .app
-        }
-        return .shell
-    }
-
     // Both SwiftTerm's key handling and the responder chain are reached too late to make
     // that split: a menu item and the hidden button behind a SwiftUI keyboard shortcut
     // are each offered a key press before the first responder sees it, so a plain Escape
@@ -214,7 +204,8 @@ final class TerminalSurface: SwiftTerm.TerminalView {
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, self.window?.firstResponder === self,
                       event.window === self.window else { return false }
-                switch Self.route(event, claimsKeys: self.claimsKeys, drawerKeys: self.drawerKeys) {
+                switch TerminalKeyRoute.route(event, claimsKeys: self.claimsKeys,
+                                              drawerKeys: self.drawerKeys) {
                 case .app:
                     return false
                 case .clear:
@@ -283,6 +274,58 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         if let keyWindowObserver { NotificationCenter.default.removeObserver(keyWindowObserver) }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
     }
+}
+
+// MARK: - Engine
+
+extension TerminalSurface: TerminalEngine {
+    var gridSize: (columns: Int, rows: Int) {
+        let screen = terminalDimensions
+        return (screen.cols, screen.rows)
+    }
+
+    var isBracketedPasteOn: Bool {
+        terminalInputStateSnapshot()?.bracketedPasteMode == true
+    }
+
+    func feedOutput(_ data: Data) {
+        feed(byteArray: ArraySlice([UInt8](data)))
+    }
+
+    func resetScreen() {
+        resetToInitialState()
+        setNeedsDisplay(bounds)
+    }
+
+    func screenText() -> String {
+        String(decoding: getBufferAsData(), as: UTF8.self)
+    }
+}
+
+// Turns SwiftTerm's delegate calls into the surface's callbacks, so nothing outside this
+// file has to know SwiftTerm's types. SwiftTerm calls back on the main thread.
+@MainActor
+private final class Relay: TerminalViewDelegate {
+    private weak var surface: TerminalSurface?
+
+    init(surface: TerminalSurface) {
+        self.surface = surface
+    }
+
+    func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
+        surface?.onInput?(Data(data))
+    }
+
+    // The surface works out its own columns and rows from its frame; the shell just
+    // has to be told, or anything that draws a full line wraps in the wrong place.
+    func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
+        surface?.onResize?(newCols, newRows)
+    }
+
+    func setTerminalTitle(source: SwiftTerm.TerminalView, title: String) {}
+    func hostCurrentDirectoryUpdate(source: SwiftTerm.TerminalView, directory: String?) {}
+    func scrolled(source: SwiftTerm.TerminalView, position: Double) {}
+    func rangeChanged(source: SwiftTerm.TerminalView, startY: Int, endY: Int) {}
 }
 
 // The colours the shell draws with, one table per appearance. The dark table shares the

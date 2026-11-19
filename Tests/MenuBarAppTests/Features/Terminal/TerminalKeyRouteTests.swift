@@ -16,8 +16,8 @@ struct TerminalKeyRouteTests {
     }
 
     private func route(_ event: NSEvent, claimsKeys: Bool = true,
-                       drawerKeys: KeyCombo? = AppCommand.terminal.info.keys) -> TerminalSurface.KeyRoute {
-        TerminalSurface.route(event, claimsKeys: claimsKeys, drawerKeys: drawerKeys)
+                       drawerKeys: KeyCombo? = AppCommand.terminal.info.keys) -> TerminalKeyRoute {
+        TerminalKeyRoute.route(event, claimsKeys: claimsKeys, drawerKeys: drawerKeys)
     }
 
     @Test func controlCombinationsGoToTheShell() {
