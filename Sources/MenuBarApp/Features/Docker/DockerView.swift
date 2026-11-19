@@ -176,11 +176,16 @@ struct DockerView: View {
     private func railSubtitle(_ item: DockerKind) -> String {
         switch item {
         case .containers: "\(docker.runningCount) of \(docker.containers.items.count) running"
-        case .images: "\(DockerSize.text(docker.disk.images)) on disk"
-        case .volumes: "\(DockerSize.text(docker.disk.volumes)) on disk"
+        case .images: diskSubtitle(docker.disk.images, part: .images)
+        case .volumes: diskSubtitle(docker.disk.volumes, part: .volumes)
         case .networks:
             "\(docker.networks.items.count { !$0.isBuiltIn }) yours, \(docker.networks.items.count(where: \.isBuiltIn)) built in"
         }
+    }
+
+    private func diskSubtitle(_ bytes: Int64, part: DockerDiskUsage.Part) -> String {
+        if docker.disk.unknown.contains(part) { return "Size unknown" }
+        return docker.disk.failure == nil ? "\(DockerSize.text(bytes)) on disk" : "About \(DockerSize.text(bytes)) on disk"
     }
 
     private func count(_ item: DockerKind) -> Int {
@@ -245,11 +250,15 @@ struct DockerView: View {
         .accessibilityAddTraits(current ? .isSelected : [])
     }
 
-    private var diskSegments: [(title: String, bytes: Int64, colour: Color)] {
-        [("Images", docker.disk.images, Theme.chartSeries[0]),
-         ("Volumes", docker.disk.volumes, Theme.chartSeries[2]),
-         ("Build cache", docker.disk.buildCache, Theme.chartSeries[1]),
-         ("Containers", docker.disk.containers, Theme.chartSeries[3])]
+    private var diskSegments: [(title: String, bytes: Int64, colour: Color, part: DockerDiskUsage.Part)] {
+        [("Images", docker.disk.images, Theme.chartSeries[0], .images),
+         ("Volumes", docker.disk.volumes, Theme.chartSeries[2], .volumes),
+         ("Build cache", docker.disk.buildCache, Theme.chartSeries[1], .buildCache),
+         ("Containers", docker.disk.containers, Theme.chartSeries[3], .containers)]
+    }
+
+    private func diskFigure(_ segment: (title: String, bytes: Int64, colour: Color, part: DockerDiskUsage.Part)) -> String {
+        docker.disk.unknown.contains(segment.part) ? "-" : DockerSize.text(segment.bytes)
     }
 
     private var diskCard: some View {
@@ -273,7 +282,7 @@ struct DockerView: View {
                             RoundedRectangle(cornerRadius: 2).fill(segment.colour).frame(width: 8, height: 8)
                             Text(segment.title)
                             Spacer(minLength: 4)
-                            Text(DockerSize.text(segment.bytes)).monospacedDigit()
+                            Text(diskFigure(segment)).monospacedDigit()
                                 .contentTransition(.numericText())
                         }
                         .font(Typography.detail)
@@ -290,10 +299,18 @@ struct DockerView: View {
                         Spacer(minLength: 2)
                         InlineLink(title: "Clean up", size: Typography.Size.detail, action: cleanUp)
                     }
-                } else {
+                } else if docker.disk.failure == nil {
                     Label("Nothing to free", systemImage: "checkmark")
                         .font(Typography.detail.weight(.medium))
                         .foregroundStyle(Theme.dotOnText)
+                }
+                if let failure = docker.disk.failure {
+                    Label("Docker could not measure everything", systemImage: "exclamationmark.triangle")
+                        .font(Typography.detail.weight(.medium))
+                        .foregroundStyle(Theme.attentionText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .appTooltip(failure)
+                        .transition(.fadeIn)
                 }
             }
         }
@@ -322,7 +339,7 @@ struct DockerView: View {
         .motion(Motion.draw, value: docker.disk)
         .accessibilityElement()
         .accessibilityLabel("Disk use by kind")
-        .accessibilityValue(diskSegments.map { "\($0.title) \(DockerSize.text($0.bytes))" }.joined(separator: ", "))
+        .accessibilityValue(diskSegments.map { "\($0.title) \(diskFigure($0))" }.joined(separator: ", "))
     }
 
     // MARK: - Pane

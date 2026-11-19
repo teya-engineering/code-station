@@ -174,6 +174,32 @@ struct DockerServiceTests {
         #expect(await recorder.commands.last == ["rm", "stopped-1"])
     }
 
+    @Test func addsUpDiskUseFromTheListsWhenTheEngineCannotMeasureItself() async {
+        let service = DockerService(
+            runner: { arguments in
+                if arguments.first == "system" {
+                    return DockerService.Output(errorText: "failed to get root file system size of container 1323", status: 125)
+                }
+                let images = [#"{"ID":"img-1","Repository":"postgres","Tag":"18","Size":"320MB"}"#,
+                              #"{"ID":"img-1","Repository":"mirror/postgres","Tag":"18","Size":"320MB"}"#,
+                              #"{"ID":"img-2","Repository":"kafka","Tag":"7","Size":"1.2GB"}"#]
+                let text = switch arguments.first {
+                case "image": images.joined(separator: "\n")
+                case "ps": #"{"ID":"container-1","Names":"api","State":"exited","Size":"5MB (virtual 325MB)"}"#
+                default: ""
+                }
+                return DockerService.Output(text: text, status: 0)
+            },
+            availability: { true })
+
+        await service.refresh(sizes: true)
+
+        #expect(service.disk.failure == "failed to get root file system size of container 1323")
+        #expect(service.disk.images == 1_520_000_000)
+        #expect(service.disk.containers == 5_000_000)
+        #expect(service.disk.unknown == [.volumes, .buildCache])
+    }
+
     @Test func keepsTheSizedErrorWhenThePlainListFailsToo() async {
         let service = DockerService(
             runner: { arguments in
