@@ -683,13 +683,6 @@ struct GlanceSection: View {
 
     private func caption(_ shape: GlanceShape) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
-            Text(shape.lens.title)
-                .font(Typography.detail.weight(.semibold))
-                .foregroundStyle(shape.lens.tint)
-                .contentTransition(.opacity)
-            Text(phrase(shape))
-                .font(Typography.detail)
-                .foregroundStyle(.secondary)
             if shape.wide && !shape.isEmpty {
                 Text("The dashed line is the average, \(shape.lens.format(shape.average)) a day")
                     .font(Typography.caption)
