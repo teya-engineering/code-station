@@ -31,10 +31,6 @@ struct AgentConfiguredServer: Identifiable, Equatable {
         // only Codex and Copilot get a switch.
         var canSwitch: Bool { self != .claudeCode }
 
-        // Only `claude mcp list` really connects to each server. The others report what
-        // they would load, not whether it answers.
-        var checksConnection: Bool { self == .claudeCode }
-
         var reloadNote: String {
             switch self {
             case .claudeCode: "Restart your Claude Code session to load the change."
