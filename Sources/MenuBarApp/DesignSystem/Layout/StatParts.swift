@@ -7,23 +7,8 @@ import SwiftUI
 // MARK: - Surfaces and marks
 
 extension View {
-    // A card that leads a screen: the card colour with a wash of the screen's own colour
-    // rising from one corner, and an edge in the same colour.
-    func featureSurface(tint: Color = Theme.accent) -> some View {
-        background {
-            RoundedRectangle(cornerRadius: Radius.floating)
-                .fill(Theme.card)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Radius.floating)
-                        .fill(LinearGradient(colors: [tint.opacity(0.16), tint.opacity(0.02), .clear],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-                }
-        }
-        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(tint.opacity(0.22)))
-    }
-
     // A note set apart inside a card, such as a tip: a faint wash of its colour and an
-    // edge in the same colour, quieter than the card that leads the screen.
+    // edge in the same colour.
     func washSurface(tint: Color, cornerRadius: CGFloat = Radius.control) -> some View {
         surface(tint.opacity(0.08), cornerRadius: cornerRadius, border: tint.opacity(0.22))
     }

@@ -281,7 +281,6 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A record worth celebrating | `RecordBadge`: an `IconBadge` on a round, the caps label, the reading, and a line under it, on a faint wash of its colour |
 | A whole split into a few parts along one line | `ShareStrip`: one segmented bar with a key under it; pass the rest as an "Other" part in `Theme.dotOff` |
 | A whole split into a few parts, as a ring | `ShareDonut`: the parts round a ring with the leading share in the middle and a key beside it |
-| The card that opens a screen | `.featureSurface(tint:)`: the card colour with a wash of the screen's colour rising from one corner. One per screen. |
 | A note set apart inside a card, such as a tip | `.washSurface(tint:)`: a faint wash of the note's colour with an edge in the same colour |
 | Work the person is waiting on, with how far it has got | `ProgressCard`: a `LoopSpinner`, a title, a sentence and a `Meter` with "120 of 412 sessions". On its own in an empty pane for a first load; `compact: true` for a tinted strip over content already on screen while more arrives. |
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |

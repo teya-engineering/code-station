@@ -331,7 +331,7 @@ struct GlanceSection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .featureSurface(tint: StatsBreakdown.Ink.time)
+        .cardSurface(cornerRadius: Radius.floating)
         .motion(Motion.reveal, value: stats.isReading)
         .motion(Motion.reveal, value: statsOn)
         .motion(Motion.reveal, value: stats.loadError)
