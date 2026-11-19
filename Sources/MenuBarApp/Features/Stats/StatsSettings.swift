@@ -1,7 +1,7 @@
 import SwiftUI
 
 // Turning Stats on and off, and whether sessions that were removed still count. Lives in
-// Settings so the Stats sheet itself only ever shows numbers.
+// Settings so Home only ever shows numbers.
 struct StatsSettings: View {
     @Environment(StatsStore.self) private var stats
     @Environment(ProjectStore.self) private var store

@@ -1,7 +1,9 @@
 import Foundation
 
-// The stretch of time the Stats sheet looks at. Ranges run to the end of today and start
-// on a day boundary, so "7 days" is this week as the calendar has it, today included.
+// The stretch of time Home's glance looks at. Today is a rolling day ending now, the same
+// stretch the day ribbon draws, so the morning is still counted in the evening. The longer
+// ranges run to the end of today and start on a day boundary, so "7 days" is this week as
+// the calendar has it, today included.
 enum StatsRange: String, CaseIterable, Hashable, Sendable {
     case today, week, month, all
 
@@ -34,6 +36,9 @@ enum StatsRange: String, CaseIterable, Hashable, Sendable {
     }
 
     func interval(now: Date, earliest: Date?, calendar: Calendar) -> DateInterval {
+        if self == .today {
+            return DateInterval(start: now.addingTimeInterval(-DayRibbon.window), end: now)
+        }
         let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
         guard let days else {
             let start = calendar.startOfDay(for: min(earliest ?? now, now))
@@ -50,7 +55,12 @@ enum StatsRange: String, CaseIterable, Hashable, Sendable {
     }
 }
 
-// Everything the Stats sheet draws, worked out in one pass from the digests and events.
+// What a reading counts. The lens picked on Home decides what the chart's bars measure.
+enum StatsLens: String, CaseIterable, Hashable, Sendable {
+    case time, prompts, waiting, cost
+}
+
+// Everything Home's glance draws, worked out in one pass from the digests and events.
 // It is a value with no reference back to the app, so it is built off the main actor and
 // can be tested with plain dates.
 struct StatsReport: Equatable, Sendable {
@@ -68,10 +78,24 @@ struct StatsReport: Equatable, Sendable {
         }
     }
 
+    // One subject's part of a bucket, in every lens, so changing the lens re-stacks the
+    // same bars rather than building new ones.
     struct Segment: Equatable, Sendable, Identifiable {
         var subject: StatsSubject
-        var seconds: TimeInterval
+        var seconds: TimeInterval = 0
+        var prompts: Double = 0
+        var waiting: TimeInterval = 0
+        var cost: Double = 0
         var id: UUID { subject.id }
+
+        func value(_ lens: StatsLens) -> Double {
+            switch lens {
+            case .time: seconds
+            case .prompts: prompts
+            case .waiting: waiting
+            case .cost: cost
+            }
+        }
     }
 
     struct Bucket: Equatable, Sendable, Identifiable {
@@ -80,9 +104,13 @@ struct StatsReport: Equatable, Sendable {
         var segments: [Segment]
         var id: Date { start }
         var seconds: TimeInterval { segments.reduce(0) { $0 + $1.seconds } }
+
+        func value(_ lens: StatsLens) -> Double { segments.reduce(0) { $0 + $1.value(lens) } }
     }
 
-    enum Grain: Equatable, Sendable { case hour, day, week }
+    // A slot is one of the equal pieces the rolling day is cut into, the same pieces the
+    // day ribbon draws.
+    enum Grain: Equatable, Sendable { case slot, day, week }
 
     struct SubjectRow: Equatable, Sendable, Identifiable {
         var subject: StatsSubject
@@ -165,6 +193,15 @@ struct StatsReport: Equatable, Sendable {
 
     var isEmpty: Bool { agentTime.value == 0 && prompts.value == 0 && cost.value == 0 }
 
+    func tile(_ lens: StatsLens) -> Tile {
+        switch lens {
+        case .time: agentTime
+        case .prompts: prompts
+        case .waiting: waiting
+        case .cost: cost
+        }
+    }
+
     var cacheHitRate: Double? {
         let read = inputTokens + cacheReadTokens + cacheWriteTokens
         guard read > 0 else { return nil }
@@ -209,22 +246,12 @@ extension StatsReport {
             report.cost.previous = Self.cost(digests, in: previous)
         }
 
-        // The chart, split by subject, and the line under each tile.
-        report.buckets = buckets.map { window in
-            var bySubject: [StatsSubject: TimeInterval] = [:]
-            for digest in digests {
-                let seconds = digest.spans.compactMap { $0.clipped(to: window) }
-                    .reduce(0) { $0 + $1.seconds }
-                if seconds > 0 { bySubject[digest.subject, default: 0] += seconds }
-            }
-            let segments = bySubject.map { Segment(subject: $0.key, seconds: $0.value) }
-                .sorted { $0.seconds > $1.seconds }
-            return Bucket(start: window.start, end: window.end, segments: segments)
-        }
-        report.agentTime.spark = report.buckets.map(\.seconds)
-        report.prompts.spark = buckets.map { Double(Self.promptCount(digests, in: $0)) }
-        report.waiting.spark = buckets.map { Self.waitSeconds(events, in: $0) }
-        report.cost.spark = buckets.map { Self.cost(digests, in: $0) }
+        // The chart, split by subject in every lens, and the line under each tile.
+        report.buckets = Self.split(digests: digests, events: events, into: buckets)
+        report.agentTime.spark = report.buckets.map { $0.value(.time) }
+        report.prompts.spark = report.buckets.map { $0.value(.prompts) }
+        report.waiting.spark = report.buckets.map { $0.value(.waiting) }
+        report.cost.spark = report.buckets.map { $0.value(.cost) }
 
         // Per subject, per agent, per model, and what the agents did.
         var rows: [StatsSubject: SubjectRow] = [:]
@@ -349,6 +376,17 @@ extension StatsReport {
         return report
     }
 
+    // Every project and workspace that has something counted, most recent first.
+    static func subjects(of digests: [StatsDigest]) -> [StatsSubject] {
+        var seen: [UUID: (subject: StatsSubject, last: Date)] = [:]
+        for digest in digests {
+            let last = digest.spans.last?.end ?? digest.header.createdAt
+            if let known = seen[digest.subject.id], known.last >= last { continue }
+            seen[digest.subject.id] = (digest.subject, last)
+        }
+        return seen.values.sorted { $0.last > $1.last }.map(\.subject)
+    }
+
     // MARK: - Totals
 
     static func agentSeconds(_ digests: [StatsDigest], in window: DateInterval) -> TimeInterval {
@@ -376,19 +414,72 @@ extension StatsReport {
 
     // MARK: - Shapes
 
+    // As many slots as the day ribbon cuts the rolling day into, so a slot here and a bar
+    // there cover the same minutes.
+    static let slots = RibbonEntrance.slots
+
+    // Each window's share of every subject, in every lens. A wait is placed by the
+    // session it was asked in, since an event from before subjects were recorded has
+    // only that to go on.
+    static func split(digests: [StatsDigest], events: [StatsEvent],
+                      into windows: [DateInterval]) -> [Bucket] {
+        var subjects: [UUID: StatsSubject] = [:]
+        var bySession: [UUID: StatsSubject] = [:]
+        for digest in digests {
+            subjects[digest.subject.id] = digest.subject
+            bySession[digest.id] = digest.subject
+        }
+        let answered = events.compactMap { event -> (StatsEvent, StatsSubject)? in
+            guard event.kind == .answered,
+                  let subject = event.subjectID.flatMap({ subjects[$0] }) ?? bySession[event.sessionID]
+            else { return nil }
+            return (event, subject)
+        }
+        return windows.map { window in
+            var parts: [UUID: Segment] = [:]
+            func add(_ subject: StatsSubject, _ change: (inout Segment) -> Void) {
+                var segment = parts[subject.id] ?? Segment(subject: subject)
+                change(&segment)
+                parts[subject.id] = segment
+            }
+            for digest in digests {
+                let seconds = digest.spans.compactMap { $0.clipped(to: window) }
+                    .reduce(0) { $0 + $1.seconds }
+                // Half open, so a prompt on the line between two windows counts once.
+                let prompts = digest.prompts.count { $0.date >= window.start && $0.date < window.end }
+                let cost = (digest.header.usage?.costUSD ?? 0) * digest.share(of: window)
+                guard seconds > 0 || prompts > 0 || cost > 0 else { continue }
+                add(digest.subject) {
+                    $0.seconds += seconds
+                    $0.prompts += Double(prompts)
+                    $0.cost += cost
+                }
+            }
+            for (event, subject) in answered {
+                let waited = Self.waitSeconds([event], in: window)
+                if waited > 0 { add(subject) { $0.waiting += waited } }
+            }
+            let segments = parts.values.sorted {
+                ($0.seconds, $0.subject.name) > ($1.seconds, $1.subject.name)
+            }
+            return Bucket(start: window.start, end: window.end, segments: segments)
+        }
+    }
+
     static func buckets(for range: StatsRange, interval: DateInterval,
                         calendar: Calendar) -> (Grain, [DateInterval]) {
         let grain: Grain
         switch range {
-        case .today: grain = .hour
+        case .today:
+            let step = interval.duration / Double(slots)
+            return (.slot, (0..<slots).map { index in
+                DateInterval(start: interval.start.addingTimeInterval(Double(index) * step),
+                             duration: step)
+            })
         case .week, .month: grain = .day
         case .all: grain = interval.duration > 60 * 86_400 ? .week : .day
         }
-        let component: Calendar.Component = switch grain {
-        case .hour: .hour
-        case .day: .day
-        case .week: .weekOfYear
-        }
+        let component: Calendar.Component = grain == .week ? .weekOfYear : .day
         var start = grain == .week
             ? calendar.dateInterval(of: .weekOfYear, for: interval.start)?.start ?? interval.start
             : interval.start

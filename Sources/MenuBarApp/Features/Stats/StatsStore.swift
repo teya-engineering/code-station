@@ -7,7 +7,7 @@ import Observation
 //
 // Each session is read once and read again only when something new has happened in it,
 // the same way Home's day ribbon reads them, and the readings are kept in the file so
-// opening the sheet does not mean reading every transcript from the top.
+// opening Home does not mean reading every transcript from the top.
 @MainActor
 @Observable
 final class StatsStore {
@@ -46,7 +46,7 @@ final class StatsStore {
         }
     }
 
-    // Not observed: the sheet follows `revision` instead, so a first read that lands
+    // Not observed: Home follows `revision` instead, so a first read that lands
     // hundreds of sessions does not draw it again for each one.
     @ObservationIgnored private(set) var archive = Archive()
     private(set) var keptCount = 0
@@ -54,7 +54,7 @@ final class StatsStore {
     // How far the first read of a long history has got, for the line that says so.
     private(set) var pending = 0
     private(set) var total = 0
-    // Moves on whenever a reading lands, so the sheet knows to work its numbers out again.
+    // Moves on whenever a reading lands, so Home knows to work its numbers out again.
     private(set) var revision = 0
 
     @ObservationIgnored private let fileURL: URL
@@ -73,7 +73,7 @@ final class StatsStore {
         self?.save()
     }
 
-    // Read on each use rather than copied in, so the switch in the sheet takes effect at
+    // Read on each use rather than copied in, so the switch in Settings takes effect at
     // once everywhere that records.
     @ObservationIgnored var isEnabled: () -> Bool = { false }
     @ObservationIgnored var keptDays: () -> Int = { 0 }
@@ -148,6 +148,15 @@ final class StatsStore {
         keptCount = archive.kept.count
         archive.events.removeAll { gone.contains($0.sessionID) }
         return true
+    }
+
+    // A file that could not be read or written is tried once more when the person asks:
+    // the next save clears the message if it works, and a read that started over finds
+    // every session again.
+    func readAgain(_ store: ProjectStore) {
+        loadError = nil
+        refresh(store)
+        saver.schedule()
     }
 
     // MARK: - Reading the sessions

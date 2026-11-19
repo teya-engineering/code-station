@@ -171,6 +171,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 - Both also tell `PointerOverControl` when the pointer is on them. A surface that reacts to a press anywhere on itself checks it, so a press meant for a button inside goes only to that button.
 - Transitions: `.headerPage` for a tab page, `.popover` for a panel from a button, `.drawer(from:)` for a panel from an edge, `.fadeIn` for plain new content, `.fold` for content that closes.
 - A mark carried from one place to another, such as a tile dropped into a group, is a `FlightView` drawn in an overlay above both places (`Motion/Flight.swift`). The flying view must be plain SwiftUI, since it is scaled on the way. Where it lands, `.landingRings(_:colour:cornerRadius:)` sends out two rings in its colour. Under Reduce Motion neither is drawn: the flight lands at once.
+- A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
 - Motion confirms what the person did. It never makes them wait and never plays for something they did not cause.
 
@@ -269,7 +270,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
-| One headline number, how it moved and how it got there | `StatTile` (`Layout/StatParts.swift`): an `IconBadge`, caps title and `ChangeChip` across the top, the number, what it is compared with, and a `Sparkline` running to the card's edges. The figures roll with `.numericText` when the reading moves. |
+| One headline number, how it moved and how it got there | `StatTile` (`Layout/StatParts.swift`): an `IconBadge`, caps title and `ChangeChip` across the top, the number, what it is compared with, and a `Sparkline` running to the card's edges. The figures roll with `.numericText` when the reading moves. As one cell of a larger card, pass `framed: false` and split the cells with hairlines. Pass `locked:` to say why there is no number yet. |
 | A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means; pass `icon:` to lead with an `IconBadge` |
 | One thing's share of a whole, beside others | `ShareBarRow`, one per thing, sharing one `scale`. The bar draws out with `Motion.draw` when the row arrives. |
 | The key to a chart's colours | `LegendItem` |

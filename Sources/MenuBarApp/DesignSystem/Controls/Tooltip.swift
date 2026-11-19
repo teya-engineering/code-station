@@ -190,6 +190,11 @@ extension View {
                             activation: activation,
                             tooltip: { Tooltip(title: text, persistsOnHover: persistsOnHover) }))
     }
+
+    // For a control that only needs a hint in some states, such as one that is locked.
+    @ViewBuilder func appTooltip(_ text: String?) -> some View {
+        if let text { appTooltip(text) } else { self }
+    }
 }
 
 private struct AppTooltip: ViewModifier {
