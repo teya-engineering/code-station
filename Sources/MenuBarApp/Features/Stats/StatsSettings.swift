@@ -26,7 +26,9 @@ struct StatsSettings: View {
                 SettingsToggleRow(
                     "Count where your time goes",
                     detail: "Times, prompts and cost across every project and workspace, never the words. Kept only on this Mac. Turning it off deletes everything Stats kept.",
-                    isOn: Binding(get: { settings.statsEnabled }, set: setEnabled))
+                    // A closure, not the bare `setEnabled` method: Swift 6.3 crashes while
+                    // building the method reference into the Binding's sendable setter.
+                    isOn: Binding(get: { settings.statsEnabled }, set: { setEnabled($0) }))
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
 
