@@ -48,12 +48,6 @@ struct DisclosureHeader<Label: View>: View {
     }
 }
 
-private extension View {
-    @ViewBuilder func appTooltip(_ text: String?) -> some View {
-        if let text { appTooltip(text) } else { self }
-    }
-}
-
 // A key beside its value. The keys share one column width, so a list of them reads as a
 // table without ruling one.
 struct LabeledRow<Content: View>: View {

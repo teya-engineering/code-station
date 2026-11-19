@@ -76,6 +76,9 @@ struct StatsDigest: Codable, Equatable, Sendable {
     var id: UUID { header.id }
     var subject: StatsSubject { header.subject }
     var activeSeconds: TimeInterval { spans.reduce(0) { $0 + $1.seconds } }
+    var lastActive: Date {
+        max(header.createdAt, spans.last?.end ?? .distantPast, prompts.last?.date ?? .distantPast)
+    }
 
     // How much of the session's time fell inside the window, as a fraction. The cost and
     // tokens a session reports are totals with no date, so they are spread over the days

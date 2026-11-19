@@ -74,9 +74,13 @@ final class ProjectStore {
     // is keyed to it can go at the same time. A running terminal is the reason this
     // exists: the store owns none of that and should not have to know it is there.
     @ObservationIgnored var onRemoved: ((RemovedOwner) -> Void)?
-    // Told about a session just before it goes, while its transcript is still on disk,
-    // so Stats can keep what it counted when the person asked it to.
+    // Told about a session once its removal is certain but before its transcript is
+    // deleted, so Stats can keep what it counted when the person asked it to.
     @ObservationIgnored var onSessionLeaving: ((ChatSession) -> Void)?
+    // A project or workspace leaves the lists before its sessions are taken down, so it
+    // is held here while they go, and a leaving session can still say where it lived.
+    @ObservationIgnored private var leavingProjects: [Project] = []
+    @ObservationIgnored private var leavingWorkspaces: [ProjectWorkspace] = []
     private var sidebarSessionRevision = 0
     let navigation: ProjectNavigation
     let attention = SessionAttention()
@@ -182,6 +186,14 @@ final class ProjectStore {
 
     func project(_ id: UUID) -> Project? { projects.first { $0.id == id } }
     func workspace(_ id: UUID) -> ProjectWorkspace? { workspaces.first { $0.id == id } }
+    // Also finds one that is being removed right now, for whatever is told about its
+    // sessions as they go.
+    func owningProject(_ id: UUID) -> Project? {
+        project(id) ?? leavingProjects.first { $0.id == id }
+    }
+    func owningWorkspace(_ id: UUID) -> ProjectWorkspace? {
+        workspace(id) ?? leavingWorkspaces.first { $0.id == id }
+    }
     func session(_ id: UUID) -> ChatSession? { sessions.first { $0.id == id } }
 
     var protectedWorktreePaths: Set<String> {
@@ -719,6 +731,12 @@ final class ProjectStore {
                 || session.workspaceID.map(dissolved.contains) == true
         }.map(\.id))
         let removed = project(id)
+        leavingProjects = removed.map { [$0] } ?? []
+        leavingWorkspaces = workspaces.filter { dissolved.contains($0.id) }
+        defer {
+            leavingProjects = []
+            leavingWorkspaces = []
+        }
         projects.removeAll { $0.id == id }
         onRemoved?(.project(id))
         // A task's folder was created by the app inside its own support directory, so
@@ -860,6 +878,8 @@ final class ProjectStore {
     // themselves stay. Its sessions cannot exist outside it and go with it.
     func removeWorkspace(_ id: UUID) {
         let affected = Set(sessions.filter { $0.workspaceID == id }.map(\.id))
+        leavingWorkspaces = workspace(id).map { [$0] } ?? []
+        defer { leavingWorkspaces = [] }
         workspaces.removeAll { $0.id == id }
         onRemoved?(.workspace(id))
         if selection == .workspace(id) { selection = nil }
@@ -1679,7 +1699,7 @@ final class ProjectStore {
             return .failure(persistenceFailure(
                 "The session could not be saved before removal started."))
         }
-        onSessionLeaving?(session)
+        let leaving = session
         let worktrees = session.isDesignSession ? [] : checkoutProjects(for: session).compactMap { checkout in
             checkout.worktreePath.map { path in
                 PendingSessionRemoval.Worktree(
@@ -1695,6 +1715,7 @@ final class ProjectStore {
         switch persistRemovalJournal(updated) {
         case .success:
             pendingSessionRemovals = updated
+            onSessionLeaving?(leaving)
             removeSessionFromMemory(sessionID)
             return .success(pending)
         case .failure(let failure):

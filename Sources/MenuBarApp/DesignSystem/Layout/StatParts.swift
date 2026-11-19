@@ -7,19 +7,10 @@ import SwiftUI
 // MARK: - Surfaces and marks
 
 extension View {
-    // A card that leads a screen: the card colour with a wash of the screen's own colour
-    // rising from one corner, and an edge in the same colour.
-    func featureSurface(tint: Color = Theme.accent) -> some View {
-        background {
-            RoundedRectangle(cornerRadius: Radius.floating)
-                .fill(Theme.card)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Radius.floating)
-                        .fill(LinearGradient(colors: [tint.opacity(0.16), tint.opacity(0.02), .clear],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-                }
-        }
-        .overlay(RoundedRectangle(cornerRadius: Radius.floating).stroke(tint.opacity(0.22)))
+    // A note set apart inside a card, such as a tip: a faint wash of its colour and an
+    // edge in the same colour.
+    func washSurface(tint: Color, cornerRadius: CGFloat = Radius.control) -> some View {
+        surface(tint.opacity(0.08), cornerRadius: cornerRadius, border: tint.opacity(0.22))
     }
 }
 
@@ -87,10 +78,27 @@ struct StatTile: View {
     var comparison: String? = nil
     var spark: [Double] = []
     var tint: Color = Theme.accent
+    // A tile that is one cell of a larger card leaves the card to that card, since a
+    // card does not sit inside another.
+    var framed = true
+    // Why there is no number yet, said in place of it with a lock.
+    var locked: String? = nil
 
     static let sparkHeight: CGFloat = 34
+    // A long run of readings is summed into this many points, so the line keeps its shape
+    // instead of turning into noise at the size of a tile.
+    static let sparkPoints = 16
 
     var body: some View {
+        content
+            .padding(Space.card)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(TileFrame(framed: framed))
+            .motion(Motion.control, value: reading)
+            .accessibilityElement(children: .combine)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             HStack(spacing: Space.sm) {
                 IconBadge(icon: icon, tint: tint)
@@ -104,29 +112,56 @@ struct StatTile: View {
                         .transition(.fadeIn)
                 }
             }
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(value)
-                    .font(Typography.display)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .contentTransition(.numericText(value: reading))
-                Text(comparison ?? " ")
+            if let locked {
+                Label(locked, systemImage: "lock.fill")
                     .font(Typography.caption)
                     .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .frame(height: Self.sparkHeight, alignment: .topLeading)
+                    .transition(.fadeIn)
+            } else {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text(value)
+                        .font(Typography.display)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .contentTransition(.numericText(value: reading))
+                    Text(comparison ?? " ")
+                        .font(Typography.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                // A flat line along the bottom says nothing and reads as an underline.
+                Sparkline(values: Self.thinned(spark), tint: tint)
+                    .opacity(spark.contains { $0 > 0 } ? 1 : 0)
+                    .frame(height: Self.sparkHeight)
+                    .padding(.horizontal, -Space.card)
+                    .padding(.bottom, -Space.card)
             }
-            Sparkline(values: spark, tint: tint)
-                .frame(height: Self.sparkHeight)
-                .padding(.horizontal, -Space.card)
-                .padding(.bottom, -Space.card)
         }
-        .padding(Space.card)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-        .cardSurface()
-        .motion(Motion.control, value: reading)
-        .accessibilityElement(children: .combine)
+    }
+
+    static func thinned(_ values: [Double]) -> [Double] {
+        guard values.count > sparkPoints + 4 else { return values }
+        let group = Int((Double(values.count) / Double(sparkPoints)).rounded(.up))
+        return stride(from: 0, to: values.count, by: group).map { start in
+            values[start..<min(start + group, values.count)].reduce(0, +)
+        }
+    }
+}
+
+private struct TileFrame: ViewModifier {
+    let framed: Bool
+
+    func body(content: Content) -> some View {
+        if framed {
+            content
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+                .cardSurface()
+        } else {
+            content.clipped()
+        }
     }
 }
 

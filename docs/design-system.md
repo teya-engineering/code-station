@@ -171,6 +171,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 - Both also tell `PointerOverControl` when the pointer is on them. A surface that reacts to a press anywhere on itself checks it, so a press meant for a button inside goes only to that button.
 - Transitions: `.headerPage` for a tab page, `.popover` for a panel from a button, `.drawer(from:)` for a panel from an edge, `.fadeIn` for plain new content, `.fold` for content that closes.
 - A mark carried from one place to another, such as a tile dropped into a group, is a `FlightView` drawn in an overlay above both places (`Motion/Flight.swift`). The flying view must be plain SwiftUI, since it is scaled on the way. Where it lands, `.landingRings(_:colour:cornerRadius:)` sends out two rings in its colour. Under Reduce Motion neither is drawn: the flight lands at once.
+- A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
 - Motion confirms what the person did. It never makes them wait and never plays for something they did not cause.
 
@@ -244,7 +245,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Sort a sidebar by dragging its rows, or drop one row into another | `.sidebarDrag(_:reorders:drags:drag:onMove:)` (`App/Navigation/SidebarReorder.swift`), with one `SidebarDrag` state per list. It draws the line where the row will land. Set `reorders` to false on rows the dragged one may not sit beside. |
 | Sort a stacked list where the order itself means something | `.liveReorder(_:in:spacing:enabled:cornerRadius:state:onDrop:)` (`Controls/LiveReorder.swift`), with one `LiveReorder` state per list. The row follows the pointer after 5 points, so a click still reaches it, and the rows it passes make room at once on `Motion.control`. Read `state.preview(_:)` to show the order before the drop, such as the name on a button. Turn it off while the list is filtered, and give every drag a keyboard and menu twin (Move up, Move down). |
 | Mark the first place of an ordered list that has a job of its own | `LeadSlot`: a dashed accent frame with a caption, drawn as a top-aligned background of the list. Leave `LeadSlot.topRoom` above the first row and `LeadSlot.inset` on each side. |
-| Say whether a shortcut is a command or a prompt | `KindTile`: the terminal fill for a command, the leaf `userMessage` fill for a prompt. Pair it with the verb (Run or Insert), so the kind never rests on colour alone. |
+| Say whether a shortcut is a command or a prompt | `KindTile`: the terminal fill for a command, the leaf `userMessage` fill for a prompt. Pair it with the verb (Run or Ask), so the kind never rests on colour alone. |
 
 **Structure**
 
@@ -270,7 +271,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
-| One headline number, how it moved and how it got there | `StatTile` (`Layout/StatParts.swift`): an `IconBadge`, caps title and `ChangeChip` across the top, the number, what it is compared with, and a `Sparkline` running to the card's edges. The figures roll with `.numericText` when the reading moves. |
+| One headline number, how it moved and how it got there | `StatTile` (`Layout/StatParts.swift`): an `IconBadge`, caps title and `ChangeChip` across the top, the number, what it is compared with, and a `Sparkline` running to the card's edges. The figures roll with `.numericText` when the reading moves. As one cell of a larger card, pass `framed: false` and split the cells with hairlines. Pass `locked:` to say why there is no number yet. |
 | A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means; pass `icon:` to lead with an `IconBadge` |
 | One thing's share of a whole, beside others | `ShareBarRow`, one per thing, sharing one `scale`. The bar draws out with `Motion.draw` when the row arrives. |
 | The key to a chart's colours | `LegendItem` |
@@ -281,7 +282,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A record worth celebrating | `RecordBadge`: an `IconBadge` on a round, the caps label, the reading, and a line under it, on a faint wash of its colour |
 | A whole split into a few parts along one line | `ShareStrip`: one segmented bar with a key under it; pass the rest as an "Other" part in `Theme.dotOff` |
 | A whole split into a few parts, as a ring | `ShareDonut`: the parts round a ring with the leading share in the middle and a key beside it |
-| The card that opens a screen | `.featureSurface(tint:)`: the card colour with a wash of the screen's colour rising from one corner. One per screen. |
+| A note set apart inside a card, such as a tip | `.washSurface(tint:)`: a faint wash of the note's colour with an edge in the same colour |
 | Work the person is waiting on, with how far it has got | `ProgressCard`: a `LoopSpinner`, a title, a sentence and a `Meter` with "120 of 412 sessions". On its own in an empty pane for a first load; `compact: true` for a tinted strip over content already on screen while more arrives. |
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |

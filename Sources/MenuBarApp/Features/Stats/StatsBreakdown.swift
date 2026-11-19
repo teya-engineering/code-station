@@ -1,10 +1,9 @@
 import SwiftUI
 
-// The readings themselves, drawn from one report. Every section reads from the same
-// value, so a range or a filter changes them all in one movement.
-struct StatsDashboard: View {
+// Everything behind Home's glance, opened in place under its card. Every section reads
+// from the same report, so a stretch or a filter changes them all in one movement.
+struct StatsBreakdown: View {
     let report: StatsReport
-    let range: StatsRange
     @Binding var subject: UUID?
     let tint: (StatsSubject) -> Theme.ProjectTint
 
@@ -13,7 +12,7 @@ struct StatsDashboard: View {
     private static let three = two + [GridItem(.flexible(), spacing: Space.lg, alignment: .topLeading)]
 
     // One colour per kind of reading, kept wherever that reading appears.
-    private enum Ink {
+    enum Ink {
         static let time = Theme.accent
         static let prompts = Theme.plan
         static let waiting = Theme.attention
@@ -25,9 +24,6 @@ struct StatsDashboard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xxl) {
-            headline
-            tiles
-            timeChart
             HStack(alignment: .top, spacing: Space.xxl) {
                 subjects.frame(maxWidth: .infinity, alignment: .topLeading)
                 backAndForth.frame(maxWidth: .infinity, alignment: .topLeading)
@@ -38,189 +34,10 @@ struct StatsDashboard: View {
             }
             whatTheAgentsDid
             records
-        }
-    }
-
-    // MARK: - Headline
-
-    // The stretch said as one sentence, so the screen opens on what it means rather than
-    // on four numbers to add up.
-    private var headline: some View {
-        let focus = subject.flatMap { id in report.subjects.first { $0.subject.id == id } }
-        let projects = report.subjects.filter { $0.seconds > 0 }.count
-        let time = Text(StatsFormat.time(report.agentTime.value)).foregroundStyle(Ink.time)
-        let sentence: Text = if let focus {
-            Text("Your agents worked \(time) on \(Text(focus.subject.name).foregroundStyle(Ink.time)).")
-        } else {
-            Text("Your agents worked \(time) across \(Text(counted(projects, "project")).foregroundStyle(Ink.time)).")
-        }
-        return HStack(alignment: .center, spacing: Space.xxl) {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text(eyebrow)
-                    .capsText()
-                    .foregroundStyle(Ink.time)
-                sentence
-                    .font(Typography.display)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
-                Text(summary(focus: focus))
-                    .font(Typography.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            HStack(spacing: Space.lg) {
-                headlineMark(icon: "flame.fill", tint: Ink.waiting,
-                             value: report.streak > 0 ? "\(report.streak)" : "–",
-                             label: "day streak")
-                headlineMark(icon: "square.stack.3d.up.fill", tint: Ink.prompts,
-                             value: report.peakAtOnce > 0 ? "\(report.peakAtOnce)" : "–",
-                             label: "at once, at most")
-            }
-        }
-        .padding(Space.xl)
-        .featureSurface(tint: Ink.time)
-        .motion(Motion.reveal, value: subject)
-    }
-
-    private var eyebrow: String {
-        switch range {
-        case .today: "TODAY"
-        case .week: "THE LAST 7 DAYS"
-        case .month: "THE LAST 30 DAYS"
-        case .all: "ALL TIME"
-        }
-    }
-
-    private func summary(focus: StatsReport.SubjectRow?) -> String {
-        var parts: [String] = []
-        if focus == nil, let lead = report.subjects.first(where: { $0.seconds > 0 }) {
-            parts.append("Mostly on \(lead.subject.name)")
-        }
-        parts.append(counted(Int(report.prompts.value), "prompt"))
-        if let day = report.busiestDay { parts.append("busiest on \(day.name)") }
-        return parts.joined(separator: " · ")
-    }
-
-    private func headlineMark(icon: String, tint: Color, value: String, label: String) -> some View {
-        VStack(spacing: Space.xs) {
-            IconBadge(icon: icon, tint: tint, side: ControlHeight.xl, round: true)
-            Text(value)
-                .font(Typography.title)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-            Text(label)
+            Label("Stats are kept only on this Mac. Turning Stats off in Settings deletes everything it kept.",
+                  systemImage: "lock.fill")
                 .font(Typography.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(minWidth: ControlHeight.xl * 2)
-    }
-
-    // MARK: - Tiles
-
-    private var tiles: some View {
-        HStack(alignment: .top, spacing: Space.lg) {
-            tile("AGENT TIME", icon: "timer", tint: Ink.time, value: StatsFormat.time(report.agentTime.value),
-                 report.agentTime)
-            tile("PROMPTS", icon: "text.bubble.fill", tint: Ink.prompts,
-                 value: StatsFormat.count(Int(report.prompts.value)), report.prompts)
-            tile("WAITING ON YOU", icon: "hourglass", tint: Ink.waiting,
-                 value: StatsFormat.time(report.waiting.value), report.waiting, lowerIsBetter: true)
-            tile("COST", icon: "dollarsign", tint: Ink.cost, value: StatsFormat.money(report.cost.value),
-                 report.cost, lowerIsBetter: true)
-        }
-    }
-
-    private func tile(_ title: String, icon: String, tint: Color, value: String,
-                      _ reading: StatsReport.Tile, lowerIsBetter: Bool = false) -> some View {
-        let comparison = comparison(reading)
-        return StatTile(title: title, value: value, reading: reading.value, icon: icon,
-                        change: comparison == nil ? nil : reading.change, lowerIsBetter: lowerIsBetter,
-                        comparison: comparison, spark: reading.spark, tint: tint)
-    }
-
-    // A tile is only compared with a stretch that had something in it. Before Stats was
-    // on no waits were recorded, and "no change" against nothing would be untrue.
-    private func comparison(_ tile: StatsReport.Tile) -> String? {
-        guard let previous = tile.previous, previous > 0 else { return nil }
-        return range.comparison
-    }
-
-    // MARK: - Where the time went
-
-    private var timeChart: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            SectionRule(title: "WHERE THE TIME WENT") {
-                Text(StatsFormat.time(report.agentTime.value) + " of agent work")
-                    .font(Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .fixedSize()
-            }
-            VStack(alignment: .leading, spacing: Space.md) {
-                StackedBarChart(bars: bars, labelled: labelled, format: StatsFormat.axis)
-                legend
-            }
-            .padding(Space.lg)
-            .cardSurface(cornerRadius: Radius.floating)
-        }
-    }
-
-    private var bars: [StackedBarChart.Bar] {
-        report.buckets.map { bucket in
-            StackedBarChart.Bar(
-                id: label(bucket.start),
-                title: title(bucket.start),
-                pieces: bucket.segments.map { segment in
-                    StackedBarChart.Piece(id: segment.subject.id.uuidString,
-                                          name: segment.subject.name,
-                                          value: segment.seconds,
-                                          tint: tint(segment.subject).colour)
-                })
-        }
-    }
-
-    // Every bar is named under a week; a day or a month names one bar in a few.
-    private var labelled: [String] {
-        let every = switch report.grain {
-        case .hour: 3
-        case .day: report.buckets.count > 10 ? 5 : 1
-        case .week: 4
-        }
-        return report.buckets.enumerated()
-            .filter { $0.offset % every == 0 }
-            .map { label($0.element.start) }
-    }
-
-    private func label(_ date: Date) -> String {
-        switch report.grain {
-        case .hour: date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)))
-        case .day where report.buckets.count <= 10: date.formatted(.dateTime.weekday(.abbreviated).day())
-        case .day, .week: date.formatted(.dateTime.day().month(.abbreviated))
-        }
-    }
-
-    private func title(_ date: Date) -> String {
-        switch report.grain {
-        case .hour: date.formatted(.dateTime.hour().minute())
-        case .day: date.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
-        case .week: "Week of " + date.formatted(.dateTime.day().month(.abbreviated))
-        }
-    }
-
-    private var legend: some View {
-        let shown = report.subjects.filter { $0.seconds > 0 }
-        return HStack(spacing: Space.lg) {
-            ForEach(shown.prefix(5)) { row in
-                LegendItem(name: row.subject.name, tint: tint(row.subject),
-                           value: StatsFormat.time(row.seconds))
-            }
-            if shown.count > 5 {
-                Text("+\(shown.count - 5) more")
-                    .font(Typography.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            Spacer(minLength: 0)
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -317,8 +134,7 @@ struct StatsDashboard: View {
                     }
                     .padding(Space.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .surface(Ink.waiting.opacity(0.08), cornerRadius: Radius.control,
-                             border: Ink.waiting.opacity(0.22))
+                    .washSurface(tint: Ink.waiting)
                     .transition(.fadeIn)
                 }
                 if let since = report.waitsSince, since > report.interval.start {

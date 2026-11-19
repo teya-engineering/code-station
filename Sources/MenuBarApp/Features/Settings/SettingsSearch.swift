@@ -9,6 +9,7 @@ enum SettingsSearchTarget: String, Hashable {
     case generalSound
     case generalOldSessions
     case generalOrphanedWorktrees
+    case generalStats
     case generalSessionMemory
     case generalSkills
     case generalSystem
@@ -73,6 +74,8 @@ enum SettingsSearchIndex {
                "count old after days delete automatically on their own review clear stale design saved work uncommitted unpushed commits ask me first confirm unread snoozed park"),
         result("Orphaned worktrees", .general, .generalOrphanedWorktrees,
                "git checkout prune automatically treat like old sessions no session disk cleanup uncommitted branch"),
+        result("Stats", .general, .generalStats,
+               "stats statistics turn on off enable count time cost live past removed deleted sessions days history retention"),
         result("Session memory", .general, .generalSessionMemory,
                "limit ram gigabytes gb stop turn protect mac build automatic out of memory"),
         result("Skills refresh", .general, .generalSkills,

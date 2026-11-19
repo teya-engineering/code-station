@@ -136,7 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Stats only listen while the person has turned them on; each hook asks first.
     private func connectStats() {
         stats.isEnabled = { [appSettings] in appSettings.statsEnabled }
-        stats.keepsRemoved = { [appSettings] in appSettings.statsKeepsRemovedSessions }
+        stats.keptDays = { [appSettings] in appSettings.statsRemovedSessionDays }
+        stats.isRunning = { [runner] id in runner.state(id).isBusy }
         let subject: (UUID) -> UUID? = { [projects] id in
             projects.session(id).map { $0.workspaceID ?? $0.projectID }
         }

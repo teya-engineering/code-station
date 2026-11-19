@@ -294,13 +294,17 @@ enum Preferences {
         store.set(enabled, forKey: "statsEnabled")
     }
 
-    // Whether a removed session's stats stay behind once the session itself is gone.
-    static func statsKeepsRemovedSessions(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "statsKeepsRemovedSessions")
+    // How many days a removed session's stats stay behind, counted from its last turn.
+    // Zero means they go with the session.
+    static func statsRemovedSessionDays(in store: UserDefaults = .standard) -> Int {
+        guard store.object(forKey: "statsRemovedSessionDays") != nil else {
+            return StatsStore.defaultKeptDays
+        }
+        return StatsStore.resolvedKeptDays(store.integer(forKey: "statsRemovedSessionDays"))
     }
 
-    static func setStatsKeepsRemovedSessions(_ keeps: Bool, in store: UserDefaults = .standard) {
-        store.set(keeps, forKey: "statsKeepsRemovedSessions")
+    static func setStatsRemovedSessionDays(_ days: Int, in store: UserDefaults = .standard) {
+        store.set(StatsStore.resolvedKeptDays(days), forKey: "statsRemovedSessionDays")
     }
 
     // Whether orphaned worktrees are cleaned up by the same rule as old sessions. The key

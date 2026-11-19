@@ -9,6 +9,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     let skills: SkillsManager
+    // Where to land when another sheet sends the person straight to one setting.
+    var initialTarget: SettingsSearchTarget? = nil
 
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
@@ -77,7 +79,10 @@ struct SettingsView: View {
         .frame(width: 960, height: 680)
         .background(Theme.background)
         .interactiveDismissDisabled(bots.draft?.isDirty == true)
-        .onAppear { loginItem.refresh() }
+        .onAppear {
+            loginItem.refresh()
+            if let initialTarget { searchTarget = initialTarget }
+        }
         .onChange(of: secondOpinion) { _, defaults in Preferences.setSecondOpinionDefaults(defaults) }
         .sheet(isPresented: $reviewingOldSessions) {
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
@@ -338,6 +343,7 @@ struct SettingsView: View {
                 finishedSound.id(SettingsSearchTarget.generalSound.id)
                 oldSessions.id(SettingsSearchTarget.generalOldSessions.id)
                 orphanedWorktrees.id(SettingsSearchTarget.generalOrphanedWorktrees.id)
+                statsRetention.id(SettingsSearchTarget.generalStats.id)
                 sessionMemory.id(SettingsSearchTarget.generalSessionMemory.id)
                 skillRefresh.id(SettingsSearchTarget.generalSkills.id)
                 system.id(SettingsSearchTarget.generalSystem.id)
@@ -490,6 +496,10 @@ struct SettingsView: View {
                     .padding(.vertical, Space.lg)
             }
         }
+    }
+
+    private var statsRetention: some View {
+        StatsSettings()
     }
 
     private var sessionMemory: some View {

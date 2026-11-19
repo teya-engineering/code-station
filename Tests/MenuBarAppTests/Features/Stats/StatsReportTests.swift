@@ -83,9 +83,51 @@ struct StatsReportTests {
         #expect(report.agentTime.previous == 1_800)
         #expect(report.agentTime.change == 1)
         #expect(report.prompts.value == 2)
-        #expect(report.grain == .hour)
-        #expect(report.buckets.count == 24)
-        #expect(report.buckets[9].seconds == 3_600)
+        #expect(report.grain == .slot)
+        #expect(report.buckets.count == StatsReport.slots)
+        #expect(report.buckets.reduce(0) { $0 + $1.seconds } == 3_600)
+    }
+
+    // Today is the rolling day the ribbon draws, so the morning still counts in the
+    // evening and the stretch before is the 24 hours before that.
+    @Test func todayIsTheLastTwentyFourHours() {
+        let digests = [
+            digest(project, spans: [(at(day: 0, 20), at(day: 0, 21))]),
+            digest(project, spans: [(at(day: -1, 20), at(day: -1, 20, 30))])
+        ]
+        let report = StatsReport.build(digests: digests, events: [], range: .today,
+                                       now: at(day: 1, 8), calendar: calendar)
+
+        #expect(report.interval == DateInterval(start: at(day: 0, 8), end: at(day: 1, 8)))
+        #expect(report.agentTime.value == 3_600)
+        #expect(report.agentTime.previous == 1_800)
+        #expect(report.buckets.first?.start == at(day: 0, 8))
+        #expect(report.buckets.last?.end == at(day: 1, 8))
+    }
+
+    // Each bucket carries every lens split by subject, so the chart can change what it
+    // measures without building the report again.
+    @Test func splitsEveryLensBySubjectInEachBucket() {
+        let mine = digest(project, spans: [(at(day: 1, 9), at(day: 1, 10))],
+                          prompts: [at(day: 1, 9), at(day: 1, 9, 20)], cost: 4)
+        let theirs = digest(other, spans: [(at(day: 1, 9), at(day: 1, 9, 30))], cost: 1)
+        let wait = StatsEvent(kind: .answered, sessionID: theirs.id, subjectID: nil,
+                              date: at(day: 1, 9, 10), seconds: 120, tool: "Bash",
+                              isQuestion: false, allowed: true)
+        let report = StatsReport.build(digests: [mine, theirs], events: [wait], range: .week,
+                                       now: at(day: 1, 18), calendar: calendar)
+        let day = report.buckets.first { $0.start == at(day: 1, 0) }
+
+        let mineThere = day?.segments.first { $0.subject == project }
+        let theirsThere = day?.segments.first { $0.subject == other }
+        #expect(mineThere?.seconds == 3_600)
+        #expect(mineThere?.prompts == 2)
+        #expect(mineThere?.cost == 4)
+        #expect(theirsThere?.cost == 1)
+        // A wait with no subject of its own is placed by the session it was asked in.
+        #expect(theirsThere?.waiting == 120)
+        #expect(day?.value(.waiting) == report.waiting.value)
+        #expect(report.prompts.spark.reduce(0, +) == 2)
     }
 
     // A session reports its cost as one total, so the total is spread over the days by

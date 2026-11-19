@@ -1,7 +1,7 @@
 import Foundation
 
-// The entrance the day ribbon plays each time Home opens on a full day.
-// The total rolls up over the dimmed chart and flies into the headline. As it flies the
+// The entrance Home's glance plays each time Home opens on a full day.
+// The total rolls up over the dimmed chart and flies into the headline sentence. As it flies the
 // bars grow up from the baseline in the accent green, left to right, and a second later
 // each one fills from the bottom with its project colours, which is how the chart looks
 // at rest.
@@ -15,9 +15,9 @@ struct RibbonEntrance {
     static let minimumSpent: TimeInterval = 3_600
     static let slots = 64
 
-    // The headline's own size and the size the total rolls at, so the flight can shrink
-    // one into the other.
-    static let headlineSize: CGFloat = 11.5
+    // The headline sentence's own size and the size the total rolls at, so the flight
+    // can shrink one into the other.
+    static let headlineSize: CGFloat = Typography.Size.display
     static let rollSize: CGFloat = 46
 
     // The total as it reads in the headline, and its digits in order.

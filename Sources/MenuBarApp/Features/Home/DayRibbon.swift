@@ -5,6 +5,9 @@ import SwiftUI
 struct RibbonSubject: Identifiable {
     let name: String
     let tint: Theme.ProjectTint
+    // The project or workspace behind the name, the same id Stats counts under, so a
+    // filter picked from either one applies to both.
+    var subjectID: UUID? = nil
 
     var id: String { name }
 }
@@ -145,6 +148,13 @@ struct DayRibbon {
         // too thin to see is left out, and the rest share its room, so the bar still
         // stands as tall as its time.
         func segments(height: CGFloat, rank: [String: Int]) -> [Segment] {
+            Self.segments(of: projects, total: spent, height: height, rank: rank)
+        }
+
+        // The same stacking for any reading split by project, such as prompts or cost on
+        // Home's glance, where `spent` holds that reading rather than time.
+        static func segments(of projects: [Share], total spent: Double, height: CGFloat,
+                             rank: [String: Int]) -> [Segment] {
             let ordered = projects.sorted {
                 (rank[$0.subject.name] ?? .max) < (rank[$1.subject.name] ?? .max)
             }

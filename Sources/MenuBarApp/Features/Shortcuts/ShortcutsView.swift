@@ -666,10 +666,10 @@ struct ShortcutPlaceCard: View {
         let shortcut: Shortcut
 
         var body: some View {
-            let verb = shortcut.kind == .prompt ? "Insert" : "Run"
+            let verb = shortcut.kind == .prompt ? "Ask" : "Run"
             HStack(spacing: 0) {
                 HStack(spacing: Space.sm) {
-                    Image(systemName: shortcut.kind == .prompt ? "text.insert" : "play.fill")
+                    Image(systemName: shortcut.kind == .prompt ? "bubble.left" : "play.fill")
                         .font(Typography.micro.weight(.bold))
                     RollingText("\(verb) \(shortcut.name.isBlank ? "New shortcut" : shortcut.name)",
                                 font: Typography.detail.weight(.semibold))
