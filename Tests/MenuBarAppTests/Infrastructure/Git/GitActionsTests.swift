@@ -7,18 +7,6 @@ import Testing
 // repo rather than trusted to pass its arguments through correctly.
 struct GitActionsTests {
 
-    @Test func commitsEverythingInOneGo() async throws {
-        let repo = try GitRepo()
-        try repo.write("README.md", "changed")
-        try repo.write("notes.txt", "untracked too")
-
-        let error = await GitActions.commitAll(message: "Keep the lot", at: repo.path)
-        #expect(error == nil)
-
-        let after = await GitInspector.snapshot(at: repo.path)
-        #expect(after.files.isEmpty)
-    }
-
     @Test func discardPutsAModifiedFileBack() async throws {
         let repo = try GitRepo()
         try repo.write("README.md", "changed")
@@ -187,26 +175,6 @@ struct GitActionsTests {
         let repo = try GitRepo()
         let error = await GitActions.switchBranch("no-such-branch", at: repo.path)
         #expect(error?.isEmpty == false)
-    }
-
-    @Test func createsAndSwitchesToANewBranch() async throws {
-        let repo = try GitRepo()
-
-        let error = await GitActions.createBranch("feature", at: repo.path)
-        #expect(error == nil)
-
-        let after = await GitInspector.snapshot(at: repo.path)
-        #expect(after.branch == "feature")
-        #expect(after.branches.contains("feature"))
-    }
-
-    @Test func reportsWhyCreatingABranchFailed() async throws {
-        let repo = try GitRepo()
-
-        let error = await GitActions.createBranch("main", at: repo.path)
-
-        #expect(error?.isEmpty == false)
-        #expect(await GitInspector.snapshot(at: repo.path).branch == "main")
     }
 
     @Test func pushPublishesABranchWithNoUpstream() async throws {
@@ -734,53 +702,18 @@ struct GitActionsTests {
         #expect(second.revision("main") == mainBefore)
     }
 
-    @Test func snapshotListsBranchesAndCountsDrift() async throws {
+    @Test func snapshotCountsDrift() async throws {
         let repo = try GitRepo()
         let remote = try GitRepo.bare()
         try repo.addRemote(remote)
         try repo.git("push", "-q", "-u", "origin", "HEAD")
-        try repo.git("branch", "feature")
         try repo.write("README.md", "ahead now")
         try repo.git("commit", "-qam", "second")
 
         let snapshot = await GitInspector.snapshot(at: repo.path)
-        #expect(Set(snapshot.branches) == ["main", "feature"])
         #expect(snapshot.upstream == "origin/main")
         #expect(snapshot.ahead == 1)
         #expect(snapshot.behind == 0)
-    }
-
-    @Test func listsRemoteBranches() async throws {
-        let remote = try GitRepo.bare()
-        let first = try GitRepo()
-        try first.addRemote(remote)
-        try first.git("push", "-q", "-u", "origin", "HEAD")
-        try first.git("push", "-q", "origin", "HEAD:copycat/agent-work")
-
-        // A clone also gets origin/HEAD, which only points at main and is left out.
-        let second = try remote.clone()
-        let snapshot = await GitInspector.snapshot(at: second.path)
-        #expect(snapshot.branches == ["main"])
-        #expect(Set(snapshot.remoteBranches) == [RemoteBranch(remote: "origin", name: "main"),
-                                                 RemoteBranch(remote: "origin", name: "copycat/agent-work")])
-    }
-
-    @Test func checksOutARemoteBranchAsALocalTrackingBranch() async throws {
-        let remote = try GitRepo.bare()
-        let first = try GitRepo()
-        try first.addRemote(remote)
-        try first.git("push", "-q", "-u", "origin", "HEAD")
-        try first.git("push", "-q", "origin", "HEAD:feature")
-        let second = try remote.clone()
-
-        let error = await GitActions.checkoutRemoteBranch(
-            RemoteBranch(remote: "origin", name: "feature"), at: second.path)
-        #expect(error == nil)
-
-        let after = await GitInspector.snapshot(at: second.path)
-        #expect(after.branch == "feature")
-        #expect(after.upstream == "origin/feature")
-        #expect(after.branches.contains("feature"))
     }
 
     // MARK: - Selective commits
@@ -859,26 +792,10 @@ struct GitActionsTests {
 
     // MARK: - Amend
 
-    @Test func amendFoldsTheChangesIntoTheLastCommit() async throws {
-        let repo = try GitRepo()
-        try repo.write("work.txt", "first pass")
-        #expect(await GitActions.commitAll(message: "Add work", at: repo.path) == nil)
-        try repo.write("work.txt", "second pass")
-
-        let error = await GitActions.commitAll(message: "Add finished work", amend: true,
-                                               at: repo.path)
-        #expect(error == nil)
-
-        #expect(repo.commitCount == 2)
-        let after = await GitInspector.snapshot(at: repo.path)
-        #expect(after.lastCommitSubject == "Add finished work")
-        #expect(after.files.isEmpty)
-    }
-
     @Test func selectiveAmendKeepsUnselectedWorkOutOfTheFoldedCommit() async throws {
         let repo = try GitRepo()
         try repo.write("done.txt", "done")
-        #expect(await GitActions.commitAll(message: "Add done", at: repo.path) == nil)
+        try repo.commit("Add done")
         try repo.write("extra.txt", "fold me in")
         try repo.write("pending.txt", "still cooking")
 
@@ -932,40 +849,6 @@ struct GitActionsTests {
         let history = await GitInspector.recentCommits(at: repo.path)
         #expect(history.commits.isEmpty)
         #expect(history.note == nil)
-    }
-
-    @Test func commitDiffShowsEachFileUnderItsOwnHeading() async throws {
-        let repo = try GitRepo()
-        try repo.write("README.md", "hello\nagain")
-        try repo.write("notes.txt", "fresh")
-        #expect(await GitActions.commitAll(message: "second", at: repo.path) == nil)
-
-        let history = await GitInspector.recentCommits(at: repo.path)
-        let diff = await GitInspector.commitDiff(history.commits[0].hash, root: repo.path)
-        #expect(diff.note == nil)
-
-        let sections = diff.lines.filter { $0.kind == .section }.map(\.text)
-        #expect(sections == ["README.md", "notes.txt"])
-        #expect(diff.lines.contains { $0.kind == .addition && $0.text == "+again" })
-        #expect(diff.lines.contains { $0.kind == .addition && $0.text == "+fresh" })
-    }
-
-    @Test func commitDiffRecordsARename() async throws {
-        let repo = try GitRepo()
-        try repo.git("mv", "README.md", "MANUAL.md")
-        try repo.git("commit", "-qm", "rename")
-
-        let history = await GitInspector.recentCommits(at: repo.path)
-        let diff = await GitInspector.commitDiff(history.commits[0].hash, root: repo.path)
-        #expect(diff.lines.contains { $0.kind == .meta && $0.text == "rename from README.md" })
-        #expect(diff.lines.contains { $0.kind == .meta && $0.text == "rename to MANUAL.md" })
-    }
-
-    @Test func commitDiffReportsAnUnknownHash() async throws {
-        let repo = try GitRepo()
-        let diff = await GitInspector.commitDiff("0000000000000000000000000000000000000000",
-                                                 root: repo.path)
-        #expect(diff.note?.isEmpty == false)
     }
 }
 

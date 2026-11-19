@@ -289,7 +289,8 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Something running | `RunningDot` |
 | A keyboard key | `Keycap` |
 | A key the person may have changed | `KeyCombo.label`, `.compactLabel` or `.parts`, read from `keyBindings` |
-| Code or JSON | `CodeTextView`, `RawJSONView` |
+| JSON | `RawJSONView` |
+| A text view that holds code | Call `turnOffProseHelpers()` and paint it with `paintCode`, both in `CodeTextView.swift` |
 
 **Over the window**
 

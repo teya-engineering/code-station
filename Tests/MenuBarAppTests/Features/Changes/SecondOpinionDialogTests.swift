@@ -78,7 +78,8 @@ struct SecondOpinionDialogTests {
         #expect(store.dismissedFindings(session).isEmpty)
         #expect(store.pending(session).count == 2)
 
-        store.dismissAllPending(session)
+        store.dismiss(first.id, from: session)
+        store.dismiss(second.id, from: session)
         #expect(store.dismissedFindings(session).count == 2)
         store.beginSecondOpinion(session)
         #expect(store.dismissedFindings(session).isEmpty)

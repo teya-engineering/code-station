@@ -909,12 +909,6 @@ final class ReviewCommentStore {
         saver?.schedule()
     }
 
-    func keepAll(_ sessionID: UUID) {
-        guard let all = comments[sessionID] else { return }
-        comments[sessionID] = all.map { var comment = $0; comment.status = .kept; return comment }
-        saver?.schedule()
-    }
-
     // Hands the finding back with where it was, so Undo can put it back in its place.
     @discardableResult
     func dismiss(_ id: UUID, from sessionID: UUID) -> (comment: ReviewComment, index: Int)? {
@@ -924,16 +918,6 @@ final class ReviewCommentStore {
         if comment.isPending { dismissedFindings[sessionID, default: []].append(comment) }
         saver?.schedule()
         return (comment, index)
-    }
-
-    @discardableResult
-    func dismissAllPending(_ sessionID: UUID) -> [ReviewComment] {
-        let gone = pending(sessionID)
-        dismissedFindings[sessionID, default: []].append(contentsOf: gone)
-        comments[sessionID]?.removeAll(where: \.isPending)
-        if comments[sessionID]?.isEmpty == true { comments[sessionID] = nil }
-        saver?.schedule()
-        return gone
     }
 
     func restore(_ comment: ReviewComment, at index: Int? = nil, to sessionID: UUID) {

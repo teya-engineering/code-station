@@ -320,11 +320,6 @@ final class ProjectStore {
             .sorted(by: SessionSort.pinnedFirstByLastActivity)
     }
 
-    var selectedSession: ChatSession? {
-        guard case .session(let id) = selection else { return nil }
-        return session(id)
-    }
-
     var sidebarDestination: SidebarDestination? {
         switch selection {
         case .session(let id):
@@ -507,12 +502,6 @@ final class ProjectStore {
     func setRecap(_ recap: SessionRecap, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         sessions[i].recap = recap
-        scheduleIndexSave()
-    }
-
-    func clearRecap(for sessionID: UUID) {
-        guard let i = index(sessionID), sessions[i].recap != nil else { return }
-        sessions[i].recap = nil
         scheduleIndexSave()
     }
 
@@ -982,18 +971,6 @@ final class ProjectStore {
                 revision, designDirectory: designDirectory(for: session))
         }
         return designReferenceDirectory(for: session)
-    }
-
-    func designPreviewURL(for session: ChatSession) -> URL? {
-        if session.ownsDesign,
-           let revision = approvedDesignRevision(for: session) {
-            let url = DesignArtifacts.previewURL(
-                revision, designDirectory: designDirectory(for: session))
-            return FileManager.default.fileExists(atPath: url.path) ? url : nil
-        }
-        guard let reference = designReferenceDirectory(for: session) else { return nil }
-        let url = reference.appendingPathComponent("preview.png")
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     func designFilesURL(for session: ChatSession) -> URL? {

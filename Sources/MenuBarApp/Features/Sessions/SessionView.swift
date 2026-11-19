@@ -944,12 +944,6 @@ struct SessionView: View {
         return entries
     }
 
-    // A session whose folder has gone cannot take a prompt any more than it can take a
-    // typed one, and the pane already says so above the composer.
-    private func promptsBlocked(session: ChatSession, project: Project) -> Bool {
-        !FileManager.default.fileExists(atPath: session.worktreePath ?? project.path)
-    }
-
     private func hasUtilities(_ session: ChatSession) -> Bool {
         (session.worktreePath != nil && WorktreeOpener.current != nil)
             || showsDesignMaterialExport(session) || showsRecap

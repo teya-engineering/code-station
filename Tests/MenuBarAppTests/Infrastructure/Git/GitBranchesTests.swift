@@ -97,7 +97,11 @@ struct GitBranchesTests {
         #expect(result.failed)
         #expect(result.recovery != nil)
         #expect(await GitBranches.continueOperation(at: repo.path).failed)
-        #expect(await GitActions.commitAll(message: "Must not bypass recovery", at: repo.path) != nil)
+        let conflicted = GitChange(path: "README.md", originalPath: nil, kind: .conflicted,
+                                   isStaged: false, isUnstaged: true,
+                                   added: nil, removed: nil, isBinary: false)
+        #expect(await GitActions.commitSelected(message: "Must not bypass recovery",
+                                                files: [conflicted], at: repo.path) != nil)
         let versions = await GitBranches.contents(path: "README.md", at: repo.path)
         #expect(versions.current == "current\n")
         #expect(versions.incoming == "incoming\n")

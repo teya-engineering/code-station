@@ -48,24 +48,6 @@ struct ImageDiffView: View {
     }
 }
 
-@MainActor
-@Observable
-final class BranchDraft {
-    var name = ""
-}
-
-struct BranchNameEditor: View {
-    @Bindable var draft: BranchDraft
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        TextField("Branch name", text: $draft.name)
-            .appTextField()
-            .focused($focused)
-            .task { focused = true }
-    }
-}
-
 struct StatusChip: View {
     let kind: GitStatusKind
 
