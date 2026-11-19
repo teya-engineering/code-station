@@ -45,13 +45,6 @@ struct GitChange: Identifiable, Sendable, Equatable {
     var fileName: String { (path as NSString).lastPathComponent }
 }
 
-struct RemoteBranch: Sendable, Equatable, Hashable {
-    var remote: String
-    var name: String
-
-    var ref: String { "\(remote)/\(name)" }
-}
-
 enum GitRepoState: Sendable, Equatable {
     case ready
     case notARepo
@@ -68,11 +61,6 @@ struct GitSnapshot: Sendable, Equatable {
     var hasCommits: Bool = true
     // On a detached head there is no branch to be on, so nothing is marked current.
     var onBranch: Bool = false
-    // Local branches, most recently committed first, for the branch switcher.
-    var branches: [String] = []
-    // Every branch the remotes had at the last fetch, most recently committed first,
-    // including ones pushed from another clone that have no local branch yet.
-    var remoteBranches: [RemoteBranch] = []
     // The remote branch this one tracks, and how the two have drifted apart.
     var upstream: String?
     var trackingKnown = false
@@ -300,29 +288,6 @@ enum GitInspector {
             snapshot.branch = symbolic.ok ? symbolic.trimmedText : "HEAD"
         }
 
-        let refs = run(tool, ["for-each-ref", "refs/heads",
-                              "--format=%(refname:short)", "--sort=-committerdate"], in: url,
-                       timeout: commandTimeout)
-        if refs.ok {
-            snapshot.branches = refs.text.split(separator: "\n").map(String.init)
-        }
-
-        // lstrip=2 leaves "origin/feature" and lstrip=3 leaves "feature", so the remote is
-        // what the first has before the second. The symref column marks origin/HEAD, which
-        // only points at another branch.
-        let remoteRefs = run(tool, ["for-each-ref", "refs/remotes",
-                                    "--format=%(refname:lstrip=2)\t%(refname:lstrip=3)\t%(symref)",
-                                    "--sort=-committerdate"], in: url,
-                             timeout: commandTimeout)
-        if remoteRefs.ok {
-            snapshot.remoteBranches = remoteRefs.text.split(separator: "\n").compactMap { line in
-                let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-                guard fields.count == 3, fields[2].isEmpty, !fields[1].isEmpty else { return nil }
-                let name = String(fields[1])
-                let remote = String(fields[0].dropLast(name.count + 1))
-                return RemoteBranch(remote: remote, name: name)
-            }
-        }
 
         if snapshot.hasCommits {
             // Unix time and the subject on one line, split on a tab the subject cannot
@@ -496,34 +461,6 @@ enum GitInspector {
                                         date: TimeInterval(fields[4]).map(Date.init(timeIntervalSince1970:)))
             }
             return (commits, nil)
-        }
-    }
-
-    static func commitDiff(_ hash: String, root: String, limit: Int = diffLineLimit) async -> FileDiff {
-        guard let tool = await tool() else {
-            return FileDiff(note: "Could not find git on PATH.")
-        }
-        // The fast lane, for the same reason as a file diff: someone just opened the
-        // commit and is looking at an empty pane until it arrives.
-        return await offMain(lane: .interactive) {
-            let rootURL = URL(fileURLWithPath: root)
-            guard FileManager.default.fileExists(atPath: root) else {
-                return FileDiff(note: "The project folder is no longer there.")
-            }
-            // An empty --format drops the message block, leaving only the file diffs.
-            let output = run(tool, ["--no-pager", "show", "--no-color", "--no-ext-diff",
-                                    "--no-textconv", "-M", "--format=", hash], in: rootURL)
-            guard output.ok else { return FileDiff(note: output.failureMessage) }
-            let parsed = parse(output.text, startingAt: 0, limit: limit,
-                               revision: .commit(hash), path: "", fileHeadings: true)
-            var diff = FileDiff(lines: parsed.lines,
-                                truncated: parsed.truncated || output.truncated,
-                                totalLines: parsed.total,
-                                revealed: parsed.extra)
-            if diff.lines.isEmpty {
-                diff.note = "No file changes in this commit."
-            }
-            return diff
         }
     }
 
@@ -884,12 +821,9 @@ enum GitInspector {
     // Header lines before the first hunk are noise we already show elsewhere, so they are
     // dropped. Once inside a hunk every line is classified by its first character only:
     // a removed line whose own text starts with "--" would otherwise look like a header.
-    // With `fileHeadings` on, each "diff --git" header becomes a section line naming the
-    // file, which is how a whole commit's diff keeps its files apart, and a binary file
-    // becomes a note instead of ending the parse, so it cannot swallow the files after it.
     private static func parse(
         _ text: String, startingAt offset: Int, limit: Int,
-        revision: DiffRevision, path defaultPath: String, fileHeadings: Bool = false
+        revision: DiffRevision, path defaultPath: String
     ) -> ParsedDiff {
         var result = ParsedDiff()
         var inHunk = false
@@ -930,27 +864,12 @@ enum GitInspector {
                 whole = false
                 path = fileName(fromDiffHeader: line)
                 nextNewLine = 1
-                if fileHeadings {
-                    result.total += 1
-                    if result.lines.count < limit {
-                        result.lines.append(DiffLine(id: offset + result.lines.count,
-                                                     kind: .section, text: path))
-                    }
-                }
                 continue
             }
             if !inHunk {
                 if line.hasPrefix("@@") {
                     inHunk = true
                 } else if line.hasPrefix("Binary files") || line.hasPrefix("GIT binary patch") {
-                    if fileHeadings {
-                        result.total += 1
-                        if result.lines.count < limit {
-                            result.lines.append(DiffLine(id: offset + result.lines.count, kind: .meta,
-                                                         text: "Binary file. Line by line changes are not shown."))
-                        }
-                        continue
-                    }
                     result.binary = true
                     break
                 } else if line.hasPrefix("rename from") || line.hasPrefix("rename to")

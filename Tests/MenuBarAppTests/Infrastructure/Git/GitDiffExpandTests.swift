@@ -236,7 +236,10 @@ struct GitDiffExpandTests {
         try repo.write("app.txt", file(60, changing: 12))
         try repo.commit("change line 12")
 
-        let diff = await GitInspector.commitDiff(hash, root: repo.path)
+        let commit = await GitInspector.commitFiles(hash, root: repo.path)
+        let changed = try #require(commit.files.first)
+        let diff = await GitInspector.commitFileDiff(hash, parent: commit.parents.first,
+                                                     file: changed, root: repo.path)
         let gap = try #require(diff.lines.compactMap(\.gap).first)
         #expect(gap.revision == .commit(hash))
         #expect(gap.path == "app.txt")

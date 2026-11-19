@@ -332,14 +332,6 @@ enum Preferences {
         store.set(interval.rawValue, forKey: "skillsRefreshInterval")
     }
 
-    static func skillsLastRefresh(in store: UserDefaults = .standard) -> Date? {
-        store.object(forKey: "skillsLastRefresh") as? Date
-    }
-
-    static func setSkillsLastRefresh(_ date: Date?, in store: UserDefaults = .standard) {
-        store.set(date, forKey: "skillsLastRefresh")
-    }
-
     static func appUpdateLastCheck(in store: UserDefaults = .standard) -> Date? {
         store.object(forKey: "appUpdateLastCheck") as? Date
     }
