@@ -2101,6 +2101,36 @@ final class SessionRunner {
                     message.thinking = (message.thinking ?? []) + [thought]
                 }
 
+            case .textChunk(let text, let continuing):
+                setState(.streaming, for: sessionID)
+                if turn.summary != nil {
+                    if !continuing, !turn.summaryText.isEmpty { turn.summaryText += "\n\n" }
+                    turn.summaryText += text
+                    continue
+                }
+                freshReply(turn, sessionID: sessionID, store: store)
+                store.updateMessage(turn.messageID, in: sessionID) { message in
+                    // A piece that opens a block is spaced from what came before, the
+                    // same as a whole block; the rest of the block runs straight on.
+                    if !continuing, !message.text.isEmpty { message.text += "\n\n" }
+                    message.text += text
+                }
+
+            case .thinkingChunk(let text, let continuing):
+                setState(.streaming, for: sessionID)
+                freshReply(turn, sessionID: sessionID, store: store)
+                store.updateMessage(turn.messageID, in: sessionID) { message in
+                    if continuing, var thoughts = message.thinking, !thoughts.isEmpty {
+                        thoughts[thoughts.count - 1].text += text
+                        message.thinking = thoughts
+                    } else {
+                        var thought = ThinkingSegment(text: text)
+                        thought.textOffset = message.text.count
+                        thought.toolOffset = message.tools.count
+                        message.thinking = (message.thinking ?? []) + [thought]
+                    }
+                }
+
             case .agentText(let parentID, let text):
                 setState(.streaming, for: sessionID)
                 store.updateMessage(turn.messageID, in: sessionID) { message in

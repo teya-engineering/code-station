@@ -10,6 +10,11 @@ enum StreamEvent: Sendable {
     // What the model worked out to itself before answering. It is part of the turn but
     // not of the answer, so it is kept apart from the text.
     case thinking(String)
+    // A piece of text or thinking as it is written, for an agent that streams its reply.
+    // `continuing` says it carries on the block the last piece began; otherwise it opens
+    // a new one, the way a whole `.text` or `.thinking` block would.
+    case textChunk(String, continuing: Bool)
+    case thinkingChunk(String, continuing: Bool)
     // Something an agent said while working, named by the call that started it. It is
     // not part of the conversation - the agent reports back through its result - so it
     // is only worth the one line that says the agent is still going.
@@ -144,8 +149,8 @@ extension StreamEvent {
     // a turn the app did not ask for apart from the one it is reading.
     var isAnswering: Bool {
         switch self {
-        case .text, .thinking, .agentText, .toolUse, .toolResult, .permissionRequest,
-             .compacted:
+        case .text, .thinking, .textChunk, .thinkingChunk, .agentText, .toolUse, .toolResult,
+             .permissionRequest, .compacted:
             true
         default:
             false
@@ -164,6 +169,10 @@ extension StreamEvent {
             "text bytes=\(text.utf8.count)"
         case .thinking(let text):
             "thinking bytes=\(text.utf8.count)"
+        case .textChunk(let text, let continuing):
+            "text chunk bytes=\(text.utf8.count) continuing=\(continuing)"
+        case .thinkingChunk(let text, let continuing):
+            "thinking chunk bytes=\(text.utf8.count) continuing=\(continuing)"
         case .agentText(let parentID, let text):
             "agent text parent=\(parentID) bytes=\(text.utf8.count)"
         case .toolUse(let tool):

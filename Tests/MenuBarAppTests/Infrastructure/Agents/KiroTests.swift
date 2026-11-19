@@ -78,20 +78,40 @@ struct KiroConnectionTests {
         events += try wire.update(Self.chunk("agent_message_chunk", "Done."))
         events += try wire.respond(wire.promptRequest(), ["stopReason": "end_turn"])
 
-        #expect(events.map(\.logSummary).count == 7)
-        guard events.count == 7,
+        // Each chunk is handed on as it arrives. The second piece of text carries on the
+        // first; the text after the tool call opens a block of its own.
+        guard events.count == 8,
               case .turnStarted = events[0],
-              case .thinking("The user wants a file") = events[1],
-              case .text("I'll create the file.") = events[2],
-              case .toolUse(let tool) = events[3],
-              case .toolResult("call_1", "Created the /tmp/project/hello.txt file.", false, nil) = events[4],
-              case .text("Done.") = events[5],
-              case .finished(false, nil) = events[6] else {
+              case .thinkingChunk("The user wants a file", false) = events[1],
+              case .textChunk("I'll create ", false) = events[2],
+              case .textChunk("the file.", true) = events[3],
+              case .toolUse(let tool) = events[4],
+              case .toolResult("call_1", "Created the /tmp/project/hello.txt file.", false, nil) = events[5],
+              case .textChunk("Done.", false) = events[6],
+              case .finished(false, nil) = events[7] else {
             Issue.record("Unexpected events: \(events.map(\.logSummary))")
             return
         }
         #expect(tool.name == "Write")
         #expect(tool.input.contains("\"file_path\" : \"/tmp/project/hello.txt\""))
+    }
+
+    @Test func thinkingCarriesOnUntilTextInterrupts() throws {
+        let wire = try KiroWire()
+        try wire.open()
+        let events = try wire.update(Self.chunk("agent_thought_chunk", "First"))
+            + wire.update(Self.chunk("agent_thought_chunk", " thought"))
+            + wire.update(Self.chunk("agent_message_chunk", "Text"))
+            + wire.update(Self.chunk("agent_thought_chunk", "Second"))
+            + wire.update(Self.chunk("agent_message_chunk", ""))
+        guard events.count == 4,
+              case .thinkingChunk("First", false) = events[0],
+              case .thinkingChunk(" thought", true) = events[1],
+              case .textChunk("Text", false) = events[2],
+              case .thinkingChunk("Second", false) = events[3] else {
+            Issue.record("Unexpected events: \(events.map(\.logSummary))")
+            return
+        }
     }
 
     @Test func letsEditsInsideTheWorkspaceThroughWhenEditsAreAllowed() throws {
@@ -409,5 +429,30 @@ private final class KiroWire {
                                                "workspaceRoot": "/tmp/project"]]],
             ],
         ]))
+    }
+}
+
+// Kiro's reply reaches the transcript piece by piece, through the real runner.
+@MainActor
+struct KiroStreamingRunnerTests {
+    @Test func piecesJoinIntoTheReplyAndAToolCallStartsANewParagraph() async throws {
+        let harness = try RunnerHarness(agent: .kiro, script: FixtureCLI.kiroServer(onPrompt: """
+            kiro_think 'Reading '
+            kiro_think 'the notes'
+            kiro_say 'Let me '
+            kiro_say 'look.'
+            kiro_tool read_1
+            kiro_say 'It says '
+            kiro_say 'hello.'
+            kiro_end
+            """))
+        defer { harness.tearDown() }
+        harness.runner.send("What is in notes.txt?", sessionID: harness.session.id, store: harness.store)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        let reply = try #require(harness.store.transcript(of: harness.session.id).last)
+        #expect(reply.text == "Let me look.\n\nIt says hello.")
+        #expect(reply.thinking?.map(\.text) == ["Reading the notes"])
+        #expect(reply.tools.map(\.id) == ["read_1"])
+        #expect(reply.tools.first?.textOffset == "Let me look.".count)
     }
 }

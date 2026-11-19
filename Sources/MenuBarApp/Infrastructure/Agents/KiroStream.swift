@@ -3,8 +3,9 @@ import Foundation
 // What Kiro said on its ACP stream, folded onto the events the rest of the app already
 // reads. Kiro speaks the Agent Client Protocol: every change to the session arrives as a
 // `session/update` notification, the text in small chunks, and every tool as a call
-// followed by updates that carry its result. The app draws text a block at a time, so
-// chunks are held until something else arrives and then handed on as one block.
+// followed by updates that carry its result. Each chunk is handed on as it arrives, so
+// the reply is written out as Kiro writes it. A chunk says whether it carries on the
+// block before it; a tool call or a turn boundary ends the block.
 //
 // A resumed session opens by replaying its whole history, each update marked as a
 // replay. The app already holds that conversation, so a replay is dropped.
@@ -16,8 +17,10 @@ final class KiroStream: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private var text = ""
-    private var thought = ""
+    // Whether the last piece said was text or thinking, so the next piece of the same
+    // kind carries on that block rather than opening a new one.
+    private var textOpen = false
+    private var thoughtOpen = false
     private var calls: [String: Call] = [:]
     private var finishedCalls: Set<String> = []
 
@@ -27,21 +30,31 @@ final class KiroStream: @unchecked Sendable {
             if meta?["replay"] as? Bool == true { return [] }
             switch update["sessionUpdate"] as? String {
             case "agent_message_chunk":
-                let events = flushThought()
-                text += Self.chunkText(update)
-                return events
+                let text = Self.chunkText(update)
+                guard !text.isEmpty else { return [] }
+                thoughtOpen = false
+                defer { textOpen = true }
+                return [.textChunk(text, continuing: textOpen)]
             case "agent_thought_chunk":
-                let events = flushText()
-                thought += Self.chunkText(update)
-                return events
+                let text = Self.chunkText(update)
+                guard !text.isEmpty else { return [] }
+                textOpen = false
+                defer { thoughtOpen = true }
+                return [.thinkingChunk(text, continuing: thoughtOpen)]
             case "tool_call":
-                return flush() + toolCall(update)
+                closeBlocks()
+                return toolCall(update)
             case "tool_call_update":
-                return flush() + toolCallUpdate(update)
+                closeBlocks()
+                return toolCallUpdate(update)
             case "session_info_update":
                 switch meta?["kind"] as? String {
-                case "turn_start": return flush() + [.turnStarted]
-                case "turn_end": return flush()
+                case "turn_start":
+                    closeBlocks()
+                    return [.turnStarted]
+                case "turn_end":
+                    closeBlocks()
+                    return []
                 default: return []
                 }
             default:
@@ -50,24 +63,21 @@ final class KiroStream: @unchecked Sendable {
         }
     }
 
-    // Whatever text or thinking is still held, for the moment the turn ends.
-    func finish() -> [StreamEvent] { lock.withLock { flush() } }
+    // The turn is over: whatever comes next starts a block of its own. Nothing is held
+    // back, so there is nothing left to hand on.
+    func finish() -> [StreamEvent] {
+        lock.withLock { closeBlocks() }
+        return []
+    }
 
     // The call a permission request is about, as the stream described it.
     func call(_ id: String) -> Call? { lock.withLock { calls[id] } }
 
     // MARK: - Private
 
-    private func flush() -> [StreamEvent] { flushThought() + flushText() }
-
-    private func flushText() -> [StreamEvent] {
-        defer { text = "" }
-        return text.isBlank ? [] : [.text(text)]
-    }
-
-    private func flushThought() -> [StreamEvent] {
-        defer { thought = "" }
-        return thought.isBlank ? [] : [.thinking(thought)]
+    private func closeBlocks() {
+        textOpen = false
+        thoughtOpen = false
     }
 
     private func toolCall(_ update: [String: Any]) -> [StreamEvent] {

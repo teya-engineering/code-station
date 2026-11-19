@@ -26,13 +26,20 @@ enum FixtureCLI {
 
     // A fake `kiro-cli acp`: one JSON-RPC request per line on stdin, each answered on
     // stdout. Opening a session answers by itself; `onPrompt` runs for every prompt with
-    // the request in `$line` and its id in `$id`, says things with `kiro_say`, and ends
-    // the turn with `kiro_end`. JSONSerialization writes "/" as "\\/", so methods are
+    // the request in `$line` and its id in `$id`, says things with `kiro_say` (one chunk
+    // each), thinks with `kiro_think`, calls a tool with `kiro_tool <id>`, and ends the
+    // turn with `kiro_end`. JSONSerialization writes "/" as "\\/", so methods are
     // matched by the part after the slash.
     static func kiroServer(onPrompt: String) -> String {
         """
         kiro_say() {
             printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"kiro-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"'"$1"'"}}}}'
+        }
+        kiro_think() {
+            printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"kiro-1","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"'"$1"'"}}}}'
+        }
+        kiro_tool() {
+            printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"kiro-1","update":{"sessionUpdate":"tool_call","toolCallId":"'"$1"'","title":"Read File","kind":"read","status":"completed","rawInput":{"path":"notes.txt"},"rawOutput":{"message":"hello"}}}}'
         }
         kiro_end() {
             printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\\n' "$id"

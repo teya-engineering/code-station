@@ -45,7 +45,7 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     var betaNote: String? {
         guard isBeta else { return nil }
         return "\(title) support is in beta. Sessions, permissions and models work. Code Station's MCP servers, "
-            + "past sessions and credit usage are not supported yet, and replies appear a block at a time."
+            + "past sessions and credit usage are not supported yet."
     }
 
     var symbol: String {
