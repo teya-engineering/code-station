@@ -97,7 +97,7 @@ Git worktree sessions use a checkout and branch owned by that session. Workspace
 
 `ScheduledTaskService` starts and stops with the application. It advances schedules and publishes pending confirmations; `ScheduledTaskConfirmation` only presents the person’s choices.
 
-The terminal uses a real pseudo-terminal through SwiftTerm. Each tab owns its shell process and remains alive while the drawer is closed.
+The terminal runs each shell on a real pseudo-terminal. `PTY` starts it through the small C target `PTYSpawn`, because the child side of a fork must not allocate before exec. SwiftTerm draws the screen and emulates the terminal, and it stays inside `TerminalView.swift`: the session talks to it only through `TerminalEngine`, so the emulator can be swapped without touching the session or the pty. Each tab owns its shell process and remains alive while the drawer is closed.
 
 ## Persistence and local processes
 
