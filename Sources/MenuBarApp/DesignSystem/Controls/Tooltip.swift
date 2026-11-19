@@ -16,13 +16,16 @@ struct Tooltip {
         let value: String
     }
 
-    // A hint with a layout of its own, hung below its source with a caret pointing up at
-    // it. It is held between the horizontal edges given, so a card asked for by a chart
-    // stays over the chart rather than drifting past it.
+    // A hint with a layout of its own, hung below or above its source with a caret
+    // pointing at it. It is held between the horizontal edges given, so a card asked for
+    // by a chart stays over the chart rather than drifting past it.
     struct Hanging {
+        enum Side { case below, above }
+
         let width: CGFloat
         let edges: ClosedRange<CGFloat>
         let content: AnyView
+        var side: Side = .below
         var arrival: Animation = Motion.reveal
     }
 
@@ -454,25 +457,33 @@ private struct HangingCard: View {
     }
 
     var body: some View {
-        hanging.content
+        let above = hanging.side == .above
+        let settled = arrived || reduceMotion
+        // A card above is pinned by its bottom edge, so it needs no measuring first.
+        let y = above ? anchor.minY - Self.gap + (settled ? 0 : 6)
+                      : anchor.maxY + Self.gap - (settled ? 0 : 6)
+        return hanging.content
             .frame(width: hanging.width, alignment: .leading)
             .floatingCard(cornerRadius: Radius.floating)
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: above ? .bottomLeading : .topLeading) {
                 ZStack {
                     // Reaches one point into the card to cover its border under the caret.
-                    CaretShape(closed: true)
+                    CaretShape(closed: true, pointsDown: above)
                         .fill(Theme.card)
                         .frame(width: Self.caretWidth, height: Self.caretHeight + 1)
-                        .offset(y: 0.5)
-                    CaretShape(closed: false)
+                        .offset(y: above ? -0.5 : 0.5)
+                    CaretShape(closed: false, pointsDown: above)
                         .stroke(Theme.border)
                         .frame(width: Self.caretWidth, height: Self.caretHeight)
                 }
-                .frame(width: Self.caretWidth, height: Self.caretHeight + 1, alignment: .top)
-                .offset(x: caret - Self.caretWidth / 2, y: -Self.caretHeight)
+                .frame(width: Self.caretWidth, height: Self.caretHeight + 1,
+                       alignment: above ? .bottom : .top)
+                .offset(x: caret - Self.caretWidth / 2,
+                        y: above ? Self.caretHeight : -Self.caretHeight)
             }
-            .scaleEffect(arrived || reduceMotion ? 1 : 0.97, anchor: .top)
-            .offset(x: x, y: anchor.maxY + Self.gap - (arrived || reduceMotion ? 0 : 6))
+            .scaleEffect(settled ? 1 : 0.97, anchor: above ? .bottom : .top)
+            .alignmentGuide(.top) { above ? $0[.bottom] : $0[.top] }
+            .offset(x: x, y: y)
             .opacity(arrived ? 1 : 0)
             .motion(Motion.control, value: anchor)
             .accessibilityHidden(true)
@@ -488,12 +499,15 @@ private struct HangingCard: View {
 // border; closed, it is the whole triangle to fill.
 private struct CaretShape: Shape {
     let closed: Bool
+    var pointsDown = false
 
     func path(in rect: CGRect) -> Path {
+        let base = pointsDown ? rect.minY : rect.maxY
+        let tip = pointsDown ? rect.maxY : rect.minY
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.move(to: CGPoint(x: rect.minX, y: base))
+        path.addLine(to: CGPoint(x: rect.midX, y: tip))
+        path.addLine(to: CGPoint(x: rect.maxX, y: base))
         if closed { path.closeSubpath() }
         return path
     }

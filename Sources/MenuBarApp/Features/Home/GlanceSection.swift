@@ -619,8 +619,9 @@ struct GlanceSection: View {
             note: reading.value > 0 ? "In \(stretch.phrase)" : "Nothing counted in \(stretch.phrase)",
             spark: reading.spark,
             footnote: lens == choice ? "On the chart now" : "Click to put this on the chart")
+        // Above, so the card covers the chart it describes rather than whatever sits below.
         return Tooltip(title: "", hanging: Tooltip.Hanging(width: ReadingPeek.width, edges: edges,
-                                                           content: AnyView(content)))
+                                                           content: AnyView(content), side: .above))
     }
 
     private func reading(_ choice: StatsLens, ribbon: DayRibbon) -> Reading {
