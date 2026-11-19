@@ -72,11 +72,13 @@ struct SideBySideDiff: View {
     @State private var numberFrames: [DiffAnchor: CGRect] = [:]
     @State private var dragStart: DiffAnchor?
     @State private var dragEnd: DiffAnchor?
+    @State private var markCache = MarkCache()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let space = "sideBySideRows"
 
     var body: some View {
+        let marks = markCache.ranges(for: lines)
         GeometryReader { geometry in
           ScrollViewReader { proxy in
             ScrollView([.vertical, .horizontal]) {
@@ -97,9 +99,9 @@ struct SideBySideDiff: View {
                                 .background(Theme.field)
                         } else {
                             HStack(alignment: .top, spacing: 0) {
-                                cell(row.left, number: row.oldNumber,
+                                cell(row.left, number: row.oldNumber, marks: marks,
                                      anchor: anchor(row.left, side: .old, number: row.oldNumber))
-                                cell(row.right, number: row.newNumber,
+                                cell(row.right, number: row.newNumber, marks: marks,
                                      anchor: anchor(row.right, side: .new, number: row.newNumber))
                             }
                             ForEach(rowThreads(row), id: \.self) { id in
@@ -125,6 +127,20 @@ struct SideBySideDiff: View {
             }
           }
         }
+    }
+
+    // A line's code, with the words that changed picked out on its band.
+    static func code(_ line: DiffLine?, marks: [Int: [NSRange]]) -> AttributedString {
+        guard let line else { return AttributedString(" ") }
+        let text = String(line.text.dropFirst())
+        var result = AttributedString(text)
+        let tint = line.kind == .addition ? Theme.additionEmphasis : Theme.deletionEmphasis
+        for mark in marks[line.id] ?? [] {
+            guard let range = Range<String.Index>(mark, in: text),
+                  let marked = Range<AttributedString.Index>(range, in: result) else { continue }
+            result[marked].backgroundColor = tint
+        }
+        return result
     }
 
     // A context line is numbered on both sides but commented on in the new version, so
@@ -191,12 +207,13 @@ struct SideBySideDiff: View {
         }
     }
 
-    private func cell(_ line: DiffLine?, number: Int?, anchor: DiffAnchor? = nil) -> some View {
+    private func cell(_ line: DiffLine?, number: Int?, marks: [Int: [NSRange]],
+                      anchor: DiffAnchor? = nil) -> some View {
         let isPicked = anchor.map { !picked.union(dragged).isDisjoint(with: DiffComments.keys($0)) } == true
         return HStack(alignment: .top, spacing: Space.md) {
             self.number(number, anchor: anchor)
             Text(line.map { String($0.text.prefix(1)) } ?? "").frame(width: 10)
-            Text(line.map { String($0.text.dropFirst()) } ?? " ")
+            Text(Self.code(line, marks: marks))
                 .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -219,6 +236,23 @@ struct SideBySideDiff: View {
         .background(isPicked ? Theme.accent.opacity(0.16) : .clear)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 1) }
         .accessibilityLabel(line == nil ? "No corresponding line" : line!.text)
+    }
+}
+
+// The words picked out in each changed line, worked out again only when the lines
+// change, since a drag down the numbers redraws the rows many times. They are read while
+// the rows are drawn rather than set after a change: opening a gap renumbers every line,
+// and marks set a pass late would land on the wrong lines for a frame.
+private final class MarkCache {
+    private var lines: [DiffLine] = []
+    private var ranges: [Int: [NSRange]] = [:]
+
+    func ranges(for lines: [DiffLine]) -> [Int: [NSRange]] {
+        if lines != self.lines {
+            self.lines = lines
+            ranges = InlineDiff.ranges(lines)
+        }
+        return ranges
     }
 }
 

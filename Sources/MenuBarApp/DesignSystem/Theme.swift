@@ -141,6 +141,16 @@ enum Theme {
     static let deletion = adaptive(
         light: NSColor(srgbRed: 0.639, green: 0.239, blue: 0.188, alpha: 1),
         dark: NSColor(srgbRed: 0.851, green: 0.388, blue: 0.357, alpha: 1))
+    // The words within a changed line that actually changed. Drawn over the line's own
+    // band, so they read as the same colour a step stronger.
+    static let additionEmphasisNSColor = adaptiveNSColor(
+        light: NSColor(srgbRed: 0.243, green: 0.478, blue: 0.275, alpha: 0.28),
+        dark: NSColor(srgbRed: 0.49, green: 0.72, blue: 0.52, alpha: 0.28))
+    static let additionEmphasis = Color(nsColor: additionEmphasisNSColor)
+    static let deletionEmphasisNSColor = adaptiveNSColor(
+        light: NSColor(srgbRed: 0.639, green: 0.239, blue: 0.188, alpha: 0.24),
+        dark: NSColor(srgbRed: 0.851, green: 0.388, blue: 0.357, alpha: 0.30))
+    static let deletionEmphasis = Color(nsColor: deletionEmphasisNSColor)
 
     // A surface that carries a warning: a failed turn, a stalled agent, a configuration
     // that could not be read. Both halves are adaptive, and WarningContrastTests measures
