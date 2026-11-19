@@ -49,8 +49,8 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `onFill` | Words and marks on any filled control or filled dot. |
 | `attention`, `attentionText`, `secret` | Stopped and waiting for a look. |
 | `warningText` on `warningBackground` | Something went wrong. |
-| `addition`, `deletion` | Lines added and removed. `deletion` is also the colour of a delete action. |
-| `additionEmphasis`, `deletionEmphasis` | The words that changed within an added or removed line, drawn over the line's band. Each has an `...NSColor` twin for AppKit text. |
+| `addition`, `deletion` | Lines added and removed. `deletion` is also the colour of a delete action. Each has an `...NSColor` twin for AppKit text, and a line's band is the same colour, faint. |
+| `additionEmphasis`, `deletionEmphasis` | The words that changed within an added or removed line: the same colour as the line's band, a step stronger. Each has an `...NSColor` twin. |
 | `plan` | Read only. Nothing will be changed. |
 | `brand`, `listen...` | The app itself. Lime on screen means the microphone is open. |
 | `showcase`, `snooze...` | A Design session going all out, and a snoozed item. |

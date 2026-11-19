@@ -13,11 +13,10 @@ enum InlineDiff {
 
     // The changed parts of each line, keyed by line id, as UTF-16 ranges into the line's
     // text after its + or - sign. A line with nothing to pick out is left out.
-    static func ranges(_ lines: [DiffLine]) -> [Int: [NSRange]] {
-        guard lines.reduce(0, { $0 + $1.text.utf8.count }) <= CodeHighlight.sizeLimit else { return [:] }
+    static func ranges(_ rows: [DiffComparisonRow]) -> [Int: [NSRange]] {
         var result: [Int: [NSRange]] = [:]
         var work = workLimit
-        for row in DiffComparisonRow.align(lines) {
+        for row in rows {
             guard let old = row.left, let new = row.right,
                   old.kind == .deletion, new.kind == .addition else { continue }
             let marks = compare(String(old.text.dropFirst()), String(new.text.dropFirst()), work: &work)
@@ -25,11 +24,6 @@ enum InlineDiff {
             if !marks.new.isEmpty { result[new.id] = marks.new }
         }
         return result
-    }
-
-    static func compare(_ old: String, _ new: String) -> (old: [NSRange], new: [NSRange]) {
-        var work = workLimit
-        return compare(old, new, work: &work)
     }
 
     private static func compare(_ old: String, _ new: String,
@@ -44,6 +38,8 @@ enum InlineDiff {
         var bEnd = (b.lastIndex { !$0.isSpace } ?? -1) + 1
         aEnd = max(aEnd, aStart)
         bEnd = max(bEnd, bStart)
+        let aWords = a[aStart..<aEnd].count { !$0.isSpace }
+        let bWords = b[bStart..<bEnd].count { !$0.isSpace }
         // What the two share at either end is unchanged, and costs nothing to find.
         while aStart < aEnd, bStart < bEnd, a[aStart].text == b[bStart].text { aStart += 1; bStart += 1 }
         while aStart < aEnd, bStart < bEnd, a[aEnd - 1].text == b[bEnd - 1].text { aEnd -= 1; bEnd -= 1 }
@@ -52,7 +48,14 @@ enum InlineDiff {
         let cost = (aEnd - aStart) * (bEnd - bStart)
         guard cost <= pairLimit, cost <= work else { return ([], []) }
         work -= cost
-        let hunks = merged(changes(a, aStart..<aEnd, b, bStart..<bEnd), in: a)
+        let found = changes(a, aStart..<aEnd, b, bStart..<bEnd)
+        // Lines are paired only by where they sit, so a removed line can face an added
+        // line that has nothing to do with it. When less than half of the two is shared
+        // they are not one line edited, and marking nearly all of both says nothing.
+        let removed = found.reduce(0) { total, hunk in total + a[hunk.old].count { !$0.isSpace } }
+        let shared = aWords - removed
+        guard shared * 4 >= aWords + bWords else { return ([], []) }
+        let hunks = merged(found, in: a)
         return (hunks.compactMap { span(a, $0.old) }, hunks.compactMap { span(b, $0.new) })
     }
 

@@ -56,6 +56,8 @@ struct DiffComparisonRow: Identifiable {
 
 struct SideBySideDiff: View {
     let lines: [DiffLine]
+    // The words picked out in each changed line, keyed by line id.
+    var marks: [Int: [NSRange]] = [:]
     let expand: (String, DiffExpandDirection) -> Void
     // What hangs under a row, keyed by the id of the diff line it follows: the review
     // comments placed there, and the comment being written if it is about those lines.
@@ -72,13 +74,11 @@ struct SideBySideDiff: View {
     @State private var numberFrames: [DiffAnchor: CGRect] = [:]
     @State private var dragStart: DiffAnchor?
     @State private var dragEnd: DiffAnchor?
-    @State private var markCache = MarkCache()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let space = "sideBySideRows"
 
     var body: some View {
-        let marks = markCache.ranges(for: lines)
         GeometryReader { geometry in
           ScrollViewReader { proxy in
             ScrollView([.vertical, .horizontal]) {
@@ -99,9 +99,9 @@ struct SideBySideDiff: View {
                                 .background(Theme.field)
                         } else {
                             HStack(alignment: .top, spacing: 0) {
-                                cell(row.left, number: row.oldNumber, marks: marks,
+                                cell(row.left, number: row.oldNumber,
                                      anchor: anchor(row.left, side: .old, number: row.oldNumber))
-                                cell(row.right, number: row.newNumber, marks: marks,
+                                cell(row.right, number: row.newNumber,
                                      anchor: anchor(row.right, side: .new, number: row.newNumber))
                             }
                             ForEach(rowThreads(row), id: \.self) { id in
@@ -207,8 +207,7 @@ struct SideBySideDiff: View {
         }
     }
 
-    private func cell(_ line: DiffLine?, number: Int?, marks: [Int: [NSRange]],
-                      anchor: DiffAnchor? = nil) -> some View {
+    private func cell(_ line: DiffLine?, number: Int?, anchor: DiffAnchor? = nil) -> some View {
         let isPicked = anchor.map { !picked.union(dragged).isDisjoint(with: DiffComments.keys($0)) } == true
         return HStack(alignment: .top, spacing: Space.md) {
             self.number(number, anchor: anchor)
@@ -236,23 +235,6 @@ struct SideBySideDiff: View {
         .background(isPicked ? Theme.accent.opacity(0.16) : .clear)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 1) }
         .accessibilityLabel(line == nil ? "No corresponding line" : line!.text)
-    }
-}
-
-// The words picked out in each changed line, worked out again only when the lines
-// change, since a drag down the numbers redraws the rows many times. They are read while
-// the rows are drawn rather than set after a change: opening a gap renumbers every line,
-// and marks set a pass late would land on the wrong lines for a frame.
-private final class MarkCache {
-    private var lines: [DiffLine] = []
-    private var ranges: [Int: [NSRange]] = [:]
-
-    func ranges(for lines: [DiffLine]) -> [Int: [NSRange]] {
-        if lines != self.lines {
-            self.lines = lines
-            ranges = InlineDiff.ranges(lines)
-        }
-        return ranges
     }
 }
 

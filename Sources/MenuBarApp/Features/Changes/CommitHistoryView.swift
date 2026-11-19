@@ -444,7 +444,7 @@ private struct CommitFileDiff: View {
                                          scale: settings.textSize.scale, numbered: true)
         // More of the file can have opened while the text was built.
         guard !Task.isCancelled, self.diff?.lines == lines else { return }
-        text = built
+        text = built.text
     }
 }
 

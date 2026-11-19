@@ -748,23 +748,30 @@ enum DiffText {
     // built away from the main thread.
     static func build(_ lines: [DiffLine], language: CodeLanguage? = nil,
                       scale: CGFloat = 1, numbered: Bool = false,
-                      comments: DiffComments? = nil) async -> NSAttributedString {
+                      comments: DiffComments? = nil) async -> Built {
         await Task.detached(priority: .userInitiated) {
-            Finished(text: attributed(lines, language: language, scale: scale, numbered: numbered,
-                                      comments: comments))
-        }.value.text
+            render(lines, language: language, scale: scale, numbered: numbered, comments: comments)
+        }.value
     }
 
+    // The text, and the words picked out in each changed line, which the side-by-side
+    // view draws from too so a diff is only compared once.
     // NSAttributedString is not marked Sendable. This one is complete before it crosses
     // to the main thread and nothing changes it after, so handing it over is safe.
-    private struct Finished: @unchecked Sendable {
+    struct Built: @unchecked Sendable {
         let text: NSAttributedString
+        let marks: [Int: [NSRange]]
     }
 
     static func attributed(_ lines: [DiffLine],
                            language: CodeLanguage? = nil,
                            scale: CGFloat = 1, numbered: Bool = false,
                            comments: DiffComments? = nil) -> NSAttributedString {
+        render(lines, language: language, scale: scale, numbered: numbered, comments: comments).text
+    }
+
+    private static func render(_ lines: [DiffLine], language: CodeLanguage?, scale: CGFloat,
+                               numbered: Bool, comments: DiffComments?) -> Built {
         let font = NSFont.monospacedSystemFont(ofSize: 11 * scale, weight: .regular)
         // Colouring is for a diff a person reads; a huge one is scrolled, not read, and
         // plain text is much cheaper to build.
@@ -774,11 +781,12 @@ enum DiffText {
         // files instead, and each section heading names the file the following lines
         // belong to, so the language follows the headings.
         var activeLanguage = withinLimit ? language : nil
-        let marks = withinLimit ? InlineDiff.ranges(lines) : [:]
+        let rows = DiffComparisonRow.align(lines)
+        let marks = withinLimit ? InlineDiff.ranges(rows) : [:]
         let result = NSMutableAttributedString()
         var numbers: [Int: (Int?, Int?)] = [:]
         if numbered {
-            for row in DiffComparisonRow.align(lines) {
+            for row in rows {
                 if let left = row.left { numbers[left.id] = (row.oldNumber, row.left == row.right ? row.newNumber : nil) }
                 if let right = row.right, right != row.left { numbers[right.id] = (nil, row.newNumber) }
             }
@@ -835,11 +843,14 @@ enum DiffText {
             }
             // The words that changed sit a shade stronger on the band. The plain
             // background colour is right here: it stops at the glyphs, which is the point.
-            if let changed = marks[line.id] {
+            // The marks count from after the sign, and a sign that a combining mark leans
+            // on is longer than one unit.
+            if let changed = marks[line.id], let sign = line.text.first {
                 let tint = line.kind == .addition ? Theme.additionEmphasisNSColor : Theme.deletionEmphasisNSColor
+                let codeStart = lineStart + sign.utf16.count
                 for range in changed {
                     result.addAttribute(.backgroundColor, value: tint,
-                                        range: NSRange(location: lineStart + 1 + range.location, length: range.length))
+                                        range: NSRange(location: codeStart + range.location, length: range.length))
                 }
             }
             if comments?.threads.contains(line.id) == true {
@@ -850,7 +861,7 @@ enum DiffText {
                 result.append(NSAttributedString(string: "\n", attributes: attributes))
             }
         }
-        return result
+        return Built(text: result, marks: marks)
     }
 
     // Which lines of a diff are new since an earlier text of it. A gap opening only adds
@@ -958,8 +969,8 @@ enum DiffText {
 
     private static func band(_ kind: DiffLine.Kind) -> NSColor? {
         switch kind {
-        case .addition: NSColor(Theme.dotOn).withAlphaComponent(0.14)
-        case .deletion: NSColor(Theme.deletion).withAlphaComponent(0.10)
+        case .addition: Theme.additionNSColor.withAlphaComponent(0.14)
+        case .deletion: Theme.deletionNSColor.withAlphaComponent(0.10)
         case .hunk, .section, .gap: NSColor(Theme.field)
         case .meta, .context: nil
         }

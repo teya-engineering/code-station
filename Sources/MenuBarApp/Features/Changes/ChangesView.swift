@@ -1494,11 +1494,12 @@ struct ChangesView: View {
                         detail: "This file may have metadata changes or changes confined to the index.")
         } else if mode == .changes, appSettings.changesDiffLayout == .sideBySide, let diff {
             if let review {
-                SideBySideDiff(lines: diff.lines, expand: expand, threads: threadViews(review), picked: pickedKeys,
+                SideBySideDiff(lines: diff.lines, marks: model.diffMarks, expand: expand,
+                               threads: threadViews(review), picked: pickedKeys,
                                onLine: { pickLine($0, extending: $1) }, onRange: { pickRange($0) },
                                reveal: revealedLine)
             } else {
-                SideBySideDiff(lines: diff.lines, expand: expand)
+                SideBySideDiff(lines: diff.lines, marks: model.diffMarks, expand: expand)
             }
         } else if let diffText {
             if mode == .changes, let review {

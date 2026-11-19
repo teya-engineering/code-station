@@ -18,6 +18,9 @@ final class ChangesModel {
     // the next file is read, so the pane keeps showing one whole file until then.
     var diffFileID: String?
     var diffText: NSAttributedString?
+    // The words picked out in each changed line of the diff, keyed by line id. Always
+    // matches the diff's lines, or is empty.
+    var diffMarks: [Int: [NSRange]] = [:]
     // The thread lines the text on screen was built with, so it is only built again
     // when they change.
     @ObservationIgnored private(set) var renderedThreads: Set<Int> = []
@@ -102,11 +105,12 @@ final class ChangesModel {
         let lines = diff.lines
         renderGeneration += 1
         let generation = renderGeneration
-        let text = await DiffText.build(lines, language: language, scale: scale,
-                                        numbered: numbered, comments: comments)
+        let built = await DiffText.build(lines, language: language, scale: scale,
+                                         numbered: numbered, comments: comments)
         guard !Task.isCancelled, self.diff?.lines == lines,
               generation == renderGeneration else { return }
-        diffText = text
+        diffText = built.text
+        diffMarks = built.marks
         renderedThreads = comments?.threads ?? []
     }
 
@@ -116,14 +120,15 @@ final class ChangesModel {
     func showDiff(_ loaded: FileDiff, of fileID: String, language: CodeLanguage?, scale: CGFloat,
                   comments: DiffComments?) async {
         let generation = loadGeneration
-        let text = loaded.lines.isEmpty ? nil
+        let built = loaded.lines.isEmpty ? nil
             : await DiffText.build(loaded.lines, language: language, scale: scale,
                                    numbered: true, comments: comments)
         guard !Task.isCancelled, generation == loadGeneration else { return }
         renderGeneration += 1
         diff = loaded
         diffFileID = fileID
-        diffText = text
+        diffText = built?.text
+        diffMarks = built?.marks ?? [:]
         renderedThreads = comments?.threads ?? []
     }
 
@@ -136,16 +141,27 @@ final class ChangesModel {
         let expansion = await GitInspector.expand(gap, direction, root: root)
         guard !Task.isCancelled, generation == loadGeneration, var opened = diff,
               let at = opened.lines.firstIndex(where: { $0.gap?.key == key }) else { return false }
+        let movedFrom: Int
+        let shift: Int
         if let left = expansion.gap {
             opened.lines[at].gap = left
-            opened.lines.insert(contentsOf: expansion.lines, at: direction == .up ? at + 1 : at)
+            movedFrom = direction == .up ? at + 1 : at
+            shift = expansion.lines.count
+            opened.lines.insert(contentsOf: expansion.lines, at: movedFrom)
             opened.revealed += expansion.lines.count
         } else {
+            movedFrom = at + 1
+            shift = expansion.lines.count - 1
             opened.lines.replaceSubrange(at...at, with: expansion.lines)
             opened.revealed += expansion.lines.count - 1
         }
         for i in opened.lines.indices { opened.lines[i].id = i }
         diff = opened
+        // The lines after the gap move along, and their marks move with them, so no line
+        // shows another line's marks while the text is built again.
+        diffMarks = Dictionary(uniqueKeysWithValues: diffMarks.map { id, ranges in
+            (id >= movedFrom ? id + shift : id, ranges)
+        })
         return true
     }
 
@@ -155,6 +171,7 @@ final class ChangesModel {
         diff = nil
         diffFileID = nil
         diffText = nil
+        diffMarks = [:]
         renderedThreads = []
         loadingDiff = false
         expanding = []
