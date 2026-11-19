@@ -13,6 +13,7 @@ struct ToolsMenuActions {
     let openDocker: () -> Void
     let openDispatch: () -> Void
     let openShortcuts: () -> Void
+    let openStats: () -> Void
     let openSettings: () -> Void
 }
 
@@ -34,6 +35,7 @@ private struct ToolsMenuModifier: ViewModifier {
     @Environment(DispatchAuthStore.self) private var dispatchAuth
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(AppUpdateChecker.self) private var appUpdates
+    @Environment(AppSettings.self) private var settings
 
     func body(content: Content) -> some View {
         content.appMenu(edge: edge, refreshOnOpen: { await docker.refresh() }) { entries }
@@ -57,7 +59,12 @@ private struct ToolsMenuModifier: ViewModifier {
                              handler: actions.openDispatch),
                 MenuCardItem(label: "Shortcuts", icon: "bolt.fill",
                              detail: shortcutsDetail.text, detailColour: shortcutsDetail.colour,
-                             handler: actions.openShortcuts)
+                             handler: actions.openShortcuts),
+                // Off until asked for, and the card says so rather than hinting at numbers.
+                MenuCardItem(label: "Stats", icon: "chart.bar.xaxis",
+                             detail: settings.statsEnabled ? "on this Mac" : "off",
+                             detailColour: settings.statsEnabled ? Theme.addition : nil,
+                             handler: actions.openStats)
             ])
         ]
         if let release = appUpdates.availableRelease {

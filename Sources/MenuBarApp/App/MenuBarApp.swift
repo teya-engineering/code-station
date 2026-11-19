@@ -65,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private lazy var sessionTimes = SessionTimeWatch(
         transcripts: projects.transcriptsURL,
         loaded: { [projects] in projects.loadedTranscript(of: $0) })
+    private lazy var stats = StatsStore(
+        transcripts: projects.transcriptsURL,
+        loaded: { [projects] in projects.loadedTranscript(of: $0) })
     private let orphanedWorktrees = OrphanedWorktreeMonitor()
     private let pullRequestReviews = PullRequestReviewStore()
     private let gitStats = GitStatsCache()
@@ -110,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.terminals.discard(TerminalScope(owner))
             if let scope = ShortcutScope(owner) { self?.shortcuts.discard(scope) }
         }
+        connectStats()
         Attachments.pruneOldPastes()
         AppNotifier.shared.activate()
         AppNotifier.shared.openSession = { [weak self] sessionID in
@@ -127,6 +131,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         showManager()
         scheduledTasks.start()
         sunlight.start()
+    }
+
+    // Stats only listen while the person has turned them on; each hook asks first.
+    private func connectStats() {
+        stats.isEnabled = { [appSettings] in appSettings.statsEnabled }
+        stats.keepsRemoved = { [appSettings] in appSettings.statsKeepsRemovedSessions }
+        let subject: (UUID) -> UUID? = { [projects] id in
+            projects.session(id).map { $0.workspaceID ?? $0.projectID }
+        }
+        let afterTurn = runner.onTurnRecorded
+        runner.onTurnRecorded = { [stats] sessionID, ending in
+            afterTurn(sessionID, ending)
+            stats.recordTurn(ending, sessionID: sessionID, subjectID: subject(sessionID))
+        }
+        runner.onQuestionAnswered = { [stats] request, allowed, sessionID in
+            stats.recordAnswer(to: request, allowed: allowed, sessionID: sessionID,
+                               subjectID: subject(sessionID))
+        }
+        projects.onSessionLeaving = { [stats, projects] session in
+            stats.sessionLeaving(session, store: projects)
+        }
     }
 
     // macOS starts the app with room for 2560 open files. Watching a tree for changes
@@ -244,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     .environment(dictation)
                     .environment(workingTrees)
                     .environment(sessionTimes)
+                    .environment(stats)
                     .environment(orphanedWorktrees)
                     .environment(pullRequestReviews)
                     .environment(gitStats)
@@ -292,6 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         processes.stopAll()
         shortcuts.stopAll()
         runner.stopAll()
+        stats.flush()
         terminals.stopEverything()
         mobileAccess.stop()
         // Blocking here is deliberate. While the main thread waits, nothing can react to

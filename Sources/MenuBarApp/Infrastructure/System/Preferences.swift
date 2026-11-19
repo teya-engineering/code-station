@@ -284,6 +284,25 @@ enum Preferences {
         store.set(limit.rawValue, forKey: "sessionMemoryLimit")
     }
 
+    // Stats are off until the person turns them on, so nothing about how they work is
+    // counted without their asking.
+    static func statsEnabled(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "statsEnabled")
+    }
+
+    static func setStatsEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
+        store.set(enabled, forKey: "statsEnabled")
+    }
+
+    // Whether a removed session's stats stay behind once the session itself is gone.
+    static func statsKeepsRemovedSessions(in store: UserDefaults = .standard) -> Bool {
+        store.bool(forKey: "statsKeepsRemovedSessions")
+    }
+
+    static func setStatsKeepsRemovedSessions(_ keeps: Bool, in store: UserDefaults = .standard) {
+        store.set(keeps, forKey: "statsKeepsRemovedSessions")
+    }
+
     // Whether orphaned worktrees are cleaned up by the same rule as old sessions. The key
     // is older than the rule: it used to prune every orphan, changes and all.
     static func sweepsOrphanedWorktrees(in store: UserDefaults = .standard) -> Bool {

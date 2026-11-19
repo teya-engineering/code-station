@@ -256,7 +256,7 @@ struct RootView: View {
     // The tools and settings that open over the window. Each is a setup job rather than a
     // place to sit, which is why none of them is a pane of its own.
     enum Sheet: Identifiable {
-        case servers, skills, docker, settings, dispatch, shortcuts
+        case servers, skills, docker, settings, dispatch, shortcuts, stats
         case oldSessions, cleanupGoing, cleanupWaiting, onboarding
 
         var id: Self { self }
@@ -270,6 +270,7 @@ struct RootView: View {
         case .settings: SettingsView(skills: skills)
         case .dispatch: DispatchView()
         case .shortcuts: ShortcutsView()
+        case .stats: StatsView()
         case .oldSessions:
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
                                                              store: store, runner: runner))
@@ -295,6 +296,7 @@ struct RootView: View {
                          openDocker: { sheet = .docker },
                          openDispatch: { sheet = .dispatch },
                          openShortcuts: { sheet = .shortcuts },
+                         openStats: { sheet = .stats },
                          openSettings: { sheet = .settings })
     }
 

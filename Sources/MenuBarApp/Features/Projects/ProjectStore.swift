@@ -74,6 +74,9 @@ final class ProjectStore {
     // is keyed to it can go at the same time. A running terminal is the reason this
     // exists: the store owns none of that and should not have to know it is there.
     @ObservationIgnored var onRemoved: ((RemovedOwner) -> Void)?
+    // Told about a session just before it goes, while its transcript is still on disk,
+    // so Stats can keep what it counted when the person asked it to.
+    @ObservationIgnored var onSessionLeaving: ((ChatSession) -> Void)?
     private var sidebarSessionRevision = 0
     let navigation: ProjectNavigation
     let attention = SessionAttention()
@@ -1676,6 +1679,7 @@ final class ProjectStore {
             return .failure(persistenceFailure(
                 "The session could not be saved before removal started."))
         }
+        onSessionLeaving?(session)
         let worktrees = session.isDesignSession ? [] : checkoutProjects(for: session).compactMap { checkout in
             checkout.worktreePath.map { path in
                 PendingSessionRemoval.Worktree(
