@@ -553,6 +553,26 @@ enum Preferences {
         store.set(colour.rawValue, forKey: "messageColour")
     }
 
+    // How a transcript writes the time of each entry, and which entries carry one.
+    static func timestampFormat(in store: UserDefaults = .standard) -> TimestampFormat {
+        store.string(forKey: "timestampFormat").flatMap(TimestampFormat.init(rawValue:))
+            ?? .seconds
+    }
+
+    static func setTimestampFormat(_ format: TimestampFormat,
+                                   in store: UserDefaults = .standard) {
+        store.set(format.rawValue, forKey: "timestampFormat")
+    }
+
+    static func timestampScope(in store: UserDefaults = .standard) -> TimestampScope {
+        store.string(forKey: "timestampScope").flatMap(TimestampScope.init(rawValue:))
+            ?? .messagesAndSteps
+    }
+
+    static func setTimestampScope(_ scope: TimestampScope, in store: UserDefaults = .standard) {
+        store.set(scope.rawValue, forKey: "timestampScope")
+    }
+
     static func designAmbition(in store: UserDefaults = .standard) -> DesignAmbition {
         DesignAmbition.valid(store.string(forKey: "designAmbition")) ?? .fallback
     }

@@ -2082,6 +2082,8 @@ final class SessionRunner {
                     // Each event carries a complete block, and blocks are split around
                     // tool calls, so they need a gap between them.
                     if !message.text.isEmpty { message.text += "\n\n" }
+                    message.textMarks = (message.textMarks ?? [])
+                        + [TextMark(offset: message.text.count, date: Date())]
                     message.text += text
                 }
 
@@ -2095,6 +2097,7 @@ final class SessionRunner {
                     var thought = ThinkingSegment(text: text)
                     thought.textOffset = message.text.count
                     thought.toolOffset = message.tools.count
+                    thought.date = Date()
                     message.thinking = (message.thinking ?? []) + [thought]
                 }
 

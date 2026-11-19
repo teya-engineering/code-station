@@ -2,6 +2,12 @@ import Testing
 @testable import MenuBarApp
 
 struct SettingsSearchTests {
+    @Test func findsTranscriptTimestamps() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "timestamp").first)
+        #expect(result.title == "Timestamps")
+        #expect(result.target == .appearanceTimestamps)
+    }
+
     @Test func emptySearchHasNoResults() {
         #expect(SettingsSearchIndex.results(for: "   ").isEmpty)
     }

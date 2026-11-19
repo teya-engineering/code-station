@@ -223,6 +223,7 @@ private struct CallReceipt: View {
     @Environment(\.textScale) private var textScale
     @Environment(\.runningAgents) private var runningAgents
     @Environment(\.activeTranscriptTools) private var activeTools
+    @Environment(\.transcriptTimestamps) private var stamps
 
     let node: ToolNode
     let presentation: ToolPresentation
@@ -359,6 +360,7 @@ private struct CallReceipt: View {
                 DiffPair(added: added, removed: removed, size: 11 * textScale,
                          weight: .regular)
                 duration
+                startStamp(after: true)
             }
             .fixedSize()
         } else {
@@ -371,8 +373,23 @@ private struct CallReceipt: View {
                                          : AnyShapeStyle(.tertiary))
                 }
                 duration
+                startStamp(after: outcomeNote != nil || tool.duration != nil)
             }
             .fixedSize()
+        }
+    }
+
+    // When the call started, as the last fact on its row. A running call shows its
+    // elapsed time in that place instead.
+    @ViewBuilder private func startStamp(after earlier: Bool) -> some View {
+        if stamps.showsSteps, stamps.label(for: tool.startedAt) != nil {
+            if earlier {
+                Text("·")
+                    .scaledMono(Typography.Size.caption)
+                    .foregroundStyle(.tertiary)
+                    .transition(.fold)
+            }
+            TimeStamp(date: tool.startedAt, step: true)
         }
     }
 
@@ -403,6 +420,10 @@ private struct CallReceipt: View {
         if !subject.isEmpty { parts.append(subject) }
         if let outcomeNote { parts.append(outcomeNote) }
         if let duration = tool.duration { parts.append(ElapsedTime.duration(duration)) }
+        if stamps.showsSteps, let startedAt = tool.startedAt,
+           stamps.label(for: startedAt) != nil {
+            parts.append("started \(stamps.tooltip(for: startedAt))")
+        }
         return parts.joined(separator: ", ")
     }
 

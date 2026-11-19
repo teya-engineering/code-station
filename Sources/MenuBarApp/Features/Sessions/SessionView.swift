@@ -1785,6 +1785,7 @@ struct SessionView: View {
                             promptMenu: promptMenu(for: message),
                             arriving: message.isArriving(sentAt: promptSentAt),
                             bubble: bubble,
+                            timestamps: appSettings.transcriptTimestamps,
                             secondOpinion: canJudge(message, in: session, state: state) ? { @MainActor in
                                 askForSecondOpinion(session, on: answerSubject(message, in: session),
                                                     anchor: message.id)

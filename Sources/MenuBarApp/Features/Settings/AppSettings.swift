@@ -155,6 +155,18 @@ final class AppSettings {
         didSet { Preferences.setMessageColour(messageColour, in: preferences) }
     }
 
+    var timestampFormat: TimestampFormat {
+        didSet { Preferences.setTimestampFormat(timestampFormat, in: preferences) }
+    }
+
+    var timestampScope: TimestampScope {
+        didSet { Preferences.setTimestampScope(timestampScope, in: preferences) }
+    }
+
+    var transcriptTimestamps: TranscriptTimestamps {
+        TranscriptTimestamps(format: timestampFormat, scope: timestampScope)
+    }
+
     var mobileAccessEnabled: Bool {
         didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled, in: preferences) }
     }
@@ -234,6 +246,8 @@ final class AppSettings {
         textSize = Preferences.textSize(in: preferences)
         keyBindings = Preferences.keyBindings(in: preferences)
         messageColour = Preferences.messageColour(in: preferences)
+        timestampFormat = Preferences.timestampFormat(in: preferences)
+        timestampScope = Preferences.timestampScope(in: preferences)
         mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
         mobilePairingLifetime = Preferences.mobilePairingLifetime(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
@@ -265,6 +279,8 @@ final class AppSettings {
         cursorEffects = CursorEffectsSettings()
         textSize = .standard
         messageColour = .projectIcon
+        timestampFormat = .seconds
+        timestampScope = .messagesAndSteps
         diceBearAvatarStyle = .waves
         sidebarIconSet = .diceBear
     }

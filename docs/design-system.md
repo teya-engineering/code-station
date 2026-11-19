@@ -252,6 +252,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | The name of a sheet, dialog or screen | `SheetTitle`: a `TitleMark`, the name and a `CountBadge`, with room for actions on the right |
 | A count beside a name | `CountBadge`. Lands with `Motion.pop` and fades out at zero. |
+| When a transcript entry happened | `TimeStamp(date:step:)` (`Layout/TimeStamp.swift`): a tertiary mono caption in the format picked in Settings → Appearance, with the full day and second on hover. It reads `\.transcriptTimestamps` and draws nothing when stamps are off, when the date is unknown, or, for a step, when the person chose messages only. |
 | An explanation kept out of the way | `WhyButton`: a question mark `GlyphButton` that opens the words in a `.popover` panel |
 | A section heading | `SectionRule`. In a form, `SectionLabel`. |
 | A group of settings | `ChoiceBlock` holding a `SettingsCard`, with `SettingsRowDivider` between rows |

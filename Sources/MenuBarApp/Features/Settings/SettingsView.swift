@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var notes = 0
     @State private var appearanceBeforeReset: (
         appearance: Appearance, textSize: TextSize, messageColour: MessageColour,
+        timestampFormat: TimestampFormat, timestampScope: TimestampScope,
         iconStyle: DiceBearAvatarStyle, iconSet: SidebarIconSet,
         sunlight: Bool, sunlightMode: SunlightMode, warmth: Double,
         cursorEffects: CursorEffectsSettings)?
@@ -252,6 +253,7 @@ struct SettingsView: View {
 
     private func resetAppearance() {
         appearanceBeforeReset = (settings.appearance, settings.textSize, settings.messageColour,
+                                 settings.timestampFormat, settings.timestampScope,
                                  settings.diceBearAvatarStyle, settings.sidebarIconSet,
                                  settings.sunlightEnabled, settings.sunlightMode, settings.sunlightNightKelvin,
                                  settings.cursorEffects)
@@ -263,6 +265,8 @@ struct SettingsView: View {
         settings.appearance = previous.appearance
         settings.textSize = previous.textSize
         settings.messageColour = previous.messageColour
+        settings.timestampFormat = previous.timestampFormat
+        settings.timestampScope = previous.timestampScope
         settings.diceBearAvatarStyle = previous.iconStyle
         settings.sidebarIconSet = previous.iconSet
         settings.sunlightEnabled = previous.sunlight
@@ -614,6 +618,9 @@ struct SettingsView: View {
                 .id(SettingsSearchTarget.appearanceMessages.id)
 
                 SettingsRowDivider()
+                timestamps.id(SettingsSearchTarget.appearanceTimestamps.id)
+
+                SettingsRowDivider()
                 sidebarIcons.id(SettingsSearchTarget.appearanceSidebarIcons.id)
             }
         }
@@ -714,6 +721,69 @@ struct SettingsView: View {
                 name: project.name,
                 monogramTint: Theme.projectTint(for: project.name))
         }
+    }
+
+    private var timestamps: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(alignment: .center, spacing: Space.xxl) {
+                settingCopy(
+                    title: "Timestamps",
+                    detail: "When each message and step happened. Hover one for the full date.")
+                    .frame(width: 160, alignment: .leading)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: Space.xs) {
+                    ForEach(TimestampFormat.allCases) { format in
+                        ChoicePill(title: format.label,
+                                   selected: settings.timestampFormat == format) {
+                            settings.timestampFormat = format
+                        }
+                        .accessibilityLabel("Timestamps: \(format.label)")
+                        .accessibilityValue(settings.timestampFormat == format
+                                            ? "Selected" : "Not selected")
+                    }
+                }
+            }
+
+            HStack(alignment: .center, spacing: Space.xxl) {
+                timestampPreview
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: Space.xs) {
+                    ForEach(TimestampScope.allCases) { scope in
+                        ChoicePill(title: scope.label,
+                                   selected: settings.timestampScope == scope,
+                                   enabled: settings.timestampFormat != .off) {
+                            settings.timestampScope = scope
+                        }
+                        .accessibilityLabel("Show timestamps on: \(scope.label)")
+                        .accessibilityValue(settings.timestampScope == scope
+                                            ? "Selected" : "Not selected")
+                    }
+                }
+            }
+        }
+        .padding(Space.lg)
+    }
+
+    // What a stamp would read for something sent right now, so a choice is seen before a
+    // session is opened.
+    @ViewBuilder private var timestampPreview: some View {
+        let stamps = settings.transcriptTimestamps
+        let now = Date()
+        Group {
+            if let label = stamps.label(for: now) {
+                Text("Reads \(Text(label).fontWeight(.semibold).foregroundStyle(.primary)), and \(Text(stamps.tooltip(for: now)).fontWeight(.semibold).foregroundStyle(.primary)) on hover.")
+            } else {
+                Text("Transcripts show no times.")
+            }
+        }
+        .font(Typography.detail)
+        .foregroundStyle(.secondary)
+        .contentTransition(.numericText())
+        .motion(Motion.control, value: stamps)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var messageColourNote: some View {
