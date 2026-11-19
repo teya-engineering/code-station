@@ -35,7 +35,7 @@ You need:
 - macOS 15 or later
 - Xcode 26 or another Swift 6.2 toolchain
 - Git
-- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu (GitHub, Google, AWS Builder ID or an organisation's identity provider), or through IAM Identity Center with the start URL and region set in Settings > Agents > Kiro.
+- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in.
 
 Clone the repository and create a double-clickable app bundle:
 

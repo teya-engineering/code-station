@@ -259,6 +259,8 @@ final class KiroAgentInfo {
     private(set) var account: KiroCLI.Account?
     private(set) var isCheckingAccount = false
     private(set) var accountCheckFailed = false
+    // What the CLI said when its answer could not be read, shown in place of a guess.
+    private(set) var accountProblem: String?
     private(set) var isCheckingVersion = false
     private(set) var versionCheckFailed = false
     private var refreshID = UUID()
@@ -277,6 +279,7 @@ final class KiroAgentInfo {
         versionCheckFailed = false
         isCheckingAccount = false
         accountCheckFailed = false
+        accountProblem = nil
         refreshID = UUID()
         guard let path else { return }
         let searchPath = ProcessManager.searchPath
@@ -296,8 +299,14 @@ final class KiroAgentInfo {
         accountTask = Task {
             let reading = await KiroCLI.account(at: path, searchPath: searchPath)
             guard !Task.isCancelled, refreshID == id else { return }
-            if case .signedIn(let account) = reading { self.account = account }
-            self.accountCheckFailed = reading == .unknown
+            switch reading {
+            case .signedIn(let account): self.account = account
+            case .signedOut: break
+            case .unknown(let said):
+                self.accountCheckFailed = true
+                self.accountProblem = "Could not read the sign-in"
+                    + (said.map { ": \($0)" } ?? ". Refresh to ask Kiro again.")
+            }
             self.isCheckingAccount = false
         }
     }
@@ -396,7 +405,6 @@ struct AgentSettingsView: View {
     @State private var codex = CodexAgentInfo()
     @State private var copilot = CopilotAgentInfo()
     @State private var kiro = KiroAgentInfo()
-    @State private var kiroSignIn = KiroSignIn.stored()
     @State private var loggingIn: AgentKind?
 
     let requestedAgent: AgentKind?
@@ -588,7 +596,7 @@ struct AgentSettingsView: View {
                 path: kiro.path,
                 version: kiro.version,
                 account: kiro.account?.summary
-                    ?? (kiro.isCheckingAccount ? "Checking…" : nil),
+                    ?? (kiro.isCheckingAccount ? "Checking…" : kiro.accountProblem),
                 signedIn: kiro.account != nil,
                 plan: nil,
                 usage: [],
@@ -626,7 +634,6 @@ struct AgentSettingsView: View {
                 }
             }
             .id(SettingsSearchTarget.agentDetails.id)
-            if agent == .kiro { kiroSignInChoice }
             accountUsage(profile).id(SettingsSearchTarget.agentUsage.id)
             model(for: agent).id(SettingsSearchTarget.agentModel.id)
             if agent.choosesEffort { effort(for: agent).id(SettingsSearchTarget.agentEffort.id) }
@@ -880,84 +887,12 @@ struct AgentSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            // Kiro's command carries the Identity Center details, too long for a button;
-            // the sign-in window shows it in full.
-            ActionButton(title: agent == .kiro ? "Run kiro-cli login" : "Run \(agent.loginCommand)",
-                         tone: .outlined, icon: "terminal") {
+            ActionButton(title: "Run \(agent.loginCommand)", tone: .outlined, icon: "terminal") {
                 loggingIn = agent
             }
         }
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.lg)
-    }
-
-    // How the sign-in button signs in to Kiro. Kiro's own menu covers most ways in; an
-    // organisation's IAM Identity Center needs its start URL and region, which the
-    // command then carries so Kiro goes straight to that organisation's sign-in page.
-    private var kiroSignInChoice: some View {
-        ChoiceBlock("SIGN IN", note: "Used by the sign-in button above. Kiro keeps the sign-in itself, so this only changes what the button runs.") {
-            SettingsCard {
-                VStack(alignment: .leading, spacing: Space.lg) {
-                    HStack(spacing: Space.xs) {
-                        ForEach(KiroSignIn.Method.allCases, id: \.self) { method in
-                            ChoicePill(title: method.title, selected: kiroSignIn.method == method) {
-                                kiroSignIn.method = method
-                            }
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    Text(kiroSignIn.method.detail)
-                        .font(Typography.detail)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentTransition(.opacity)
-                    if kiroSignIn.method == .identityCenter {
-                        identityCenterFields
-                            .transition(.fold)
-                    }
-                }
-                .padding(.horizontal, Space.lg)
-                .padding(.vertical, Space.lg)
-                .smoothlyResizes(when: kiroSignIn.method)
-                .motion(Motion.control, value: kiroSignIn.method)
-            }
-        }
-        .onChange(of: kiroSignIn) { _, signIn in signIn.store() }
-    }
-
-    private var identityCenterFields: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            FormPair {
-                LabeledField("Start URL") {
-                    // Verbatim, or SwiftUI draws the example address as a link.
-                    TextField(text: $kiroSignIn.startURL) {
-                        Text(verbatim: "https://d-1234567890.awsapps.com/start")
-                    }
-                        .appTextField()
-                        .autocorrectionDisabled()
-                }
-                LabeledField("Region") {
-                    TextField(text: $kiroSignIn.region) { Text(verbatim: "us-east-1") }
-                        .appTextField()
-                        .autocorrectionDisabled()
-                }
-            }
-            if let problem = kiroSignIn.problem {
-                Text(problem)
-                    .font(Typography.caption)
-                    .foregroundStyle(Theme.attention)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.fadeIn)
-            } else {
-                Text("The button runs \(Text(verbatim: kiroSignIn.command).font(Typography.code)).")
-                    .font(Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .transition(.fadeIn)
-            }
-        }
-        .motion(Motion.reveal, value: kiroSignIn.problem == nil)
     }
 
     private func detailRow(_ label: String, _ value: String, mono: Bool = false) -> some View {

@@ -148,11 +148,21 @@ struct DesignImplementationDialog: View {
             }
             FormPair {
                 LabeledField("Effort") {
-                    EffortPill(title: draft.effortTitle,
-                               lit: EffortMeter.lit(for: draft.effort, among: draft.effortLevels), form: true)
-                        .appMenu(matchWidth: true, showsFocusRing: true) { effortEntries }
-                        .focused($focus, equals: .effort)
-                        .accessibilityLabel("Effort: \(draft.effortTitle)")
+                    // Kiro takes no effort level, so its field stays on Default with
+                    // nothing to open; the row keeps its place beside Permissions.
+                    if draft.agent.choosesEffort {
+                        EffortPill(title: draft.effortTitle,
+                                   lit: EffortMeter.lit(for: draft.effort, among: draft.effortLevels), form: true)
+                            .appMenu(matchWidth: true, showsFocusRing: true) { effortEntries }
+                            .focused($focus, equals: .effort)
+                            .accessibilityLabel("Effort: \(draft.effortTitle)")
+                    } else {
+                        EffortPill(title: "Default", lit: 0, form: true)
+                            .disabled(true)
+                            .appTooltip("\(draft.agent.title) has no effort setting.")
+                            .accessibilityLabel("Effort: Default")
+                            .accessibilityHint("\(draft.agent.title) has no effort setting.")
+                    }
                 }
                 LabeledField("Permissions") {
                     ShieldPill(tone: permissionTone, title: draft.permissionTitle, form: true)

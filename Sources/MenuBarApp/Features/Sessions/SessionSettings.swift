@@ -85,15 +85,14 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         return numbers.compactMap { $0 }
     }
 
-    // What signing in means for each CLI, typed into a shell as-is. Kiro's depends on how
-    // the person signs in, which is chosen on the Agents pane: an organisation's IAM
-    // Identity Center needs its start URL and region on the command.
+    // What signing in means for each CLI, typed into a shell as-is. Kiro's opens its own
+    // menu of every way in, an organisation's sign-in included.
     var loginCommand: String {
         switch self {
         case .claudeCode: "claude /login"
         case .codex: "codex login"
         case .copilot: "copilot login"
-        case .kiro: KiroSignIn.stored().command
+        case .kiro: "kiro-cli login"
         }
     }
 

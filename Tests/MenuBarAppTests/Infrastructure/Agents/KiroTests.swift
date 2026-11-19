@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import MenuBarApp
 
@@ -204,13 +205,48 @@ struct KiroConnectionTests {
 
 struct KiroServiceTests {
     @Test func readsWhoIsSignedIn() throws {
-        let account = try #require(KiroCLI.Account(
-            whoami: Data(#"{"accountType":"SocialGitHub","provider":"GitHub","email":"person@example.com"}"#.utf8)))
+        let github = KiroCLI.reading(
+            status: 0, output: #"{"accountType":"SocialGitHub","provider":"GitHub","email":"person@example.com"}"#,
+            errorOutput: "")
+        guard case .signedIn(let account) = github else { Issue.record("\(github)"); return }
         #expect(account.summary == "person@example.com · via GitHub")
-        #expect(KiroCLI.Account(whoami: Data(#"{"account":null}"#.utf8)) == nil)
-        let sso = try #require(KiroCLI.Account(
-            whoami: Data(#"{"accountType":"IamIdentityCenter","email":"person@example.com"}"#.utf8)))
-        #expect(sso.method == "via IAM Identity Center")
+        #expect(KiroCLI.reading(status: 1, output: #"{"account":null}"#, errorOutput: "") == .signedOut)
+    }
+
+    // Kiro says who is signed in differently for each way in. Whatever shape the answer
+    // takes, a successful whoami is a signed-in account.
+    @Test(arguments: [
+        #"{"accountType":"IamIdentityCenter","startUrl":"https://d-1.awsapps.com/start","region":"eu-west-1"}"#,
+        #"{"account":{"type":"IdC","startUrl":"https://d-1.awsapps.com/start"}}"#,
+        "A new version of kiro-cli is available\n{\"accountType\":\"IamIdentityCenter\"}",
+        "{}",
+    ])
+    func anySuccessfulAnswerIsSignedIn(output: String) {
+        guard case .signedIn(let account) = KiroCLI.reading(status: 0, output: output, errorOutput: "") else {
+            Issue.record("Expected a signed-in reading for \(output)")
+            return
+        }
+        #expect(!account.summary.isEmpty)
+    }
+
+    @Test func namesIdentityCenterByItsOrganisation() {
+        let account = KiroCLI.Account(fields: ["accountType": "IamIdentityCenter",
+                                               "startUrl": "https://d-1.awsapps.com/start"])
+        #expect(account.summary == "d-1.awsapps.com · via IAM Identity Center")
+    }
+
+    @Test func readsThePlainTextAnswerToo() {
+        guard case .signedIn(let account) = KiroCLI.reading(
+            status: 0, output: "Logged in with IAM Identity Center\nEmail: person@example.com", errorOutput: "")
+        else { Issue.record("Expected signed in"); return }
+        #expect(account.summary == "person@example.com · via IAM Identity Center")
+    }
+
+    @Test func keepsWhatTheCLISaidWhenTheAnswerCannotBeRead() {
+        #expect(KiroCLI.reading(status: 1, output: "", errorOutput: "Not logged in. Run kiro-cli login")
+            == .signedOut)
+        #expect(KiroCLI.reading(status: 2, output: "", errorOutput: "error: token refresh failed\nmore")
+            == .unknown("error: token refresh failed"))
     }
 
     @Test func readsTheModelCatalog() throws {
@@ -229,41 +265,48 @@ struct KiroServiceTests {
         #expect(options[1].detail.hasSuffix("\(1.3.formatted(.number.precision(.fractionLength(0...2))))× credits."))
     }
 
-    @Test func signsInThroughKirosMenuUntilIdentityCenterIsComplete() {
-        var signIn = KiroSignIn()
-        #expect(signIn.command == "kiro-cli login")
-        signIn.method = .identityCenter
-        #expect(signIn.problem != nil)
-        #expect(signIn.command == "kiro-cli login")
-        signIn.startURL = "d-1234567890.awsapps.com/start"
-        signIn.region = "eu-west-1"
-        #expect(signIn.problem?.contains("https://") == true)
-        signIn.startURL = "https://d-1234567890.awsapps.com/start"
-        signIn.region = "Ireland"
-        #expect(signIn.problem?.contains("region") == true)
-        signIn.region = " eu-west-1 "
-        #expect(signIn.problem == nil)
-        #expect(signIn.command
-            == "kiro-cli login --license pro --identity-provider https://d-1234567890.awsapps.com/start --region eu-west-1")
+    // Kiro keeps one row per token in its database; logging out empties the table.
+    @Test(arguments: [
+        (["kirocli:social:token"], "via GitHub or Google"),
+        (["kirocli:odic:device-registration", "kirocli:odic:token"], "via your organisation's sign-in"),
+    ])
+    func aTokenInKirosDatabaseIsASignIn(keys: [String], method: String) throws {
+        let database = try Self.database(keys: keys)
+        guard case .signedIn(let account)? = KiroCLI.storedSignIn(database: database) else {
+            Issue.record("Expected a stored sign-in for \(keys)")
+            return
+        }
+        #expect(account.method == method)
     }
 
-    @Test func quotesWhatThePersonTyped() {
-        let signIn = KiroSignIn(method: .identityCenter,
-                                startURL: "https://example.awsapps.com/start?x=1;rm -rf ~",
-                                region: "us-gov-west-1")
-        #expect(signIn.problem == nil)
-        #expect(signIn.command.contains("'https://example.awsapps.com/start?x=1;rm -rf ~'"))
+    @Test func anEmptyTableIsSignedOutAndNoDatabaseSaysNothing() throws {
+        #expect(KiroCLI.storedSignIn(database: try Self.database(keys: [])) == .signedOut)
+        #expect(KiroCLI.storedSignIn(database: try Self.database(keys: ["kirocli:odic:device-registration"]))
+            == .signedOut)
+        #expect(KiroCLI.storedSignIn(database: URL(fileURLWithPath: "/tmp/no-such-kiro.sqlite3")) == nil)
     }
 
-    @Test func keepsTheChoiceBetweenLaunches() {
-        let preferences = TestPreferences()
-        KiroSignIn(method: .identityCenter, startURL: "https://d-1.awsapps.com/start",
-                   region: "us-east-1").store(in: preferences.store)
-        let stored = KiroSignIn.stored(in: preferences.store)
-        #expect(stored.method == .identityCenter)
-        #expect(stored.startURL == "https://d-1.awsapps.com/start")
-        #expect(stored.region == "us-east-1")
-        #expect(KiroSignIn.stored(in: TestPreferences().store).method == .kiroMenu)
+    // An organisation's sign-in reads as nobody to whoami, yet works; the database wins.
+    @Test func theDatabaseSpeaksForSignInsWhoamiCannotSee() {
+        let organisation = KiroCLI.AccountReading.signedIn(KiroCLI.Account(accountType: "Organization"))
+        #expect(KiroCLI.combined(asked: .signedOut, stored: organisation) == organisation)
+        #expect(KiroCLI.combined(asked: .unknown("error"), stored: organisation) == organisation)
+        #expect(KiroCLI.combined(asked: .signedOut, stored: .signedOut) == .signedOut)
+        #expect(KiroCLI.combined(asked: .unknown("error"), stored: nil) == .unknown("error"))
+        let github = KiroCLI.AccountReading.signedIn(KiroCLI.Account(provider: "GitHub", email: "a@b.c"))
+        #expect(KiroCLI.combined(asked: github, stored: .signedIn(KiroCLI.Account(accountType: "Social"))) == github)
+    }
+
+    private static func database(keys: [String]) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kiro-\(UUID().uuidString).sqlite3")
+        var handle: OpaquePointer?
+        #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+        defer { sqlite3_close(handle) }
+        var sql = "CREATE TABLE auth_kv (key TEXT PRIMARY KEY, value TEXT);"
+        for key in keys { sql += "INSERT INTO auth_kv VALUES ('\(key)', '{}');" }
+        #expect(sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK)
+        return url
     }
 
     @Test func namesKirosToolsTheWayTheAppDrawsThem() {

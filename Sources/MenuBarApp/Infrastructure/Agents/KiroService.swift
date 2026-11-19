@@ -1,86 +1,5 @@
 import Foundation
-
-// How the person signs in to Kiro. Kiro's own menu covers GitHub, Google, AWS Builder ID
-// and an organisation's external identity provider, such as Okta or Microsoft Entra ID.
-// IAM Identity Center is the one way in that needs details the menu cannot guess: the
-// organisation's start URL and the AWS region it lives in. Kept on the Mac rather than in
-// site configuration, since every organisation has its own.
-struct KiroSignIn: Equatable, Sendable {
-    enum Method: String, CaseIterable, Sendable {
-        case kiroMenu = "menu"
-        case identityCenter = "identity-center"
-
-        var title: String {
-            switch self {
-            case .kiroMenu: "Kiro's sign-in menu"
-            case .identityCenter: "IAM Identity Center"
-            }
-        }
-
-        var detail: String {
-            switch self {
-            case .kiroMenu:
-                "GitHub, Google, AWS Builder ID, or your organisation's identity provider, chosen in Kiro's own menu."
-            case .identityCenter:
-                "Your organisation's AWS single sign-on. Ask your administrator for the start URL and region."
-            }
-        }
-    }
-
-    var method: Method = .kiroMenu
-    var startURL = ""
-    var region = ""
-
-    // The command the sign-in window runs. Identity Center details that are not yet
-    // usable fall back to Kiro's menu, which offers Identity Center too, so the button
-    // never runs a command that can only fail.
-    var command: String {
-        guard method == .identityCenter, problem == nil else { return "kiro-cli login" }
-        return ["kiro-cli", "login", "--license", "pro",
-                "--identity-provider", startURL.trimmed, "--region", region.trimmed]
-            .map(\.shellQuoted).joined(separator: " ")
-    }
-
-    // What is wrong with the Identity Center details, worded for the field it is about.
-    var problem: String? {
-        guard method == .identityCenter else { return nil }
-        let url = startURL.trimmed
-        if url.isEmpty { return "Enter your organisation's start URL." }
-        guard let parsed = URL(string: url), parsed.scheme == "https",
-              let host = parsed.host, host.contains(".") else {
-            return "The start URL begins with https://, for example https://d-1234567890.awsapps.com/start."
-        }
-        let region = region.trimmed
-        if region.isEmpty { return "Enter the AWS region, for example us-east-1." }
-        guard Self.looksLikeRegion(region) else {
-            return "That does not look like an AWS region. It reads like us-east-1 or eu-west-2."
-        }
-        return nil
-    }
-
-    // us-east-1, eu-central-2, us-gov-west-1, ap-southeast-3.
-    static func looksLikeRegion(_ text: String) -> Bool {
-        text.range(of: #"^[a-z]{2}(-[a-z]+)+-\d{1,2}$"#, options: .regularExpression) != nil
-    }
-
-    static func stored(in store: UserDefaults = .standard) -> KiroSignIn {
-        KiroSignIn(method: store.string(forKey: Keys.method).flatMap(Method.init(rawValue:)) ?? .kiroMenu,
-                   startURL: store.string(forKey: Keys.startURL) ?? "",
-                   region: store.string(forKey: Keys.region) ?? "")
-    }
-
-    func store(in store: UserDefaults = .standard) {
-        store.set(method.rawValue, forKey: Keys.method)
-        store.set(startURL.trimmed, forKey: Keys.startURL)
-        store.set(region.trimmed, forKey: Keys.region)
-    }
-
-    private enum Keys {
-        static let method = "kiroSignInMethod"
-        static let startURL = "kiroIdentityCenterStartURL"
-        static let region = "kiroIdentityCenterRegion"
-    }
-}
+import SQLite3
 
 // What `kiro-cli` says about the account and its models. Both are plain commands that
 // print JSON and exit, and the sign-in sits in Kiro's own database rather than the
@@ -90,55 +9,175 @@ enum KiroCLI {
         var accountType: String?
         var provider: String?
         var email: String?
+        var startURL: String?
 
-        // `whoami --format json` prints {"account":null} when nobody is signed in, and the
-        // account's own fields when someone is.
-        init?(whoami data: Data) {
-            guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  !object.keys.contains("account") || !(object["account"] is NSNull) else { return nil }
-            let fields = object["account"] as? [String: Any] ?? object
-            accountType = Self.text(fields["accountType"])
-            provider = Self.text(fields["provider"])
-            email = Self.text(fields["email"])
-            guard accountType != nil || provider != nil || email != nil else { return nil }
+        init(accountType: String? = nil, provider: String? = nil, email: String? = nil,
+             startURL: String? = nil) {
+            self.accountType = accountType
+            self.provider = provider
+            self.email = email
+            self.startURL = startURL
+        }
+
+        // The account's own fields, under "account" or at the top level. Kiro names them
+        // differently for each way of signing in, so every likely spelling is read.
+        init(fields: [String: Any]) {
+            let fields = fields["account"] as? [String: Any] ?? fields
+            func text(_ keys: String...) -> String? {
+                keys.lazy.compactMap { (fields[$0] as? String)?.trimmed }.first { !$0.isEmpty }
+            }
+            self.init(accountType: text("accountType", "account_type", "authType", "type"),
+                      provider: text("provider", "identityProvider", "socialProvider"),
+                      email: text("email", "userEmail", "username"),
+                      startURL: text("startUrl", "startURL", "start_url", "issuerUrl"))
+        }
+
+        // `kiro-cli whoami` without a format: "Logged in with GitHub" and "Email: …".
+        init(text: String) {
+            var account = Account()
+            for line in text.split(whereSeparator: \.isNewline).map({ String($0).trimmed }) {
+                if let range = line.range(of: "Logged in with ", options: .caseInsensitive) {
+                    account.provider = String(line[range.upperBound...]).trimmed
+                } else if line.lowercased().hasPrefix("email:") {
+                    account.email = String(line.dropFirst("email:".count)).trimmed
+                }
+            }
+            self = account
         }
 
         // How the sign-in reads on the account row: who, and through what.
         var summary: String {
-            let how = method
-            guard let email else { return how }
-            return "\(email) · \(how)"
+            guard let who = email ?? startURL.flatMap({ URL(string: $0)?.host }) else { return method }
+            return "\(who) · \(method)"
         }
 
         var method: String {
-            let type = accountType?.lowercased() ?? ""
-            if type.contains("identitycenter") || type.contains("idc") || type.contains("sso") {
+            let words = [accountType, provider].compactMap { $0?.lowercased() }.joined(separator: " ")
+            if words.contains("identitycenter") || words.contains("identity center")
+                || words.contains("idc") || words.contains("sso") || startURL != nil {
                 return "via IAM Identity Center"
             }
-            if type.contains("builder") { return "via AWS Builder ID" }
-            if type.contains("apikey") || type.contains("api_key") { return "via an API key" }
+            if words.contains("organization") { return "via your organisation's sign-in" }
+            if words.contains("builder") { return "via AWS Builder ID" }
+            if words.contains("apikey") || words.contains("api_key") || words.contains("api key") {
+                return "via an API key"
+            }
             if let provider, !provider.isEmpty { return "via \(provider)" }
-            return "Kiro login"
-        }
-
-        private static func text(_ value: Any?) -> String? {
-            guard let value = value as? String, !value.trimmed.isEmpty else { return nil }
-            return value.trimmed
+            if words.contains("social") { return "via GitHub or Google" }
+            if let accountType, !accountType.isEmpty { return "via \(accountType)" }
+            return "Signed in to Kiro"
         }
     }
 
     enum AccountReading: Equatable, Sendable {
         case signedIn(Account)
         case signedOut
-        // The CLI could not be asked, which says nothing about the sign-in either way.
-        case unknown
+        // The answer could not be read. The CLI's own words come along, so the account
+        // row can show what it said rather than guess.
+        case unknown(String?)
     }
 
+    // Who is signed in, asked two ways. `whoami` names the account but does not speak for
+    // every kind of sign-in: an organisation's sign-in is reported as nobody at all. Kiro's
+    // own database holds a token for whichever way was used and loses it on logout, so a
+    // token there is a sign-in whatever `whoami` said.
     static func account(at path: String, searchPath: String) async -> AccountReading {
-        guard let output = await run(path, ["whoami", "--format", "json"], searchPath: searchPath)
-        else { return .unknown }
-        if let account = Account(whoami: Data(output.output.utf8)) { return .signedIn(account) }
-        return output.output.contains("\"account\"") ? .signedOut : .unknown
+        let stored = storedSignIn()
+        let asked: AccountReading
+        if let output = await run(path, ["whoami", "--format", "json"], searchPath: searchPath) {
+            asked = reading(status: output.status, output: output.output, errorOutput: output.errorOutput)
+        } else {
+            asked = .unknown(nil)
+        }
+        return combined(asked: asked, stored: stored)
+    }
+
+    static func combined(asked: AccountReading, stored: AccountReading?) -> AccountReading {
+        switch (asked, stored) {
+        case (.signedIn(var account), .signedIn(let kept)?):
+            // The database knows the way in when whoami's answer did not say.
+            if account.method == "Signed in to Kiro" { account.accountType = kept.accountType }
+            return .signedIn(account)
+        case (.signedIn, _): return asked
+        case (_, .signedIn?): return stored ?? asked
+        // A key in the environment signs in without anything in the database, so only
+        // whoami can say there is nobody.
+        default: return asked
+        }
+    }
+
+    // The sign-in Kiro keeps in its own database: an `auth_kv` table with one row per
+    // token, named by the way in - "kirocli:social:token" for GitHub or Google,
+    // "kirocli:odic:token" for an organisation's sign-in. Only the names are read, never
+    // the tokens. Nil when the database cannot be read, which says nothing either way.
+    static func storedSignIn(database: URL = defaultDatabase) -> AccountReading? {
+        var handle: OpaquePointer?
+        guard FileManager.default.fileExists(atPath: database.path),
+              sqlite3_open_v2(database.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK
+        else {
+            sqlite3_close(handle)
+            return nil
+        }
+        defer { sqlite3_close(handle) }
+        sqlite3_busy_timeout(handle, 500)
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "SELECT key FROM auth_kv", -1, &statement, nil) == SQLITE_OK
+        else { return nil }
+        defer { sqlite3_finalize(statement) }
+        var keys: [String] = []
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_DONE { break }
+            guard step == SQLITE_ROW else { return nil }
+            if let text = sqlite3_column_text(statement, 0) { keys.append(String(cString: text)) }
+        }
+        let tokens = keys.map { $0.lowercased() }.filter { $0.hasSuffix(":token") }
+        guard !tokens.isEmpty else { return .signedOut }
+        if tokens.contains(where: { $0.contains(":odic:") || $0.contains(":oidc:") }) {
+            return .signedIn(Account(accountType: "Organization"))
+        }
+        if tokens.contains(where: { $0.contains(":social:") }) {
+            return .signedIn(Account(accountType: "Social"))
+        }
+        return .signedIn(Account())
+    }
+
+    static var defaultDatabase: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/kiro-cli/data.sqlite3")
+    }
+
+    // What `whoami --format json` said. The exit status is the surest part of the answer:
+    // Kiro exits 0 for a signed-in account, whatever it then prints about it, and 1 with
+    // {"account":null} for nobody. The JSON is looked for on any line, since a notice
+    // about updates or a profile can come before it.
+    static func reading(status: Int32, output: String, errorOutput: String) -> AccountReading {
+        let object = jsonObject(in: output)
+        if let object, object.keys.contains("account"), object["account"] is NSNull { return .signedOut }
+        if status == 0 {
+            var account = object.map(Account.init(fields:)) ?? Account()
+            if account == Account() { account = Account(text: output) }
+            return .signedIn(account)
+        }
+        let said = [errorOutput, output].joined(separator: "\n")
+        if said.range(of: "not logged in", options: .caseInsensitive) != nil
+            || said.range(of: "please log in", options: .caseInsensitive) != nil {
+            return .signedOut
+        }
+        let firstLine = said.split(whereSeparator: \.isNewline).map { String($0).trimmed }
+            .first { !$0.isEmpty }
+        return .unknown(firstLine)
+    }
+
+    private static func jsonObject(in text: String) -> [String: Any]? {
+        let candidates = [text] + text.split(whereSeparator: \.isNewline).map(String.init)
+            .filter { $0.trimmed.hasPrefix("{") }
+        for candidate in candidates {
+            if let object = (try? JSONSerialization.jsonObject(with: Data(candidate.utf8))) as? [String: Any] {
+                return object
+            }
+        }
+        return nil
     }
 
     static func models(at path: String, searchPath: String) async -> [ModelChoice.Option]? {
