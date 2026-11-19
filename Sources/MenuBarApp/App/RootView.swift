@@ -23,6 +23,7 @@ struct RootView: View {
     // Only ever one at a time, and a second one asked for while the first is up would
     // replace it rather than stack, so which one is showing is a single choice.
     @State private var sheet: Sheet?
+    @State private var settingsTarget: SettingsSearchTarget?
     @State private var sessionCleanupError: String?
     @State private var orphanCleanupError: String?
     @State private var cleanup = OldSessionSweep.Status()
@@ -46,6 +47,9 @@ struct RootView: View {
             // sheet gets one of its own to ask its own questions in.
             .sheet(item: $sheet) { sheet in
                 sheetContent(sheet).background(QuitConfirmation()).appOverlays()
+            }
+            .onChange(of: sheet) { _, now in
+                if now != .settings { settingsTarget = nil }
             }
             // Outermost, so the sheets see the person's keys as well.
             .environment(\.keyBindings, settings.keyBindings)
@@ -267,10 +271,14 @@ struct RootView: View {
         case .servers: ConfigManagerView()
         case .skills: SkillsView(manager: skills)
         case .docker: DockerView()
-        case .settings: SettingsView(skills: skills)
+        case .settings: SettingsView(skills: skills, initialTarget: settingsTarget)
         case .dispatch: DispatchView()
         case .shortcuts: ShortcutsView()
-        case .stats: StatsView()
+        case .stats:
+            StatsView(openSettings: {
+                settingsTarget = .generalStats
+                self.sheet = .settings
+            })
         case .oldSessions:
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
                                                              store: store, runner: runner))

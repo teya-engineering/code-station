@@ -9,6 +9,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     let skills: SkillsManager
+    // Where to land when another sheet sends the person straight to one setting.
+    var initialTarget: SettingsSearchTarget? = nil
 
     @State private var reviewingOldSessions = false
     @State private var showingLog = false
@@ -76,7 +78,10 @@ struct SettingsView: View {
         .frame(width: 960, height: 680)
         .background(Theme.background)
         .interactiveDismissDisabled(bots.draft?.isDirty == true)
-        .onAppear { loginItem.refresh() }
+        .onAppear {
+            loginItem.refresh()
+            if let initialTarget { searchTarget = initialTarget }
+        }
         .onChange(of: secondOpinion) { _, defaults in Preferences.setSecondOpinionDefaults(defaults) }
         .sheet(isPresented: $reviewingOldSessions) {
             OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
@@ -490,22 +495,7 @@ struct SettingsView: View {
     }
 
     private var statsRetention: some View {
-        @Bindable var settings = settings
-        return ChoiceBlock("STATS") {
-            SettingsCard {
-                HStack(alignment: .top, spacing: Space.lg) {
-                    settingCopy(
-                        title: "Keep stats for removed sessions",
-                        detail: "Counted from the session's last turn. Times, prompts and cost stay, never the words. At 0 a session's stats go when it does.")
-                    Spacer(minLength: 0)
-                    DayField(days: $settings.statsRemovedSessionDays,
-                             range: StatsStore.keptDayRange,
-                             accessibilityLabel: "Days to keep stats for removed sessions")
-                }
-                .padding(.horizontal, Space.lg)
-                .padding(.vertical, Space.lg)
-            }
-        }
+        StatsSettings()
     }
 
     private var sessionMemory: some View {

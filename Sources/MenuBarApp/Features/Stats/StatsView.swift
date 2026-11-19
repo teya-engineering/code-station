@@ -1,13 +1,14 @@
 import SwiftUI
 
 // How the person and their agents spend their time, opened from Tools on Home. Stats are
-// off until the person turns them on here, and the sheet says exactly what is counted
-// before it asks.
+// off until the person turns them on in Settings, and until then the sheet says exactly
+// what would be counted and links there.
 struct StatsView: View {
+    let openSettings: () -> Void
+
     @Environment(StatsStore.self) private var stats
     @Environment(ProjectStore.self) private var store
     @Environment(AppSettings.self) private var settings
-    @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -36,7 +37,7 @@ struct StatsView: View {
                     dashboard
                         .transition(.headerPage(reduceMotion: reduceMotion))
                 } else {
-                    StatsOptIn(turnOn: turnOn)
+                    StatsOptIn(openSettings: openSettings)
                         .transition(.headerPage(reduceMotion: reduceMotion))
                 }
             }
@@ -71,6 +72,7 @@ struct StatsView: View {
     private var header: some View {
         SheetTitle(name: "Stats", icon: "chart.bar.xaxis") {
             if settings.statsEnabled {
+                InlineLink(title: "Stats settings", icon: "gearshape", action: openSettings)
                 WhyButton(label: "How Stats counts", isOpen: $showsWhy) {
                     VStack(alignment: .leading, spacing: Space.md) {
                         explanation("Agent time", "Only the stretches a turn was working. A session left open overnight is not twelve hours.")
@@ -129,7 +131,6 @@ struct StatsView: View {
                         .frame(maxWidth: .infinity, minHeight: 360)
                         .transition(.fadeIn)
                 }
-                settingsBlock
             }
             .padding(Space.xxxl)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -187,62 +188,6 @@ struct StatsView: View {
         return subjects.first { $0.id == subject }?.name ?? "One project"
     }
 
-    // MARK: - Settings for Stats itself
-
-    private var settingsBlock: some View {
-        ChoiceBlock("STATS SETTINGS") {
-            SettingsCard {
-                HStack(alignment: .center, spacing: Space.lg) {
-                    VStack(alignment: .leading, spacing: Space.xxs) {
-                        Text("Turn off Stats")
-                            .font(Typography.body.weight(.semibold))
-                        Text("Stops counting and deletes everything Stats has kept. Your sessions are not touched.")
-                            .font(Typography.detail)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    ActionButton(title: "Turn off…", tone: .dangerOutlined, action: confirmTurnOff)
-                }
-                .padding(Space.lg)
-            }
-        }
-    }
-
-    // MARK: - Actions
-
-    private func turnOn() {
-        withAnimation(reduceMotion ? nil : Motion.reveal) {
-            settings.statsEnabled = true
-        }
-        stats.turnOn()
-        stats.refresh(store)
-    }
-
-    private func confirmTurnOff() {
-        var rows = [Dialog.Impact.Row(title: "Everything Stats counted",
-                                      detail: "Times, prompts, waits and costs it worked out")]
-        if stats.keptCount > 0 {
-            rows.append(Dialog.Impact.Row(title: "Stats for \(counted(stats.keptCount, "removed session"))",
-                                          detail: "The sessions are gone, so these cannot be worked out again"))
-        }
-        rows.append(Dialog.Impact.Row(title: "Your sessions",
-                                      detail: "Every conversation stays as it is", kept: true))
-        dialogs.show(.impact(
-            "Turn off Stats?",
-            rows: rows,
-            warning: "The waits Stats recorded and the stats of removed sessions cannot be restored.",
-            action: "Turn off and delete") {
-                withAnimation(reduceMotion ? nil : Motion.reveal) {
-                    settings.statsEnabled = false
-                    report = nil
-                    subjects = []
-                    subject = nil
-                }
-                stats.erase()
-            })
-    }
-
     private func rebuild() async {
         guard settings.statsEnabled else { return }
         let digests = stats.digests
@@ -284,7 +229,7 @@ struct StatsView: View {
 
 // What Stats counts and where it keeps it, said before anything is counted.
 private struct StatsOptIn: View {
-    let turnOn: () -> Void
+    let openSettings: () -> Void
 
     @Environment(AppSettings.self) private var settings
 
@@ -295,7 +240,7 @@ private struct StatsOptIn: View {
                     TitleMark(icon: "chart.bar.xaxis")
                     Text("See where your time goes")
                         .font(Typography.display)
-                    Text("Stats counts how you and your agents spend your time across every project and workspace. It is off until you turn it on.")
+                    Text("Stats counts how you and your agents spend your time across every project and workspace. It is off until you turn it on in Settings.")
                         .font(Typography.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -314,12 +259,12 @@ private struct StatsOptIn: View {
                     promise("lock", "Stays on this Mac",
                             "Nothing is sent anywhere. Turning Stats off deletes everything it kept.")
                     SettingsRowDivider()
-                    promise("trash", "Removed sessions", removedDetail)
+                    promise("trash", "Past sessions", removedDetail)
                 }
                 .cardSurface(cornerRadius: Radius.floating)
 
-                ActionButton(title: "Turn on Stats", tone: .green, height: ControlHeight.xl,
-                             size: Typography.Size.body, icon: "chart.bar.xaxis", action: turnOn)
+                ActionButton(title: "Turn on in Settings", tone: .green, height: ControlHeight.xl,
+                             size: Typography.Size.body, icon: "gearshape", action: openSettings)
             }
             .frame(maxWidth: Self.width)
             .padding(Space.xxxl)
@@ -332,10 +277,9 @@ private struct StatsOptIn: View {
 
     private var removedDetail: String {
         let days = settings.statsRemovedSessionDays
-        let kept = days == 0
-            ? "A session's stats go when the session does."
+        return days == 0
+            ? "Only live sessions are counted. A session's stats go when the session does."
             : "A session's stats stay for \(counted(days, "day")) after its last turn, even once it is removed."
-        return kept + " Change this in Settings, General."
     }
 
     private func promise(_ icon: String, _ title: String, _ detail: String) -> some View {

@@ -110,6 +110,12 @@ final class StatsStore {
         saver.schedule()
     }
 
+    // Reads the file without touching any session, so Settings can say what is kept.
+    func load() {
+        guard isEnabled() else { return }
+        loadIfNeeded()
+    }
+
     // Everything Stats wrote goes with it. The sessions themselves are not touched.
     func erase() {
         saver.cancel()
