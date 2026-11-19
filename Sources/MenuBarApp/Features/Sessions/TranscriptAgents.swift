@@ -105,16 +105,24 @@ struct TranscriptAgentGroup: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Button { expanded = !isExpanded } label: {
+                let startedAt = agents.compactMap(\.startedAt).min()
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: Space.md) {
                         heading(agents.count)
-                        Spacer(minLength: 8)
+                        Spacer(minLength: Space.md)
                         reading(agents)
-                        TimeStamp(date: agents.compactMap(\.startedAt).min(), step: true)
+                        TimeStamp(date: startedAt, step: true)
                         chevron(isExpanded)
                     }
+                    // The stamp stays on the top line, so a narrow column keeps the time
+                    // the wide one shows.
                     VStack(alignment: .leading, spacing: Space.xs) {
-                        HStack { heading(agents.count); Spacer(); chevron(isExpanded) }
+                        HStack(spacing: Space.md) {
+                            heading(agents.count)
+                            Spacer(minLength: Space.md)
+                            TimeStamp(date: startedAt, step: true)
+                            chevron(isExpanded)
+                        }
                         reading(agents)
                     }
                 }

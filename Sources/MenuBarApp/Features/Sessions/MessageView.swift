@@ -69,14 +69,14 @@ struct MessageView: View, Equatable {
         case .system:
             HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                 SelectableText(plain: message.text,
-                               size: 11,
+                               size: Typography.Size.caption,
                                design: .monospaced,
                                secondary: true)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 TimeStamp(date: message.date)
             }
-            .padding(.trailing, 32)
+            .padding(.trailing, TranscriptCopyButton.clearance)
             .frame(maxWidth: .infinity, alignment: .leading)
             .transcriptCopyButton(for: message.text)
         case .instructions:
@@ -108,7 +108,7 @@ struct MessageView: View, Equatable {
                     }
                 }
                 if message.steered == true || message.dictated == true
-                    || timestamps.label(for: message.date) != nil {
+                    || timestamps.shows(message.date) {
                     HStack(spacing: Space.md) {
                         if message.steered == true { SteeredTag() }
                         if message.dictated == true { DictatedTag() }
@@ -236,9 +236,9 @@ struct MessageView: View, Equatable {
                         MarkdownProse(text: text, projectPath: projectPath, textScale: textScale) { segment in
                             MarkdownCodeBlock(segment: segment)
                                 .equatable()
-                                .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
+                                .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: Space.sm)
                         }
-                        .padding(.trailing, 32)
+                        .padding(.trailing, TranscriptCopyButton.clearance)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .transcriptCopyButton(for: text.trimmed, secondOpinion: secondOpinion)
                         // When this stretch of the answer arrived, under the words it dates.
@@ -345,7 +345,7 @@ private struct ThinkingBlock: View {
 
             if expanded {
                 SelectableText(plain: text.trimmed,
-                               size: 12,
+                               size: Typography.Size.detail,
                                secondary: true,
                                italic: true,
                                lineSpacing: 3)
@@ -356,7 +356,7 @@ private struct ThinkingBlock: View {
                     .transition(.fadeIn)
             }
         }
-        .padding(.trailing, 32)
+        .padding(.trailing, TranscriptCopyButton.clearance)
         .frame(maxWidth: .infinity, alignment: .leading)
         .smoothlyResizes(when: expanded)
         .onChange(of: find?.reveals(text, in: messageID) == true, initial: true) { _, reveals in
@@ -408,8 +408,12 @@ private struct TranscriptCopyButton: ViewModifier {
     let inset: CGFloat
     var secondOpinion: (@MainActor () -> Void)?
 
-    static let pillSize: CGFloat = 28
+    static let pillSize = ControlHeight.md
     static let iconSize: CGFloat = 13
+    static let defaultInset = Space.xs
+    // Room kept free at the end of a block, so the pill that comes up on hover never
+    // covers the last words of a line.
+    static let clearance = pillSize + defaultInset
 
     private var copyTooltip: Tooltip {
         Tooltip(title: tooltip,
@@ -461,7 +465,7 @@ private struct TranscriptCopyButton: ViewModifier {
 extension View {
     func transcriptCopyButton(for text: String,
                               tooltip: String = "Copy text",
-                              inset: CGFloat = 4,
+                              inset: CGFloat = TranscriptCopyButton.defaultInset,
                               secondOpinion: (@MainActor () -> Void)? = nil) -> some View {
         modifier(TranscriptCopyButton(text: text, tooltip: tooltip, inset: inset, secondOpinion: secondOpinion))
     }

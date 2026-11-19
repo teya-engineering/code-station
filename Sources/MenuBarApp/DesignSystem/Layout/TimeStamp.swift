@@ -12,7 +12,7 @@ struct TimeStamp: View {
     @Environment(\.transcriptTimestamps) private var stamps
 
     var body: some View {
-        if let date, let label = visibleLabel {
+        if let date, let label = stamps.label(for: date, step: step) {
             let full = stamps.tooltip(for: date)
             Text(label)
                 .scaledMono(Typography.Size.caption)
@@ -25,10 +25,5 @@ struct TimeStamp: View {
                 .accessibilityLabel("At \(full)")
                 .transition(.fold)
         }
-    }
-
-    var visibleLabel: String? {
-        if step && !stamps.showsSteps { return nil }
-        return stamps.label(for: date)
     }
 }

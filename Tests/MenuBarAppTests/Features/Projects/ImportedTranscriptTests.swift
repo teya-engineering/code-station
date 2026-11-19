@@ -17,6 +17,28 @@ struct ImportedTranscriptTests {
         #expect(reply?.thinking?.first?.date == at.addingTimeInterval(2))
     }
 
+    // Codex records only when a turn started and ended. Stamping each step with one of
+    // those would read as an exact time it does not have.
+    @Test func codexStepsStayUndatedAndTheReplyTakesTheTurnsEnd() {
+        let turn: [String: Any] = ["startedAt": 1_000.0, "completedAt": 1_010.0, "items": [
+            ["id": "u", "type": "userMessage", "content": [["type": "text", "text": "List files"]]],
+            ["id": "r", "type": "reasoning", "summary": ["Checking the folder"]],
+            ["id": "a", "type": "agentMessage", "text": "Looking"],
+            ["id": "t", "type": "commandExecution", "command": "ls", "aggregatedOutput": "one.swift", "exitCode": 0],
+        ]]
+        var transcript = ImportedTranscript()
+        CodexTranscriptImport.append(turn, to: &transcript, fallbackDate: nil)
+        let messages = transcript.finish()
+        let reply = messages.last
+        #expect(messages.first?.date == Date(timeIntervalSince1970: 1_000))
+        #expect(reply?.date == Date(timeIntervalSince1970: 1_010))
+        #expect(reply?.tools.first?.startedAt == nil)
+        #expect(reply?.tools.first?.finishedAt == nil)
+        #expect(reply?.thinking?.first?.date == nil)
+        #expect(reply?.textMarks == nil)
+        #expect(transcript.undatedReplyDate == nil)
+    }
+
     @Test func claudeRewindsExcludeAbandonedBranchesAndRepeatedRecords() throws {
         func record(_ role: String, _ id: String, _ parent: String?, _ text: String) throws -> String {
             try line(["type": role, "uuid": id, "parentUuid": parent as Any? ?? NSNull(),

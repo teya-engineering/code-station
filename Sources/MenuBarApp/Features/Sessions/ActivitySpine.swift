@@ -336,7 +336,11 @@ private struct CallReceipt: View {
 
     @ViewBuilder private var outcome: some View {
         if state == .interrupted {
-            Text("interrupted").scaledMono(Typography.Size.caption).foregroundStyle(Theme.secret)
+            HStack(spacing: Space.xs) {
+                Text("interrupted").scaledMono(Typography.Size.caption).foregroundStyle(Theme.secret)
+                startStamp(after: true)
+            }
+            .fixedSize()
         } else if isWorking {
             HStack(spacing: Space.xs) {
                 Text("running")
@@ -380,9 +384,9 @@ private struct CallReceipt: View {
     }
 
     // When the call started, as the last fact on its row. A running call shows its
-    // elapsed time in that place instead.
+    // elapsed time in that place instead, which says more while it is still going.
     @ViewBuilder private func startStamp(after earlier: Bool) -> some View {
-        if stamps.showsSteps, stamps.label(for: tool.startedAt) != nil {
+        if stamps.shows(tool.startedAt, step: true) {
             if earlier {
                 Text("·")
                     .scaledMono(Typography.Size.caption)
@@ -420,8 +424,7 @@ private struct CallReceipt: View {
         if !subject.isEmpty { parts.append(subject) }
         if let outcomeNote { parts.append(outcomeNote) }
         if let duration = tool.duration { parts.append(ElapsedTime.duration(duration)) }
-        if stamps.showsSteps, let startedAt = tool.startedAt,
-           stamps.label(for: startedAt) != nil {
+        if let startedAt = tool.startedAt, stamps.shows(startedAt, step: true) {
             parts.append("started \(stamps.tooltip(for: startedAt))")
         }
         return parts.joined(separator: ", ")

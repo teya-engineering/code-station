@@ -560,7 +560,7 @@ struct SettingsView: View {
                     settingCopy(
                         title: "Theme",
                         detail: "Follow macOS or keep the app in one appearance.")
-                        .frame(width: 160, alignment: .leading)
+                        .frame(width: Self.pillRowCopyWidth, alignment: .leading)
 
                     HStack(spacing: Space.md) {
                         ForEach(Appearance.allCases) { choice in
@@ -587,7 +587,7 @@ struct SettingsView: View {
                     settingCopy(
                         title: "Session text",
                         detail: "Changes transcripts, diffs, tool output, and terminals.")
-                        .frame(width: 160, alignment: .leading)
+                        .frame(width: Self.pillRowCopyWidth, alignment: .leading)
 
                     Spacer(minLength: 0)
 
@@ -614,7 +614,7 @@ struct SettingsView: View {
                     settingCopy(
                         title: "Your messages",
                         detail: "The colour behind what you send in a session.")
-                        .frame(width: 160, alignment: .leading)
+                        .frame(width: Self.pillRowCopyWidth, alignment: .leading)
 
                     VStack(alignment: .leading, spacing: Space.lg) {
                         MessageColourPicker(selection: settings.messageColour,
@@ -655,7 +655,7 @@ struct SettingsView: View {
                     settingCopy(
                         title: "When",
                         detail: "Follow the sun where you are, or keep the warmth on all day.")
-                        .frame(width: 160, alignment: .leading)
+                        .frame(width: Self.pillRowCopyWidth, alignment: .leading)
                     Spacer(minLength: 0)
                     HStack(spacing: Space.xs) {
                         ForEach(SunlightMode.allCases) { mode in
@@ -677,7 +677,7 @@ struct SettingsView: View {
                         detail: settings.sunlightMode == .fixed
                             ? "The colour the window keeps."
                             : "The colour the window reaches at night. Hold the slider to see it now.")
-                        .frame(width: 160, alignment: .leading)
+                        .frame(width: Self.pillRowCopyWidth, alignment: .leading)
 
                     AppSlider(value: $settings.sunlightNightKelvin,
                               range: Sunlight.nightRange,
@@ -791,7 +791,7 @@ struct SettingsView: View {
     private var sidebarIcons: some View {
         HStack(spacing: Space.xxl) {
             settingCopy(title: "Sidebar icons", detail: "Give projects a distinct, recognisable look.")
-                .frame(width: 160, alignment: .leading)
+                .frame(width: Self.pillRowCopyWidth, alignment: .leading)
             HStack(spacing: Space.lg) {
                 ForEach(Self.previewProjects.prefix(3)) { project in
                     VStack(spacing: Space.xs) {
@@ -1011,6 +1011,10 @@ struct SettingsView: View {
 
     // A setting's name over the sentence that says what it changes, shared with the rows
     // that live in views of their own.
+    // The width of the words beside a row of pills or swatches. Held to one width so the
+    // controls on every such row start on the same line, and they get the rest.
+    static let pillRowCopyWidth: CGFloat = 160
+
     static func settingCopy(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)

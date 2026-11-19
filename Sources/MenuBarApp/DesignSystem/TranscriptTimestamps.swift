@@ -39,27 +39,36 @@ enum TimestampScope: String, CaseIterable, Identifiable, Sendable {
 struct TranscriptTimestamps: Equatable, Sendable {
     var format: TimestampFormat = .seconds
     var scope: TimestampScope = .messagesAndSteps
+    // The day "today" and "yesterday" are measured from. It is part of the value, so a
+    // transcript that only redraws when its stamps change still redraws past midnight.
+    var today = Calendar.current.startOfDay(for: Date())
 
     static let off = TranscriptTimestamps(format: .off)
 
     var showsSteps: Bool { format != .off && scope == .messagesAndSteps }
 
-    // Nil when stamps are off, or when the entry has no time of its own. An imported
-    // conversation that recorded no time is dated the distant past, and "1 Jan 1" would
-    // say something false.
-    func label(for date: Date?) -> String? {
-        guard let date, Self.isKnown(date) else { return nil }
+    // Whether an entry gets a stamp at all, without the cost of writing it. False when
+    // stamps are off, when a step's stamp is hidden by "Messages only", or when the entry
+    // has no time of its own. An imported conversation that recorded no time is dated the
+    // distant past, and "1 Jan 1" would say something false.
+    func shows(_ date: Date?, step: Bool = false) -> Bool {
+        guard let date, Self.isKnown(date), format != .off else { return false }
+        return !step || showsSteps
+    }
+
+    func label(for date: Date?, step: Bool = false) -> String? {
+        guard let date, shows(date, step: step) else { return nil }
         switch format {
         case .off: return nil
         case .time: return date.formatted(date: .omitted, time: .shortened)
         case .seconds: return date.formatted(date: .omitted, time: .standard)
-        case .smart: return RelativeTime.stamp(date)
+        case .smart: return RelativeTime.stamp(date, now: today)
         }
     }
 
     // The whole moment, whatever the row shows: the day as well as the second.
     func tooltip(for date: Date) -> String {
-        RelativeTime.stamp(date, seconds: true)
+        RelativeTime.stamp(date, seconds: true, now: today)
     }
 
     static func isKnown(_ date: Date) -> Bool {

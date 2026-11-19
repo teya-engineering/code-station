@@ -97,7 +97,7 @@ enum SettingsSearchIndex {
         result("Your messages", .appearance, .appearanceMessages,
                "appearance colour color bubble prompt sent project icon stone paper lemon leaf ink"),
         result("Timestamps", .appearance, .appearanceTimestamps,
-               "time timestamp stamp clock date when sent seconds smart message step tool hover"),
+               "appearance time timestamp stamp clock date when sent seconds smart message step tool hover"),
         result("Header buttons", .appearance, .appearanceHeaderButtons,
                "appearance session toolbar rail dock show hide preview globe running app browser"),
         result("Sidebar icons", .appearance, .appearanceSidebarIcons,

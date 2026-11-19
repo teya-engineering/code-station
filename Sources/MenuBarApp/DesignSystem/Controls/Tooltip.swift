@@ -79,6 +79,27 @@ final class TooltipPresenter {
     @ObservationIgnored private var held = false
     @ObservationIgnored private var dismissal: Any?
     @ObservationIgnored private var pendingHide: Task<Void, Never>?
+    // Counts the times a window lost focus. A source waiting out its delay notes the
+    // count when the wait began and gives up if it has moved, so a hint never comes up
+    // after the person has gone to another window. One watcher here does that for every
+    // source, which matters in a transcript where each row carries a hint.
+    @ObservationIgnored private(set) var focusLosses = 0
+    @ObservationIgnored private var resignObserver: NSObjectProtocol?
+
+    init() {
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.focusLosses += 1
+                self.hideAll()
+            }
+        }
+    }
+
+    isolated deinit {
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+    }
 
     func show(_ tooltip: Tooltip, from rect: CGRect, owner: UUID) {
         guard !held else { return }
@@ -233,9 +254,10 @@ private struct AppTooltip: ViewModifier {
                     showTooltip()
                     return
                 }
+                let focusLosses = presenter.focusLosses
                 pending = Task {
                     try? await Task.sleep(for: delay)
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled, presenter.focusLosses == focusLosses else { return }
                     showTooltip()
                 }
             }
@@ -249,10 +271,6 @@ private struct AppTooltip: ViewModifier {
             }
             .onChange(of: text) { _, _ in
                 if isFocused || hovering { showTooltip() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
-                pending?.cancel()
-                presenter.hide(owner: id, immediately: true)
             }
             .onDisappear {
                 pending?.cancel()

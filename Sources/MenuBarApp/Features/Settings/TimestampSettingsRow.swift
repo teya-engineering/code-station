@@ -11,7 +11,7 @@ struct TimestampSettingsRow: View {
                 SettingsView.settingCopy(
                     title: "Timestamps",
                     detail: "When each message and step happened. Hover one for the full date.")
-                    .frame(width: 160, alignment: .leading)
+                    .frame(width: SettingsView.pillRowCopyWidth, alignment: .leading)
 
                 Spacer(minLength: 0)
 

@@ -164,7 +164,8 @@ final class AppSettings {
     }
 
     var transcriptTimestamps: TranscriptTimestamps {
-        TranscriptTimestamps(format: timestampFormat, scope: timestampScope)
+        TranscriptTimestamps(format: timestampFormat, scope: timestampScope,
+                             today: CalendarDay.shared.today)
     }
 
     var mobileAccessEnabled: Bool {
