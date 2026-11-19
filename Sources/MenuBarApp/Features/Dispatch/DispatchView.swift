@@ -661,7 +661,9 @@ private struct RequestRow: View {
                     .accessibilityLabel("Pinned")
             }
         }
-        .padding(.leading, Space.md)
+        // Lines the method up with the folder icon above: the folder row's padding,
+        // chevron and gap add up to this step.
+        .padding(.leading, Space.xxxl)
         .padding(.trailing, Space.md)
         .padding(.vertical, isRenaming ? 4 : 8)
         .surface(selected ? accent.opacity(0.10) : (hovering ? Theme.field : .clear), cornerRadius: Radius.control,
