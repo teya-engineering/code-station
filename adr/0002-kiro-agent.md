@@ -14,6 +14,13 @@ Kiro can be signed into through GitHub, Google, AWS Builder ID, or an organisati
 
 ## Decision
 
+Kiro ships as a beta. It works end to end, but it lacks parts the other agents have, and its sign-in check rests on details Kiro does not document. The app says so wherever Kiro can be picked, so nobody mistakes the gaps for faults:
+
+- `AgentKind.isBeta` marks it. Agent menus describe it as "Beta · AWS's coding agent." The session bar shows a `BetaChip` beside its name, with the explanation in the tooltip. The first-run wizard shows the chip on its card.
+- The Kiro section of Settings › Agents carries a BETA badge and one sentence on what beta means: what works, and what is not supported yet.
+
+Kiro leaves beta when Code Station hands its MCP servers to Kiro sessions and replies arrive as they are written. The sign-in check must also have been confirmed against each kind of sign-in, or Kiro must offer a supported way to ask. Importing past sessions and showing credits are wanted, but they do not hold the label back. Leaving beta means setting `isBeta` to false.
+
 Code Station runs Kiro through the official CLI as a session server, `kiro-cli acp --agent-engine v3`. The engine is pinned so that a user's own `acp.agentEngine` setting cannot switch the app onto a protocol it does not speak. The minimum CLI version is 3.5.0.
 
 `AgentServerLaunch` builds the launch, and `AgentSessionConnection` handles the protocol:
@@ -32,6 +39,8 @@ The Agents pane decides whether someone is signed in from two sources. It reads 
 Titles and prompt suggestions run as one-shot `kiro-cli chat --no-interactive` runs. Second-opinion reviews run the same way, trusting only `fs_read`, `grep` and `glob`. A non-interactive run refuses every untrusted tool, so a review cannot write or run commands.
 
 ## Consequences
+
+Kiro is visibly a beta, so its gaps read as expected rather than broken, and the label sets the bar for leaving it. One flag removes the label everywhere.
 
 Kiro sessions get the same transcript, permission card, queue, changes view and follow-ups as the other agents. They use the person's own Kiro account and plan.
 
