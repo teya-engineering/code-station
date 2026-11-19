@@ -122,7 +122,7 @@ struct SessionRunButton: View {
     }
 
     static func verb(for shortcut: Shortcut, state: ShortcutStore.State) -> String {
-        if shortcut.kind == .prompt { return "Insert" }
+        if shortcut.kind == .prompt { return "Ask" }
         return state.isActive ? "Output" : "Run"
     }
 
@@ -602,7 +602,7 @@ struct SessionRunButton: View {
         let sortable = !isFiltered
         var items: [MenuEntry]
         if shortcut.kind == .prompt {
-            items = [.item("Insert", icon: "text.insert", action: {
+            items = [.item("Ask", icon: "bubble.left", action: {
                 use(entry, from: cardFrames[entry.id] ?? buttonFrame)
             })]
         } else {
@@ -721,7 +721,7 @@ private struct RunHalf: View {
                     if running {
                         RunSpinner().transition(.opacity)
                     } else {
-                        Image(systemName: kind == .prompt ? "text.insert" : "play.fill")
+                        Image(systemName: kind == .prompt ? "bubble.left" : "play.fill")
                             .font(Typography.micro.weight(.bold))
                             .id(kind)
                             .transition(.opacity)
@@ -766,7 +766,7 @@ private struct RunHalf: View {
         .accessibilityHint("The first shortcut in the list is on this button.")
     }
 
-    private var verb: String { kind == .prompt ? "Insert" : "Run" }
+    private var verb: String { kind == .prompt ? "Ask" : "Run" }
 }
 
 private struct ListHalf: View {

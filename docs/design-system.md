@@ -244,7 +244,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Sort a sidebar by dragging its rows, or drop one row into another | `.sidebarDrag(_:reorders:drags:drag:onMove:)` (`App/Navigation/SidebarReorder.swift`), with one `SidebarDrag` state per list. It draws the line where the row will land. Set `reorders` to false on rows the dragged one may not sit beside. |
 | Sort a stacked list where the order itself means something | `.liveReorder(_:in:spacing:enabled:cornerRadius:state:onDrop:)` (`Controls/LiveReorder.swift`), with one `LiveReorder` state per list. The row follows the pointer after 5 points, so a click still reaches it, and the rows it passes make room at once on `Motion.control`. Read `state.preview(_:)` to show the order before the drop, such as the name on a button. Turn it off while the list is filtered, and give every drag a keyboard and menu twin (Move up, Move down). |
 | Mark the first place of an ordered list that has a job of its own | `LeadSlot`: a dashed accent frame with a caption, drawn as a top-aligned background of the list. Leave `LeadSlot.topRoom` above the first row and `LeadSlot.inset` on each side. |
-| Say whether a shortcut is a command or a prompt | `KindTile`: the terminal fill for a command, the leaf `userMessage` fill for a prompt. Pair it with the verb (Run or Insert), so the kind never rests on colour alone. |
+| Say whether a shortcut is a command or a prompt | `KindTile`: the terminal fill for a command, the leaf `userMessage` fill for a prompt. Pair it with the verb (Run or Ask), so the kind never rests on colour alone. |
 
 **Structure**
 
