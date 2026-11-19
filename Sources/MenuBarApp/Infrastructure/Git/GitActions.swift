@@ -63,31 +63,6 @@ enum GitActions {
         }
     }
 
-    // Creates a local branch that tracks the remote one and switches to it, so pull and
-    // push work on it straight away.
-    static func checkoutRemoteBranch(_ branch: RemoteBranch, at root: String) async -> String? {
-        await perform(at: root) { tool, url in
-            GitInspector.run(tool, ["switch", "--track", branch.ref], in: url)
-        }
-    }
-
-    static func createBranch(_ branch: String, at root: String) async -> String? {
-        await perform(at: root) { tool, url in
-            GitInspector.run(tool, ["switch", "-c", branch], in: url)
-        }
-    }
-
-    // Commits everything the changes list shows, staged or not, the way the screen
-    // presents it: one working tree, one commit. With `amend` the result replaces the
-    // last commit instead of following it.
-    static func commitAll(message: String, amend: Bool = false, at root: String) async -> String? {
-        await perform(at: root) { tool, url in
-            let add = GitInspector.run(tool, ["add", "-A"], in: url)
-            guard add.ok else { return add }
-            return GitInspector.run(tool, commitArguments(message: message, amend: amend), in: url)
-        }
-    }
-
     // Throws away the uncommitted work in the chosen files. A tracked file goes back to
     // the last commit, in the index and the working tree at once, so a change that was
     // only half staged goes with the rest. A rename is one row on the screen but two paths
