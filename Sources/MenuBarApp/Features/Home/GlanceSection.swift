@@ -240,9 +240,6 @@ struct GlanceSection: View {
                     explanation("Cost", "What the agent reported. On a subscription, what the same use would cost on the API. Codex and Copilot report tokens only.")
                 }
             }
-            GlyphButton(icon: "gearshape", action: openStatsSettings)
-                .appTooltip("Stats settings")
-                .accessibilityLabel("Stats settings")
         }
     }
 
