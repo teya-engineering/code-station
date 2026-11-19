@@ -288,7 +288,6 @@ enum GitInspector {
             snapshot.branch = symbolic.ok ? symbolic.trimmedText : "HEAD"
         }
 
-
         if snapshot.hasCommits {
             // Unix time and the subject on one line, split on a tab the subject cannot
             // contain because git strips it out of the first line.

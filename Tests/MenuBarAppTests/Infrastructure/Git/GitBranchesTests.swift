@@ -100,8 +100,10 @@ struct GitBranchesTests {
         let conflicted = GitChange(path: "README.md", originalPath: nil, kind: .conflicted,
                                    isStaged: false, isUnstaged: true,
                                    added: nil, removed: nil, isBinary: false)
-        #expect(await GitActions.commitSelected(message: "Must not bypass recovery",
-                                                files: [conflicted], at: repo.path) != nil)
+        // A partial commit fails during a merge anyway, so only the guard's own message proves it ran.
+        let blocked = await GitActions.commitSelected(message: "Must not bypass recovery",
+                                                      files: [conflicted], at: repo.path)
+        #expect(blocked?.contains("Finish or abort the current operation in Branches") == true)
         let versions = await GitBranches.contents(path: "README.md", at: repo.path)
         #expect(versions.current == "current\n")
         #expect(versions.incoming == "incoming\n")

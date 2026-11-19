@@ -312,7 +312,7 @@ private struct HomeBoard: View {
                     ForEach(needsYou) { live in
                         HomeMapActionRow(live: live, hasChanges: hasChanges(live),
                                          open: { open(live, $0) }, answer: { answer(live, $0) })
-                            .frame(height: 46)
+                            .frame(height: HomeMapActionRow.height)
                     }
                 }
             }
@@ -498,6 +498,12 @@ struct HomeMapActionRow: View {
     let open: (SessionDestination) -> Void
     let answer: (PermissionAnswer) -> Void
 
+    // Tall enough for the title and its request line, and the same on every row, so the
+    // action buttons line up down the list.
+    static let height: CGFloat = 46
+    // A fixed project column keeps every session title starting on one line.
+    static let projectWidth: CGFloat = 150
+
     @State private var hovering = false
 
     var body: some View {
@@ -507,13 +513,13 @@ struct HomeMapActionRow: View {
             // The board lists sessions from every project in one place, so each row names its own.
             HStack(spacing: Space.sm) {
                 SidebarIdentityTile(avatar: live.avatar, name: live.containerName, tint: live.tint,
-                                    stacked: live.session.workspaceID != nil, side: 18)
+                                    stacked: live.session.workspaceID != nil, side: ControlHeight.xs)
                     .accessibilityHidden(true)
                 Text(live.containerName)
                     .font(Typography.label)
                     .lineLimit(1)
             }
-            .frame(width: 150, alignment: .leading)
+            .frame(width: Self.projectWidth, alignment: .leading)
             MapLight(tone: live.tone)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(live.session.title)
