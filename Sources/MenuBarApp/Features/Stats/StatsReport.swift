@@ -15,12 +15,12 @@ enum StatsRange: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    // What a change is measured against, said the way the tiles say it.
-    var comparison: String {
+    // What a change is measured against, to end a sentence such as "18% less than ...".
+    var versus: String {
         switch self {
-        case .today: "vs yesterday"
-        case .week: "vs the 7 days before"
-        case .month: "vs the 30 days before"
+        case .today: "yesterday"
+        case .week: "the 7 days before"
+        case .month: "the 30 days before"
         }
     }
 

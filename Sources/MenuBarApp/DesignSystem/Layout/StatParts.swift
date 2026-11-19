@@ -37,131 +37,123 @@ struct IconBadge: View {
     }
 }
 
-// How a number moved against the stretch before, as a small tinted pill. Green when the
-// move is the good way, amber when it is not.
+// How a number moved against the stretch before, as a small coloured figure with an
+// arrow. Green when the move is the good way, amber when it is not.
+struct ChangeFigure: View {
+    let change: Double
+    var lowerIsBetter = false
+
+    // A move that rounds to 0% says nothing, so it is left out.
+    static func isWorthSaying(_ change: Double?) -> Bool {
+        guard let change, change.isFinite else { return false }
+        return abs(change) >= 0.005
+    }
+
+    static func tint(_ change: Double, lowerIsBetter: Bool) -> Color {
+        (change < 0) == lowerIsBetter ? Theme.dotOnText : Theme.attentionText
+    }
+
+    // The move in words, such as "18% less", for a sentence that names what it is against.
+    static func words(_ change: Double) -> String {
+        let size = abs(change).formatted(.percent.precision(.fractionLength(0)))
+        return "\(size) \(change < 0 ? "less" : "more")"
+    }
+
+    var body: some View {
+        HStack(spacing: Space.xxs) {
+            Image(systemName: change > 0 ? "arrow.up.right" : "arrow.down.right")
+                .font(Typography.micro)
+            Text(abs(change).formatted(.percent.precision(.fractionLength(0))))
+                .font(Typography.micro)
+                .monospacedDigit()
+                .contentTransition(.numericText(value: change))
+        }
+        .foregroundStyle(Self.tint(change, lowerIsBetter: lowerIsBetter))
+        .fixedSize()
+    }
+}
+
+// The same move on a pill of its colour, for a number that stands on its own.
 struct ChangeChip: View {
     let change: Double
     var lowerIsBetter = false
 
     var body: some View {
-        let good = (change < 0) == lowerIsBetter
-        let tint = good ? Theme.dotOnText : Theme.attentionText
-        HStack(spacing: Space.xxs) {
-            Image(systemName: change > 0 ? "arrow.up.right" : "arrow.down.right")
-                .font(Typography.micro)
-            Text(change.formatted(.percent.precision(.fractionLength(0))))
-                .font(Typography.micro)
-                .monospacedDigit()
-                .contentTransition(.numericText(value: change))
-        }
-        .foregroundStyle(tint)
-        .padding(.horizontal, Space.sm)
-        .padding(.vertical, Space.xxs)
-        .background(Capsule().fill(tint.opacity(0.13)))
-        .fixedSize()
+        ChangeFigure(change: change, lowerIsBetter: lowerIsBetter)
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.xxs)
+            .background(Capsule().fill(ChangeFigure.tint(change, lowerIsBetter: lowerIsBetter).opacity(0.13)))
+            .fixedSize()
     }
 }
 
 // MARK: - Numbers
 
-// One headline number: what it counts, with its own mark and colour, the number, how it
-// moved against the stretch before, and a line under it showing how it got there.
-struct StatTile: View {
+// A small card that says more about one reading from a slim row of them: what it is, the
+// number, how it moved in words, and the run of readings behind it. It is the content of
+// a hanging `Tooltip`, so it arrives and leaves with the tooltip. The line draws itself
+// out from the left when the card opens.
+struct ReadingPeek: View {
     let title: String
     let value: String
-    // The raw reading behind `value`, so the figures roll rather than swap when it moves.
-    var reading: Double
-    var icon = "number"
-    var change: Double? = nil
-    // Some numbers are better when they fall, such as the time spent waiting.
-    var lowerIsBetter = false
-    var comparison: String? = nil
-    var spark: [Double] = []
     var tint: Color = Theme.accent
-    // A tile that is one cell of a larger card leaves the card to that card, since a
-    // card does not sit inside another.
-    var framed = true
-    // Why there is no number yet, said in place of it with a lock.
-    var locked: String? = nil
+    var change: Double? = nil
+    var lowerIsBetter = false
+    // What a change is against, such as "yesterday".
+    var versus = ""
+    // Said in place of the change when there is none to say.
+    var note = ""
+    var spark: [Double] = []
+    var footnote: String? = nil
 
-    static let sparkHeight: CGFloat = 34
-    // A long run of readings is summed into this many points, so the line keeps its shape
-    // instead of turning into noise at the size of a tile.
-    static let sparkPoints = 16
+    static let width: CGFloat = 248
+    private static let sparkHeight: CGFloat = 40
+
+    @State private var drawn = false
 
     var body: some View {
-        content
-            .padding(Space.card)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(TileFrame(framed: framed))
-            .motion(Motion.control, value: reading)
-            .accessibilityElement(children: .combine)
-    }
-
-    private var content: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Space.sm) {
-                IconBadge(icon: icon, tint: tint)
-                Text(title)
-                    .capsText()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let change, change.isFinite, abs(change) >= 0.005 {
-                    ChangeChip(change: change, lowerIsBetter: lowerIsBetter)
-                        .transition(.fadeIn)
-                }
+                Circle().fill(tint).frame(width: Space.sm, height: Space.sm)
+                Text(title).font(Typography.label)
             }
-            if let locked {
-                Label(locked, systemImage: "lock.fill")
+            Text(value)
+                .font(Typography.display)
+                .monospacedDigit()
+                .lineLimit(1)
+                .padding(.top, Space.sm)
+            comparison
+                .font(Typography.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if spark.contains(where: { $0 > 0 }) {
+                Sparkline(values: Sparkline.thinned(spark), tint: tint)
+                    .frame(height: Self.sparkHeight)
+                    .mask(alignment: .leading) {
+                        Rectangle().frame(maxWidth: drawn ? .infinity : 0)
+                    }
+                    .motion(Motion.draw, value: drawn)
+                    .padding(.top, Space.md)
+            }
+            if let footnote {
+                Text(footnote)
                     .font(Typography.caption)
                     .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-                    .frame(height: Self.sparkHeight, alignment: .topLeading)
-                    .transition(.fadeIn)
-            } else {
-                VStack(alignment: .leading, spacing: Space.xxs) {
-                    Text(value)
-                        .font(Typography.display)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .contentTransition(.numericText(value: reading))
-                    Text(comparison ?? " ")
-                        .font(Typography.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                // A flat line along the bottom says nothing and reads as an underline.
-                Sparkline(values: Self.thinned(spark), tint: tint)
-                    .opacity(spark.contains { $0 > 0 } ? 1 : 0)
-                    .frame(height: Self.sparkHeight)
-                    .padding(.horizontal, -Space.card)
-                    .padding(.bottom, -Space.card)
+                    .padding(.top, Space.md)
             }
         }
+        .padding(Space.lg)
+        .onAppear { drawn = true }
+        .accessibilityElement(children: .combine)
     }
 
-    static func thinned(_ values: [Double]) -> [Double] {
-        guard values.count > sparkPoints + 4 else { return values }
-        let group = Int((Double(values.count) / Double(sparkPoints)).rounded(.up))
-        return stride(from: 0, to: values.count, by: group).map { start in
-            values[start..<min(start + group, values.count)].reduce(0, +)
-        }
-    }
-}
-
-private struct TileFrame: ViewModifier {
-    let framed: Bool
-
-    func body(content: Content) -> some View {
-        if framed {
-            content
-                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-                .cardSurface()
-        } else {
-            content.clipped()
-        }
+    private var comparison: Text {
+        guard let change, ChangeFigure.isWorthSaying(change) else { return Text(note) }
+        return Text(ChangeFigure.words(change))
+            .fontWeight(.semibold)
+            .foregroundStyle(ChangeFigure.tint(change, lowerIsBetter: lowerIsBetter))
+            + Text(" than \(versus)")
     }
 }
 
@@ -169,6 +161,18 @@ private struct TileFrame: ViewModifier {
 struct Sparkline: View {
     let values: [Double]
     var tint: Color = Theme.accent
+
+    // A long run of readings is summed into this many points, so the line keeps its shape
+    // instead of turning into noise at the size of a small card.
+    static let points = 16
+
+    static func thinned(_ values: [Double]) -> [Double] {
+        guard values.count > points + 4 else { return values }
+        let group = Int((Double(values.count) / Double(points)).rounded(.up))
+        return stride(from: 0, to: values.count, by: group).map { start in
+            values[start..<min(start + group, values.count)].reduce(0, +)
+        }
+    }
 
     var body: some View {
         Chart {

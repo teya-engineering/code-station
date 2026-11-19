@@ -12,9 +12,10 @@ struct GlanceToday {
     var changedNote = ""
 }
 
-// Where the time went, in one place on Home. A sentence says it, four lenses count it,
-// and one chart shows it: the rolling day as a ribbon, or a longer stretch as stacked
-// bars. The full breakdown opens in place under the card.
+// Where the time went, in one place on Home. A sentence says it, one chart shows it (the
+// rolling day as a ribbon, or a longer stretch as stacked bars), and one slim line under
+// the chart picks what the chart measures. The full breakdown opens in place under the
+// card.
 //
 // The rolling day's agent time comes from the session scan, so it is there with Stats
 // off. Everything else, and every longer stretch, comes from a Stats report.
@@ -50,6 +51,7 @@ struct GlanceSection: View {
     @State private var zoom: Zoom?
     @State private var plotWidth: CGFloat = 0
     @FocusState private var focusedBar: Int?
+    @FocusState private var focusedLens: StatsLens?
     @Namespace private var rangeTrack
     @Namespace private var lensTrack
 
@@ -80,6 +82,8 @@ struct GlanceSection: View {
     private static let axisGap: CGFloat = 8
     private static let axisLabelWidth: CGFloat = 72
     private static let cardWidth: CGFloat = 290
+    // The line of readings under the chart.
+    private static let lineHeight = ControlHeight.xl + Space.xl
     nonisolated private static let space = "glance"
     // Resting on a bar answers almost at once. It is just long enough that a pointer
     // passing straight over the chart does not flash a card up.
@@ -312,15 +316,13 @@ struct GlanceSection: View {
                 .padding(.horizontal, Space.xxl)
                 .padding(.top, Space.xs)
                 .padding(.bottom, Space.xl)
-            lenses(ribbon: ribbon, moment: moment)
             if !statsOn {
                 statsOffNote
                     .padding(.horizontal, Space.xxl)
-                    .padding(.vertical, Space.xl)
+                    .padding(.bottom, Space.xl)
                     .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
             }
-            footer
-                .opacity(moment.play?.restOpacity(at: moment.time) ?? 1)
+            readings(ribbon: ribbon, moment: moment)
         }
         .coordinateSpace(.named(Self.space))
         .background(FrameAnchorView(anchor: sectionAnchor))
@@ -344,12 +346,13 @@ struct GlanceSection: View {
         return HStack(alignment: .center, spacing: Space.xxl) {
             VStack(alignment: .leading, spacing: Space.xs) {
                 sentence(ribbon: ribbon, moment: moment)
-                Text(summary(ribbon))
+                summary(ribbon)
                     .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
                     .opacity(rest)
+                    .appTooltip(stretch == .today && !today.changedNote.isEmpty ? today.changedNote : nil)
             }
             Spacer(minLength: 0)
             if statsOn, let report {
@@ -427,12 +430,21 @@ struct GlanceSection: View {
             : report?.subjects.filter { $0.seconds > 0 }.count ?? 0
     }
 
-    private func summary(_ ribbon: DayRibbon) -> String {
-        if stretch == .today && !scanned { return " " }
+    // Where the time went, then what it changed: "Mostly on code-station, 180 prompts,
+    // busiest around 11:00. +1,204 −318 lines changed today, in 35 sessions."
+    private func summary(_ ribbon: DayRibbon) -> Text {
+        if stretch == .today && !scanned { return Text(verbatim: " ") }
         if agentSeconds <= 0 {
-            if stretch == .today { return statsOn ? "Look back further to see the week." : " " }
-            return stretch == .month ? " " : "Try a longer stretch."
+            if stretch == .today { return Text(statsOn ? "Look back further to see the week." : " ") }
+            return Text(stretch == .month ? " " : "Try a longer stretch.")
         }
+        let work = workSentence(ribbon)
+        guard let changes = changeSentence else { return Text(work ?? " ") }
+        guard let work else { return changes }
+        return Text(work + " ") + changes
+    }
+
+    private func workSentence(_ ribbon: DayRibbon) -> String? {
         var parts: [String] = []
         if shownSubject == nil {
             let lead = stretch == .today
@@ -450,9 +462,34 @@ struct GlanceSection: View {
         } else if let day = report?.busiestDay {
             parts.append("busiest on \(day.name)")
         }
-        guard let first = parts.first else { return " " }
+        guard let first = parts.first else { return nil }
         parts[0] = first.prefix(1).uppercased() + first.dropFirst()
         return parts.joined(separator: ", ") + "."
+    }
+
+    // The lines are only counted once their scans land, so until then the sentence names
+    // the sessions alone rather than claiming nothing changed.
+    private var changeSentence: Text? {
+        let added, removed, sessions: Int
+        let measured: Bool
+        if stretch == .today {
+            (added, removed, sessions, measured) = (today.added, today.removed, today.sessions, today.measured)
+        } else if let report {
+            (added, removed, sessions, measured) = (report.added, report.removed, report.sessions, true)
+        } else {
+            return nil
+        }
+        guard sessions > 0 else { return nil }
+        let count = counted(sessions, "session")
+        guard measured, added + removed > 0 else {
+            return Text(count.prefix(1).uppercased() + count.dropFirst() + " \(stretchWords).")
+        }
+        return Text(verbatim: "+" + StatsFormat.count(added))
+            .foregroundStyle(Theme.addition).fontWeight(.semibold)
+            + Text(verbatim: " ")
+            + Text(verbatim: "−" + StatsFormat.count(removed))
+            .foregroundStyle(Theme.deletion).fontWeight(.semibold)
+            + Text(" lines changed \(stretchWords), in \(count).")
     }
 
     private func mark(icon: String, tint: Color, value: Int, label: String) -> some View {
@@ -478,83 +515,128 @@ struct GlanceSection: View {
         var value: Double = 0
         var text = "–"
         var change: Double?
-        var comparison: String?
         var spark: [Double] = []
     }
 
-    // Four cells under the chart, split by hairlines. The one picked decides what the chart
+    // One slim line along the bottom of the card. Four cells, split by hairlines, each with
+    // a dot, a name, the reading and how it moved. The one picked decides what the chart
     // measures, and a mark slides along their top edge to it, pointing up at the chart.
-    // The footer draws the line underneath.
-    private func lenses(ribbon: DayRibbon, moment: Moment) -> some View {
+    // Resting on a cell opens a card with the rest of the reading. The full breakdown sits
+    // at the right end.
+    private func readings(ribbon: DayRibbon, moment: Moment) -> some View {
         let rest = moment.play?.restOpacity(at: moment.time) ?? 1
         return HStack(spacing: 0) {
-            ForEach(Array(StatsLens.allCases.enumerated()), id: \.element) { index, choice in
-                if index > 0 {
-                    Rectangle().fill(Theme.hairline).frame(width: 1)
+            HStack(spacing: 0) {
+                ForEach(Array(StatsLens.allCases.enumerated()), id: \.element) { index, choice in
+                    if index > 0 {
+                        Rectangle().fill(Theme.hairline).frame(width: 1)
+                    }
+                    lensCell(choice, reading: reading(choice, ribbon: ribbon))
                 }
-                lensCell(choice, reading: reading(choice, ribbon: ribbon))
             }
+            .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+                step(lens: press.key == .rightArrow ? 1 : -1)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("What the chart measures")
+            Rectangle().fill(Theme.hairline).frame(width: 1)
+            breakdownToggle
+                .padding(.horizontal, Space.lg)
         }
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(height: Self.lineHeight)
+        .lineLimit(1)
         .opacity(rest)
         .offset(y: (1 - rest) * Space.sm)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
-            step(lens: press.key == .rightArrow ? 1 : -1)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("What the chart measures")
+        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: Radius.floating,
+                                          bottomTrailingRadius: Radius.floating))
     }
 
     private func lensCell(_ choice: StatsLens, reading: Reading) -> some View {
         let locked = !statsOn && choice != .time
         let picked = lens == choice
+        let change = ChangeFigure.isWorthSaying(reading.change) ? reading.change : nil
         return Button { pickLens(choice) } label: {
-            StatTile(title: choice.caps, value: reading.text, reading: reading.value,
-                     icon: choice.icon, change: reading.change, lowerIsBetter: choice.lowerIsBetter,
-                     comparison: reading.comparison, spark: reading.spark, tint: choice.tint,
-                     framed: false, locked: locked ? "Counted once Stats is on" : nil)
-                .padding(.horizontal, Space.sm)
-                .padding(.top, Space.xs)
-                .background(picked ? Theme.sunken : Color.clear)
-                .overlay(alignment: .top) {
-                    if picked {
-                        Rectangle()
-                            .fill(choice.tint)
-                            .frame(height: Space.xxs)
-                            .matchedGeometryEffect(id: "underline", in: lensTrack)
-                    }
+            HStack(spacing: Space.md) {
+                Circle()
+                    .fill(choice.tint)
+                    .frame(width: Space.sm, height: Space.sm)
+                    .opacity(picked ? 1 : 0.45)
+                Text(choice.title)
+                    .font(Typography.body)
+                    .foregroundStyle(picked ? Color.primary : Color.secondary)
+                Text(locked ? "–" : reading.text)
+                    .font(Typography.title.weight(.semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: reading.value))
+                    .motion(Motion.control, value: reading.value)
+                if let change, !locked {
+                    ChangeFigure(change: change, lowerIsBetter: choice.lowerIsBetter)
+                        .transition(.fadeIn)
                 }
-                .opacity(locked ? 0.55 : 1)
-                .contentShape(Rectangle())
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Space.xxl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(picked ? Theme.sunken : Color.clear)
+            .overlay(alignment: .top) {
+                if picked {
+                    Rectangle()
+                        .fill(choice.tint)
+                        .frame(height: Space.xxs)
+                        .matchedGeometryEffect(id: "underline", in: lensTrack)
+                }
+            }
+            .opacity(locked ? 0.55 : 1)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(locked)
+        .focused($focusedLens, equals: choice)
         .hoverFill(cornerRadius: 0)
-        .appTooltip(locked ? "Turn on Stats to count this" : nil)
+        .modifier(LensHint(locked: locked, isFocused: focusedLens == choice, delay: Self.hoverDelay) {
+            peek(choice, reading: reading)
+        })
+        .accessibilityLabel(choice.title)
+        .accessibilityValue(locked ? "" : spoken(reading, change: change))
         .accessibilityAddTraits(picked ? .isSelected : [])
         .accessibilityHint(locked ? "Turn on Stats to count this" : "Shows this on the chart")
         .motion(Motion.control, value: lens)
+    }
+
+    private func spoken(_ reading: Reading, change: Double?) -> String {
+        guard let change else { return reading.text }
+        return "\(reading.text), \(ChangeFigure.words(change)) than \(stretch.versus)"
+    }
+
+    // Built when the pointer comes to rest, so it reads the lens picked by then.
+    private func peek(_ choice: StatsLens, reading: Reading) -> Tooltip {
+        let edges = sectionAnchor.frame().map { $0.minX...max($0.maxX, $0.minX + ReadingPeek.width) }
+            ?? 0...CGFloat.greatestFiniteMagnitude
+        let content = ReadingPeek(
+            title: choice.title, value: reading.text, tint: choice.tint,
+            change: reading.change, lowerIsBetter: choice.lowerIsBetter, versus: stretch.versus,
+            note: reading.value > 0 ? "In \(stretch.phrase)" : "Nothing counted in \(stretch.phrase)",
+            spark: reading.spark,
+            footnote: lens == choice ? "On the chart now" : "Click to put this on the chart")
+        return Tooltip(title: "", hanging: Tooltip.Hanging(width: ReadingPeek.width, edges: edges,
+                                                           content: AnyView(content)))
     }
 
     private func reading(_ choice: StatsLens, ribbon: DayRibbon) -> Reading {
         if stretch == .today && choice == .time {
             var reading = Reading(value: ribbon.spent,
                                   text: scanned ? StatsFormat.time(ribbon.spent) : "–",
-                                  comparison: "in the last 24 hours",
-                                  spark: ribbon.activity(bucketCount: StatTile.sparkPoints).map(\.spent))
+                                  spark: ribbon.activity(bucketCount: Sparkline.points).map(\.spent))
             if statsOn, let previous = report?.agentTime.previous, previous > 0 {
                 reading.change = (ribbon.spent - previous) / previous
-                reading.comparison = StatsRange.today.comparison
             }
             return reading
         }
         guard statsOn, let report else { return Reading() }
         let tile = report.tile(choice)
-        let compared = (tile.previous ?? 0) > 0
         return Reading(value: tile.value, text: choice.format(tile.value),
-                       change: compared ? tile.change : nil,
-                       comparison: compared ? stretch.comparison : " ",
+                       change: (tile.previous ?? 0) > 0 ? tile.change : nil,
                        spark: tile.spark)
     }
 
@@ -897,52 +979,22 @@ struct GlanceSection: View {
         .washSurface(tint: Theme.accent)
     }
 
-    private var footer: some View {
-        HStack(spacing: Space.xxl) {
-            if stretch == .today {
-                HStack(spacing: Space.sm) {
-                    if today.measured {
-                        DiffPair(added: today.added, removed: today.removed, size: Typography.Size.body)
-                    } else {
-                        Text("Counting…").font(Typography.detail).foregroundStyle(.secondary)
-                    }
-                    Text("lines changed today").font(Typography.detail).foregroundStyle(.secondary)
-                }
-                .appTooltip(today.changedNote)
-                fact(today.sessions, "sessions today")
-                fact(today.worktrees, "worktrees")
-                    .appTooltip("Across \(counted(today.worktreeSessions, "session"))")
-            } else if let report {
-                HStack(spacing: Space.sm) {
-                    DiffPair(added: report.added, removed: report.removed, size: Typography.Size.body)
-                    Text("lines changed \(stretchWords)").font(Typography.detail).foregroundStyle(.secondary)
-                }
-                fact(report.sessions, "sessions \(stretchWords)")
-                fact(report.worktreeSessions, "in a worktree")
+    @ViewBuilder
+    private var breakdownToggle: some View {
+        if statsOn {
+            ActionButton(title: showsBreakdown ? "Hide the full breakdown" : "Show the full breakdown",
+                         tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
+                         trailingIcon: showsBreakdown ? "chevron.up" : "chevron.down") {
+                showsBreakdown.toggle()
             }
-            Spacer(minLength: Space.md)
-            if statsOn {
-                ActionButton(title: showsBreakdown ? "Hide the full breakdown" : "Show the full breakdown",
-                             tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
-                             trailingIcon: showsBreakdown ? "chevron.up" : "chevron.down") {
-                    showsBreakdown.toggle()
-                }
-                .accessibilityValue(showsBreakdown ? "Shown" : "Hidden")
-            } else {
-                Label("The full breakdown needs Stats", systemImage: "lock.fill")
-                    .font(Typography.caption)
-                    .foregroundStyle(.tertiary)
-            }
+            .fixedSize()
+            .accessibilityValue(showsBreakdown ? "Shown" : "Hidden")
+        } else {
+            Label("The full breakdown needs Stats", systemImage: "lock.fill")
+                .font(Typography.caption)
+                .foregroundStyle(.tertiary)
+                .fixedSize()
         }
-        .lineLimit(1)
-        .padding(.leading, Space.xxl)
-        .padding(.trailing, Space.lg)
-        .padding(.vertical, Space.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.statusBand.opacity(0.55))
-        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: Radius.floating,
-                                          bottomTrailingRadius: Radius.floating))
     }
 
     private var stretchWords: String {
@@ -951,18 +1003,6 @@ struct GlanceSection: View {
         case .week: "in 7 days"
         case .month: "in 30 days"
         }
-    }
-
-    private func fact(_ value: Int, _ label: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
-            Text(StatsFormat.count(value))
-                .font(Typography.body.weight(.semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText(value: Double(value)))
-                .motion(Motion.control, value: value)
-            Text(label).font(Typography.detail).foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Picking
@@ -999,7 +1039,10 @@ struct GlanceSection: View {
         let all = StatsLens.allCases
         guard statsOn, let index = all.firstIndex(of: lens),
               all.indices.contains(index + offset) else { return .ignored }
-        pickLens(all[index + offset])
+        let next = all[index + offset]
+        pickLens(next)
+        // Focus follows the pick, so the card under it moves along to the new reading.
+        if focusedLens != nil { focusedLens = next }
         return .handled
     }
 
@@ -1245,17 +1288,6 @@ extension StatsLens {
         }
     }
 
-    var caps: String { title.uppercased() }
-
-    var icon: String {
-        switch self {
-        case .time: "timer"
-        case .prompts: "text.bubble.fill"
-        case .waiting: "hourglass"
-        case .cost: "dollarsign"
-        }
-    }
-
     var tint: Color {
         switch self {
         case .time: StatsBreakdown.Ink.time
@@ -1291,6 +1323,23 @@ extension StatsRange {
         case .today: "the last 24 hours"
         case .week: "the last 7 days"
         case .month: "the last 30 days"
+        }
+    }
+}
+
+// A locked lens says why on a plain hint after the usual wait. An open one shows its
+// reading card almost at once, the way the bars do.
+private struct LensHint: ViewModifier {
+    let locked: Bool
+    let isFocused: Bool
+    let delay: Duration
+    let peek: () -> Tooltip
+
+    func body(content: Content) -> some View {
+        if locked {
+            content.appTooltip("Turn on Stats to count this")
+        } else {
+            content.appTooltip(delay: delay, isFocused: isFocused, peek)
         }
     }
 }

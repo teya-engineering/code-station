@@ -271,14 +271,15 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
-| One headline number, how it moved and how it got there | `StatTile` (`Layout/StatParts.swift`): an `IconBadge`, caps title and `ChangeChip` across the top, the number, what it is compared with, and a `Sparkline` running to the card's edges. The figures roll with `.numericText` when the reading moves. As one cell of a larger card, pass `framed: false` and split the cells with hairlines. Pass `locked:` to say why there is no number yet. |
+| A few readings on one slim line, each with a closer look | A row of cells, each a dot, a name, the reading and a `ChangeFigure`. Resting on a cell opens a `ReadingPeek` (`Layout/StatParts.swift`) as the content of a hanging `Tooltip`: the name, the reading, how it moved in words ("18% less than yesterday"), and a `Sparkline` that draws itself out from the left. The figures roll with `.numericText` when the reading moves. |
+| A run of readings, as a line | `Sparkline`. Pass a long run through `Sparkline.thinned` first, so it keeps its shape at a small size. |
 | A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means; pass `icon:` to lead with an `IconBadge` |
 | One thing's share of a whole, beside others | `ShareBarRow`, one per thing, sharing one `scale`. The bar draws out with `Motion.draw` when the row arrives. |
 | The key to a chart's colours | `LegendItem` |
 | Totals over time, each split into its parts | `StackedBarChart`: parts a hair apart with rounded tops, a dashed line at the average, and hovering a bar picks it out while the line above says what it holds |
 | A count by weekday and hour | `HeatGrid`: hovering a cell says what it holds on the line under the grid, with a less-to-more key beside it |
 | What a number measures, as a mark | `IconBadge`: a symbol on a soft square (or `round: true` circle) of the reading's own colour |
-| How a number moved, beside the number | `ChangeChip`: a tinted pill, green when the move is the good way and amber when not (`lowerIsBetter` for waits and costs) |
+| How a number moved, beside the number | `ChangeFigure`: a small coloured figure with an arrow, green when the move is the good way and amber when not (`lowerIsBetter` for waits and costs). `ChangeChip` puts the same figure on a pill of its colour, for a number that stands on its own. `ChangeFigure.words` says the move as "18% more" or "18% less". |
 | A record worth celebrating | `RecordBadge`: an `IconBadge` on a round, the caps label, the reading, and a line under it, on a faint wash of its colour |
 | A whole split into a few parts along one line | `ShareStrip`: one segmented bar with a key under it; pass the rest as an "Other" part in `Theme.dotOff` |
 | A whole split into a few parts, as a ring | `ShareDonut`: the parts round a ring with the leading share in the middle and a key beside it |
