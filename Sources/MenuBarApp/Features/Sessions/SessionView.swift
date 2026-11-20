@@ -1709,7 +1709,9 @@ struct SessionView: View {
                 proxy.scrollTo(agentFocus.messageID, anchor: .top)
                 await Task.yield()
                 guard !Task.isCancelled else { return }
-                proxy.scrollTo(agentFocus.anchor, anchor: .top)
+                if !TranscriptScrollTargetView.reveal(agentFocus.anchor) {
+                    proxy.scrollTo(agentFocus.anchor, anchor: .top)
+                }
             }
             // Anything new sends a pinned transcript to its end. A whole arrival - a row,
             // a finished line, a change of state - is worth a glide. A long line still

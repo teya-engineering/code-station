@@ -470,8 +470,7 @@ enum GitBranches {
         var policy = GitBranchPolicy()
         let remote = GitInspector.run(tool, ["remote", "get-url", "origin"], in: url)
         guard remote.ok else { return policy }
-        let defaultRef = GitInspector.run(tool, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], in: url)
-        if defaultRef.ok { policy.protectedNames.insert(String(defaultRef.trimmedText.dropFirst("origin/".count))) }
+        if let named = GitInspector.originDefaultBranch(tool, in: url) { policy.protectedNames.insert(named) }
         policy.allowsRewrite = false
         policy.note = "Remote protection could not be verified. Rename, delete and rebase are unavailable."
         guard let gh else { return policy }

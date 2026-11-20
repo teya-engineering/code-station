@@ -108,6 +108,19 @@ enum ControlHeight {
     static let xl: CGFloat = 36
 }
 
+// MARK: - Scroll cap
+
+// How tall a block that scrolls inside a page may grow before it scrolls instead, such as
+// tool output in a transcript. Set with `.scrollCap(_:)`, which scales it with the text.
+enum ScrollCap {
+    // A few readings or the tail of a command's output.
+    static let short: CGFloat = 220
+    // Log lines or a document to read before answering.
+    static let medium: CGFloat = 320
+    // A whole trace waterfall.
+    static let tall: CGFloat = 460
+}
+
 // MARK: - Depth
 
 // The app is flat. Surfaces part by colour and a hairline, and a shadow is kept for the

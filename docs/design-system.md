@@ -139,6 +139,18 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
+### Scroll cap
+
+A block that scrolls inside a taller page, such as tool output, log lines or a trace in the transcript, grows with its content up to a cap from `ScrollCap` (`Tokens.swift`) and then scrolls.
+
+| Step | Points | Use |
+| --- | --- | --- |
+| `short` | 220 | A few readings or the tail of a command's output. |
+| `medium` | 320 | Log lines, or a document to read before answering. |
+| `tall` | 460 | A whole trace waterfall. |
+
+Set it with `.scrollCap(_:)` on the `ScrollView` (`Layout/ScrollCap.swift`), never with `.frame(maxHeight:)`. The modifier scales the cap with the text, and it keeps the block at its own height when the page offers less. A block that gives way makes the page measure shorter than it draws, and the end of the page can no longer be scrolled into view.
+
 ### Depth
 
 The app is flat. There are two shadows, both in `Elevation` (`Tokens.swift`):

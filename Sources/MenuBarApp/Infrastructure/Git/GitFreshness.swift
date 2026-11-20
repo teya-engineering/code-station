@@ -249,17 +249,10 @@ enum GitFreshness {
         return report
     }
 
-    // What origin calls its default branch, read from the origin/HEAD ref a clone
-    // leaves behind. A repository without one falls back to whichever of main or
-    // master exists locally.
+    // What origin calls its default branch. A repository without origin/HEAD falls back
+    // to whichever of main or master exists locally.
     private static func defaultBranch(_ tool: GitInspector.GitTool, in url: URL) -> String? {
-        let originHead = GitInspector.run(tool, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], in: url)
-        if originHead.ok {
-            let name = originHead.trimmedText
-            // "origin/main" carries the remote's name up front; the branch itself may
-            // hold slashes of its own, so only the first segment goes.
-            if let cut = name.range(of: "/") { return String(name[cut.upperBound...]) }
-        }
+        if let named = GitInspector.originDefaultBranch(tool, in: url) { return named }
         for candidate in ["main", "master"]
         where GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", "refs/heads/\(candidate)"], in: url).ok {
             return candidate
