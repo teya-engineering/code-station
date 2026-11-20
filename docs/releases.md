@@ -15,6 +15,14 @@ Review the draft in GitHub Releases, then publish it. If the workflow fails for 
 
 The build uses exactly the dependency versions in `Package.resolved`. If that file is out of date with `Package.swift`, the release fails instead of resolving newer versions. Commit an updated `Package.resolved`, then tag that commit.
 
+## Checking a download
+
+The workflow attests each DMG: GitHub keeps a signed record that this repository's `Release` workflow built that file, at that commit. To check a downloaded copy:
+
+```bash
+gh attestation verify TeyaCodeStation-1.2.0.dmg -R teya-engineering/code-station
+```
+
 ## Quick builds
 
 To hand a build to a few people without waiting on Apple, build the DMG on your own Mac and skip notarization:

@@ -65,6 +65,10 @@ jobs:
     needs: tested
     permissions:
       contents: write
+      # Both for the provenance attestation: id-token to get a signing
+      # certificate from Sigstore, attestations to store the result.
+      id-token: write
+      attestations: write
     timeout-minutes: 60
 
     steps:
@@ -163,6 +167,14 @@ jobs:
       - name: Clean the secrets off the runner
         if: always()
         run: rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/build.keychain-db"
+
+      # A signed record that this workflow, at this commit, built this DMG.
+      # Anyone can check a download against it:
+      #   gh attestation verify TeyaCodeStation-<version>.dmg -R teya-engineering/code-station
+      - name: Attest where the DMG was built
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg
 
       # The gh CLI on the runner rather than a third-party action, so no code
       # from outside GitHub runs with the contents: write token.
