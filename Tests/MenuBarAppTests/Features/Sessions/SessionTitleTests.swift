@@ -12,8 +12,13 @@ struct SessionTitleTests {
     @Test func rejectsEmptyOrVerboseAnswers() {
         #expect(SessionTitle.cleaned(nil) == nil)
         #expect(SessionTitle.cleaned(" \n ") == nil)
-        #expect(SessionTitle.cleaned("Here is a title and an explanation of the changes") == nil)
+        #expect(SessionTitle.cleaned("Here is a title for this session and an explanation of the changes") == nil)
         #expect(SessionTitle.cleaned(String(repeating: "x", count: 61)) == nil)
+    }
+
+    @Test func acceptsAShortTitleOneWordOverThePromptLimit() {
+        #expect(SessionTitle.cleaned("Fix the retry button on the settings page again")
+            == "Fix the retry button on the settings page again")
     }
 
     @Test func namesASessionAfterWhatItsFirstPromptCarries() {
@@ -196,6 +201,21 @@ struct SessionTitleRunnerTests {
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
             == ["Fix the login retry", "Work complete"])
         #expect(try starts(harness) == "work\ntitle\n")
+        #expect(harness.runner.titleFailure == nil)
+    }
+
+    @Test(arguments: [("failure", "exited with code 1"),
+                      ("empty", "did not send a title back"),
+                      ("verbose", "too long to use as a title")])
+    func anAskedForTitleThatFailsSaysWhy(outcome: String, reason: String) async throws {
+        let harness = try RunnerHarness(agent: .codex, script: script(.codex, titleOutcome: outcome))
+        defer { harness.tearDown() }
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.runner.regenerateTitle(harness.session.id, store: harness.store))
+        #expect(await waitUntil { harness.runner.titleFailure != nil })
+        #expect(harness.runner.titleFailure?.reason.contains(reason) == true)
+        #expect(harness.store.session(harness.session.id)?.title == "Fix the login retry")
     }
 
     @Test func enablingTitlesDoesNotRenameAnExistingConversation() async throws {
