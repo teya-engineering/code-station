@@ -596,8 +596,8 @@ final class SessionRunner {
 
     // A turn only remembers anything because it is handed a resume id, so dropping that
     // id is the whole of clearing the context: the next turn starts a conversation from
-    // nothing in the same folder, on the same branch, with the same settings. Neither CLI
-    // has a command for this, and neither needs one - it works the same for both.
+    // nothing in the same folder, on the same branch, with the same settings. No CLI
+    // has a command for this, and none needs one - it works the same for every agent.
     //
     // The transcript is left alone. It belongs to the person reading it, not to the agent.
     @discardableResult
@@ -750,7 +750,7 @@ final class SessionRunner {
         setState(.idle, for: sessionID)
     }
 
-    // Only the exact word, and only on its own. Both CLIs have real slash commands -
+    // Only the exact word, and only on its own. The CLIs have real slash commands -
     // skills, built-ins - that belong to the agent and have to travel to it untouched.
     nonisolated static func isClearCommand(_ text: String) -> Bool {
         text.trimmed.lowercased() == "/clear"
@@ -2321,9 +2321,6 @@ final class SessionRunner {
                 turn.lastStreamError = message
                 setState(.reconnecting(message), for: sessionID)
 
-            // Sent after the result, since the turn has to be over before there is
-            // anything to predict. The preference is read again here because it can be
-            // turned off while the turn that asked for one is still running.
             case .steerAccepted(let requestID):
                 turn.steersInFlight[requestID] = nil
 
@@ -2334,6 +2331,9 @@ final class SessionRunner {
                 SessionLog.note("steer rejected: \(message)", session: sessionID)
                 takeBack(steer, turn: turn, sessionID: sessionID, store: store)
 
+            // Sent after the result, since the turn has to be over before there is
+            // anything to predict. The preference is read again here because it can be
+            // turned off while the turn that asked for one is still running.
             case .promptSuggestion(let suggestion):
                 guard turn.summary == nil, followUps.promptSuggestionsEnabled() else { continue }
                 records[sessionID]?.suggestion = suggestion
@@ -3014,7 +3014,6 @@ final class SessionRunner {
         if let url = turn.mcpConfigURL { try? FileManager.default.removeItem(at: url) }
     }
 
-    // One live turn. Only ever touched on the main actor.
     // What a steer added to the transcript, kept until the agent says the turn took it so
     // a refused one can be taken back out.
     fileprivate struct SteerInFlight {
@@ -3027,6 +3026,7 @@ final class SessionRunner {
         var answered = false
     }
 
+    // One live turn. Only ever touched on the main actor.
     fileprivate final class Turn {
         let token = UUID()
         let processGroup: pid_t

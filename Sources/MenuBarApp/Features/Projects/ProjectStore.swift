@@ -1152,7 +1152,7 @@ final class ProjectStore {
         markIndexDirty()
     }
 
-    // The folder a session's Claude Code runs in: its own worktree when it has one,
+    // The folder a session's agent runs in: its own worktree when it has one,
     // otherwise the project folder itself.
     func workingDirectory(for session: ChatSession) -> String? {
         workingDirectories(for: session).first
@@ -2226,7 +2226,7 @@ final class ProjectStore {
         return .success(session)
     }
 
-    // A turn that fails before Claude Code produces anything leaves an empty assistant
+    // A turn that fails before the agent produces anything leaves an empty assistant
     // message behind; without this it would sit in the transcript forever.
     func removeMessage(_ messageID: UUID, from sessionID: UUID) {
         guard let i = index(sessionID) else { return }

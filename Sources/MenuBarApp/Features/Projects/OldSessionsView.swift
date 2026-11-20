@@ -47,8 +47,8 @@ struct OldSessionsView: View {
         var id: UUID { session.id }
     }
 
-    // One project's worth of rows. The header carries the project, which is what lets the
-    // rows underneath drop the fixed column they used to spend on it.
+    // One project's worth of rows. The header carries the project, so the rows underneath
+    // need no column for it.
     private struct ProjectGroup: Identifiable {
         let projectID: UUID
         let name: String

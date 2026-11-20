@@ -269,7 +269,7 @@ struct AppSidebar: View {
                 .padding(.bottom, Space.md)
             }
             if store.projects.isEmpty && store.workspaces.isEmpty {
-                Text("No projects yet. Add a folder and Claude Code will run right inside it.")
+                Text("No projects yet. Add a folder and an agent will run right inside it.")
                     .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2304,7 +2304,7 @@ private struct ProjectHeaderRow: View {
     }
 
     // The path is the only thing that tells two projects of the same name apart, so it
-    // leads the hint. The counts under it are the ones the row itself no longer carries.
+    // leads the hint. The counts under it are ones the row has no room to show.
     private var tooltip: Tooltip {
         var rows = [Tooltip.Row(label: isTask ? "Runs" : "Sessions", value: "\(sessionCount)")]
         if runningCount > 0 {

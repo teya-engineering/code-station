@@ -1,13 +1,6 @@
 import AppKit
 import SwiftUI
 
-// Every file in a session's folder, as a tree with the file itself beside it. Changes only
-// covers what git has something to say about; this is the whole working tree, which is
-// what you want when the agent names a file you have never opened.
-//
-// A text file opens straight into an editor: there is no read mode to leave first, and
-// nothing is written until Save. The tree itself can create, copy, paste, rename, drag to
-// move and move items to the Trash.
 // Says that a pane with a find of its own, a file or the chat, has taken the key the
 // sidebar's filter is on. It travels up to the window so the sidebar can stop naming that
 // key as the way into its own filter while the pane answers for it.
@@ -36,6 +29,13 @@ enum ExplorerCommand: Equatable {
     case refresh
 }
 
+// Every file in a session's folder, as a tree with the file itself beside it. Changes only
+// covers what git has something to say about; this is the whole working tree, which is
+// what you want when the agent names a file you have never opened.
+//
+// A text file opens straight into an editor: there is no read mode to leave first, and
+// nothing is written until Save. The tree itself can create, copy, paste, rename, drag to
+// move and move items to the Trash.
 struct ExplorerView: View {
     let root: String
     // Taken and cleared once the file is shown, so coming back to the pane later
@@ -100,7 +100,6 @@ struct ExplorerView: View {
     // The line the open file should scroll to, when it was opened from a link to one.
     @State private var lineToReveal: Int?
     @State private var preview: FilePreview?
-    @State private var loadingPreview = false
     @State private var previewGeneration = 0
     @State private var ownShowHidden = true
     @State private var language: CodeLanguage?
@@ -407,13 +406,13 @@ struct ExplorerView: View {
 
     // MARK: - Tree
 
-    // One visible row: the entry and how deep it sits. Folders that are shut contribute
-    // nothing, so this is only ever as long as what is actually open.
     private struct DropHover: Equatable {
         let key: String
         let folder: String
     }
 
+    // One visible row: the entry and how deep it sits. Folders that are shut contribute
+    // nothing, so this is only ever as long as what is actually open.
     private typealias Row = ExplorerTreeRow
 
     private func rows(in directory: String) -> [Row] {
@@ -1392,7 +1391,6 @@ struct ExplorerView: View {
                 resetFind()
                 self.selected = nil
                 preview = nil
-                loadingPreview = false
                 language = nil
                 draft = ""
                 original = ""
@@ -1434,15 +1432,15 @@ struct ExplorerView: View {
         return true
     }
 
-    // The name is picked without its extension, so typing replaces just the part people
-    // usually mean to change.
     private func startRename(_ node: FileNode) {
         renameDraft = node.name
         renameCancelled = false
         renaming = node.path
     }
 
-    // Focus selects the whole field, so the shorter selection is set after it lands.
+    // The name is picked without its extension, so typing replaces just the part people
+    // usually mean to change. Focus selects the whole field, so the shorter selection is
+    // set after it lands.
     private func focusRenameField(_ node: FileNode) {
         renameFocused = true
         let stem = node.isDirectory ? node.name : (node.name as NSString).deletingPathExtension
@@ -1583,7 +1581,6 @@ struct ExplorerView: View {
         selected = nil
         previewGeneration += 1
         preview = nil
-        loadingPreview = false
         language = nil
         draft = ""
         original = ""
@@ -1931,26 +1928,20 @@ struct ExplorerView: View {
         draft = ""
         original = ""
         loadedAt = nil
-        guard !node.isDirectory else {
-            loadingPreview = false
-            return
-        }
+        guard !node.isDirectory else { return }
         if let edit = documents.edits[node.path] {
             preview = edit.preview
             draft = edit.draft
             original = edit.original
             loadedAt = edit.loadedAt
             language = CodeLanguage(path: node.name)
-            loadingPreview = false
             if let query, let line { revealedMatches = FileTextSearch.hits(of: query, onLine: line, in: draft) }
             return
         }
-        loadingPreview = true
         Task {
             let modified = await FileTree.modified(of: node.url)
             let loaded = await FileTree.preview(of: node.url)
             guard !Task.isCancelled, selected?.path == node.path, previewGeneration == generation else { return }
-            loadingPreview = false
             preview = loaded
             loadedAt = modified
             language = CodeLanguage(path: node.name)

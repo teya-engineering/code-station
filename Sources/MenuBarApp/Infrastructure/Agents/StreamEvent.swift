@@ -1,8 +1,9 @@
 import Foundation
 
-// One meaningful thing the Claude Code CLI said on its stdout stream. The CLI emits far
-// more than this (rate limits, token counters, session state) and adds new kinds over
-// time, so anything unrecognised is dropped instead of failing the turn.
+// One meaningful thing an agent CLI said on its stream. Each agent's own parser turns
+// its dialect into these. A CLI emits far more than this (rate limits, token counters,
+// session state) and adds new kinds over time, so anything unrecognised is dropped
+// instead of failing the turn.
 enum StreamEvent: Sendable {
     case initialized(sessionID: String)
     case turnStarted

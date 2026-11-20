@@ -460,8 +460,8 @@ struct SessionView: View {
     // The first deck stands taller than the second: it carries the identity tile and the
     // state pill, and it is the band a reader lands on first.
     private static let identityDeckHeight: CGFloat = 58
-    // A 34pt tab needs more room than the thin strip of state this replaces. The eight
-    // points buy destinations that are readable without being pointed at.
+    // A 34pt tab needs a deck taller than a thin strip would be. The extra height buys
+    // destinations that are readable without being pointed at.
     private static let destinationDeckHeight: CGFloat = 40
 
     // How much of the session title the row is fitted around. The title truncates by
@@ -602,7 +602,7 @@ struct SessionView: View {
     }
 
     // The second deck: where to go on the left, what to open beside where you already are
-    // on the right. The gap between the two is the line the tab bar's edge used to carry.
+    // on the right. The gap between the two stands in for a rule under the tabs.
     private func destinationDeck(session: ChatSession, project: Project,
                                  recap: SessionRecap?) -> some View {
         ViewThatFits(in: .horizontal) {

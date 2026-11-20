@@ -46,22 +46,6 @@ enum MenuEntry {
                        handler: disabled ? nil : action))
     }
 
-    static func item(_ label: String,
-                     icon: String? = nil,
-                     image: NSImage? = nil,
-                     imageShape: MenuItem.ImageShape = .circle,
-                     badge: String? = nil,
-                     badgeTint: Color? = nil,
-                     subtitle: String? = nil,
-                     detail: String,
-                     detailColour: Color? = nil,
-                     detailAction: @escaping () -> Void) -> MenuEntry {
-        .item(MenuItem(label: label, icon: icon, image: image, imageShape: imageShape,
-                       badge: badge, badgeTint: badgeTint, subtitle: subtitle,
-                       detail: detail, detailColour: detailColour,
-                       detailHandler: detailAction))
-    }
-
     static func searchable(_ items: [MenuItem],
                            prompt: String,
                            noResults: String) -> MenuEntry {
@@ -96,7 +80,6 @@ struct MenuItemGroup {
 struct MenuCardItem {
     let label: String
     let icon: String
-    var showsBeta = false
     var showsUpdate = false
     let detail: String
     var detailColour: Color?
@@ -140,7 +123,6 @@ struct MenuItem {
     // places can say how each one is doing without being opened.
     var detail: String?
     var detailColour: Color?
-    var detailHandler: (() -> Void)? = nil
     // Kept in the menu but faded and inert, so the rows around it do not move when the
     // action has nothing to act on.
     var isDisabled = false
@@ -202,12 +184,6 @@ final class MenuPresenter {
     // left sitting behind a menu.
     func run(_ item: MenuItem) {
         guard let handler = item.handler else { return }
-        entries = []
-        handler()
-    }
-
-    func runDetail(_ item: MenuItem) {
-        guard let handler = item.detailHandler else { return }
         entries = []
         handler()
     }
@@ -487,9 +463,7 @@ struct ContextMenuHost: View {
                                 iconColumn: hasIcons,
                                 tintColumn: hasTints,
                                 usesSharedMarkColumn: usesSharedMarkColumn,
-                                action: item.handler == nil ? nil : { presenter.run(item) },
-                                detailAction: item.detailHandler == nil
-                                    ? nil : { presenter.runDetail(item) })
+                                action: item.handler == nil ? nil : { presenter.run(item) })
                         .focused($focusedItem, equals: index)
                         .accessibilityAddTraits(item.checked ? .isSelected : [])
                         .transition(.fadeIn)
@@ -761,9 +735,7 @@ private struct SearchableMenuItemsView: View {
                                         tintColumn: tintColumn,
                                         usesSharedMarkColumn: usesSharedMarkColumn,
                                         action: indexed.item.handler == nil
-                                            ? nil : { presenter.run(indexed.item) },
-                                        detailAction: indexed.item.detailHandler == nil
-                                            ? nil : { presenter.runDetail(indexed.item) })
+                                            ? nil : { presenter.run(indexed.item) })
                                 .padding(.leading, visible.group.title == nil ? 0 : 14)
                                 .transition(.fadeIn)
                         }
@@ -859,16 +831,8 @@ private struct MenuCardItemView: View {
 
                 Spacer(minLength: 8)
 
-                HStack(alignment: .firstTextBaseline, spacing: Space.xxs) {
-                    Text(item.label)
-                        .font(Typography.body.weight(.semibold))
-                    if item.showsBeta {
-                        Text("beta")
-                            .font(Typography.micro)
-                            .foregroundStyle(.secondary)
-                            .baselineOffset(4)
-                    }
-                }
+                Text(item.label)
+                    .font(Typography.body.weight(.semibold))
                     .lineLimit(1)
 
                 Text(item.detail)
@@ -897,7 +861,6 @@ private struct MenuItemRow: View {
     let tintColumn: Bool
     let usesSharedMarkColumn: Bool
     let action: (() -> Void)?
-    let detailAction: (() -> Void)?
 
     @State private var hovering = false
 
@@ -976,15 +939,10 @@ private struct MenuItemRow: View {
             }
             if let detail = item.detail {
                 Spacer(minLength: 24)
-                if let detailAction {
-                    ActionButton(title: detail, tone: .danger, height: ControlHeight.sm, size: Typography.Size.caption,
-                                 action: detailAction)
-                } else {
-                    Text(detail)
-                        .font(Typography.data)
-                        .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
-                                         ?? AnyShapeStyle(.tertiary))
-                }
+                Text(detail)
+                    .font(Typography.data)
+                    .foregroundStyle(item.detailColour.map(AnyShapeStyle.init)
+                                     ?? AnyShapeStyle(.tertiary))
             }
         }
         .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)

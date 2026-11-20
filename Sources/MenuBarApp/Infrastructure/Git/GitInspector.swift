@@ -257,12 +257,15 @@ struct GitCommitSummary: Identifiable, Sendable, Equatable {
     }
 }
 
-// Read-only git inspection for a project folder.
+// Git inspection for a project folder.
 //
-// Claude Code edits the user's real working tree, so this is the main safety net for
-// "what did the agent just change?". It has to be accurate and it must never write:
-// every command here only reads, and GIT_OPTIONAL_LOCKS=0 keeps us from touching the
-// index lock while the user's own git is running in the same repo.
+// An agent edits the user's real working tree, so this is the main safety net for
+// "what did the agent just change?". The inspections have to be accurate and must never
+// write: each one only reads, and GIT_OPTIONAL_LOCKS=0 keeps it from touching the index
+// lock while the user's own git is running in the same repo.
+//
+// The runner at the end of the file is the one way the app starts git, so the types
+// that do change a repository share it.
 enum GitInspector {
 
     // Rendering more than this many diff lines is slow and nobody reads that far.
@@ -1271,9 +1274,9 @@ enum GitInspector {
                     environment extra: [String: String] = [:],
                     outputChunkHandler: (@Sendable (Data) -> Void)? = nil) -> CommandOutput {
         var environment = GitEnvironment.nonInteractive(searchPath: tool.searchPath)
-        // Only TreeSnapshots sends anything, and what it sends is GIT_INDEX_FILE: an index
-        // of its own to record into, so that recording cannot disturb the one the reader's
-        // own staged work lives in.
+        // What a caller adds wins over the shared settings. A snapshot sends
+        // GIT_INDEX_FILE, an index of its own to record into, so that recording cannot
+        // disturb the one the reader's own staged work lives in.
         environment.merge(extra) { _, override in override }
 
         var result = CommandOutput()

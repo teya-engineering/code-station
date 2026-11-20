@@ -12,7 +12,7 @@ You need:
 
 CI builds, tests and releases with the Xcode named in `.xcode-version`. Use the same one locally (`xcodes install` reads that file). A Swift release can reject or crash on code that another release builds, and the SDK a build links against decides some AppKit behaviour, so a different Xcode can pass locally and fail in CI. To move to a new Xcode, change `.xcode-version`. If no runner image has that version, also change `runs-on` in both workflows.
 
-The app has one Swift package dependency, [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm), which Swift Package Manager resolves automatically.
+The app has four Swift package dependencies, which Swift Package Manager resolves automatically: [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm), [SwiftNIO](https://github.com/apple/swift-nio), [Yams](https://github.com/jpsim/Yams) and [swift-markdown](https://github.com/swiftlang/swift-markdown).
 
 Build and run the executable:
 
@@ -60,8 +60,8 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 
 - `Package.swift` defines one macOS executable target and one test target.
 - `Sources/MenuBarApp/App` creates the window, owns shared service lifetimes, and composes the main navigation.
-- `Sources/MenuBarApp/Features` groups each feature's views and behavior: Projects, Sessions, Changes, Explorer, Design, Tasks, Home, Settings, MCP, Skills, Dispatch, Terminal, MobileAccess, Shortcuts, Docker, and Troubleshoot.
-- `Sources/MenuBarApp/Infrastructure` contains agent protocols, Git operations, persistence, process execution, and system integration.
+- `Sources/MenuBarApp/Features` groups each feature's views and behavior: Projects, Sessions, Changes, PullRequestReviews, Explorer, Design, Tasks, Home, Stats, Notes, Settings, MCP, Skills, Dispatch, Terminal, MobileAccess, Shortcuts, Docker, Trace, and Troubleshoot.
+- `Sources/MenuBarApp/Infrastructure` contains agent protocols, Git and GitHub operations, persistence, process execution, local HTTP, and system integration.
 - `Sources/MenuBarApp/DesignSystem` contains the palette, typography, controls, layout components, and motion.
 - `Sources/MenuBarApp/Resources` contains bundled assets, including the mobile page's HTML, CSS, and JavaScript.
 - `Tests/MenuBarAppTests` follows the same folders. Shared fixtures live in `Support`.

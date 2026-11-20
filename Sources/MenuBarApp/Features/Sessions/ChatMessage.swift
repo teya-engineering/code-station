@@ -27,7 +27,7 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // The last thing an agent said while it worked, kept only for the call that started
     // it. A fan-out can run for many minutes with nothing else to show for it.
     var status: String?
-    // Where in the file an edit landed, counted from 1. Neither CLI says, so it is read
+    // Where in the file an edit landed, counted from 1. No CLI says, so it is read
     // off disk the moment the call reports in, while what is on disk is still what the
     // call wrote. Nil when the file could not be read or the call was not an edit, which
     // is what leaves a diff without a line gutter.
@@ -36,7 +36,7 @@ struct ToolUse: Identifiable, Codable, Equatable, Sendable {
     // snapshot behind it comes back, which is a beat after the result. Nil when the input
     // describes the change and when the call changed nothing.
     var written: WrittenChange?
-    // When the call reached the app. Neither CLI sends a time, so it is stamped as the
+    // When the call reached the app. No CLI sends a time, so it is stamped as the
     // call arrives. Optional so conversations written before the app kept it still
     // decode; those fall back to the time of the turn they sit in.
     var startedAt: Date?

@@ -380,6 +380,3 @@ final class AppSettings {
         Preferences.setDefaultAgentAvatarName(name, in: preferences)
     }
 }
-
-// Settings is a setup job rather than somewhere to sit, so it is a sheet over the
-// window, the way the MCP config manager is.

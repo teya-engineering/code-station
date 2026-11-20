@@ -1111,35 +1111,6 @@ private struct SiteConfigurationField: View {
     }
 }
 
-private struct SiteConfigurationTextArea: View {
-    let caption: String
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            SectionLabel(caption, style: .field)
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text(placeholder)
-                        .font(Typography.data)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, Space.sm)
-                        .padding(.vertical, Space.md)
-                        .allowsHitTesting(false)
-                }
-                TextEditor(text: $text)
-                    .font(Typography.data)
-                    .scrollContentBackground(.hidden)
-                    .padding(Space.xxs)
-            }
-            .frame(height: 64)
-            .fieldSurface(cornerRadius: Radius.card)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 private struct SiteConfigurationJSONView: View {
     @Environment(\.dismiss) private var dismiss
     let defaults: SiteDefaults

@@ -1,5 +1,7 @@
 import SwiftUI
 
+// Settings is a setup job rather than somewhere to sit, so it is a sheet over the
+// window, the way the MCP config manager is.
 struct SettingsView: View {
     @Environment(LoginItem.self) private var loginItem
     @Environment(ProjectStore.self) private var store
@@ -879,7 +881,7 @@ struct SettingsView: View {
                 name: "summit-infra", path: "~/Developer/summit-infra"),
     ]
 
-    // MARK: - Terminal
+    // MARK: - System
 
     private var system: some View {
         ChoiceBlock("SYSTEM") {
@@ -1023,12 +1025,12 @@ struct SettingsView: View {
         Self.settingCopy(title: title, detail: detail)
     }
 
-    // A setting's name over the sentence that says what it changes, shared with the rows
-    // that live in views of their own.
     // The width of the words beside a row of pills or swatches. Held to one width so the
     // controls on every such row start on the same line, and they get the rest.
     static let pillRowCopyWidth: CGFloat = 160
 
+    // A setting's name over the sentence that says what it changes, shared with the rows
+    // that live in views of their own.
     static func settingCopy(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs) {
             Text(title)

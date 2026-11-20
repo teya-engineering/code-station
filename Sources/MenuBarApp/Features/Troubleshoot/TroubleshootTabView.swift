@@ -340,7 +340,8 @@ struct TroubleshootTabView: View {
     // MARK: - Readiness
 
     // The one place the tab says whether the brief can go, and what will happen when it
-    // does. Everything that used to be its own notice ends up as this line's text.
+    // does. Every reason the brief cannot go yet is said as this line's text, not as a
+    // notice of its own.
     private struct Readiness: Equatable {
         enum Mood { case ready, waiting, checking, blocked }
 

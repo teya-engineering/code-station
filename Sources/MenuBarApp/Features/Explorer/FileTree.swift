@@ -398,31 +398,6 @@ enum FileTree {
         }.value
     }
 
-    // A placeholder name, the way Finder does it, so the item exists at once and is then
-    // renamed in place. A name already in use gets a number.
-    static func create(folder: Bool, in directory: URL) async -> CreateResult {
-        await Task.detached(priority: .userInitiated) {
-            let files = FileManager.default
-            let base = folder ? "untitled folder" : "untitled"
-            var url = directory.appendingPathComponent(base, isDirectory: folder)
-            var number = 2
-            while files.fileExists(atPath: url.path) {
-                url = directory.appendingPathComponent("\(base) \(number)", isDirectory: folder)
-                number += 1
-            }
-            do {
-                if folder {
-                    try files.createDirectory(at: url, withIntermediateDirectories: false)
-                } else {
-                    try Data().write(to: url, options: .withoutOverwriting)
-                }
-                return .created(url)
-            } catch {
-                return .failed(error.localizedDescription)
-            }
-        }.value
-    }
-
     enum RenameResult: Equatable {
         case renamed(URL)
         case unchanged
