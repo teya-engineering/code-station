@@ -364,7 +364,8 @@ struct DesignConversation: View {
         } label: {
             HStack(spacing: Space.lg) {
                 conversationBot(session, needsYou: needsYou, size: botSize)
-                MinimizedConversationLine(tone: tone, personality: personality,
+                MinimizedConversationLine(tone: tone, personality: personality, agent: session.agent,
+                                          lead: store.workingDirectory(for: session),
                                           waitingSince: runner.waitingSince(sessionID)) { lineWidth in
                     // The tab hugs its line: the bot, the gap and the padding around them.
                     minimizedWidth = Space.lg + botSize + Space.lg + lineWidth + Space.xl
@@ -519,6 +520,8 @@ struct DesignConversation: View {
                    sessionID: sessionID,
                    avatarName: session.agentAvatarName,
                    agentTitle: session.agent.title,
+                   agent: session.agent,
+                   lead: store.workingDirectory(for: session),
                    completionActivity: runner.completionActivity(sessionID),
                    tasks: runner.backgroundTasks(sessionID),
                    waitingSince: runner.waitingSince(sessionID))
@@ -644,6 +647,8 @@ private struct MinimizedConversationLine: View {
 
     let tone: SessionTone
     let personality: AgentPersonality
+    let agent: AgentKind
+    let lead: String?
     let waitingSince: Date?
     let measured: (CGFloat) -> Void
 
@@ -672,9 +677,9 @@ private struct MinimizedConversationLine: View {
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { measured($0) }
                 }
         }
-        .onAppear { words = WorkingWords(personality: personality) }
+        .onAppear { words = WorkingWords(personality: personality, agent: agent, lead: lead) }
         .onChange(of: personality) { _, personality in
-            words = WorkingWords(personality: personality)
+            words = WorkingWords(personality: personality, agent: agent, lead: lead)
             started = .now
         }
     }
