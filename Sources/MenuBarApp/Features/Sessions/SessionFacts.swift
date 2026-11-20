@@ -65,21 +65,28 @@ struct SessionFacts: Equatable {
     // first. One whose state is not known yet might still need them, so it waits with the
     // open ones rather than being filed away. The badge on every row is what the order
     // follows, so the order explains itself.
+    //
+    // Newest means when GitHub says it was opened. The stored list is not in that order:
+    // one found for the checkout's branch is kept behind the ones read from the
+    // transcript, however old it is. One with no date has not been read from GitHub yet,
+    // which mostly means it was only just linked, so it counts as the newest.
     var orderedPullRequests: [PullRequest] {
-        let newestFirst = Array(pullRequests.reversed())
-        let settled = { (pullRequest: PullRequest) -> Bool in
-            switch pullRequestStatuses[pullRequest.url]?.state {
-            case .merged?, .closed?: true
-            case .open?, nil: false
+        let newestFirst = Array(pullRequests.reversed()).enumerated().sorted { a, b in
+            switch (pullRequestStatuses[a.element.url]?.createdAt, pullRequestStatuses[b.element.url]?.createdAt) {
+            case let (first?, second?) where first != second: first > second
+            case (nil, _?): true
+            case (_?, nil): false
+            default: a.offset < b.offset
             }
-        }
-        return newestFirst.filter { !settled($0) } + newestFirst.filter(settled)
+        }.map(\.element)
+        return newestFirst.filter { !isSettled($0) } + newestFirst.filter(isSettled)
     }
 
     // The order a card opened with, kept while it stays open, so a state that arrives
-    // meanwhile does not move a row out from under the pointer. A pull request opened
-    // since goes on top, where the newest open one belongs, and one that has gone is
-    // simply left out.
+    // meanwhile does not move a row out from under the pointer. A pull request linked
+    // since joins the rows that have not moved where its group belongs: on top if it may
+    // still need the person, at the bottom if it is already merged or closed. One that
+    // has gone is simply left out.
     func pullRequests(holding held: [String]) -> [PullRequest] {
         let place = Dictionary(held.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let current = orderedPullRequests
@@ -87,7 +94,14 @@ struct SessionFacts: Equatable {
         let kept = current.compactMap { pullRequest in place[pullRequest.url].map { ($0, pullRequest) } }
             .sorted { $0.0 < $1.0 }
             .map(\.1)
-        return arrived + kept
+        return arrived.filter { !isSettled($0) } + kept + arrived.filter(isSettled)
+    }
+
+    private func isSettled(_ pullRequest: PullRequest) -> Bool {
+        switch pullRequestStatuses[pullRequest.url]?.state {
+        case .merged?, .closed?: true
+        case .open?, nil: false
+        }
     }
 
     static func percent(_ fraction: Double) -> String {
@@ -229,13 +243,6 @@ struct SessionFactsChip: View {
     // for a moment so the drop reads as the action working rather than as a glitch.
     @State private var freed: Int?
     @State private var freedReset: Task<Void, Never>?
-    // How tall the card's sections above and below the pull request rows are, which is
-    // what tells the rows how much of the window is left for them.
-    @State private var aboveList: CGFloat = 0
-    @State private var belowList: CGFloat = 0
-    // The pull requests' order as the card opened, by URL, so the rows hold still while
-    // it is open. Nothing is held while it is closed, so the next opening sorts afresh.
-    @State private var heldOrder: [String]?
 
     private var focusInside: Bool {
         !focusDismissed && (chipFocused || focusedPreview == sessionID)
@@ -292,7 +299,6 @@ struct SessionFactsChip: View {
                 }
             }
             .onChange(of: isOpen) { _, open in
-                heldOrder = open ? facts.orderedPullRequests.map(\.url) : nil
                 if open {
                     escape.start {
                         if menus.isOpen { return false }
@@ -446,16 +452,14 @@ struct SessionFactsChip: View {
             // stays put however many there are. The body keeps a scroll of its own only
             // for a window too short to hold even that.
             MenuContentScrollView(maxHeight: bodyHeight) {
-                VStack(spacing: 0) {
+                LeftoverHeightStack(available: bodyHeight, floor: Self.pullRequestFloor) {
                     VStack(spacing: 0) {
                         head
                         if let changes = facts.changes { changesRow(changes) }
                         pullRequestsHeading
                     }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveList = $0 }
                     pullRequestList
                     usageSection
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { belowList = $0 }
                 }
             }
         }
@@ -501,13 +505,6 @@ struct SessionFactsChip: View {
         max(0, layout.height - Theme.headerHeight - Self.cardGap)
     }
 
-    // The pull requests are the one part of the card with no end to them, so they take
-    // the room the other sections leave and scroll inside it. Rounded down, so the
-    // sections never add up to a hair more than the body and wake its scroll for nothing.
-    private var pullRequestListHeight: CGFloat {
-        max(Self.pullRequestFloor, (bodyHeight - aboveList - belowList).rounded(.down))
-    }
-
     // The heading stays over the list while a long one scrolls under it, so the count
     // is still in view when the rows it counts are not.
     private var pullRequestsHeading: some View {
@@ -532,16 +529,14 @@ struct SessionFactsChip: View {
                 .padding(.bottom, Space.md + Space.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            MenuContentScrollView(maxHeight: pullRequestListHeight) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: Space.xxs) {
-                    ForEach(heldOrder.map(facts.pullRequests(holding:)) ?? facts.orderedPullRequests,
-                            id: \.url) { pullRequest in
-                        pullRequestRow(pullRequest)
-                    }
+                    HeldPullRequestRows(facts: facts) { pullRequestRow($0) }
                 }
                 .padding(.top, Space.xxs)
                 .padding(.bottom, Space.sm)
             }
+            .scrollIndicators(.visible)
         }
     }
 
@@ -986,6 +981,70 @@ struct SessionFactsChip: View {
         pointerOnCard = false
         pointerOnChip = false
         hovering = false
+    }
+}
+
+// MARK: - The card's layout
+
+// The card's body as three parts stacked: the sections above the pull requests, the
+// pull requests, and the usage under them. The pull requests are the one part with no
+// end to them, so they take the room the other two leave and scroll inside it, down to
+// a floor that keeps a few rows in view. Everything is measured in the same pass that
+// places it, so the card opens at its final size rather than settling a frame later.
+//
+// The body sits in a scroll view that hands down no height of its own, so the room
+// there is to share is passed in.
+private struct LeftoverHeightStack: Layout {
+    let available: CGFloat
+    let floor: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width
+        let heights = self.heights(width: width, subviews: subviews)
+        return CGSize(width: width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0,
+                      height: heights.reduce(0, +))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for (subview, height) in zip(subviews, heights(width: bounds.width, subviews: subviews)) {
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: height))
+            y += height
+        }
+    }
+
+    // Rounded down, so the parts never add up to a hair more than the room and wake the
+    // body's own scroll for nothing.
+    private func heights(width: CGFloat?, subviews: Subviews) -> [CGFloat] {
+        guard subviews.count == 3 else {
+            return subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        }
+        let natural = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        let leftover = (available - natural[0] - natural[2]).rounded(.down)
+        let list = min(natural[1], max(floor, leftover))
+        return [natural[0], list, natural[2]]
+    }
+}
+
+// The pull request rows in the order the card opened with. The order lives in the rows'
+// own state, which is made when the card arrives and goes when the card has finished
+// leaving, so a state that lands while it is open, or while it fades out, does not move
+// a row. The next opening sorts afresh.
+private struct HeldPullRequestRows<Row: View>: View {
+    let facts: SessionFacts
+    @ViewBuilder let row: (PullRequest) -> Row
+
+    @State private var held: [String]
+
+    init(facts: SessionFacts, @ViewBuilder row: @escaping (PullRequest) -> Row) {
+        self.facts = facts
+        self.row = row
+        _held = State(initialValue: facts.orderedPullRequests.map(\.url))
+    }
+
+    var body: some View {
+        ForEach(facts.pullRequests(holding: held), id: \.url, content: row)
     }
 }
 

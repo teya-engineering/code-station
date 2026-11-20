@@ -61,6 +61,7 @@ struct PullRequestStatus: Equatable, Sendable {
     var headBranch: String
     var headRepositoryURL: String? = nil
     var isDraft = false
+    var createdAt: Date? = nil
 
     var readinessLabel: String {
         switch state {

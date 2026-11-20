@@ -47,7 +47,7 @@ struct SessionFactsLayoutTests {
         try click(try #require(chip.frame()), in: window)
         await settle(host.view)
         let preview = try #require(findPreview(in: host.view))
-        let scroll = try #require(findScroll(in: host.view))
+        let scroll = try #require(findScrolls(in: host.view).first)
         #expect((scroll.documentView?.bounds.height ?? 0) <= scroll.contentView.bounds.height + 1)
 
         for (name, size, dark) in [
@@ -63,13 +63,7 @@ struct SessionFactsLayoutTests {
             #expect(frame.maxX <= size.width)
             #expect(frame.maxY <= size.height)
             #expect(abs(frame.width - 430) < 1)
-            if let directory = ProcessInfo.processInfo.environment["GLANCE_REVIEW_DIRECTORY"] {
-                let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
-                host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
-                try #require(bitmap.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: directory)
-                        .appendingPathComponent("\(name)-reduce-\(reduceMotion).png"))
-            }
+            try snapshot(host.view, named: "\(name)-reduce-\(reduceMotion)")
         }
 
         try click(try #require(chip.frame()), in: window)
@@ -121,13 +115,7 @@ struct SessionFactsLayoutTests {
             let preview = try #require(findPreview(in: host.view))
             let frame = FrameAnchor.fromTop(preview.convert(preview.bounds, to: host.view), in: host.view)
             #expect(frame.maxY <= size.height)
-            if let directory = ProcessInfo.processInfo.environment["GLANCE_REVIEW_DIRECTORY"] {
-                let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
-                host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
-                try #require(bitmap.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: directory)
-                        .appendingPathComponent("long-pull-requests-\(Int(size.height)).png"))
-            }
+            try snapshot(host.view, named: "long-pull-requests-\(Int(size.height))")
         }
     }
 
@@ -166,6 +154,15 @@ struct SessionFactsLayoutTests {
         return (window, host)
     }
 
+    // Pictures of the card for a person to look over, written only when asked for.
+    private func snapshot(_ view: NSView, named name: String) throws {
+        guard let directory = ProcessInfo.processInfo.environment["GLANCE_REVIEW_DIRECTORY"] else { return }
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        try #require(bitmap.representation(using: .png, properties: [:]))
+            .write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+    }
+
     private func settle(_ view: NSView) async {
         for _ in 0..<15 {
             try? await Task.sleep(for: .milliseconds(20))
@@ -181,11 +178,6 @@ struct SessionFactsLayoutTests {
     private func findBoundary(in view: NSView) -> SessionFactsBoundary.BoundaryView? {
         if let boundary = view as? SessionFactsBoundary.BoundaryView { return boundary }
         return view.subviews.lazy.compactMap { findBoundary(in: $0) }.first
-    }
-
-    private func findScroll(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView { return scroll }
-        return view.subviews.lazy.compactMap { findScroll(in: $0) }.first
     }
 
     private func findScrolls(in view: NSView) -> [NSScrollView] {

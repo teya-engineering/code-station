@@ -169,6 +169,40 @@ struct SessionFactsTests {
         #expect(facts.pullRequests(holding: held).map(\.number) == [3, 1])
     }
 
+    // A pull request already merged when it is linked to an open card joins the bottom,
+    // under the open ones the person may still need.
+    @Test func putsASettledLateArrivalUnderTheHeldRows() {
+        let first = PullRequest(number: 1, url: "https://github.com/team/a/pull/1")
+        let second = PullRequest(number: 2, url: "https://github.com/team/a/pull/2")
+        let old = PullRequest(number: 3, url: "https://github.com/team/b/pull/3")
+        var facts = SessionFacts(pullRequests: [first, second])
+        let held = facts.orderedPullRequests.map(\.url)
+
+        facts.pullRequests = [old, first, second]
+        facts.pullRequestStatuses[old.url] = .init(state: .merged, title: "", headBranch: "")
+        #expect(facts.pullRequests(holding: held).map(\.number) == [2, 1, 3])
+    }
+
+    // The stored list keeps a pull request found for the branch behind the ones read from
+    // the transcript, whatever its age, so newest is read from when GitHub says each was
+    // opened. One GitHub has not answered for yet counts as the newest.
+    @Test func ordersByWhenGitHubSaysEachWasOpened() {
+        let fromTranscript = PullRequest(number: 9, url: "https://github.com/team/a/pull/9")
+        let fromBranch = PullRequest(number: 4, url: "https://github.com/team/b/pull/4")
+        let unread = PullRequest(number: 12, url: "https://github.com/team/c/pull/12")
+        let day: TimeInterval = 86_400
+        let facts = SessionFacts(
+            pullRequests: [fromTranscript, unread, fromBranch],
+            pullRequestStatuses: [
+                fromTranscript.url: .init(state: .open, title: "", headBranch: "",
+                                          createdAt: Date(timeIntervalSince1970: 3 * day)),
+                fromBranch.url: .init(state: .open, title: "", headBranch: "",
+                                      createdAt: Date(timeIntervalSince1970: day))
+            ])
+
+        #expect(facts.orderedPullRequests.map(\.number) == [12, 9, 4])
+    }
+
     @Test func distinguishesNewSessionsFromFinishedAndRunningOnes() {
         #expect(SessionStateReading(tone: .idle, isNew: true).spokenWord == "New session")
         #expect(SessionStateReading(tone: .running, isNew: true).spokenWord == "Running")
