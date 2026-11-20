@@ -8,6 +8,9 @@ final class ChangesModel {
     var refreshFailed = false
     var latestCommit: GitCommitSummary?
     var snapshot: GitSnapshot?
+    // Compare the files to where the branch left the remote's default branch, so work
+    // already committed shows next to what is not.
+    var comparesToRemote = false
     var loading = false
     var working: String?
     var commits: [GitCommitSummary]?
@@ -29,10 +32,10 @@ final class ChangesModel {
     @ObservationIgnored private var renderGeneration = 0
     @ObservationIgnored private var loadGeneration = 0
 
-    @ObservationIgnored private let readSnapshot: (String) async -> GitSnapshot
+    @ObservationIgnored private let readSnapshot: (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot
 
-    init(readSnapshot: @escaping (String) async -> GitSnapshot = {
-        await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true)
+    init(readSnapshot: @escaping (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot = {
+        await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true, comparingToRemote: $1)
     }) {
         self.readSnapshot = readSnapshot
     }
@@ -62,11 +65,13 @@ final class ChangesModel {
             refreshFailed = true
             onError(error)
         }
-        let fresh = await readSnapshot(root)
+        let fresh = await readSnapshot(root, comparesToRemote)
         guard !Task.isCancelled, generation == refreshGeneration else { return false }
         snapshot = fresh
         checkedAt = Date()
-        gitStats.store(fresh, at: root)
+        // The cache feeds the uncommitted totals shown elsewhere, which committed work
+        // must not inflate.
+        if !fresh.comparedToRemote { gitStats.store(fresh, at: root) }
         latestCommit = nil
         if fresh.files.isEmpty && fresh.hasCommits {
             let latest = await GitInspector.recentCommits(at: fresh.root, limit: 1).commits.first
@@ -94,7 +99,7 @@ final class ChangesModel {
         let generation = loadGeneration
         loadingDiff = true
         defer { if generation == loadGeneration { loadingDiff = false } }
-        let loaded = await GitInspector.reviewDiff(for: file, root: root)
+        let loaded = await GitInspector.reviewDiff(for: file, root: root, base: snapshot?.diffBase)
         guard !Task.isCancelled, generation == loadGeneration, isCurrent() else { return nil }
         return loaded
     }
