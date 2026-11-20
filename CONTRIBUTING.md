@@ -10,6 +10,8 @@ You need:
 - Xcode 26 or another Swift 6.2 toolchain
 - Git
 
+CI builds, tests and releases with the Xcode named in `.xcode-version`. Use the same one locally (`xcodes install` reads that file). A Swift release can reject or crash on code that another release builds, and the SDK a build links against decides some AppKit behaviour, so a different Xcode can pass locally and fail in CI. To move to a new Xcode, change `.xcode-version`. If no runner image has that version, also change `runs-on` in both workflows.
+
 The app has one Swift package dependency, [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm), which Swift Package Manager resolves automatically.
 
 Build and run the executable:
