@@ -120,6 +120,9 @@ final class ChangesNavigationMemory {
     // The remote branch each project's files were last compared with, picked from the
     // header. A project with none picked compares with its pull request's base.
     var compareRefs: [String: String] = [:]
+    // Projects set back to comparing with the last commit. A session's Changes otherwise
+    // opens against the remote branch, so the choice is kept for the next visit.
+    var lastCommitCompares: Set<String> = []
     // Files whose comments are folded away, and files showing their resolved ones too,
     // keyed by repository and path.
     var foldedNotes: Set<String> = []

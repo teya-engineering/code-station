@@ -181,6 +181,28 @@ struct ViewedFilesTests {
         #expect(versions == ["a.txt": "ce013625030ba8dba906f756967f9e9ca394464a", "gone.txt": FileVersion.deleted])
     }
 
+    @Test func changesOpensOnTheFirstFileNotViewedYet() {
+        let files = ["a.swift", "b.swift", "c.swift"].map {
+            GitChange(path: $0, kind: .modified, isStaged: false, isUnstaged: true, isBinary: false)
+        }
+        func pick(requested: String? = nil, open: String? = nil, viewed: Set<String>) -> String? {
+            OpeningFile.pick(in: files, requested: requested, open: open, isViewed: { viewed.contains($0.id) })?.id
+        }
+
+        #expect(pick(viewed: []) == "a.swift")
+        #expect(pick(viewed: ["a.swift"]) == "b.swift")
+        // The file left open stays while it is still to be read, and gives way once viewed.
+        #expect(pick(open: "c.swift", viewed: ["a.swift"]) == "c.swift")
+        #expect(pick(open: "a.swift", viewed: ["a.swift"]) == "b.swift")
+        // A file asked for wins, viewed or not.
+        #expect(pick(requested: "a.swift", open: "c.swift", viewed: ["a.swift"]) == "a.swift")
+        // With everything viewed the file left open stays, else the first.
+        #expect(pick(open: "b.swift", viewed: ["a.swift", "b.swift", "c.swift"]) == "b.swift")
+        #expect(pick(viewed: ["a.swift", "b.swift", "c.swift"]) == "a.swift")
+        // A file that has left the list is not opened.
+        #expect(pick(requested: "gone.swift", open: "gone.swift", viewed: ["a.swift"]) == "b.swift")
+    }
+
     @Test func theTallySaysHowFarThroughTheReviewIs() {
         #expect(ViewedTally(viewed: 3, total: 7).label == "3 of 7 viewed")
         #expect(ViewedTally(viewed: 3, total: 7).footnote == "4 files not viewed yet")

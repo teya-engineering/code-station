@@ -14,7 +14,11 @@ struct ChangesView: View {
     // when another project is picked. Each project still gets a model of its own: git work
     // started for one project can only ever land in that project's model.
     @State private var models = ChangesModels()
-    private var model: ChangesModel { models.model(for: root) }
+    // A session's work is reviewed against the branch it will merge into, unless the
+    // person chose the last commit for this project.
+    private var model: ChangesModel {
+        models.model(for: root, comparingToRemote: review != nil && !navigation.lastCommitCompares.contains(root))
+    }
     @State private var navigation: ChangesNavigationMemory
     private let isWorkspace: Bool
     let selectRepository: (String, String?) -> Void
@@ -167,7 +171,9 @@ struct ChangesView: View {
         _navigation = State(initialValue: memory)
         _ = memory.commitDraft(for: root)
         isWorkspace = navigation != nil
-        _appliedInitialSelection = State(initialValue: navigation?.selections[root] != nil
+        // In a session the opening file is picked again on the way in, since the file left
+        // open may have been viewed since.
+        _appliedInitialSelection = State(initialValue: navigation?.selections[root] != nil && review == nil
             && initiallySelectedPath == nil && requestedPath == nil ? [root] : [])
         self.root = root
         self.initiallySelectedPath = initiallySelectedPath
@@ -538,6 +544,7 @@ struct ChangesView: View {
 
     private func compare(toRemote: Bool) {
         guard !busy, model.comparesToRemote != toRemote else { return }
+        if toRemote { navigation.lastCommitCompares.remove(root) } else { navigation.lastCommitCompares.insert(root) }
         model.comparesToRemote = toRemote
         diffScroll = .top
         Task { await reload() }
@@ -545,6 +552,7 @@ struct ChangesView: View {
 
     private func compare(with ref: String) {
         navigation.compareRefs[root] = ref
+        navigation.lastCommitCompares.remove(root)
         guard !(model.comparesToRemote && snapshot?.remoteBase?.ref == ref) else { return }
         model.comparesToRemote = true
         diffScroll = .top
@@ -2193,7 +2201,10 @@ struct ChangesView: View {
         fileSelection.retain(Set(orderedIDs), in: orderedIDs)
         if !appliedInitialSelection.contains(root) {
             appliedInitialSelection.insert(root)
-            if let initial = (requestedPath ?? initiallySelectedPath).flatMap({ path in fresh.files.first { $0.id == path } }) ?? fresh.files.first {
+            if let initial = OpeningFile.pick(in: fresh.files, requested: requestedPath ?? initiallySelectedPath,
+                                              open: fileSelection.activeID,
+                                              isViewed: { viewedState($0, in: root) == .viewed }),
+               initial.id != fileSelection.activeID {
                 fileSelection.select(initial.id, in: orderedIDs,
                                      extendingRange: false, toggling: false)
             }
@@ -2208,7 +2219,7 @@ struct ChangesView: View {
 
     // What was half done in the project before belongs to its files, so it goes.
     private func switchedProject(_ root: String) {
-        if navigation.selections[root] != nil && requestedPath == nil {
+        if navigation.selections[root] != nil && review == nil && requestedPath == nil {
             appliedInitialSelection.insert(root)
         } else {
             appliedInitialSelection.remove(root)
