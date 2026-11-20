@@ -613,6 +613,9 @@ enum GitInspector {
         var parents: [String] = []
         var files: [GitChange] = []
         var note: String?
+        // The blob each file holds after the commit, by path, which is how a file read
+        // before it was committed is known to be the same file read.
+        var versions: [String: String] = [:]
     }
 
     static func commitFiles(_ hash: String, parent: String? = nil, root: String) async -> CommitFiles {
@@ -627,6 +630,7 @@ enum GitInspector {
             let options = ["--no-ext-diff", "--no-textconv", "-M"]
             let names = run(tool, command + options + ["--name-status", "-z"], in: url)
             let stats = run(tool, command + options + ["--numstat", "-z"], in: url)
+            let raw = run(tool, command + options + ["--raw", "--no-abbrev", "-z"], in: url)
             guard names.ok, stats.ok, !names.truncated, !stats.truncated else {
                 return CommitFiles(parents: parents, note: "Could not read all changed files. " + (names.ok ? stats.failureMessage : names.failureMessage))
             }
@@ -651,8 +655,32 @@ enum GitInspector {
                                        added: count?.0, removed: count?.1,
                                        isBinary: count != nil && count?.0 == nil))
             }
-            return CommitFiles(parents: parents, files: files)
+            return CommitFiles(parents: parents, files: files,
+                               versions: raw.ok && !raw.truncated ? parseRawVersions(raw.text) : [:])
         }
+    }
+
+    // The blob each path holds after a change, from `--raw -z` output: a ":modes ids
+    // status" record, then the path, or the old path and the new one for a rename or copy.
+    static func parseRawVersions(_ text: String) -> [String: String] {
+        let records = text.components(separatedBy: "\0")
+        var versions: [String: String] = [:]
+        var i = 0
+        while i < records.count {
+            let record = records[i]; i += 1
+            guard record.hasPrefix(":") else { continue }
+            let fields = record.split(separator: " ")
+            guard fields.count >= 5, i < records.count else { break }
+            let status = fields[4]
+            var path = records[i]; i += 1
+            if status.hasPrefix("R") || status.hasPrefix("C") {
+                guard i < records.count else { break }
+                path = records[i]; i += 1
+            }
+            let blob = String(fields[3])
+            versions[path] = blob.allSatisfy { $0 == "0" } ? FileVersion.deleted : blob
+        }
+        return versions
     }
 
     static func commitFileDiff(_ hash: String, parent: String?, file: GitChange,
@@ -870,6 +898,18 @@ enum GitInspector {
             return show(":./" + path, tool: tool, root: root)
         case .commit(let hash):
             return show(hash + ":./" + path, tool: tool, root: root)
+        }
+    }
+
+    // The text a blob holds, for keeping beside a file read in a commit. Nil for one too
+    // big to keep or that is not text.
+    static func blobText(_ id: String, root: String) async -> String? {
+        guard id.count == 40, id.allSatisfy(\.isHexDigit), let tool = await tool() else { return nil }
+        return await offMain(lane: .interactive) {
+            let output = run(tool, ["cat-file", "blob", id], in: URL(fileURLWithPath: root))
+            guard output.ok, !output.truncated, output.text.utf8.count <= ViewedFileStore.textLimit,
+                  !output.text.contains("\0") else { return nil }
+            return output.text
         }
     }
 

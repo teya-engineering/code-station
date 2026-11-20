@@ -113,6 +113,13 @@ struct ChangesView: View {
     private var diffText: NSAttributedString? { model.diffText }
     private var loadingDiff: Bool { model.loadingDiff }
     @State private var diffScroll = DiffTextView.Scroll.top
+    // The lines of the open file added after it was last marked viewed, by DiffAnchor key.
+    @State private var freshLines: FreshLines?
+    // The first of them, once "Go to the new lines" asks for it.
+    @State private var freshRevealKey: String?
+    @State private var freshRevealSerial = 0
+    // Moves on to the next file once a tick has landed. Picking a file first cancels it.
+    @State private var advanceTask: Task<Void, Never>?
     // Gap rows git is reading the hidden lines for right now.
     private var expanding: Set<String> { model.expanding }
     // Projects whose first file has been picked, or that kept the one picked before.
@@ -167,6 +174,17 @@ struct ChangesView: View {
     // thing that names the project. A single project has no Workspace band, so its
     // header spans the pane as before.
     var body: some View {
+        screen
+            .task(id: freshRequest) { await findFreshLines() }
+            .onChange(of: footerTally, initial: true) { _, tally in navigation.viewedTally = tally }
+            .onChange(of: focusedComment) { _, id in if id != nil { freshRevealKey = nil } }
+            .onChange(of: fileSelection.activeID) { _, _ in
+                advanceTask?.cancel()
+                freshRevealKey = nil
+            }
+    }
+
+    private var screen: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 // A narrow history has no room for two columns, so the navigator and the
@@ -639,6 +657,9 @@ struct ChangesView: View {
             ChoicePill(title: "Changes \(navigatorFileCount)", selected: mode == .changes) { mode = .changes }
             ChoicePill(title: "History", selected: mode == .history) { mode = .history }
             Spacer(minLength: 0)
+            if mode == .changes, let tally = viewedTally {
+                viewedProgress(tally).transition(.fadeIn)
+            }
         }.padding(Space.lg)
     }
 
@@ -699,9 +720,11 @@ struct ChangesView: View {
     }
 
     private func shownChanges(_ repositoryRoot: String) -> [GitChange] {
+        var shown = changes(in: repositoryRoot)
+        if hidesViewed { shown = shown.filter { viewedState($0, in: repositoryRoot) != .viewed } }
         let query = navigation.fileFilter.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return changes(in: repositoryRoot) }
-        return changes(in: repositoryRoot).filter { $0.path.localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return shown }
+        return shown.filter { $0.path.localizedCaseInsensitiveContains(query) }
     }
 
     private var isFilteringFiles: Bool {
@@ -905,7 +928,9 @@ struct ChangesView: View {
                             if mode == .history { historyProject(repository) } else { changesProject(repository) }
                         }
                         if mode == .changes {
-                            if isFilteringFiles && repositories.allSatisfy({ shownChanges($0.root).isEmpty }) {
+                            if hidesViewed, let tally = viewedTally, tally.isDone {
+                                allViewedMessage(tally)
+                            } else if isFilteringFiles && repositories.allSatisfy({ shownChanges($0.root).isEmpty }) {
                                 Text("No matching files")
                                     .font(Typography.detail).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity).padding(.vertical, Space.xl)
@@ -915,6 +940,7 @@ struct ChangesView: View {
                     }.padding(Space.md)
                     .smoothlyResizes(when: mode == .history ? collapsedHistories : collapsedRepositories)
                     .smoothlyResizes(when: navigation.foldedNotes)
+                    .smoothlyResizes(when: navigation.hideViewed)
                 }
                 .accessibilityLabel(mode == .history ? "Workspace projects and commits"
                                                      : "Workspace repositories and changed files")
@@ -1025,6 +1051,7 @@ struct ChangesView: View {
                 fileNotes(file, in: repository.root)
                     .modifier(ProjectRule())
             }
+            hiddenViewedNote(repository.root)
         }
     }
 
@@ -1038,12 +1065,15 @@ struct ChangesView: View {
         } label: {
             // Same spacing as the selected project's rows, so picking another project
             // does not shift the list.
+            let viewed = viewedState(file, in: repositoryRoot)
             HStack(spacing: Space.md) {
-                StatusChip(kind: file.kind)
-                fileName(file)
+                StatusChip(kind: file.kind).opacity(viewed == .viewed ? 0.5 : 1)
+                fileName(file, edited: viewed?.isEdited == true).opacity(viewed == .viewed ? 0.5 : 1)
                 notesBadge(file, in: repositoryRoot)
-                counts(file)
+                viewedMark(viewed)
+                counts(file).opacity(viewed == .viewed ? 0.5 : 1)
             }
+            .motion(Motion.control, value: viewed)
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
             .overlay {
@@ -1054,6 +1084,295 @@ struct ChangesView: View {
         }
         .buttonStyle(.plain)
         .hoverFill(cornerRadius: Radius.control)
+        .accessibilityValue(viewedState(file, in: repositoryRoot)?.spoken ?? "")
+        .appContextMenu {
+            viewedMenuEntries([file], in: repositoryRoot)
+        }
+    }
+
+    // MARK: - Viewed files
+
+    // What the file holds now, as read after the last refresh.
+    private func version(_ file: GitChange, in repositoryRoot: String) -> String? {
+        navigation.fileVersions[repositoryRoot]?[file.path]
+    }
+
+    // Files are ticked off only in a session, whose review keeps the ticks. Nil outside
+    // one, and until the file's content has been read.
+    private func viewedState(_ file: GitChange, in repositoryRoot: String) -> ViewedState? {
+        guard let review, let version = version(file, in: repositoryRoot) else { return nil }
+        return review.reviews.viewed.state(notesKey(repositoryRoot, file.path), version: version,
+                                           in: review.sessionID)
+    }
+
+    private var hidesViewed: Bool { review != nil && navigation.hideViewed }
+
+    private var hasViewedMarks: Bool { review.map { $0.reviews.viewed.hasMarks($0.sessionID) } ?? false }
+
+    private var viewedTally: ViewedTally? {
+        guard review != nil else { return nil }
+        var viewed = 0
+        var total = 0
+        for repository in repositories {
+            for file in changes(in: repository.root) {
+                total += 1
+                if viewedState(file, in: repository.root) == .viewed { viewed += 1 }
+            }
+        }
+        return total == 0 ? nil : ViewedTally(viewed: viewed, total: total)
+    }
+
+    // What the turn's footer counts: the changed files, while they are what is listed.
+    private var footerTally: ViewedTally? { mode == .changes ? viewedTally : nil }
+
+    // Reads what each changed file holds, so a file the agent has edited since it was
+    // ticked off is known to be new again.
+    private func refreshVersions(_ repositoryRoot: String) async {
+        guard review != nil else { return }
+        let snapshot = repositoryRoot == root ? self.snapshot : gitStats.snapshot(at: repositoryRoot)
+        guard let snapshot, snapshot.state == .ready else { return }
+        let versions = await FileVersion.onDisk(snapshot.files, root: snapshot.root)
+        guard !Task.isCancelled, navigation.fileVersions[repositoryRoot] != versions else { return }
+        navigation.fileVersions[repositoryRoot] = versions
+    }
+
+    private func toggleViewed(_ file: GitChange, in repositoryRoot: String, advance: Bool = false) {
+        guard let review, let version = version(file, in: repositoryRoot) else { return }
+        let store = review.reviews.viewed
+        let key = notesKey(repositoryRoot, file.path)
+        if store.state(key, version: version, in: review.sessionID) == .viewed {
+            store.unmark(key, version: version, in: review.sessionID)
+            announce("\(file.fileName) marked not viewed")
+            return
+        }
+        store.mark(key, version: version, in: review.sessionID)
+        announce("\(file.fileName) marked viewed")
+        keepViewedText(file, version: version, in: repositoryRoot, store: store)
+        guard advance, repositoryRoot == root, file.id == fileSelection.activeID else { return }
+        advanceTask?.cancel()
+        advanceTask = Task {
+            // The tick lands first, so moving on reads as the result of it.
+            try? await Task.sleep(for: .seconds(Motion.controlDuration))
+            guard !Task.isCancelled, fileSelection.activeID == file.id else { return }
+            openNextNotViewed(after: file)
+        }
+    }
+
+    // The text read is kept beside the tick, so the lines the agent adds later can be
+    // picked out.
+    private func keepViewedText(_ file: GitChange, version: String, in repositoryRoot: String,
+                                store: ViewedFileStore) {
+        guard !file.isBinary, file.kind != .deleted else { return }
+        let gitRoot = gitRoot(repositoryRoot)
+        Task {
+            guard let read = await FileVersion.text(at: file.path, root: gitRoot),
+                  read.version == version else { return }
+            store.keep(read.text, for: version)
+        }
+    }
+
+    private func setViewed(_ targets: [GitChange], _ viewed: Bool, in repositoryRoot: String) {
+        guard let review else { return }
+        let store = review.reviews.viewed
+        for file in targets {
+            guard let version = version(file, in: repositoryRoot) else { continue }
+            let key = notesKey(repositoryRoot, file.path)
+            if viewed {
+                store.mark(key, version: version, in: review.sessionID)
+                keepViewedText(file, version: version, in: repositoryRoot, store: store)
+            } else {
+                store.unmark(key, version: version, in: review.sessionID)
+            }
+        }
+        let what = targets.count == 1 ? targets[0].fileName : counted(targets.count, "file")
+        announce("\(what) marked \(viewed ? "viewed" : "not viewed")")
+    }
+
+    private func viewedMenuEntries(_ targets: [GitChange], in repositoryRoot: String) -> [MenuEntry] {
+        let states = targets.compactMap { viewedState($0, in: repositoryRoot) }
+        guard !states.isEmpty else { return [] }
+        let allViewed = states.allSatisfy { $0 == .viewed }
+        let multiple = targets.count > 1
+        let title = allViewed
+            ? (multiple ? "Mark \(targets.count) Files as Not Viewed" : "Mark as Not Viewed")
+            : (multiple ? "Mark \(targets.count) Files as Viewed" : "Mark as Viewed")
+        return [.item(title, detail: multiple ? nil : keyBindings.label(for: .toggleViewed)) {
+            setViewed(targets, !allViewed, in: repositoryRoot)
+        }]
+    }
+
+    // The next changed file not viewed yet: further down this project, then round from
+    // its top, then in the projects after it.
+    private func openNextNotViewed(after current: GitChange?) {
+        let here = changes(in: root)
+        let start = current.flatMap { file in here.firstIndex { $0.id == file.id } } ?? -1
+        let ordered = Array(here.suffix(from: min(here.count, start + 1))) + Array(here.prefix(max(0, start)))
+        if let next = ordered.first(where: { viewedState($0, in: root) != .viewed }) {
+            open(next)
+            return
+        }
+        for repository in repositories where repository.root != root {
+            if let next = changes(in: repository.root).first(where: { viewedState($0, in: repository.root) != .viewed }) {
+                selectRepository(repository.root, next.id)
+                return
+            }
+        }
+        announce("Every changed file is viewed")
+    }
+
+    // Opens a file as a plain click would, whatever keys happen to be held.
+    private func open(_ file: GitChange) {
+        mode = .changes
+        navigatorCursor = ChangesNavigatorItem(root: root, path: file.id)
+        fileSelection.select(file.id, in: files.map(\.id), extendingRange: false, toggling: false)
+        let root = repoRoot
+        Task { await loadDiff(file, root: root) }
+    }
+
+    private func clearViewed() {
+        guard let review else { return }
+        let store = review.reviews.viewed
+        let session = review.sessionID
+        let cleared = store.marks(in: session)
+        store.clear(session)
+        showToast("Viewed marks cleared", action: "Undo") { store.restore(cleared, in: session) }
+    }
+
+    private func goToNewLines() {
+        guard let diff, let first = NumberedDiffLine.lines(diff.lines)
+            .first(where: { shownFreshKeys.contains(DiffComments.key($0.anchor)) }) else { return }
+        freshRevealKey = DiffComments.key(first.anchor)
+        freshRevealSerial += 1
+    }
+
+    private var freshRequest: FreshRequest? {
+        guard mode == .changes, let review, let file = shownFile, let diff, !diff.lines.isEmpty,
+              let version = version(file, in: root), viewedState(file, in: root)?.isEdited == true,
+              let since = review.reviews.viewed.latest(notesKey(root, file.path), in: review.sessionID)?.version
+        else { return nil }
+        return FreshRequest(fileID: file.id, version: version, since: since, lines: diff.lines.count)
+    }
+
+    private var shownFreshKeys: Set<String> {
+        guard let freshLines, let request = freshRequest, freshLines.fileID == request.fileID else { return [] }
+        return freshLines.keys
+    }
+
+    // Compares the text last viewed with the file now, to find the lines added since.
+    private func findFreshLines() async {
+        guard let request = freshRequest, let review else {
+            freshLines = nil
+            return
+        }
+        guard let viewed = review.reviews.viewed.text(of: request.since),
+              let current = await FileVersion.text(at: request.fileID, root: repoRoot) else {
+            freshLines = FreshLines(fileID: request.fileID, keys: [])
+            return
+        }
+        let added = await GitInspector.offMain(lane: .interactive) {
+            ViewedLines.added(since: viewed, in: current.text)
+        }
+        guard !Task.isCancelled, let diff, shownFile?.id == request.fileID else { return }
+        freshLines = FreshLines(fileID: request.fileID, keys: ViewedLines.freshKeys(added, in: diff.lines))
+    }
+
+    // A tick for a file read, or an amber dot for one the agent has edited since.
+    private func viewedMark(_ state: ViewedState?) -> some View {
+        ZStack {
+            if state == .viewed {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+                    .transition(.opacity.combined(with: .offset(y: 2)))
+            } else if state?.isEdited == true {
+                Circle().fill(Theme.attention).frame(width: 6, height: 6)
+                    .transition(.scale(scale: 0.4).combined(with: .opacity).animation(Motion.pop))
+            }
+        }
+        .frame(width: review == nil ? 0 : Space.lg)
+        .accessibilityHidden(true)
+    }
+
+    private func viewedProgress(_ tally: ViewedTally) -> some View {
+        HStack(spacing: Space.sm) {
+            ProgressRing(fraction: Double(tally.viewed) / Double(tally.total))
+            ViewThatFits(in: .horizontal) {
+                Text(tally.label)
+                Text("\(tally.viewed)/\(tally.total)")
+            }
+            .font(Typography.caption.monospacedDigit())
+            .lineLimit(1)
+            .contentTransition(.numericText())
+        }
+        .foregroundStyle(tally.isDone ? Theme.accent : Color.secondary)
+        .padding(.horizontal, Space.sm)
+        .frame(height: ControlHeight.sm)
+        .contentShape(Rectangle())
+        .hoverLift(amount: Motion.smallLift)
+        .motion(Motion.control, value: tally)
+        .appMenu {
+            [.item("Hide viewed files", checked: navigation.hideViewed) { navigation.hideViewed.toggle() },
+             .item("Open the next file not viewed", detail: keyBindings.label(for: .nextNotViewed),
+                   disabled: tally.isDone) { openNextNotViewed(after: shownFile) },
+             .separator,
+             .item("Clear viewed marks", disabled: !hasViewedMarks) { clearViewed() }]
+        }
+        .accessibilityLabel("\(tally.viewed) of \(tally.total) files viewed")
+        .accessibilityHint("Hide viewed files, open the next one, or clear the marks")
+    }
+
+    private func allViewedMessage(_ tally: ViewedTally) -> some View {
+        VStack(spacing: Space.sm) {
+            Text("All \(counted(tally.total, "file")) viewed").font(Typography.label)
+            Text("Viewed files are hidden. A file comes back on its own if the agent edits it again.")
+                .font(Typography.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            InlineLink(title: "Show viewed files", size: Typography.Size.caption) { navigation.hideViewed = false }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, Space.xl).padding(.horizontal, Space.md)
+        .transition(.fadeIn)
+    }
+
+    @ViewBuilder private func hiddenViewedNote(_ repositoryRoot: String) -> some View {
+        if hidesViewed, !collapsedRepositories.contains(repositoryRoot), viewedTally?.isDone != true {
+            let hidden = changes(in: repositoryRoot).filter { viewedState($0, in: repositoryRoot) == .viewed }.count
+            if hidden > 0 {
+                HStack(spacing: Space.sm) {
+                    Text("\(counted(hidden, "viewed file")) hidden")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                    InlineLink(title: "Show", size: Typography.Size.caption) { navigation.hideViewed = false }
+                }
+                .padding(.leading, Space.xxxl + Space.md).padding(.vertical, Space.xs)
+                .modifier(ProjectRule())
+                .transition(.fold)
+            }
+        }
+    }
+
+    // Says a file the person ticked off has changed since, and how much of it is new.
+    private func editedBand(since: Date) -> some View {
+        let count = shownFreshKeys.count
+        let time = Calendar.current.isDateInToday(since)
+            ? since.formatted(date: .omitted, time: .shortened)
+            : since.formatted(date: .abbreviated, time: .shortened)
+        let lines = count > 0 ? " \(counted(count, "new line")) marked in amber." : ""
+        return HStack(spacing: Space.md) {
+            Circle().fill(Theme.attention).frame(width: 6, height: 6).accessibilityHidden(true)
+            Text("Edited again since you viewed it at \(time)." + lines)
+                .font(Typography.detail.weight(.medium))
+                .foregroundStyle(Theme.attentionText)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: Space.md)
+            if count > 0 {
+                InlineLink(title: "Go to the new lines", tint: Theme.attentionText) { goToNewLines() }
+            }
+        }
+        .padding(.horizontal, Space.xxl)
+        .padding(.vertical, Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.attention.opacity(0.12))
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - History navigator
@@ -1207,13 +1526,19 @@ struct ChangesView: View {
         navigatorFocused && navigatorCursorVisible && navigatorCursor == item
     }
 
-    private func fileName(_ file: GitChange) -> some View {
+    private func fileName(_ file: GitChange, edited: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs) {
             Text(file.fileName).font(Typography.detail.weight(.medium)).lineLimit(1)
             Text((file.path as NSString).deletingLastPathComponent)
                 .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
             if let original = file.originalPath {
                 Text("was \(original)").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            if edited {
+                Text("Edited since you viewed it")
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
+                    .foregroundStyle(Theme.attentionText).lineLimit(1)
+                    .transition(.fold)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
         .appTooltip(file.path)
@@ -1376,9 +1701,10 @@ struct ChangesView: View {
                     }
                 }
 
-                StatusChip(kind: file.kind)
+                let viewed = viewedState(file, in: root)
+                StatusChip(kind: file.kind).opacity(viewed == .viewed ? 0.5 : 1)
 
-                fileName(file)
+                fileName(file, edited: viewed?.isEdited == true).opacity(viewed == .viewed ? 0.5 : 1)
 
                 if file.isStaged && file.isUnstaged {
                     Text("partly staged").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
@@ -1388,8 +1714,11 @@ struct ChangesView: View {
 
                 notesBadge(file, in: root)
 
-                counts(file)
+                viewedMark(viewed)
+
+                counts(file).opacity(viewed == .viewed ? 0.5 : 1)
             }
+            .motion(Motion.control, value: viewedState(file, in: root))
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
             .surface(isSelected ? Theme.accent.opacity(0.06) : .clear, cornerRadius: Radius.control,
@@ -1403,19 +1732,25 @@ struct ChangesView: View {
         .buttonStyle(.plain)
         .hoverFill(cornerRadius: Radius.control)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(viewedState(file, in: root)?.spoken ?? "")
         .appContextMenu {
+            let chosen = fileSelection.contextMenuFiles(for: file, in: files)
             // A row with only committed work has nothing to commit or discard, and acting
             // on the rest of the selection from it would not touch the row under the pointer.
-            let ids = file.hasLocalChanges ? Set(fileSelection.contextMenuFiles(for: file, in: files).map(\.id)) : []
+            let ids = file.hasLocalChanges ? Set(chosen.map(\.id)) : []
             let targets = localFiles.filter { ids.contains($0.id) }
             let multiple = targets.count > 1
+            // A file only the branch's commits changed can still be ticked off as read.
+            let viewed = viewedMenuEntries(chosen, in: root)
+            let viewedGroup: [MenuEntry] = viewed.isEmpty ? [] : viewed + [.separator]
             let finder: [MenuEntry] = [.item("Reveal in Finder") { reveal(file) },
                                        .item("Copy Path") { Pasteboard.copy(fileURL(file).path) }]
-            guard !targets.isEmpty else { return finder }
+            guard !targets.isEmpty else { return viewedGroup + finder }
             return [.item(multiple ? "Commit \(targets.count) Files…" : "Commit This File…") {
                 beginCommit(with: targets)
              },
              .separator]
+             + viewedGroup
              + finder
              + [.separator,
                 .item(multiple ? "Discard Changes in \(targets.count) Files…" : "Discard Changes",
@@ -1474,6 +1809,14 @@ struct ChangesView: View {
                         askOnFile(repoRoot, file.path)
                     }
                 }
+                if mode == .changes, let file = shownFile, let viewed = viewedState(file, in: root) {
+                    ViewedToggle(isOn: viewed == .viewed, edited: viewed.isEdited) {
+                        toggleViewed(file, in: root, advance: true)
+                    }
+                    .disabled(loadingDiff)
+                    .appTooltip(keyBindings.tooltip(viewed == .viewed ? "Mark not viewed" : "Mark viewed", for: .toggleViewed))
+                    .accessibilityHint("Ticks off \(file.fileName) as read for this session")
+                }
                 if mode == .changes, let file = shownFile {
                     Image(systemName: "ellipsis").padding(Space.md).contentShape(Rectangle())
                         .hoverLift(amount: Motion.smallLift)
@@ -1506,6 +1849,14 @@ struct ChangesView: View {
             }
             .padding(.horizontal, Space.xxl)
             .padding(.vertical, Space.md)
+
+            ZStack {
+                if mode == .changes, let file = shownFile, case .edited(let since)? = viewedState(file, in: root) {
+                    editedBand(since: since)
+                        .transition(.asymmetric(insertion: .fold.animation(Motion.reveal),
+                                                removal: .fold.animation(Motion.leave)))
+                }
+            }
 
             if mode == .changes, let file = shownFile, !file.isBinary, diff?.images == nil {
                 if appSettings.changesDiffLayout == .sideBySide {
@@ -1557,7 +1908,7 @@ struct ChangesView: View {
         } else if mode == .changes, appSettings.changesDiffLayout == .sideBySide, let diff {
             if let review {
                 SideBySideDiff(lines: diff.lines, marks: model.diffMarks, expand: expand,
-                               threads: threadViews(review), picked: pickedKeys,
+                               threads: threadViews(review), picked: pickedKeys, fresh: shownFreshKeys,
                                onLine: { pickLine($0, extending: $1) }, onRange: { pickRange($0) },
                                reveal: revealedLine)
             } else {
@@ -1576,6 +1927,7 @@ struct ChangesView: View {
                                  }
                              },
                              picked: pickedKeys,
+                             fresh: shownFreshKeys,
                              threads: threadViews(review),
                              reveal: revealedLine)
             } else {
@@ -1612,7 +1964,8 @@ struct ChangesView: View {
                             detail: "This branch has no history to show.")
             } else {
                 CommitHistoryView(root: repoRoot, selection: historySelection,
-                                  back: narrow ? { historySelection.showingDetail = false } : nil)
+                                  back: narrow ? { historySelection.showingDetail = false } : nil,
+                                  review: review)
             }
         } else {
             ChangesLoadingPlaceholder(title: "Loading history…").padding(Space.xxxl).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1728,6 +2081,7 @@ struct ChangesView: View {
         // A push can land between refreshes, and amending a pushed commit is exactly
         // what the checkbox exists to prevent.
         if amend && !canAmend { amend = false }
+        await refreshVersions(root)
 
         if mode == .history {
             await loadHistory()
@@ -1795,6 +2149,7 @@ struct ChangesView: View {
                 let fresh = await GitInspector.snapshot(at: repository.root, comparingToLastCommit: true)
                 guard !Task.isCancelled else { return }
                 gitStats.store(fresh, at: repository.root)
+                await refreshVersions(repository.root)
             }
         }
     }
@@ -2036,6 +2391,10 @@ struct ChangesView: View {
         if commentDraft == nil, let anchor = citedAnchor, let citation = navigation.citation, let diff,
            let id = lineID(for: DiffAnchor(side: anchor.side, line: anchor.line), in: diff.lines) {
             return DiffReveal(line: id, serial: citation.serial, key: DiffComments.key(DiffAnchor(side: anchor.side, line: anchor.line)))
+        }
+        if let key = freshRevealKey, let anchor = DiffComments.anchor(key), let diff,
+           let id = lineID(for: anchor, in: diff.lines) {
+            return DiffReveal(line: id, serial: freshRevealSerial, key: key)
         }
         guard let focusedComment,
               let line = placement.below.first(where: { $0.value.contains { $0.id == focusedComment } })?.key
@@ -2310,6 +2669,14 @@ struct ChangesView: View {
             return true
         }
         guard !WindowKeyHandler.isTyping(event.window?.firstResponder), let review, mode == .changes else { return false }
+        if reviewKeys.pressed(.toggleViewed, event), let file = shownFile, viewedState(file, in: root) != nil {
+            if !loadingDiff { toggleViewed(file, in: root, advance: true) }
+            return true
+        }
+        if reviewKeys.pressed(.nextNotViewed, event) {
+            openNextNotViewed(after: shownFile)
+            return true
+        }
         if flags == .option, event.keyCode == 125 || event.keyCode == 126 {
             step(event.keyCode == 125 ? 1 : -1)
             return true
@@ -2971,4 +3338,17 @@ private struct SettledFile: Identifiable {
     let root: String
     let path: String
     var id: String { root + "/" + path }
+}
+
+// The lines of the open file added after it was last viewed, and what they were found for.
+private struct FreshLines: Equatable {
+    var fileID: String
+    var keys: Set<String>
+}
+
+private struct FreshRequest: Equatable {
+    var fileID: String
+    var version: String
+    var since: String
+    var lines: Int
 }

@@ -33,6 +33,9 @@ struct DiffTextView: NSViewRepresentable {
     var onRange: ((String, String) -> Void)?
     // The lines the comment being written is about, drawn picked out.
     var picked: Set<String> = []
+    // Lines added after the reviewer last marked the file viewed, named by DiffAnchor key.
+    // Each wears an amber rail down its leading edge.
+    var fresh: Set<String> = []
     // What hangs under a line, keyed by the line's id: the review comments placed there
     // and the comment being written about it. The text keeps an empty row under each of
     // those lines, built with DiffComments, and the view sits on that row.
@@ -89,6 +92,10 @@ struct DiffTextView: NSViewRepresentable {
         textView.onRange = onRange
         if textView.picked != picked {
             textView.picked = picked
+            textView.needsDisplay = true
+        }
+        if textView.fresh != fresh {
+            textView.fresh = fresh
             textView.needsDisplay = true
         }
         textView.syncThreads(threads, environment: context.environment)
@@ -161,6 +168,7 @@ private final class DiffDocumentView: NSTextView {
     var onLine: ((String, Bool) -> Void)?
     var onRange: ((String, String) -> Void)?
     var picked: Set<String> = []
+    var fresh: Set<String> = []
     // The lines a drag down the numbers covers while the button is still held.
     private var dragged: Set<String> = []
     // The gap row under the pointer, which is drawn a shade stronger so it reads as
@@ -551,7 +559,26 @@ private final class DiffDocumentView: NSTextView {
             NSRect(x: 0, y: fragment.minY + origin.y,
                    width: self.bounds.width, height: fragment.height).fill()
         }
+        drawFreshRails(in: rect, layoutManager: layoutManager, container: textContainer, storage: storage)
         drawLineMarks(in: rect, layoutManager: layoutManager, container: textContainer, storage: storage)
+    }
+
+    // Lines that came in after the file was last marked viewed carry a thin amber rail at
+    // the pane's edge, so what is new since the last read can be found at a glance.
+    private func drawFreshRails(in rect: NSRect, layoutManager: NSLayoutManager,
+                                container: NSTextContainer, storage: NSTextStorage) {
+        guard !fresh.isEmpty else { return }
+        let origin = textContainerOrigin
+        let glyphs = layoutManager.glyphRange(forBoundingRect: rect.offsetBy(dx: -origin.x, dy: -origin.y),
+                                              in: container)
+        NSColor(Theme.attention).setFill()
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, _, _, lineGlyphs, _ in
+            let index = layoutManager.characterIndexForGlyph(at: lineGlyphs.location)
+            guard index < storage.length,
+                  let key = storage.attribute(.diffLineAnchor, at: index, effectiveRange: nil) as? String,
+                  self.fresh.contains(key) else { return }
+            NSRect(x: 0, y: fragment.minY + origin.y, width: 3, height: fragment.height).fill()
+        }
     }
 
     // The lines a comment is being written about wear the accent across the row, and the

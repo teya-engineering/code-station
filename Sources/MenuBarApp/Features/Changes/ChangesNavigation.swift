@@ -109,6 +109,14 @@ final class ChangesNavigationMemory {
     var historyFilter = ""
     // Narrows the changed files by name.
     var fileFilter = ""
+    // Leaves the files already marked viewed out of the list.
+    var hideViewed = false
+    // What each changed file holds now, by project and then path, so a file's viewed tick
+    // is known the moment the list is drawn again rather than after the files are read.
+    var fileVersions: [String: [String: String]] = [:]
+    // How far through the changed files the reviewer is, read by the turn's footer, which
+    // sits outside the screen that counts them.
+    var viewedTally: ViewedTally?
     // Files whose comments are folded away, and files showing their resolved ones too,
     // keyed by repository and path.
     var foldedNotes: Set<String> = []
