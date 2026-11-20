@@ -25,35 +25,8 @@ struct SessionFactsLayoutTests {
                 first.url: .init(state: .open, title: "Refine header", headBranch: "topic"),
                 second.url: .init(state: .open, title: "Defaults", headBranch: "topic", isDraft: true)
             ], model: "Sonnet", cost: 1.24, context: 0.38)
-        let host = NSHostingController(rootView:
-            VStack {
-                HStack {
-                    Text("Session header").font(.system(size: 18, weight: .semibold))
-                    Spacer()
-                    SessionFactsChip(facts: facts, state: .init(tone: .running, since: .now, ticks: true),
-                                     sessionID: sessionID, repositoryCount: 3,
-                                     openChanges: {}, contextActions: { [] }, usageTooltip: { Tooltip(title: "Context") })
-                        .background(FrameAnchorView(anchor: chip))
-                }
-                .padding(20)
-                .zIndex(1)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.background)
-            .environment(monitor)
-            .environment(\._accessibilityReduceMotion, reduceMotion)
-            .appOverlays())
-        host.sizingOptions = []
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 800),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentViewController = host
-        window.setContentSize(CGSize(width: 1100, height: 800))
-        host.view.frame = CGRect(x: 0, y: 0, width: 1100, height: 800)
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        let (window, host) = show(facts: facts, sessionID: sessionID, chip: chip, monitor: monitor,
+                                  reduceMotion: reduceMotion)
         defer { window.close() }
         await settle(host.view)
         try click(try #require(chip.frame()), in: window)
@@ -104,6 +77,95 @@ struct SessionFactsLayoutTests {
         #expect(findPreview(in: host.view) == nil)
     }
 
+    // A session that has opened a long run of pull requests scrolls them in their own
+    // section, so the usage under them stays in view and the card itself does not scroll.
+    @Test
+    func longPullRequestListScrollsInPlace() async throws {
+        let app = NSApplication.shared
+        let policy = app.activationPolicy()
+        app.setActivationPolicy(.regular)
+        defer { app.setActivationPolicy(policy) }
+        let monitor = AccountUsageMonitor(sources: [PreviewUsageSource()])
+        await monitor.refresh(.claudeCode)
+        let chip = FrameAnchor()
+        let pullRequests = (1...40).map {
+            PullRequest(number: $0, url: "https://github.com/team/code-station-\($0 % 4)/pull/\($0)")
+        }
+        let facts = SessionFacts(
+            branch: "code-station/f35da721", changes: .init(files: 3, added: 9, removed: 0),
+            pullRequests: pullRequests,
+            // The newest two are still open, the way a long-running session usually ends.
+            pullRequestStatuses: Dictionary(uniqueKeysWithValues: pullRequests.map {
+                ($0.url, PullRequestStatus(state: $0.number >= 39 ? .open : .merged, title: "Change",
+                                           headBranch: "topic", isDraft: $0.number == 40))
+            }), model: "Opus", context: 0.27)
+        let (window, host) = show(facts: facts, sessionID: UUID(), chip: chip, monitor: monitor,
+                                  reduceMotion: false)
+        defer { window.close() }
+        await settle(host.view)
+        try click(try #require(chip.frame()), in: window)
+        await settle(host.view)
+
+        for size in [CGSize(width: 1100, height: 800), CGSize(width: 960, height: 640)] {
+            window.setContentSize(size)
+            await settle(host.view)
+            let scrolls = findScrolls(in: host.view)
+            let body = try #require(scrolls.first { outer in
+                scrolls.contains { $0 !== outer && $0.isDescendant(of: outer) }
+            })
+            let list = try #require(scrolls.first { $0 !== body && $0.isDescendant(of: body) })
+            let bodyDocument = try #require(body.documentView).bounds.height
+            let listDocument = try #require(list.documentView).bounds.height
+            #expect(bodyDocument <= body.contentView.bounds.height + 1)
+            #expect(listDocument > list.contentView.bounds.height + 1)
+            let preview = try #require(findPreview(in: host.view))
+            let frame = FrameAnchor.fromTop(preview.convert(preview.bounds, to: host.view), in: host.view)
+            #expect(frame.maxY <= size.height)
+            if let directory = ProcessInfo.processInfo.environment["GLANCE_REVIEW_DIRECTORY"] {
+                let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+                host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
+                try #require(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory)
+                        .appendingPathComponent("long-pull-requests-\(Int(size.height)).png"))
+            }
+        }
+    }
+
+    private func show(facts: SessionFacts, sessionID: UUID, chip: FrameAnchor,
+                      monitor: AccountUsageMonitor,
+                      reduceMotion: Bool) -> (NSWindow, NSHostingController<some View>) {
+        let host = NSHostingController(rootView:
+            VStack {
+                HStack {
+                    Text("Session header").font(.system(size: 18, weight: .semibold))
+                    Spacer()
+                    SessionFactsChip(facts: facts, state: .init(tone: .running, since: .now, ticks: true),
+                                     sessionID: sessionID, repositoryCount: 3,
+                                     openChanges: {}, contextActions: { [] }, usageTooltip: { Tooltip(title: "Context") })
+                        .background(FrameAnchorView(anchor: chip))
+                }
+                .padding(20)
+                .zIndex(1)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.background)
+            .environment(monitor)
+            .environment(\._accessibilityReduceMotion, reduceMotion)
+            .appOverlays())
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 800),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = host
+        window.setContentSize(CGSize(width: 1100, height: 800))
+        host.view.frame = CGRect(x: 0, y: 0, width: 1100, height: 800)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return (window, host)
+    }
+
     private func settle(_ view: NSView) async {
         for _ in 0..<15 {
             try? await Task.sleep(for: .milliseconds(20))
@@ -124,6 +186,10 @@ struct SessionFactsLayoutTests {
     private func findScroll(in view: NSView) -> NSScrollView? {
         if let scroll = view as? NSScrollView { return scroll }
         return view.subviews.lazy.compactMap { findScroll(in: $0) }.first
+    }
+
+    private func findScrolls(in view: NSView) -> [NSScrollView] {
+        [view as? NSScrollView].compactMap { $0 } + view.subviews.flatMap { findScrolls(in: $0) }
     }
 
     private func click(_ frame: CGRect, in window: NSWindow) throws {

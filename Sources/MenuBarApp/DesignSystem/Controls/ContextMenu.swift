@@ -647,6 +647,9 @@ struct MenuContentScrollView<Content: View>: View {
         .frame(height: min(contentHeight ?? maxHeight, maxHeight))
         .clipped()
         .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
+        // One of these can sit inside another, such as a list that scrolls on its own
+        // inside a card. Its document is not the outer one's, so it stops here.
+        .transformPreference(MenuContentHeightKey.self) { $0 = MenuContentHeightKey.defaultValue }
     }
 }
 
