@@ -14,7 +14,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-26
+    # The only image with Xcode 27. It is still a preview, so if it misbehaves,
+    # go back to macos-26 and set .xcode-version to a 26.x release it carries.
+    runs-on: xcode-27
     timeout-minutes: 30
     env:
       SWIFTPM_MODULECACHE_OVERRIDE: /private/tmp/code-station-ci-module-cache
@@ -22,6 +24,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # A Swift release can reject or crash on code that the next one builds, so
+      # CI runs the Xcode named in .xcode-version, not the image's default, and
+      # developers can match it.
+      - name: Select Xcode
+        run: |
+          version="$(tr -d '[:space:]' < .xcode-version)"
+          if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error file=.xcode-version::not an Xcode version: $version"
+            exit 1
+          fi
+          xcode="/Applications/Xcode_$version.app"
+          if [ ! -d "$xcode" ]; then
+            echo "::error file=.xcode-version::Xcode $version is not on this image; it has: $(printf '%s ' /Applications/Xcode_*.app)"
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
       - name: Test
         run: >-
           ./Scripts/swiftpm.sh test --disable-sandbox --no-parallel
