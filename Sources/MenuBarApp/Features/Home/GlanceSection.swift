@@ -355,32 +355,51 @@ struct GlanceSection: View {
         stretch == .today ? ribbon.spent : report?.agentTime.value ?? 0
     }
 
-    // The stretch said as one sentence, so the card opens on what it means rather than on
-    // four numbers to add up.
+    // The stretch said as one sentence about whatever the chart measures, so the card
+    // opens on what the bars mean rather than on four numbers to add up.
     private func sentence(ribbon: DayRibbon) -> some View {
-        let seconds = stretch == .today ? ribbon.spent : report?.agentTime.value ?? 0
-        let total = StatsFormat.time(seconds)
-        let ink = StatsBreakdown.Ink.time
+        let value = reading(lens, ribbon: ribbon).value
+        let ink = lens.tint
         let text: Text
         if stretch == .today && !scanned {
             text = Text("Counting session time…")
-        } else if seconds <= 0 {
+        } else if agentSeconds <= 0 {
             text = Text(stretch == .today ? "Nothing ran in the last 24 hours." : "Nothing ran in this stretch.")
+        } else if value <= 0 {
+            text = Text(emptyLine)
         } else {
+            let amount = Text(lens == .prompts ? counted(Int(value.rounded()), "prompt") : lens.format(value))
+                .foregroundStyle(ink)
             let scope: Text = if let name = focusName(ribbon) {
                 Text(" on ") + Text(name).foregroundStyle(ink)
+            } else if let projects = projectCount(ribbon) {
+                Text(" across ") + Text(counted(projects, "project")).foregroundStyle(ink)
             } else {
-                Text(" across ") + Text(counted(projectCount(ribbon), "project")).foregroundStyle(ink)
+                Text("")
             }
-            text = Text("Your agents worked ")
-                + Text(total).foregroundStyle(ink)
-                + scope + Text(".")
+            text = switch lens {
+            case .time: Text("Your agents worked ") + amount + scope + Text(".")
+            case .prompts: Text("You sent ") + amount + scope + Text(".")
+            case .waiting: Text("You kept your agents waiting ") + amount + scope + Text(".")
+            case .cost: Text("Your agents cost ") + amount + scope + Text(".")
+            }
         }
         return text
             .font(Typography.display)
             .fixedSize(horizontal: false, vertical: true)
-            .contentTransition(.numericText(value: seconds))
-            .motion(Motion.control, value: seconds)
+            .contentTransition(.numericText(value: value))
+            .motion(Motion.control, value: value)
+            .motion(Motion.control, value: lens)
+    }
+
+    private var emptyLine: String {
+        let when = stretch == .today ? "today" : "in this stretch"
+        return switch lens {
+        case .time: "Nothing ran \(when)."
+        case .prompts: "No prompts sent \(when)."
+        case .waiting: "Your agents never waited on you \(when)."
+        case .cost: "Nothing spent \(when)."
+        }
     }
 
     private func focusName(_ ribbon: DayRibbon) -> String? {
@@ -389,10 +408,17 @@ struct GlanceSection: View {
             ?? ribbon.legend.first?.subject.name
     }
 
-    private func projectCount(_ ribbon: DayRibbon) -> Int {
-        stretch == .today
-            ? ribbon.legend.count
-            : report?.subjects.filter { $0.seconds > 0 }.count ?? 0
+    // Stats keeps no per-project count of waiting, so that sentence names no projects.
+    private func projectCount(_ ribbon: DayRibbon) -> Int? {
+        switch lens {
+        case .time:
+            stretch == .today
+                ? ribbon.legend.count
+                : report?.subjects.filter { $0.seconds > 0 }.count ?? 0
+        case .prompts: report?.subjects.filter { $0.prompts > 0 }.count
+        case .cost: report?.subjects.filter { $0.cost > 0 }.count
+        case .waiting: nil
+        }
     }
 
     // Where the time went, then what it changed: "Mostly on code-station, 180 prompts,
@@ -417,7 +443,10 @@ struct GlanceSection: View {
                 : report?.subjects.first { $0.seconds > 0 }?.subject.name
             if let lead { parts.append("mostly on \(lead)") }
         }
-        if statsOn, let report { parts.append(counted(Int(report.prompts.value), "prompt")) }
+        // The headline already says the number the chart measures, so the line under it
+        // brings in agent time and prompts only when the headline is about something else.
+        if lens != .time { parts.append(StatsFormat.time(agentSeconds) + " of agent time") }
+        if statsOn, lens != .prompts, let report { parts.append(counted(Int(report.prompts.value), "prompt")) }
         if stretch == .today {
             let hours = ribbon.activity(bucketCount: 24)
             if let busiest = hours.max(by: { $0.spent < $1.spent }), busiest.spent > 0 {
