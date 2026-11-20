@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import Testing
 @testable import MenuBarApp
 
@@ -50,7 +49,7 @@ struct SkillsManagerTests {
     // A real git against a server that wants a login, so the error the Add dialog needs
     // for its SSH link is known to come all the way through, not only the text matching.
     @Test @MainActor func previewThrowsTheSignInProblemWhenTheServerWantsALogin() async throws {
-        let server = LoginWall()
+        let server = loginWall()
         let port = try await server.start()
         defer { server.stop() }
         let suite = "sign-in-\(UUID().uuidString)"
@@ -536,32 +535,7 @@ struct SkillsManagerTests {
 }
 
 // A server on this machine that answers every request by asking for a login.
-private final class LoginWall: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "skills-manager-tests.login-wall")
-    private let listener = HTTPListener()
-    private let reply = Data(("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"git\"\r\n"
-        + "Content-Length: 0\r\nConnection: close\r\n\r\n").utf8)
-
-    func start() async throws -> UInt16 {
-        let parameters = NWParameters.tcp
-        parameters.requiredInterfaceType = .loopback
-        let bound = try NWListener(using: parameters, on: .any)
-        return try await withCheckedThrowingContinuation { ready in
-            queue.async {
-                self.listener.expect(ready)
-                self.listener.start(bound, on: self.queue) { connection in
-                    connection.start(queue: self.queue)
-                    connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
-                        connection.send(content: self.reply, completion: .contentProcessed { _ in
-                            connection.cancel()
-                        })
-                    }
-                } failed: { error in
-                    self.listener.answer(.failure(error))
-                }
-            }
-        }
-    }
-
-    func stop() { queue.async { self.listener.cancel() } }
+private func loginWall() -> CannedHTTPServer {
+    CannedHTTPServer(reply: "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"git\"\r\n"
+        + "Content-Length: 0\r\nConnection: close\r\n\r\n")
 }

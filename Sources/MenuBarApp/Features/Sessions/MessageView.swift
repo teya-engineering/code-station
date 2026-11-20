@@ -471,11 +471,12 @@ extension View {
     }
 }
 
-// A run of prose or a fenced block. Fences are read line by line, the way Markdown reads
-// them, which keeps the app free of a Markdown dependency. A fence is also how a reply asks
-// for something the app draws itself, such as a chart: an agent writes fenced blocks
-// reliably and a tag it invented still reads as code, so nothing is lost when a block is
-// not one the app knows.
+// A run of prose or a fenced block. Fences are read here line by line, the way Markdown
+// reads them, rather than by swift-markdown: a streaming reply only grows at its end, so
+// reading can pick up from the last closed fence instead of the start. A fence is also
+// how a reply asks for something the app draws itself, such as a chart: an agent writes
+// fenced blocks reliably and a tag it invented still reads as code, so nothing is lost
+// when a block is not one the app knows.
 struct MessageSegment: Identifiable, Equatable {
     let id: Int
     let text: String

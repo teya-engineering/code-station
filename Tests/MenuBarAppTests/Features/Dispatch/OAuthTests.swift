@@ -63,24 +63,23 @@ struct OAuthTests {
     }
 
     @Test func readsTheCodeOutOfTheRedirect() {
-        let request = "GET /callback?code=abc123&state=xyz HTTP/1.1\r\nHost: 127.0.0.1:8234\r\n\r\n"
-        let query = LoopbackServer.query(from: request)
+        let query = LoopbackServer.query(method: .GET, target: "/callback?code=abc123&state=xyz")
         #expect(query?["code"] == "abc123")
         #expect(query?["state"] == "xyz")
     }
 
     @Test func readsAProviderRefusal() {
-        let request = "GET /callback?error=access_denied&error_description=Nope%20sorry HTTP/1.1\r\n\r\n"
-        let query = LoopbackServer.query(from: request)
+        let query = LoopbackServer.query(method: .GET,
+                                         target: "/callback?error=access_denied&error_description=Nope%20sorry")
         #expect(query?["error"] == "access_denied")
         #expect(query?["error_description"] == "Nope sorry")
     }
 
     @Test func ignoresAnythingThatIsNotTheRedirect() {
-        #expect(LoopbackServer.query(from: "") == nil)
-        #expect(LoopbackServer.query(from: "POST /callback HTTP/1.1\r\n\r\n") == nil)
+        #expect(LoopbackServer.query(method: .POST, target: "/callback") == nil)
+        #expect(LoopbackServer.query(method: .GET, target: "/favicon.ico") == nil)
         // A browser that follows the redirect without a query is still a valid arrival.
-        #expect(LoopbackServer.query(from: "GET /callback HTTP/1.1\r\n\r\n") == [:])
+        #expect(LoopbackServer.query(method: .GET, target: "/callback") == [:])
     }
 
     @Test func escapesProviderTextBeforePuttingItInTheBrowserPage() {

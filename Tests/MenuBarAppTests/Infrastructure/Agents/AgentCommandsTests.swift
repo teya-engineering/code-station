@@ -204,6 +204,26 @@ struct AgentCommandsTests {
             == "Run it.")
     }
 
+    @Test func quotedValuesAndCommentsReadTheWayYAMLMeansThem() {
+        #expect(AgentCommands.summary(of: "---\ndescription: \"Say \\\"hi\\\": politely\"\n---\n",
+                                      named: "x") == "Say \"hi\": politely")
+        #expect(AgentCommands.summary(of: "---\ndescription: 'It''s done' # set by the team\n---\n",
+                                      named: "x") == "It's done")
+    }
+
+    // Hand-written front matter often breaks YAML with a colon inside a plain value. The
+    // CLIs still read it, so the menu does too.
+    @Test func aValueThatIsNotValidYAMLIsStillRead() throws {
+        #expect(AgentCommands.summary(of: "---\nname: chart\ndescription: Triggers on: \"chart\", \"plot\"\n---\n",
+                                      named: "chart") == "Triggers on: \"chart\", \"plot\"")
+
+        _ = try write("---\ndescription: Hidden: kept for Claude\nuser-invocable: false\n---\n",
+                      to: "home/.claude/skills/hidden/SKILL.md")
+        let found = AgentCommands.all(for: .claudeCode, workingDirectories: [],
+                                      home: scratch.path("home"), environment: [:])
+        #expect(!found.contains { $0.name == "hidden" })
+    }
+
     // A key indented under another belongs to that key, not to the file.
     @Test func aNestedKeySaysNothingAboutTheFile() throws {
         #expect(AgentCommands.summary(of: "---\nmetadata:\n  description: Nested\n---\nThe prompt.\n",

@@ -1,9 +1,10 @@
+import Markdown
 import SwiftUI
 import UniformTypeIdentifiers
 
 // Block-level markdown for chat prose: headings, tables, lists, quotes and rules.
-// Fenced code is split out before this runs (see MessageSegment). A small hand-rolled
-// parser covers what Claude Code emits and keeps the app free of a Markdown dependency.
+// Fenced code is split out before this runs (see MessageSegment). swift-markdown reads
+// the structure; each block keeps its inline Markdown as written, for the views to draw.
 struct MarkdownBlock: Identifiable, Equatable, Sendable {
     let id: Int
     let kind: Kind
@@ -63,9 +64,8 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
 
     // Reads HTML blocks when given a reader, carrying its open containers in and out.
     static func parse(_ text: String, reader: inout MarkdownHTML.Reader?) -> [MarkdownBlock] {
-        let lines = text.lines
+        let source = MarkdownSource(text)
         var kinds: [Kind] = []
-        var paragraph: [String] = []
         // Where Markdown began inside an HTML container that centres it.
         var centeredFrom: Int? = reader?.centered == true ? 0 : nil
         func centerMarkdown(upTo end: Int) {
@@ -78,183 +78,120 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
             }
         }
 
-        func flushParagraph() {
-            let joined = paragraph.joined(separator: "\n").trimmed
-            paragraph = []
-            if !joined.isEmpty { kinds.append(.paragraph(joined)) }
-        }
-
-        var index = 0
-        while index < lines.count {
-            let trimmed = lines[index].trimmedSpaces
-
-            if trimmed.isEmpty {
-                flushParagraph()
-                index += 1
-            } else if reader != nil, let end = MarkdownHTML.blockEnd(lines, from: index, inParagraph: !paragraph.isEmpty) {
-                flushParagraph()
+        for block in source.document.children {
+            if reader != nil, let html = html(of: block, in: source) {
                 centerMarkdown(upTo: kinds.count)
-                kinds += reader!.read(lines[index..<end].joined(separator: "\n"))
+                kinds += reader!.read(html)
                 centeredFrom = reader!.centered ? kinds.count : nil
-                index = end
-            } else if let reference = HTMLPreviewReference.parse(trimmed) {
-                flushParagraph()
-                kinds.append(.htmlPreview(reference))
-                index += 1
-            } else if let level = headingLevel(trimmed) {
-                flushParagraph()
-                var title = String(trimmed.drop(while: { $0 == "#" }))
-                // "## Title ##" closes with hashes that are decoration, not content.
-                while title.hasSuffix("#") { title.removeLast() }
-                kinds.append(.heading(level: level, text: title.trimmedSpaces))
-                index += 1
-            } else if isRule(trimmed) {
-                flushParagraph()
-                kinds.append(.rule)
-                index += 1
-            } else if let (table, end) = MarkdownTable.read(lines, from: index) {
-                flushParagraph()
-                kinds.append(.table(table))
-                index = end
-            } else if listItem(lines[index]) != nil {
-                flushParagraph()
-                var items: [MarkdownListItem] = []
-                var afterBlank = false
-                while index < lines.count {
-                    let line = lines[index]
-                    if let item = listItem(line) {
-                        items.append(item)
-                        afterBlank = false
-                    } else if line.trimmedSpaces.isEmpty {
-                        // A blank line ends the list only when what follows is no part of it.
-                        guard let next = lines[(index + 1)...].first(where: { !$0.trimmed.isEmpty }),
-                              listItem(next) != nil || continuationDepth(next) != nil else { break }
-                        afterBlank = true
-                    } else if let depth = continuationDepth(line), let last = items.last {
-                        // Indented text under an item belongs to it. After a blank line it is
-                        // a paragraph of its own, lined up with the item's text.
-                        let text = line.trimmedSpaces
-                        if afterBlank {
-                            items.append(MarkdownListItem(depth: min(depth, last.depth), marker: "", text: text))
-                        } else {
-                            items[items.count - 1] = MarkdownListItem(depth: last.depth, marker: last.marker,
-                                                                      text: last.text + "\n" + text)
-                        }
-                        afterBlank = false
-                    } else {
-                        break
-                    }
-                    index += 1
-                }
-                kinds.append(.list(items))
-            } else if trimmed.hasPrefix(">") {
-                flushParagraph()
-                var quoted: [String] = []
-                while index < lines.count {
-                    let line = lines[index].trimmedSpaces
-                    guard line.hasPrefix(">") else { break }
-                    quoted.append(String(line.dropFirst()).trimmedSpaces)
-                    index += 1
-                }
-                kinds.append(.quote(quoted.joined(separator: "\n")))
             } else {
-                paragraph.append(lines[index])
-                index += 1
+                kinds += Self.kinds(of: block, in: source)
             }
         }
-        flushParagraph()
         centerMarkdown(upTo: kinds.count)
         return kinds.enumerated().map { MarkdownBlock(id: $0.offset, kind: $0.element) }
     }
 
-    private static func headingLevel(_ line: String) -> Int? {
-        let hashes = line.prefix(while: { $0 == "#" }).count
-        guard (1...6).contains(hashes), line.dropFirst(hashes).first == " " else { return nil }
-        return hashes
+    // An HTML block, or a paragraph of nothing but tags, such as a row of linked badges.
+    private static func html(of block: Markup, in source: MarkdownSource) -> String? {
+        if let html = block as? HTMLBlock { return html.rawHTML }
+        guard block is Paragraph, block.children.contains(where: { $0 is InlineHTML }),
+              block.children.allSatisfy({ child in
+                  child is InlineHTML || child is SoftBreak || child is LineBreak
+                      || (child as? Markdown.Text)?.string.allSatisfy(\.isWhitespace) == true
+              }) else { return nil }
+        return source.content(of: block)
     }
 
-    // Three or more of the same "-", "*" or "_", with any spaces between them.
-    private static func isRule(_ line: String) -> Bool {
-        var first: Character?
-        var count = 0
-        for character in line where character != " " {
-            if let first {
-                guard character == first else { return false }
-            } else {
-                guard "-*_".contains(character) else { return false }
-                first = character
-            }
-            count += 1
+    private static func kinds(of block: Markup, in source: MarkdownSource) -> [Kind] {
+        switch block {
+        case let heading as Heading:
+            return [.heading(level: heading.level, text: source.title(of: heading))]
+        case is ThematicBreak:
+            return [.rule]
+        case let table as Markdown.Table:
+            if let read = MarkdownTable(table, in: source) { return [.table(read)] }
+        case let list as ListItemContainer:
+            return [.list(listItems(list, depth: 0, in: source))]
+        case is BlockQuote:
+            return [.quote(source.content(of: block))]
+        case is Paragraph:
+            return paragraphs(source.content(of: block))
+        default:
+            break
         }
-        return count >= 3
+        // Anything else, such as indented code or HTML in a transcript, shows as written.
+        let text = source.content(of: block)
+        return text.isEmpty ? [] : [.paragraph(text)]
+    }
+
+    // A line that asks for an HTML preview stands as a block of its own, even when
+    // Markdown reads it as part of the paragraph around it.
+    private static func paragraphs(_ text: String) -> [Kind] {
+        guard text.contains(TranscriptMarker.open) else { return [.paragraph(text)] }
+        var kinds: [Kind] = []
+        var lines: [String] = []
+        func flush() {
+            let joined = lines.joined(separator: "\n").trimmed
+            if !joined.isEmpty { kinds.append(.paragraph(joined)) }
+            lines = []
+        }
+        for line in text.lines {
+            if let reference = HTMLPreviewReference.parse(line.trimmedSpaces) {
+                flush()
+                kinds.append(.htmlPreview(reference))
+            } else {
+                lines.append(line)
+            }
+        }
+        flush()
+        return kinds
     }
 
     static let bullets = ["•", "◦", "▪"]
 
-    // An item's text starts two spaces in for each level ("- " or "1. "), so plain text
-    // indented that far sits under the item one level up. Anything with block syntax of
-    // its own is left for the main parser.
-    private static func continuationDepth(_ line: String) -> Int? {
-        let indent = line.prefix(while: { $0 == " " }).count
-        let trimmed = line.trimmedSpaces
-        guard indent >= 2, listItem(line) == nil,
-              headingLevel(trimmed) == nil, !isRule(trimmed),
-              !trimmed.hasPrefix("|"), !trimmed.hasPrefix(">"),
-              HTMLPreviewReference.parse(trimmed) == nil else { return nil }
-        return min(indent / 2 - 1, bullets.count - 1)
+    // Every item of a list and of the lists inside it, in reading order. A paragraph
+    // after the first in an item carries on that item, so it has no marker of its own.
+    private static func listItems(_ list: ListItemContainer, depth: Int,
+                                  in source: MarkdownSource) -> [MarkdownListItem] {
+        let level = min(depth, bullets.count - 1)
+        var items: [MarkdownListItem] = []
+        for (offset, item) in list.listItems.enumerated() {
+            var marker: String
+            if let ordered = list as? OrderedList {
+                marker = "\(Int(ordered.startIndex) + offset)\(delimiter(of: item, in: source))"
+            } else {
+                marker = switch item.checkbox {
+                case .checked: "☑"
+                case .unchecked: "☐"
+                case nil: bullets[level]
+                }
+            }
+            for child in item.children {
+                if let nested = child as? ListItemContainer {
+                    // An item that opens with a list still shows its own marker first.
+                    if !marker.isEmpty {
+                        items.append(MarkdownListItem(depth: level, marker: marker, text: ""))
+                        marker = ""
+                    }
+                    items += listItems(nested, depth: depth + 1, in: source)
+                } else {
+                    items.append(MarkdownListItem(depth: level, marker: marker, text: source.content(of: child)))
+                    marker = ""
+                }
+            }
+            if !marker.isEmpty { items.append(MarkdownListItem(depth: level, marker: marker, text: "")) }
+        }
+        return items
     }
 
-    private static func listItem(_ line: String) -> MarkdownListItem? {
-        let indent = line.prefix(while: { $0 == " " }).count
-        let depth = min(indent / 2, bullets.count - 1)
-        let trimmed = line.trimmedSpaces
-        // "* * *" is a rule, not a one-item list.
-        guard let (end, numbered) = markerEnd(trimmed), !isRule(trimmed) else { return nil }
-        if !numbered {
-            var body = String(trimmed[end...])
-            var marker = bullets[depth]
-            if body.hasPrefix("[ ] ") {
-                marker = "☐"
-                body = String(body.dropFirst(4))
-            } else if body.hasPrefix("[x] ") || body.hasPrefix("[X] ") {
-                marker = "☑"
-                body = String(body.dropFirst(4))
-            }
-            return MarkdownListItem(depth: depth, marker: marker, text: body)
-        }
-        let marker = trimmed[..<end].trimmingCharacters(in: .whitespaces)
-        return MarkdownListItem(depth: depth, marker: marker, text: String(trimmed[end...]))
-    }
-
-    // Where the text after a list marker starts: "-", "*" or "+", or one to three numbers
-    // then "." or ")", followed by at least one space. A hand scan rather than a regex,
-    // since this runs on most lines of a reply on every flush while it streams. Any
-    // Character that `isNumber` counts as a digit, so "四." opens a list as "4." does.
-    private static func markerEnd(_ text: String) -> (end: String.Index, numbered: Bool)? {
-        var index = text.startIndex
-        guard index < text.endIndex else { return nil }
-        let numbered: Bool
-        if "-*+".contains(text[index]) {
-            numbered = false
-            index = text.index(after: index)
-        } else {
-            var digits = 0
-            while index < text.endIndex, digits < 3, text[index].isNumber {
-                digits += 1
-                index = text.index(after: index)
-            }
-            guard digits > 0, index < text.endIndex, text[index] == "." || text[index] == ")" else { return nil }
-            numbered = true
-            index = text.index(after: index)
-        }
-        guard index < text.endIndex, text[index] == " " else { return nil }
-        while index < text.endIndex, text[index] == " " { index = text.index(after: index) }
-        return (index, numbered)
+    // "." or ")", as the item was written.
+    private static func delimiter(of item: ListItem, in source: MarkdownSource) -> String {
+        guard let start = item.range?.lowerBound else { return "." }
+        let written = source.text[source.index(start)...].drop(while: { $0 == " " || $0.isNumber })
+        return written.first == ")" ? ")" : "."
     }
 }
 
-// Local image links and Markdown images share the same preview. Keep their source
-// text so an unresolved file still renders with its original link or image syntax.
 // How an image asks to be drawn. The size is in points, and a side left out follows the
 // picture's own shape. An image from HTML shows no caption, as a browser shows none:
 // its alt text stays its tooltip and what VoiceOver reads.
@@ -336,6 +273,7 @@ struct MarkdownImageAttributes: Equatable, Hashable {
     }
 }
 
+// Local image links and Markdown images share the same preview.
 extension MarkdownBlock {
     enum ParagraphPart: Equatable {
         case text(String)
@@ -344,118 +282,81 @@ extension MarkdownBlock {
     }
 
     static func paragraphParts(_ text: String) -> [ParagraphPart] {
-        var parts: [ParagraphPart] = []
-        var plain = ""
-        var index = text.startIndex
+        writtenParts(text).map(\.part)
+    }
 
-        func closingDelimiter(_ delimiter: Character, from start: String.Index,
-                              opening: Character? = nil) -> String.Index? {
-            var depth = 0
-            var i = start
-            while i < text.endIndex, !text[i].isNewline {
-                if text[i] == "\\" {
-                    i = text.index(after: i)
-                    if i < text.endIndex { i = text.index(after: i) }
-                    continue
-                }
-                if text[i] == delimiter {
-                    if depth == 0 { return i }
-                    depth -= 1
-                } else if text[i] == opening {
-                    depth += 1
-                }
-                i = text.index(after: i)
-            }
-            return nil
+    // Each part with the text it was written as. Labels and alt text stay Markdown,
+    // while a source is the destination Markdown reads out of the link.
+    private static func writtenParts(_ text: String) -> [(part: ParagraphPart, written: Substring)] {
+        // Nothing can be a link or an image without this, and most paragraphs lack it.
+        guard text.contains("](") else { return text.isEmpty ? [] : [(.text(text), text[...])] }
+        let source = MarkdownSource(text)
+        var parts: [(part: ParagraphPart, written: Substring)] = []
+        var cursor = text.startIndex
+
+        // The label as written, from just inside its opening bracket to its closing one.
+        func label(of node: Markup, from start: String.Index) -> String {
+            let opened = text.index(start, offsetBy: node is Markdown.Image ? 2 : 1)
+            let lastChild = node.children.compactMap(\.range).last.map { source.index($0.upperBound) } ?? opened
+            let close = text[lastChild...].firstIndex(of: "]") ?? lastChild
+            return String(text[opened..<close])
         }
 
-        while index < text.endIndex {
-            if text[index] == "\\" {
-                let next = text.index(after: index)
-                let end = next < text.endIndex ? text.index(after: next) : next
-                plain += text[index..<end]
-                index = end
-                continue
-            }
-            // Code examples may contain valid link syntax, but must remain code.
-            if text[index] == "`" {
-                let ticks = text[index...].prefix(while: { $0 == "`" })
-                let afterTicks = text.index(index, offsetBy: ticks.count)
-                var end = afterTicks
-                var search = afterTicks
-                while let match = text.range(of: ticks, range: search..<text.endIndex) {
-                    let run = text[match.lowerBound...].prefix(while: { $0 == "`" })
-                    search = text.index(match.lowerBound, offsetBy: run.count)
-                    if run.count == ticks.count {
-                        end = search
-                        break
-                    }
-                }
-                plain += text[index..<end]
-                index = end
-                continue
-            }
+        for node in linksAndImages(in: source.document) {
+            guard let range = node.range else { continue }
+            let start = source.index(range.lowerBound)
+            let end = source.index(range.upperBound)
+            // An autolink has no label to show, and one that starts inside text already
+            // taken, such as an image's size, is not a part of its own.
+            guard start >= cursor, start < end, text[start] == "[" || text[start] == "!" else { continue }
 
-            let isImage = text[index...].hasPrefix("![")
-            let bracket = isImage ? text.index(after: index) : index
-            if text[bracket] == "[",
-               let closeBracket = closingDelimiter("]", from: text.index(after: bracket)) {
-                let label = String(text[text.index(after: bracket)..<closeBracket])
-                let openParen = text.index(after: closeBracket)
-                if !containsUnescaped("[", in: label),
-                   openParen < text.endIndex, text[openParen] == "(",
-                   let closeParen = closingDelimiter(")", from: text.index(after: openParen),
-                                                     opening: "(") {
-                    let source = String(text[text.index(after: openParen)..<closeParen])
-                    if !source.trimmingCharacters(in: .whitespaces).isEmpty {
-                        if !plain.isEmpty {
-                            parts.append(.text(plain))
-                            plain = ""
-                        }
-                        index = text.index(after: closeParen)
-                        let read = isImage ? MarkdownImageAttributes.attributes(text[index...]) : nil
-                        parts.append(isImage ? .image(alt: label, source: source, attributes: read?.attributes)
-                                             : .link(label: label, source: source))
-                        if let read { index = text.index(index, offsetBy: read.length) }
-                        continue
-                    }
+            let part: ParagraphPart
+            var attributes: (attributes: MarkdownImageAttributes, length: Int)?
+            if let image = node as? Markdown.Image, let path = image.source, !path.isEmpty {
+                attributes = MarkdownImageAttributes.attributes(text[end...])
+                part = .image(alt: label(of: image, from: start), source: path, attributes: attributes?.attributes)
+            } else if let link = node as? Markdown.Link, let destination = link.destination, !destination.isEmpty {
+                // A picture that links somewhere, such as a badge, is drawn as the picture
+                // and keeps the link for when it cannot be.
+                if link.childCount == 1, let image = link.child(at: 0) as? Markdown.Image, let path = image.source,
+                   !path.isEmpty, let imageStart = image.range.map({ source.index($0.lowerBound) }) {
+                    part = .image(alt: label(of: image, from: imageStart), source: path,
+                                  attributes: MarkdownImageAttributes(link: destination))
+                } else {
+                    part = .link(label: label(of: link, from: start), source: destination)
                 }
+            } else {
+                continue
             }
-            plain.append(text[index])
-            index = text.index(after: index)
+            if cursor < start { parts.append((.text(String(text[cursor..<start])), text[cursor..<start])) }
+            parts.append((part, text[start..<end]))
+            cursor = attributes.map { text.index(end, offsetBy: $0.length) } ?? end
         }
-        if !plain.isEmpty { parts.append(.text(plain)) }
+        if cursor < text.endIndex { parts.append((.text(String(text[cursor...])), text[cursor...])) }
         return parts
     }
 
-    // An escaped bracket is text, so it does not stop a label being a label.
-    private static func containsUnescaped(_ mark: Character, in text: String) -> Bool {
-        var escaped = false
-        for character in text {
-            if escaped { escaped = false; continue }
-            if character == "\\" { escaped = true; continue }
-            if character == mark { return true }
+    // In reading order, leaving out anything inside a link or an image.
+    private static func linksAndImages(in markup: Markup) -> [Markup] {
+        markup.children.flatMap { child -> [Markup] in
+            child is Markdown.Link || child is Markdown.Image ? [child] : linksAndImages(in: child)
         }
-        return false
     }
 
     // What an image that cannot be drawn leaves behind: its link when it had one, and
     // otherwise the image as written, without the attributes that had nothing to size.
-    static func fallback(alt: String, source: String, attributes: MarkdownImageAttributes?) -> String {
-        guard let link = attributes?.link else { return "![\(alt)](\(source))" }
-        return "[\(alt.trimmed.isEmpty ? NoteDocument.escape(link) : alt)](\(link))"
+    private static func fallback(alt: String, attributes: MarkdownImageAttributes?, written: Substring) -> String {
+        guard let link = attributes?.link else { return String(written) }
+        return "[\(alt.trimmed.isEmpty ? NoteDocument.escape(link) : alt)](\(MarkdownImageAttributes.encoded(link)))"
     }
 
     // The text as it reads with no image drawn: the same text, with each image's
     // attribute block taken off, so a paragraph shown as plain text never prints one.
     static func displayText(_ text: String) -> String {
         guard text.contains("){") else { return text }
-        return paragraphParts(text).map { part in
-            switch part {
-            case .text(let piece): piece
-            case .link(let label, let source): "[\(label)](\(source))"
-            case .image(let alt, let source, let attributes): fallback(alt: alt, source: source, attributes: attributes)
-            }
+        return writtenParts(text).map { part, written in
+            guard case .image(let alt, _, let attributes) = part else { return String(written) }
+            return fallback(alt: alt, attributes: attributes, written: written)
         }.joined()
     }
 
@@ -485,24 +386,21 @@ extension MarkdownBlock {
             }
         }
 
-        for part in paragraphParts(text) {
+        for (part, written) in writtenParts(text) {
             switch part {
             case .text(let piece):
                 appendText(piece)
             case .link(let label, let source):
-                let markdown = "[\(label)](\(source))"
-                if let link = AttributedString.inlineMarkdown(markdown).runs.compactMap(\.link).first,
-                   let url = resolve(link.absoluteString) {
-                    let caption = String(AttributedString.inlineMarkdown(label).characters)
-                    resolved.append(.image(alt: caption, url: url))
+                if let url = resolve(source) {
+                    resolved.append(.image(alt: plainText(label), url: url))
                 } else {
-                    appendText(markdown)
+                    appendText(String(written))
                 }
             case .image(let alt, let source, let attributes):
                 if let url = resolve(source) {
                     resolved.append(.image(alt: plainText(alt), url: url, attributes: attributes))
                 } else {
-                    appendText(fallback(alt: alt, source: source, attributes: attributes))
+                    appendText(fallback(alt: alt, attributes: attributes, written: written))
                 }
             }
         }
@@ -622,22 +520,46 @@ struct MarkdownTable: Equatable, Sendable {
     let alignments: [ColumnAlignment]
     let rows: [[String]]
 
-    // A header row, the row of dashes under it, and every row after it that starts with
-    // a pipe. Returns the table and the index of the first line past it.
-    static func read(_ lines: [String], from start: Int) -> (table: MarkdownTable, end: Int)? {
-        let first = lines[start].trimmedSpaces
-        guard first.hasPrefix("|"), start + 1 < lines.count else { return nil }
-        let header = cells(first)
-        guard let alignments = separatorAlignments(lines[start + 1], columns: header.count) else { return nil }
-        var rows: [[String]] = []
-        var index = start + 2
-        while index < lines.count {
-            let row = lines[index].trimmedSpaces
-            guard row.hasPrefix("|") else { break }
-            rows.append(sized(cells(row), to: header.count))
-            index += 1
+    init(header: [String], alignments: [ColumnAlignment], rows: [[String]]) {
+        self.header = header
+        self.alignments = alignments
+        self.rows = rows
+    }
+
+    // The table that `markdown` holds, when it opens with one.
+    init?(markdown: String) {
+        let source = MarkdownSource(markdown)
+        guard let table = source.document.child(at: 0) as? Markdown.Table else { return nil }
+        self.init(table, in: source)
+    }
+
+    // The cells are read from the lines themselves, so each keeps its Markdown as written.
+    // swift-markdown says which lines make the table, though not always where its header
+    // is: it loses that when the table cuts a paragraph short. The header is the line above
+    // the row of dashes, and the body rows follow that row one to a line.
+    init?(_ table: Markdown.Table, in source: MarkdownSource) {
+        let delimiter: Int
+        if let firstRow = table.body.child(at: 0)?.range {
+            delimiter = firstRow.lowerBound.line - 1
+        } else if let lines = source.lines(of: table) {
+            delimiter = lines.upperBound
+        } else {
+            return nil
         }
-        return (MarkdownTable(header: header, alignments: alignments, rows: rows), index)
+        let columns = table.maxColumnCount
+        let quotes = MarkdownSource.quoteDepth(table)
+        func row(_ line: Int) -> [String] {
+            Self.sized(Self.cells(String(MarkdownSource.unquoted(source.line(line), depth: quotes))), to: columns)
+        }
+        header = row(delimiter - 1)
+        rows = (0..<table.body.childCount).map { row(delimiter + 1 + $0) }
+        alignments = (0..<columns).map { column in
+            switch column < table.columnAlignments.count ? table.columnAlignments[column] : nil {
+            case .center: .center
+            case .right: .trailing
+            default: .leading
+            }
+        }
     }
 
     private static func cells(_ line: String) -> [String] {
@@ -663,34 +585,6 @@ struct MarkdownTable: Equatable, Sendable {
         }
         cells.append(cell.trimmedSpaces)
         return cells
-    }
-
-    // The row of dashes under a header is what makes the pipes above it a table. Its
-    // colons carry each column's alignment.
-    private static func separatorAlignments(_ line: String,
-                                            columns: Int) -> [ColumnAlignment]? {
-        let trimmed = line.trimmedSpaces
-        guard trimmed.hasPrefix("|") else { return nil }
-        let parts = cells(trimmed)
-        guard parts.count == columns, !parts.isEmpty else { return nil }
-        var alignments: [ColumnAlignment] = []
-        for part in parts {
-            guard isSeparatorCell(part) else { return nil }
-            switch (part.hasPrefix(":"), part.hasSuffix(":")) {
-            case (true, true): alignments.append(.center)
-            case (false, true): alignments.append(.trailing)
-            default: alignments.append(.leading)
-            }
-        }
-        return alignments
-    }
-
-    // Dashes, with an optional colon at either end.
-    private static func isSeparatorCell(_ part: String) -> Bool {
-        var body = Substring(part)
-        if body.first == ":" { body.removeFirst() }
-        if body.last == ":" { body.removeLast() }
-        return !body.isEmpty && body.allSatisfy { $0 == "-" }
     }
 
     private static func sized(_ row: [String], to count: Int) -> [String] {

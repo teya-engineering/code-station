@@ -1,4 +1,5 @@
 import Foundation
+import Yams
 
 // The slash commands a session can be sent, gathered for one agent in one folder.
 //
@@ -282,33 +283,48 @@ enum AgentCommands {
     // that block is for the CLI that reads it, so none of it belongs in a prompt.
     static func body(of text: String) -> String {
         var lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        guard lines.first?.trimmedLine == "---",
-              let close = lines.dropFirst().firstIndex(where: { $0.trimmedLine == "---" })
+        guard let close = frontMatterEnd(lines)
         else { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
         lines.removeSubrange(0...close)
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // Only keys at the left edge count. An indented key belongs to some other key, so a
-    // `description` kept under `metadata` does not describe the file. A value may carry on
-    // over the lines indented below its key, as a folded or literal block does. The menu
-    // shows one line, so they are joined with spaces either way.
+    private static func frontMatterEnd(_ lines: [Substring]) -> Int? {
+        guard lines.first?.trimmedLine == "---" else { return nil }
+        return lines.dropFirst().firstIndex { $0.trimmedLine == "---" }
+    }
+
+    // Only top-level keys count, so a `description` kept under `metadata` does not
+    // describe the file. The menu shows one line, so a value folded or written over
+    // several lines is joined with spaces.
     private static func frontMatterValue(_ key: String, in text: String) -> String? {
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        guard lines.first?.trimmedLine == "---" else { return nil }
-        for (index, raw) in lines.enumerated().dropFirst() {
-            let line = raw.trimmedLine
-            if line == "---" { return nil }
-            guard raw.indentation == 0, line.lowercased().hasPrefix(key + ":") else { continue }
-            var parts = [String(line.dropFirst(key.count + 1)).trimmed]
-            if parts[0].range(of: #"^[|>][+-]?$"#, options: .regularExpression) != nil { parts = [] }
-            for next in lines.dropFirst(index + 1) where !next.trimmedLine.isEmpty {
-                guard next.indentation > raw.indentation else { break }
-                parts.append(next.trimmedLine)
+        guard let close = frontMatterEnd(lines) else { return nil }
+        let block = lines[1..<close]
+        let value: String?
+        // The basic resolver keeps every value as text, so `false` and `No` are read the
+        // same way whatever the YAML version would make of them.
+        if let mapping = (try? Yams.compose(yaml: block.joined(separator: "\n"), .basic))?.mapping {
+            value = mapping.first { $0.key.string?.lowercased() == key }?.value.scalar?.string
+        } else {
+            value = looseValue(key, in: block)
+        }
+        let line = value?.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return line?.isBlank == false ? line : nil
+    }
+
+    // People write front matter by hand, and a colon inside a plain value, as in
+    // `description: Use when: the build fails`, is not valid YAML. The CLIs still read
+    // such a file, so it falls back to taking each top-level line as written.
+    private static func looseValue(_ key: String, in block: ArraySlice<Substring>) -> String? {
+        for line in block where line.indentation == 0 {
+            guard let colon = line.firstIndex(of: ":"),
+                  line[..<colon].trimmedLine.lowercased() == key else { continue }
+            let value = line[line.index(after: colon)...].trimmedLine
+            if let quote = value.first, "\"'".contains(quote), value.count > 1, value.last == quote {
+                return String(value.dropFirst().dropLast())
             }
-            let value = parts.joined(separator: " ")
-                .trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
-            return value.isBlank ? nil : value
+            return value
         }
         return nil
     }

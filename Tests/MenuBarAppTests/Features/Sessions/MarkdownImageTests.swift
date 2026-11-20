@@ -54,9 +54,16 @@ struct MarkdownImageTests {
         ])
     }
 
-    @Test func anImageDoesNotSpanLines() {
-        let text = "![alt\n](a.png)"
-        #expect(MarkdownBlock.paragraphParts(text) == [.text(text)])
+    @Test func aLinkedPictureIsDrawnAndKeepsItsLink() {
+        #expect(MarkdownBlock.paragraphParts("[![CI](badge.png)](https://ci.example.com)") == [
+            .image(alt: "CI", source: "badge.png", attributes: MarkdownImageAttributes(link: "https://ci.example.com")),
+        ])
+        #expect(MarkdownBlock.resolvedParts("[![CI](badge.png)](https://ci.example.com)") { _ in nil }
+            == [.text("[CI](https://ci.example.com)")])
+    }
+
+    @Test func anImageCanSpanLines() {
+        #expect(MarkdownBlock.paragraphParts("![alt\n](a.png)") == [.image(alt: "alt\n", source: "a.png")])
     }
 
     // MARK: - Putting unresolved images back
