@@ -23,12 +23,13 @@ struct SessionRunSettingsControls: View {
             let layout = wraps ? AnyLayout(FlowRow(spacing: Space.md)) : AnyLayout(HStackLayout(spacing: Space.md))
             layout {
                 AgentPill(agent: agent)
-                    .appTooltip("This session always runs on \(agent.title).")
-                    .accessibilityLabel("Agent: \(agent.title)")
+                    .appTooltip(["This session always runs on \(agent.title).", agent.betaNote]
+                        .compactMap { $0 }.joined(separator: " "))
+                    .accessibilityLabel("Agent: \(agent.title)\(agent.isBeta ? ", beta" : "")")
                 modelControl(session, lastRan: session.usage?.model(for: agent))
-                effortControl(agent: agent)
+                if agent.choosesEffort { effortControl(agent: agent) }
                 switch agent {
-                case .claudeCode: permissionsControl(agent: agent)
+                case .claudeCode, .kiro: permissionsControl(agent: agent)
                 case .codex: codexAccessControl(agent: agent)
                 case .copilot: copilotAccessControl(agent: agent)
                 }
@@ -194,7 +195,7 @@ struct SessionRunSettingsControls: View {
             overridden: settings.permissionMode != nil,
             help: "How much the agent asks before it acts.",
             defaultEntry: (title: defaultTitle(appDefault.shortTitle), tone: TrustTone(appDefault)),
-            options: PermissionMode.allCases.map {
+            options: PermissionMode.choices(for: agent).map {
                 ShieldOption(id: $0, title: $0.shortTitle, detail: $0.title,
                              tone: TrustTone($0))
             },
@@ -299,6 +300,7 @@ private struct AgentPill: View {
             Text(agent.title)
                 .font(Typography.label)
                 .foregroundStyle(.secondary)
+            if agent.isBeta { BetaChip() }
         }
         .lineLimit(1)
         .padding(.horizontal, Space.md)

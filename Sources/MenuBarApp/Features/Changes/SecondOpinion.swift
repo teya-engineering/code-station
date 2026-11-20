@@ -121,13 +121,15 @@ enum SecondOpinion {
         switch reviewer.agent {
         case .claudeCode: return "anthropic"
         case .codex: return "openai"
-        case .copilot:
+        case .copilot, .kiro:
             guard let model = reviewer.model?.lowercased(), model != "auto" else { return nil }
             if model.hasPrefix("claude") { return "anthropic" }
             if model.hasPrefix("gpt") || model.hasPrefix("o1") || model.hasPrefix("o3") || model.hasPrefix("o4") {
                 return "openai"
             }
             if model.hasPrefix("gemini") { return "google" }
+            if model.hasPrefix("deepseek") { return "deepseek" }
+            if model.hasPrefix("qwen") { return "alibaba" }
             return nil
         }
     }
@@ -370,6 +372,11 @@ enum SecondOpinion {
                 + mcp
                 + model + (reviewer.effort.map { ["--effort", $0] } ?? [])
                 + addDirectories.flatMap { ["--add-dir", $0] }
+        case .kiro:
+            // Only reading tools are trusted. A run that cannot ask refuses every other
+            // tool outright, writes and the shell included, so the review stays read-only.
+            return ["chat", "--no-interactive", "--trust-tools=fs_read,grep,glob"]
+                + model + ["--", prompt]
         }
     }
 
@@ -550,6 +557,7 @@ enum SecondOpinion {
                 case .claudeCode: StreamEvent.parse(line)
                 case .codex: StreamEvent.parseCodex(line)
                 case .copilot: copilot.parse(line)
+                case .kiro: [StreamEvent.text(line)]
                 }
                 for event in events {
                     switch event {
@@ -584,6 +592,9 @@ enum SecondOpinion {
                 for case .text(let text) in events { parts.append(text) }
             }
             return parts.joined(separator: "\n")
+        case .kiro:
+            // Kiro prints the answer itself, and its tool notes go to stderr.
+            return output
         }
     }
 

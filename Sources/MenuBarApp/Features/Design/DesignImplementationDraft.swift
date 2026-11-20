@@ -66,14 +66,14 @@ final class DesignImplementationDraft {
     var copilotAccess: CopilotAccessMode { settings.copilotAccessMode ?? catalog.defaults(for: agent).copilotAccessMode ?? .workspace }
     var permissionTitle: String {
         switch agent {
-        case .claudeCode: permission.shortTitle
+        case .claudeCode, .kiro: permission.shortTitle
         case .codex: codexAccess.summary
         case .copilot: copilotAccess.summary
         }
     }
     var permissionDetail: String {
         switch agent {
-        case .claudeCode: permission.detail
+        case .claudeCode, .kiro: permission.detail(for: agent)
         case .codex: codexAccess.detail
         case .copilot: copilotAccess.detail
         }

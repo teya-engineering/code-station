@@ -181,6 +181,9 @@ enum Preferences {
             SessionSettings(model: text("copilotDefaultModel", in: store),
                             effort: text("copilotDefaultEffort", in: store),
                             copilotAccessMode: .resolved(store.string(forKey: "copilotAccessMode")))
+        case .kiro:
+            SessionSettings(model: text("kiroDefaultModel", in: store),
+                            permissionMode: PermissionMode(stored: store.string(forKey: "kiroPermissionMode")))
         }
     }
 
@@ -202,6 +205,10 @@ enum Preferences {
             set(settings.effort, "copilotDefaultEffort", in: store)
             store.set((settings.copilotAccessMode ?? .workspace).rawValue,
                       forKey: "copilotAccessMode")
+        case .kiro:
+            set(settings.model, "kiroDefaultModel", in: store)
+            store.set((settings.permissionMode ?? .fallback).rawValue,
+                      forKey: "kiroPermissionMode")
         }
     }
 

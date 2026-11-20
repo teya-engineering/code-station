@@ -1356,6 +1356,7 @@ final class ProjectStore {
         implementation.claudeSessionID = nil
         implementation.codexSessionID = nil
         implementation.copilotSessionID = nil
+        implementation.kiroSessionID = nil
         implementation.usage = nil
         implementation.summary = SessionSummary()
         implementation.messages = []
@@ -1916,7 +1917,7 @@ final class ProjectStore {
         loadTranscript(i)
         sessions[i].messages.append(message)
         if let checkpoint = message.checkpoint {
-            for (agent, id) in [(AgentKind.claudeCode, checkpoint.claudeSessionID), (.codex, checkpoint.codexSessionID), (.copilot, checkpoint.copilotSessionID)] {
+            for (agent, id) in [(AgentKind.claudeCode, checkpoint.claudeSessionID), (.codex, checkpoint.codexSessionID), (.copilot, checkpoint.copilotSessionID), (.kiro, checkpoint.kiroSessionID)] {
                 if let id { sessions[i].knownAgentSessionIDs?.insert(ImportedSessionOrigin.key(agent: agent, sessionID: id)) }
             }
         }
@@ -2010,6 +2011,7 @@ final class ProjectStore {
         case .claudeCode: sessions[i].claudeSessionID = agentID
         case .codex: sessions[i].codexSessionID = agentID
         case .copilot: sessions[i].copilotSessionID = agentID
+        case .kiro: sessions[i].kiroSessionID = agentID
         }
         scheduleIndexSave()
     }
@@ -2023,6 +2025,7 @@ final class ProjectStore {
         case .claudeCode: sessions[i].claudeSessionID = nil
         case .codex: sessions[i].codexSessionID = nil
         case .copilot: sessions[i].copilotSessionID = nil
+        case .kiro: sessions[i].kiroSessionID = nil
         }
         scheduleIndexSave()
     }
@@ -2058,11 +2061,13 @@ final class ProjectStore {
     // session is on now: the checkpoint speaks for all of them.
     func restoreAgentSessionIDs(claudeSessionID: String?, codexSessionID: String?,
                                 copilotSessionID: String? = nil,
+                                kiroSessionID: String? = nil,
                                 for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         sessions[i].claudeSessionID = claudeSessionID
         sessions[i].codexSessionID = codexSessionID
         sessions[i].copilotSessionID = copilotSessionID
+        sessions[i].kiroSessionID = kiroSessionID
         scheduleIndexSave()
     }
 
@@ -2079,6 +2084,7 @@ final class ProjectStore {
         guard let message = transcript(of: sessionID).first(where: { $0.id == messageID }),
               message.role == .user, let checkpoint = message.checkpoint else { return false }
         return checkpoint.codexSessionID == nil && checkpoint.copilotSessionID == nil
+            && checkpoint.kiroSessionID == nil
     }
 
     // A new session in the same project holding the conversation up to just before this
@@ -2182,6 +2188,7 @@ final class ProjectStore {
         case .claudeCode: session.claudeSessionID = resumeID
         case .codex: session.codexSessionID = resumeID
         case .copilot: session.copilotSessionID = resumeID
+        case .kiro: session.kiroSessionID = resumeID
         }
         session.importedOrigin = item.candidate.origin
         session.knownAgentSessionIDs = [item.candidate.id,

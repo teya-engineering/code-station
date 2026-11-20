@@ -7,19 +7,22 @@ import SwiftUI
 
 @MainActor
 enum TroubleshootSkills {
-    static func host(for agent: AgentKind) -> SkillHost {
+    // Nil for an agent the skills marketplace does not install into yet.
+    static func host(for agent: AgentKind) -> SkillHost? {
         switch agent {
         case .claudeCode: .claude
         case .codex: .codex
         case .copilot: .copilot
+        case .kiro: nil
         }
     }
 
     static func available(_ manager: SkillsManager,
                           for agent: AgentKind) -> [SkillMarketplace.Plugin] {
+        guard let host = host(for: agent) else { return [] }
         var names = Set<String>()
         return manager.plugins.filter {
-            manager.installation(of: $0, on: host(for: agent))?.enabled == true
+            manager.installation(of: $0, on: host)?.enabled == true
                 && names.insert($0.name).inserted
         }
     }
@@ -397,6 +400,10 @@ enum TroubleshootMCPState: Equatable {
                     disabledNames: Set(codex.entries.compactMap {
                         $0.value.enabled ? nil : $0.key
                     }))
+        case .kiro:
+            // The app does not register its servers with Kiro yet, so none of them count.
+            resolve(enabled: enabled, servers: servers, hasStartedCheck: true,
+                    isRefreshing: false, registeredNames: [], disabledNames: [])
         }
     }
 

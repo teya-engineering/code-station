@@ -109,6 +109,8 @@ enum PromptSuggestion {
         case .claudeCode: "haiku"
         case .codex: nil
         case .copilot: "auto"
+        // On every Kiro plan, and a fraction of the credits "auto" costs.
+        case .kiro: "claude-haiku-4.5"
         }
     }
 
@@ -142,6 +144,13 @@ enum PromptSuggestion {
             var arguments = ["-p", prompt, "--output-format", "json",
                              "--no-ask-user", "--disable-builtin-mcps", "--log-level", "none"]
             if let model = quickModel(for: agent) { arguments += ["--model", model] }
+            return arguments
+
+        case .kiro:
+            // No tool is trusted, so the run cannot touch anything; it only answers.
+            var arguments = ["chat", "--no-interactive", "--trust-tools="]
+            if let model = quickModel(for: agent) { arguments += ["--model", model] }
+            arguments += ["--", prompt]
             return arguments
         }
     }

@@ -249,6 +249,75 @@ final class CopilotAgentInfo {
     }
 }
 
+// Kiro says who is signed in through `kiro-cli whoami`. Its sign-in sits in Kiro's own
+// database rather than the keychain, so asking never waits on a system prompt.
+@MainActor
+@Observable
+final class KiroAgentInfo {
+    private(set) var path: String?
+    private(set) var version: String?
+    private(set) var account: KiroCLI.Account?
+    private(set) var isCheckingAccount = false
+    private(set) var accountCheckFailed = false
+    // What the CLI said when its answer could not be read, shown in place of a guess.
+    private(set) var accountProblem: String?
+    private(set) var isCheckingVersion = false
+    private(set) var versionCheckFailed = false
+    private var refreshID = UUID()
+    @ObservationIgnored private var versionTask: Task<Void, Never>?
+    @ObservationIgnored private var accountTask: Task<Void, Never>?
+
+    init() { refresh() }
+
+    func refresh() {
+        versionTask?.cancel()
+        accountTask?.cancel()
+        path = ProcessManager.resolve(AgentKind.kiro.command)
+        version = nil
+        account = nil
+        isCheckingVersion = false
+        versionCheckFailed = false
+        isCheckingAccount = false
+        accountCheckFailed = false
+        accountProblem = nil
+        refreshID = UUID()
+        guard let path else { return }
+        let searchPath = ProcessManager.searchPath
+        let id = refreshID
+        isCheckingVersion = true
+        versionTask = Task {
+            // The CLI prints "kiro-cli 3.5.0"; the number is the part worth keeping.
+            let version = await cliVersion(at: path, searchPath: searchPath)?
+                .split(whereSeparator: \.isNewline).first?
+                .split(separator: " ").last.map(String.init)
+            guard !Task.isCancelled, refreshID == id else { return }
+            self.version = version
+            self.versionCheckFailed = version == nil
+            self.isCheckingVersion = false
+        }
+        isCheckingAccount = true
+        accountTask = Task {
+            let reading = await KiroCLI.account(at: path, searchPath: searchPath)
+            guard !Task.isCancelled, refreshID == id else { return }
+            switch reading {
+            case .signedIn(let account): self.account = account
+            case .signedOut: break
+            case .unknown(let said):
+                self.accountCheckFailed = true
+                self.accountProblem = "Could not read the sign-in"
+                    + (said.map { ": \($0)" } ?? ". Refresh to ask Kiro again.")
+            }
+            self.isCheckingAccount = false
+        }
+    }
+
+    var readiness: AgentReadiness {
+        AgentReadiness(installed: path != nil, signedIn: account != nil,
+                       checking: isCheckingVersion || isCheckingAccount,
+                       failed: versionCheckFailed || accountCheckFailed)
+    }
+}
+
 // One agent's account, read through the same info object the Agents pane uses, for a
 // screen that only cares about the agent its session runs on.
 @MainActor
@@ -256,12 +325,14 @@ enum AgentAccount {
     case claudeCode(ClaudeAgentInfo)
     case codex(CodexAgentInfo)
     case copilot(CopilotAgentInfo)
+    case kiro(KiroAgentInfo)
 
     init(_ agent: AgentKind) {
         switch agent {
         case .claudeCode: self = .claudeCode(ClaudeAgentInfo())
         case .codex: self = .codex(CodexAgentInfo())
         case .copilot: self = .copilot(CopilotAgentInfo())
+        case .kiro: self = .kiro(KiroAgentInfo())
         }
     }
 
@@ -270,6 +341,7 @@ enum AgentAccount {
         case .claudeCode(let info): info.refresh()
         case .codex(let info): info.refresh()
         case .copilot(let info): info.refresh()
+        case .kiro(let info): info.refresh()
         }
     }
 
@@ -280,6 +352,9 @@ enum AgentAccount {
         case .claudeCode(let info): info.path == nil ? nil : info.account != nil
         case .codex(let info): info.path == nil ? nil : info.account != nil
         case .copilot(let info):
+            info.path == nil || info.isCheckingAccount || info.accountCheckFailed
+                ? nil : info.account != nil
+        case .kiro(let info):
             info.path == nil || info.isCheckingAccount || info.accountCheckFailed
                 ? nil : info.account != nil
         }
@@ -297,6 +372,8 @@ enum AgentAccount {
                 account.email.map { "\(account.method) · \($0)" } ?? account.method
             }
         case .copilot(let info):
+            info.account?.summary
+        case .kiro(let info):
             info.account?.summary
         }
     }
@@ -327,6 +404,7 @@ struct AgentSettingsView: View {
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
     @State private var copilot = CopilotAgentInfo()
+    @State private var kiro = KiroAgentInfo()
     @State private var loggingIn: AgentKind?
 
     let requestedAgent: AgentKind?
@@ -361,6 +439,7 @@ struct AgentSettingsView: View {
         claude.refresh()
         codex.refresh()
         copilot.refresh()
+        kiro.refresh()
         Task { await runner.refreshDiscoveredModels() }
     }
 
@@ -511,13 +590,33 @@ struct AgentSettingsView: View {
                     Task { await usageMonitor?.refresh(.copilot) }
                     Task { await runner.refreshDiscoveredModels() }
                 })
+        case .kiro:
+            AgentProfile(
+                heading: "KIRO",
+                path: kiro.path,
+                version: kiro.version,
+                account: kiro.account?.summary
+                    ?? (kiro.isCheckingAccount ? "Checking…" : kiro.accountProblem),
+                signedIn: kiro.account != nil,
+                plan: nil,
+                usage: [],
+                usageCheckedAt: nil,
+                usageLoading: false,
+                usageEmptyMessage: "Kiro does not share its account allowance with other apps. Your plan's credits are on app.kiro.dev.",
+                usageNote: "Kiro counts usage in credits from your plan.",
+                fileTitle: "Kiro settings",
+                configFile: ".kiro/settings/cli.json",
+                refresh: {
+                    kiro.refresh()
+                    Task { await runner.refreshDiscoveredModels() }
+                })
         }
     }
 
     private func agentSection(for agent: AgentKind) -> some View {
         let profile = profile(for: agent)
         return VStack(alignment: .leading, spacing: Space.xxl) {
-            ChoiceBlock(profile.heading) {
+            ChoiceBlock(profile.heading, note: agent.betaNote, badge: agent.isBeta ? "BETA" : nil) {
                 SettingsCard {
                     statusRow(installed: profile.path != nil,
                               signedIn: profile.signedIn,
@@ -537,7 +636,7 @@ struct AgentSettingsView: View {
             .id(SettingsSearchTarget.agentDetails.id)
             accountUsage(profile).id(SettingsSearchTarget.agentUsage.id)
             model(for: agent).id(SettingsSearchTarget.agentModel.id)
-            effort(for: agent).id(SettingsSearchTarget.agentEffort.id)
+            if agent.choosesEffort { effort(for: agent).id(SettingsSearchTarget.agentEffort.id) }
             permissions(for: agent).id(SettingsSearchTarget.agentPermissions.id)
             cost(for: agent).id(SettingsSearchTarget.agentCost.id)
             files(title: profile.fileTitle,
@@ -621,20 +720,22 @@ struct AgentSettingsView: View {
 
     @ViewBuilder private func permissions(for agent: AgentKind) -> some View {
         switch agent {
-        case .claudeCode: claudePermissions
+        case .claudeCode, .kiro: claudePermissions(for: agent)
         case .codex: codexPermissions
         case .copilot: copilotPermissions
         }
     }
 
-    private var claudePermissions: some View {
-        ChoiceBlock("PERMISSIONS") {
+    private func claudePermissions(for agent: AgentKind) -> some View {
+        ChoiceBlock("PERMISSIONS", note: agent == .kiro
+                    ? "Used by every Kiro session unless that session has its own choice. Changes apply from its next turn."
+                    : nil) {
             SettingsCard {
-                let modes = PermissionMode.defaultChoices
+                let modes = PermissionMode.defaultChoices(for: agent)
                 ForEach(modes.indices, id: \.self) { index in
                     let choice = modes[index]
                     OptionRow(title: choice.title,
-                              detail: choice.detail,
+                              detail: choice.detail(for: agent),
                               selected: (defaults.permissionMode ?? .fallback) == choice) {
                         change { $0.permissionMode = choice }
                     }

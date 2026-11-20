@@ -7,17 +7,20 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     case claudeCode = "claude"
     case codex = "codex"
     case copilot = "copilot"
+    case kiro = "kiro"
 
     var id: String { rawValue }
 
-    // The executable the agent is run through.
-    var command: String { rawValue }
+    // The executable the agent is run through. Kiro's CLI is named for the product, not
+    // the agent, so it is the one whose command differs from its stored name.
+    var command: String { self == .kiro ? "kiro-cli" : rawValue }
 
     var title: String {
         switch self {
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .copilot: "Copilot"
+        case .kiro: "Kiro"
         }
     }
 
@@ -27,16 +30,30 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .claudeCode: "Anthropic"
         case .codex: "OpenAI"
         case .copilot: "GitHub"
+        case .kiro: "AWS"
         }
     }
 
-    var blurb: String { "\(vendor)'s coding agent." }
+    // Beta leads, so a menu that cuts the line short still shows it.
+    var blurb: String { isBeta ? "Beta · \(vendor)'s coding agent." : "\(vendor)'s coding agent." }
+
+    // An agent the app runs but does not yet support in full. It is marked BETA wherever
+    // it can be picked, and says what that means where its settings are.
+    var isBeta: Bool { self == .kiro }
+
+    // What beta means for this agent, in one sentence a person can act on.
+    var betaNote: String? {
+        guard isBeta else { return nil }
+        return "\(title) support is in beta. Sessions, permissions and models work. Code Station's MCP servers, "
+            + "past sessions and credit usage are not supported yet."
+    }
 
     var symbol: String {
         switch self {
         case .claudeCode: "brain.head.profile"
         case .codex: "sparkles"
         case .copilot: "airplane"
+        case .kiro: "cloud"
         }
     }
 
@@ -45,6 +62,7 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .claudeCode: "npm install -g @anthropic-ai/claude-code"
         case .codex: "npm install -g @openai/codex"
         case .copilot: "npm install -g @github/copilot"
+        case .kiro: "brew install --cask kiro-cli"
         }
     }
 
@@ -56,6 +74,7 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .claudeCode: "2.1.154" // --prompt-suggestions
         case .codex: "0.147.0" // --approve-for-me
         case .copilot: "1.0.32" // --session-id
+        case .kiro: "3.5.0" // ACP v3 model choice through session/set_config_option
         }
     }
 
@@ -78,24 +97,32 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         return numbers.compactMap { $0 }
     }
 
-    // What signing in means for each CLI, typed into a shell as-is.
+    // What signing in means for each CLI, typed into a shell as-is. Kiro's opens its own
+    // menu of every way in, an organisation's sign-in included.
     var loginCommand: String {
         switch self {
         case .claudeCode: "claude /login"
         case .codex: "codex login"
         case .copilot: "copilot login"
+        case .kiro: "kiro-cli login"
         }
     }
 
     // Whether tool access can be approved interactively. Codex and Copilot keep the
     // access policy chosen in settings, even though their servers accept follow-ups.
-    var asksPermissions: Bool { self == .claudeCode }
+    // Kiro asks over ACP for each call its access mode does not already allow.
+    var asksPermissions: Bool { self == .claudeCode || self == .kiro }
 
     // Whether a prompt sent during a turn can reach the agent before that turn ends.
     // Claude Code takes a message written to its open input at its next step, and Codex
     // has a request for steering its active turn. Copilot holds a second message until
-    // the turn is over, which is no better than the app's own queue.
-    var canSteer: Bool { self != .copilot }
+    // the turn is over, which is no better than the app's own queue. ACP has no way to
+    // add to a running prompt, so Kiro waits the same way.
+    var canSteer: Bool { self != .copilot && self != .kiro }
+
+    // Whether the CLI takes an effort level at all. Kiro's ACP server has none, so its
+    // effort control would offer nothing but "Default" and is left out.
+    var choosesEffort: Bool { self != .kiro }
 
     // Whether the CLI predicts the next prompt itself and reports it on its stream. The
     // others have to be asked in a run of their own, so a suggestion costs them far more.
@@ -325,6 +352,17 @@ enum PermissionMode: String, Codable, Sendable, CaseIterable, Identifiable {
     // default it would make every new session read-only, so it is not offered there.
     static let defaultChoices = allCases.filter { $0 != .plan }
 
+    // The modes an agent can honour. Kiro has no judge of its own for which steps are
+    // risky, so "Risky only" is not offered there; a session that holds it from another
+    // agent runs as "Allow edits".
+    static func choices(for agent: AgentKind) -> [PermissionMode] {
+        agent == .kiro ? [.acceptEdits, .manual, .plan] : allCases
+    }
+
+    static func defaultChoices(for agent: AgentKind) -> [PermissionMode] {
+        choices(for: agent).filter { $0 != .plan }
+    }
+
     // The mode a session goes back to once its plan is approved. A stored plan mode is
     // skipped, or approving the plan would start the next turn planning all over again.
     static func afterPlan(_ stored: PermissionMode?) -> PermissionMode {
@@ -370,6 +408,20 @@ enum PermissionMode: String, Codable, Sendable, CaseIterable, Identifiable {
             "Claude Code reads and plans but changes nothing. Approving the plan puts the session back in its usual mode."
         }
     }
+
+    // The same modes as Kiro applies them. The app answers Kiro's questions about edits
+    // inside the session's folders, and Kiro plans in a mode of its own.
+    func detail(for agent: AgentKind) -> String {
+        guard agent == .kiro else { return detail }
+        return switch self {
+        case .acceptEdits, .auto:
+            "Edits to files in this session's folders go through on their own. Commands and anything else are asked about."
+        case .manual:
+            "Every edit and every command waits for an answer."
+        case .plan:
+            "Kiro plans in its own Plan mode and changes nothing. Choose another mode to carry the plan out."
+        }
+    }
 }
 
 // The models each agent's picker offers. Claude Code publishes stable aliases but no
@@ -411,11 +463,20 @@ enum ModelChoice {
         Option(id: "gpt-5.4", title: "GPT-5.4", detail: "OpenAI's everyday model."),
     ]
 
+    // Kiro's free plan lists these; a paid plan adds more, which the live catalog shows.
+    static let kiroFallback: [Option] = [
+        Option(id: nil, title: "Default", detail: "Whatever Kiro is set to use."),
+        Option(id: "auto", title: "Auto", detail: "Kiro picks the model for each request."),
+        Option(id: "claude-sonnet-4.5", title: "Claude Sonnet 4.5", detail: "The everyday balance of speed and depth."),
+        Option(id: "claude-haiku-4.5", title: "Claude Haiku 4.5", detail: "The fastest Claude model; best for small, mechanical work."),
+    ]
+
     static func fallback(for agent: AgentKind) -> [Option] {
         switch agent {
         case .claudeCode: claude
         case .codex: codexFallback
         case .copilot: copilotFallback
+        case .kiro: kiroFallback
         }
     }
 
@@ -439,9 +500,9 @@ enum ModelChoice {
                 guard !claude.contains(where: { $0.id == id }), !id.hasPrefix("claude-")
                 else { return nil }
             }
-        case .copilot:
-            // Copilot's catalog names Claude models too, so nothing about the id itself
-            // says whether it belongs here. Without a catalog the CLI is left to judge.
+        case .copilot, .kiro:
+            // Copilot's and Kiro's catalogs name Claude models too, so nothing about the id
+            // itself says whether it belongs here. Without a catalog the CLI is left to judge.
             if let discovered {
                 guard discovered.contains(where: { $0.id == id }) else { return nil }
             }
@@ -518,6 +579,8 @@ enum EffortChoice {
     // in for every other case.
     static func all(for agent: AgentKind, model: String? = nil,
                     discovered: [ModelChoice.Option]? = nil) -> [Option] {
+        // Kiro's ACP server takes no effort level, so there is nothing to choose.
+        if agent == .kiro { return [levels[0]] }
         guard agent != .claudeCode, let discovered else { return levels }
         let selected = model.flatMap { selected in
             discovered.first { $0.id == selected }

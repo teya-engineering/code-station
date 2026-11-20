@@ -219,3 +219,22 @@ extension PermissionRequest {
             .joined(separator: "\n\n")
     }
 }
+
+extension PermissionRequest {
+    // Built from Kiro's `session/request_permission`. The request itself names only the
+    // call and a title; what the call will do came earlier on the stream, which is where
+    // the subject is read from, so the card shows the command or the file and not
+    // Kiro's paraphrase of it. Kiro offers "always allow" for every kind of call.
+    static func kiro(id: String, call: KiroStream.Call?, title: String,
+                     projectPath: String) -> PermissionRequest {
+        let toolName = call?.name ?? title
+        let inputText = call?.input ?? "{}"
+        let rawInput = (try? JSONSerialization.jsonObject(with: Data(inputText.utf8))) as? [String: Any] ?? [:]
+        let subject = subject(toolName: toolName, input: rawInput, projectPath: projectPath)
+        return PermissionRequest(
+            id: id, toolName: toolName, title: title, subject: subject,
+            detail: title == subject || title == toolName ? "" : title,
+            input: Data(inputText.utf8), suggestions: nil,
+            alwaysTitle: "Always allow \(toolName)", questions: [])
+    }
+}

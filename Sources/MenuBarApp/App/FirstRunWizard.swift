@@ -41,6 +41,7 @@ struct FirstRunWizard: View {
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
     @State private var copilot = CopilotAgentInfo()
+    @State private var kiro = KiroAgentInfo()
     @State private var terminalAction: TerminalAction?
     @State private var terminalAgent: AgentKind?
     @State private var terminalReturn = 0
@@ -60,7 +61,7 @@ struct FirstRunWizard: View {
         FirstRunWizardContent(
             setup: setup,
             readiness: [.claudeCode: claude.readiness, .codex: codex.readiness,
-                        .copilot: copilot.readiness],
+                        .copilot: copilot.readiness, .kiro: kiro.readiness],
             terminalReturn: terminalReturn,
             refresh: refresh,
             openTerminal: {
@@ -83,6 +84,7 @@ struct FirstRunWizard: View {
         if agent == nil || agent == .claudeCode { claude.refresh() }
         if agent == nil || agent == .codex { codex.refresh() }
         if agent == nil || agent == .copilot { copilot.refresh() }
+        if agent == nil || agent == .kiro { kiro.refresh() }
     }
 
     private func finish(openProject: Bool) {
@@ -245,7 +247,7 @@ struct FirstRunWizardContent: View {
     private var agentSetup: some View {
         VStack(alignment: .leading, spacing: Space.xl) {
             heading("Connect your coding agent",
-                    detail: "Use Claude Code, Codex, or Copilot with your local projects. Code Station uses the agent's own CLI and account.")
+                    detail: "Use Claude Code, Codex, Copilot, or Kiro with your local projects. Code Station uses the agent's own CLI and account.")
             HStack(spacing: Space.lg) {
                 ForEach(AgentKind.allCases) { agent in agentChoice(agent) }
             }
@@ -275,7 +277,10 @@ struct FirstRunWizardContent: View {
                         .frame(width: 30, height: 30)
                         .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field))
                     VStack(alignment: .leading, spacing: Space.xxs) {
-                        Text(agent.title).font(.system(size: 13 * scale, weight: .semibold))
+                        HStack(spacing: Space.xs) {
+                            Text(agent.title).font(.system(size: 13 * scale, weight: .semibold))
+                            if agent.isBeta { BetaChip() }
+                        }
                         Text(agent.vendor).font(.system(size: 11 * scale)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)

@@ -91,7 +91,7 @@ enum AgentCommands {
              AgentCommand(name: "review", summary: "Review a pull request", scope: .builtIn),
              AgentCommand(name: "security-review", summary: "Review the current changes for security problems",
                           scope: .builtIn)]
-        case .codex, .copilot:
+        case .codex, .copilot, .kiro:
             []
         }
     }
@@ -138,6 +138,10 @@ enum AgentCommands {
             return roots.map { Folder(url: $0.appendingPathComponent(".github/prompts"), scope: .project,
                                       holds: .commands) }
                 + [Folder(url: home.appendingPathComponent(".copilot/prompts"), scope: .user, holds: .commands)]
+        case .kiro:
+            return roots.map { Folder(url: $0.appendingPathComponent(".kiro/prompts"), scope: .project,
+                                      holds: .commands) }
+                + [Folder(url: home.appendingPathComponent(".kiro/prompts"), scope: .user, holds: .commands)]
         }
     }
 

@@ -110,7 +110,7 @@ struct PromptSuggestionTests {
         #expect(!FileManager.default.fileExists(atPath: scratch.path("started").path))
     }
 
-    @Test(arguments: [AgentKind.claudeCode, .codex, .copilot], [0, 7])
+    @Test(arguments: [AgentKind.claudeCode, .codex, .copilot, .kiro], [0, 7])
     func readsTheLastLineOnlyWhenTheCommandSucceeds(agent: AgentKind, status: Int) async throws {
         let scratch = ScratchDirectory(prefix: "prompt-suggestion")
         let executable = scratch.path("agent")
@@ -121,6 +121,8 @@ struct PromptSuggestionTests {
             #"{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"Run the tests"}}"#
         case .copilot:
             #"{"type":"assistant.message","data":{"messageId":"answer","content":"Run the tests"}}"#
+        case .kiro:
+            "Run the tests"
         }
         try FixtureCLI.write("""
             cat >/dev/null
@@ -187,7 +189,7 @@ struct PromptSuggestionRunnerTests {
         #expect(!(try Self.arguments(harness).contains("--prompt-suggestions")))
     }
 
-    @Test(arguments: [AgentKind.codex, .copilot])
+    @Test(arguments: [AgentKind.codex, .copilot, .kiro])
     func asksTheCLIsThatCannotPredictInARunOfTheirOwn(agent: AgentKind) async throws {
         let harness = try RunnerHarness(agent: agent, script: Self.script(agent),
                                         promptSuggestionsEnabled: { true })
@@ -294,6 +296,7 @@ struct PromptSuggestionRunnerTests {
         case .claudeCode: "IFS= read -r input"
         case .codex: ""
         case .copilot: "input=\"$*\""
+        case .kiro: ""
         }
         let turn = switch agent {
         case .claudeCode:
@@ -314,6 +317,11 @@ struct PromptSuggestionRunnerTests {
             printf '%s\\n' '{"type":"assistant.message","data":{"messageId":"answer","content":"Work complete"}}'
             printf '%s\\n' '{"type":"result","sessionId":"copilot-1","exitCode":0}'
             """
+        case .kiro:
+            FixtureCLI.kiroServer(onPrompt: """
+                kiro_say 'Work complete'
+                kiro_end
+                """)
         }
         let suggestion = switch agent {
         case .claudeCode:
@@ -332,6 +340,9 @@ struct PromptSuggestionRunnerTests {
             printf '%s\\n' '{"type":"assistant.message","data":{"messageId":"answer","content":"Add a regression test"}}'
             printf '%s\\n' '{"type":"result","sessionId":"copilot-1","exitCode":0}'
             """
+        case .kiro:
+            // `kiro-cli chat --no-interactive` prints the answer as plain text.
+            "printf 'Add a regression test\\n'"
         }
         // Codex drains stdin even when the prompt is an argument. An open input pipe
         // would keep it from reaching the suggestion request.

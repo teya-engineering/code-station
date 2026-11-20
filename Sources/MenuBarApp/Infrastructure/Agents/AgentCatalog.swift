@@ -85,6 +85,7 @@ final class AgentCatalog {
                     let models: [ModelChoice.Option]? = switch agent {
                     case .codex: await CodexModelReader.read(at: path, searchPath: searchPath)
                     case .copilot: await CopilotServer.models(at: path, searchPath: searchPath)
+                    case .kiro: await KiroCLI.models(at: path, searchPath: searchPath)
                     case .claudeCode: nil
                     }
                     return (agent, models, id)
