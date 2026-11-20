@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 extension EnvironmentValues {
-    @Entry var sentPromptCommandNames: Set<String> = []
+    @Entry var sentPromptCommandNames = SlashCommandNames()
 }
 
 // The conversation shares its command names so each bubble need not read the files.
@@ -10,7 +10,7 @@ struct SentPromptCommands: ViewModifier {
     let agent: AgentKind
     let workingDirectories: [String]
     let latestPromptID: UUID?
-    @State private var names: Set<String> = []
+    @State private var names = SlashCommandNames()
 
     func body(content: Content) -> some View {
         content
@@ -22,7 +22,7 @@ struct SentPromptCommands: ViewModifier {
                     AgentCommands.all(for: agent, workingDirectories: roots)
                 }.value
                 guard !Task.isCancelled else { return }
-                names = Set(commands.map { $0.name.lowercased() })
+                names = SlashCommandNames(commands, agent: agent)
             }
     }
 }
@@ -40,9 +40,11 @@ struct SentPromptText: View {
                         .transcriptCopyButton(for: segment.text, tooltip: "Copy code", inset: 6)
                 } else {
                     ForEach(Array(SentPrompt.quoteRuns(segment.text).enumerated()), id: \.offset) { offset, run in
+                        // Only the first words typed open the prompt. A command anywhere
+                        // after them is one the agent picks up as it reads.
                         let prose = SelectableText(
-                            prose: SentPrompt.inline(run.text,
-                                                     commandNames: segment.id == 0 && offset == 0 ? commandNames : []),
+                            prose: SentPrompt.inline(run.text, commands: commandNames,
+                                                     opensPrompt: segment.id == 0 && offset == 0 && !run.isQuote),
                             lineSpacing: 3, width: .hugs, linksLocalServers: false)
                             .fixedSize(horizontal: false, vertical: true)
                         if run.isQuote {
@@ -69,8 +71,14 @@ struct SentPromptText: View {
 enum SentPrompt {
     private static let links = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
-    static func inline(_ text: String, commandNames: Set<String>) -> AttributedString {
-        var attributed = AttributedString.inlineMarkdown(text)
+    // Every command the agent will act on is drawn bold in the accent, by the same rules
+    // the prompt box colours them, apart from any inside code or a link.
+    static func inline(_ text: String, commands: SlashCommandNames,
+                       opensPrompt: Bool = true) -> AttributedString {
+        let ranges = SlashQuery.highlightedRanges(in: text, caret: nil, names: commands,
+                                                  opensPrompt: opensPrompt)
+        let (markdown, commands) = rendering(text, locating: ranges)
+        var attributed = markdown
         let rendered = String(attributed.characters)
         for match in links?.matches(in: rendered, range: NSRange(rendered.startIndex..., in: rendered)) ?? [] {
             guard let url = match.url, let scheme = url.scheme,
@@ -84,16 +92,56 @@ enum SentPrompt {
             attributed[start..<end].link = url
         }
 
-        let command = text.drop(while: \.isWhitespace).prefix(while: { !$0.isWhitespace })
-        if command.hasPrefix("/"), commandNames.contains(String(command.dropFirst()).lowercased()),
-           let range = attributed.range(of: String(command)),
-           attributed[range].runs.allSatisfy({
-               $0.link == nil && !($0.inlinePresentationIntent?.contains(.code) ?? false)
-           }) {
-            attributed[range].foregroundColor = Theme.accent
-            attributed[range].inlinePresentationIntent = .stronglyEmphasized
+        for command in commands {
+            guard let range = Range(command, in: rendered),
+                  let start = AttributedString.Index(range.lowerBound, within: attributed),
+                  let end = AttributedString.Index(range.upperBound, within: attributed),
+                  attributed[start..<end].runs.allSatisfy({
+                      $0.link == nil && !($0.inlinePresentationIntent?.contains(.code) ?? false)
+                  }) else { continue }
+            attributed[start..<end].foregroundColor = Theme.accent
+            attributed[start..<end].inlinePresentationIntent = .stronglyEmphasized
         }
         return attributed
+    }
+
+    // Markdown takes characters out as it renders, so a command found in the typed text is
+    // not at the same place in what is shown. Each one is marked in the typed text with a
+    // character the parser keeps as it is, and found again by that mark once it renders.
+    // The marks are then taken out, leaving the rendered prompt and where each command
+    // ended up in it.
+    private static let marker: Character = "\u{E000}"
+
+    private static func rendering(_ text: String, locating ranges: [NSRange]) -> (AttributedString, [NSRange]) {
+        guard !ranges.isEmpty, !text.contains(marker) else { return (.inlineMarkdown(text), []) }
+        let marked = NSMutableString(string: text)
+        for range in ranges.reversed() {
+            marked.insert(String(marker), at: range.location)
+        }
+        var attributed = AttributedString.inlineMarkdown(marked as String)
+
+        // Where each mark sits once the marks before it are gone. A mark is one UTF-16 unit.
+        let markUnit = String(marker).utf16.first
+        var places: [Int] = []
+        for (offset, unit) in String(attributed.characters).utf16.enumerated() where unit == markUnit {
+            places.append(offset - places.count)
+        }
+        while let mark = attributed.characters.firstIndex(of: marker) {
+            attributed.removeSubrange(mark..<attributed.characters.index(after: mark))
+        }
+        guard places.count == ranges.count else { return (attributed, []) }
+
+        // A command that Markdown changed on the way, such as a name with underscores read
+        // as emphasis, is left as it was drawn.
+        let shown = String(attributed.characters) as NSString
+        let typed = text as NSString
+        let found = zip(places, ranges).compactMap { place, range -> NSRange? in
+            let moved = NSRange(location: place, length: range.length)
+            guard NSMaxRange(moved) <= shown.length,
+                  shown.substring(with: moved) == typed.substring(with: range) else { return nil }
+            return moved
+        }
+        return (attributed, found)
     }
 
     struct QuoteRun: Equatable {

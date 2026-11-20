@@ -49,6 +49,14 @@ enum Motion {
     static let ringDuration: TimeInterval = 0.52
     static let ringGap: TimeInterval = 0.09
     static let ring = Animation.timingCurve(0.2, 0.7, 0.1, 1, duration: ringDuration)
+    // A wash fading off words that have just been put into a field. It runs on the curve
+    // a line draws on, held long enough for the eye to find where the words went.
+    static let washDuration: TimeInterval = 0.7
+
+    // The curve a line draws on, for a mark that Core Animation plays in an AppKit view.
+    static var drawCurve: CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: 0.2, 0.7, 0.1, 1)
+    }
 
     // How far a control swells under the pointer. Kept this small on purpose: at this
     // size the lift is felt as the control waking up, and much past it the window starts

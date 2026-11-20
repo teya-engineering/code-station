@@ -106,6 +106,11 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     // what it meant, so the app expands the command for them before it is sent.
     var expandsCommands: Bool { self == .claudeCode }
 
+    // Whether a skill or command file named in the middle of a prompt still runs. Claude
+    // Code picks one up through its Skill tool as it reads. The app expands only a leading
+    // command for the other two, so a later one would reach them as plain words.
+    var readsCommandsMidPrompt: Bool { self == .claudeCode }
+
     // Whether the CLI keeps one conversation id for the whole session. Claude Code forks
     // a new id on every resumed turn instead, which is what lets a turn be wound back.
     var reusesConversationID: Bool { self != .claudeCode }
