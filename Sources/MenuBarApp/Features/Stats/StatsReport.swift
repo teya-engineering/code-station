@@ -406,7 +406,7 @@ extension StatsReport {
 
     // As many slots as the day ribbon cuts the rolling day into, so a slot here and a bar
     // there cover the same minutes.
-    static let slots = RibbonEntrance.slots
+    static let slots = 64
 
     // Each window's share of every subject, in every lens. A wait is placed by the
     // session it was asked in, since an event from before subjects were recorded has

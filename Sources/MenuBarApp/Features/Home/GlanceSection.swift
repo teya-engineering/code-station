@@ -64,11 +64,6 @@ struct GlanceSection: View {
 
     @State private var entrance = Entrance.waiting
     @State private var settling: Task<Void, Never>?
-    // Where the total starts and lands, in the card's own coordinates.
-    @State private var sectionWidth: CGFloat = 0
-    @State private var trackFrame: CGRect = .zero
-    @State private var numberFrame: CGRect = .zero
-    @State private var rollSize: CGSize = .zero
 
     private static let bandHeight: CGFloat = 132
     private static let barSpacing: CGFloat = 3
@@ -100,14 +95,11 @@ struct GlanceSection: View {
     private enum Entrance {
         case waiting
         case fading(since: Date)
-        case playing(RibbonEntrance, since: Date)
         case settled
     }
 
     // One frame of whatever the chart is doing.
     private struct Moment {
-        var play: RibbonEntrance?
-        var time: TimeInterval = 0
         var chartOpacity: Double = 1
     }
 
@@ -131,7 +123,7 @@ struct GlanceSection: View {
 
     private var isMoving: Bool {
         switch entrance {
-        case .fading, .playing: true
+        case .fading: true
         case .waiting, .settled: false
         }
     }
@@ -156,9 +148,9 @@ struct GlanceSection: View {
         .motion(Motion.reveal, value: showsBreakdown)
         .onAppear {
             if statsOn { stats.refresh(store) }
-            begin(ribbon)
+            begin()
         }
-        .onChange(of: scanned) { begin(self.ribbon) }
+        .onChange(of: scanned) { begin() }
         .onChange(of: statsOn) { _, on in
             guard !on else { return }
             withAnimation(reduceMotion ? nil : Motion.control) {
@@ -295,7 +287,7 @@ struct GlanceSection: View {
 
     private func glanceCard(ribbon: DayRibbon, shape: GlanceShape, moment: Moment) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            headline(ribbon: ribbon, moment: moment)
+            headline(ribbon: ribbon)
                 .padding(Space.xxl)
             if statsOn && stats.isReading {
                 ProgressCard(title: "Reading your sessions",
@@ -322,16 +314,10 @@ struct GlanceSection: View {
                     .padding(.bottom, Space.xl)
                     .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
             }
-            readings(ribbon: ribbon, moment: moment)
+            readings(ribbon: ribbon)
         }
         .coordinateSpace(.named(Self.space))
         .background(FrameAnchorView(anchor: sectionAnchor))
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { sectionWidth = $0 }
-        .overlay(alignment: .topLeading) {
-            if let play = moment.play {
-                roll(play, at: moment.time)
-            }
-        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface(cornerRadius: Radius.floating)
         .motion(Motion.reveal, value: stats.isReading)
@@ -341,17 +327,15 @@ struct GlanceSection: View {
 
     // MARK: - Headline
 
-    private func headline(ribbon: DayRibbon, moment: Moment) -> some View {
-        let rest = moment.play?.restOpacity(at: moment.time) ?? 1
-        return HStack(alignment: .center, spacing: Space.xxl) {
+    private func headline(ribbon: DayRibbon) -> some View {
+        HStack(alignment: .center, spacing: Space.xxl) {
             VStack(alignment: .leading, spacing: Space.xs) {
-                sentence(ribbon: ribbon, moment: moment)
+                sentence(ribbon: ribbon)
                 summary(ribbon)
                     .font(Typography.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
-                    .opacity(rest)
                     .appTooltip(stretch == .today && !today.changedNote.isEmpty ? today.changedNote : nil)
             }
             Spacer(minLength: 0)
@@ -362,7 +346,6 @@ struct GlanceSection: View {
                     mark(icon: "square.stack.3d.up.fill", tint: StatsBreakdown.Ink.prompts,
                          value: report.peakAtOnce, label: "at once, at most")
                 }
-                .opacity(rest)
                 .transition(.fadeIn)
             }
         }
@@ -373,14 +356,11 @@ struct GlanceSection: View {
     }
 
     // The stretch said as one sentence, so the card opens on what it means rather than on
-    // four numbers to add up. The total leads, so the entrance has somewhere to land.
-    private func sentence(ribbon: DayRibbon, moment: Moment) -> some View {
+    // four numbers to add up.
+    private func sentence(ribbon: DayRibbon) -> some View {
         let seconds = stretch == .today ? ribbon.spent : report?.agentTime.value ?? 0
         let total = StatsFormat.time(seconds)
-        let number = moment.play?.numberOpacity(at: moment.time) ?? 1
-        let rest = moment.play?.restOpacity(at: moment.time) ?? 1
         let ink = StatsBreakdown.Ink.time
-        let lead = "Your agents worked "
         let text: Text
         if stretch == .today && !scanned {
             text = Text("Counting session time…")
@@ -388,34 +368,19 @@ struct GlanceSection: View {
             text = Text(stretch == .today ? "Nothing ran in the last 24 hours." : "Nothing ran in this stretch.")
         } else {
             let scope: Text = if let name = focusName(ribbon) {
-                Text(" on ") + Text(name).foregroundStyle(ink.opacity(rest))
+                Text(" on ") + Text(name).foregroundStyle(ink)
             } else {
-                Text(" across ") + Text(counted(projectCount(ribbon), "project")).foregroundStyle(ink.opacity(rest))
+                Text(" across ") + Text(counted(projectCount(ribbon), "project")).foregroundStyle(ink)
             }
-            text = Text(lead)
-                + Text(total).foregroundStyle(ink.opacity(number))
-                + (scope + Text(".")).foregroundStyle(Color.primary.opacity(rest))
+            text = Text("Your agents worked ")
+                + Text(total).foregroundStyle(ink)
+                + scope + Text(".")
         }
         return text
             .font(Typography.display)
             .fixedSize(horizontal: false, vertical: true)
             .contentTransition(.numericText(value: seconds))
             .motion(Motion.control, value: seconds)
-            // A copy of the lead and the total laid over the start of the line marks where
-            // the rolling total has to land.
-            .overlay(alignment: .topLeading) {
-                HStack(spacing: 0) {
-                    Text(lead).hidden()
-                    Text(total)
-                        .hidden()
-                        .onGeometryChange(for: CGRect.self) {
-                            $0.frame(in: .named(Self.space))
-                        } action: { numberFrame = $0 }
-                }
-                .font(Typography.display)
-                .fixedSize()
-                .accessibilityHidden(true)
-            }
     }
 
     private func focusName(_ ribbon: DayRibbon) -> String? {
@@ -523,9 +488,8 @@ struct GlanceSection: View {
     // measures, and a mark slides along their top edge to it, pointing up at the chart.
     // Resting on a cell opens a card with the rest of the reading. The full breakdown sits
     // at the right end.
-    private func readings(ribbon: DayRibbon, moment: Moment) -> some View {
-        let rest = moment.play?.restOpacity(at: moment.time) ?? 1
-        return HStack(spacing: 0) {
+    private func readings(ribbon: DayRibbon) -> some View {
+        HStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(Array(StatsLens.allCases.enumerated()), id: \.element) { index, choice in
                     if index > 0 {
@@ -545,8 +509,6 @@ struct GlanceSection: View {
         }
         .frame(height: Self.lineHeight)
         .lineLimit(1)
-        .opacity(rest)
-        .offset(y: (1 - rest) * Space.sm)
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: Radius.floating,
                                           bottomTrailingRadius: Radius.floating))
@@ -650,9 +612,9 @@ struct GlanceSection: View {
                 VStack(spacing: Self.axisGap) {
                     ZStack(alignment: .bottomLeading) {
                         if let zoom {
-                            band(zoom.outgoing, domain: zoom.domain, moment: Moment(), role: .leaving)
+                            band(zoom.outgoing, domain: zoom.domain, role: .leaving)
                         }
-                        band(shape, domain: zoom?.domain ?? shape.domain, moment: moment, role: .shown)
+                        band(shape, domain: zoom?.domain ?? shape.domain, role: .shown)
                         if shape.wide && !shape.isEmpty {
                             averageLine(shape)
                         }
@@ -661,7 +623,6 @@ struct GlanceSection: View {
                             .motion(Motion.reveal, value: stretch)
                     }
                     .frame(height: Self.markerRoom + Self.bandHeight)
-                    .opacity(moment.play?.chartOpacity(at: moment.time) ?? 1)
                     axis(shape)
                 }
                 if shape.isEmpty && (stretch != .today || scanned) && zoom == nil {
@@ -671,14 +632,6 @@ struct GlanceSection: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { plotWidth = $0 }
             .opacity(moment.chartOpacity)
-            .contentShape(Rectangle())
-            .gesture(TapGesture().onEnded { skip() },
-                     including: moment.play == nil ? .subviews : .all)
-            // The bars cannot be read while the entrance plays, so a pointer that comes to
-            // read them ends it rather than waiting it out.
-            .onPointerHover { inside in
-                if inside, case .playing = entrance { skip() }
-            }
         }
     }
 
@@ -713,8 +666,7 @@ struct GlanceSection: View {
 
     private enum BandRole { case shown, leaving }
 
-    private func band(_ shape: GlanceShape, domain: DateInterval, moment: Moment,
-                      role: BandRole) -> some View {
+    private func band(_ shape: GlanceShape, domain: DateInterval, role: BandRole) -> some View {
         let peak = shape.peak
         let count = shape.bars.count
         let restack = "\(shape.lens.rawValue)\(shownSubject?.uuidString ?? "")"
@@ -734,8 +686,8 @@ struct GlanceSection: View {
                     ? min(slot.width * Self.wideBarShare, Self.wideBarLimit)
                     : max(0.5, slot.width - min(Self.barSpacing, slot.width * 0.17))
                 let x = slot.x + (slot.width - width) / 2
-                let face = face(bar, index: index, of: count, peak: peak, rank: shape.rank,
-                                growth: growth, moment: moment, interactive: role == .shown)
+                let face = face(bar, index: index, peak: peak, rank: shape.rank,
+                                growth: growth, interactive: role == .shown)
                 Group {
                     if role == .shown && bar.total > 0 && (stretch != .today || scanned) {
                         live(face, bar: bar, place: BarPlace(index: index, bar: bar, x: x, width: width),
@@ -753,14 +705,9 @@ struct GlanceSection: View {
         .animation(role == .shown ? ChartMotion.zoomArrive : ChartMotion.zoomLeave) {
             $0.opacity(opacity)
         }
-        .allowsHitTesting(role == .shown && moment.play == nil && zoom == nil)
+        .allowsHitTesting(role == .shown && zoom == nil)
         .background {
             if role == .shown { FrameAnchorView(anchor: trackAnchor) }
-        }
-        .onGeometryChange(for: CGRect.self) {
-            $0.frame(in: .named(Self.space))
-        } action: { frame in
-            if role == .shown { trackFrame = frame }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
             step(bar: press.key == .rightArrow ? 1 : -1, in: shape)
@@ -801,24 +748,16 @@ struct GlanceSection: View {
         }
     }
 
-    // A bar at rest, or where the entrance has it. Only masks and opacity move, never a
-    // transform, since the bar sits inside a menu button.
-    private func face(_ bar: GlanceBar, index: Int, of count: Int, peak: Double,
-                      rank: [String: Int], growth: CGFloat, moment: Moment,
-                      interactive: Bool) -> RibbonBar {
+    private func face(_ bar: GlanceBar, index: Int, peak: Double, rank: [String: Int],
+                      growth: CGFloat, interactive: Bool) -> RibbonBar {
         guard bar.total > 0, peak > 0, stretch != .today || scanned || !interactive else {
             return RibbonBar(segments: [], dimmed: false, shown: false)
         }
         let height = Self.bandHeight * bar.total / peak * growth
-        var face = RibbonBar(segments: DayRibbon.Activity.segments(of: bar.pieces, total: bar.total,
-                                                                  height: height, rank: rank),
-                             dimmed: interactive && peeking && card.shown != index,
-                             shown: interactive && peeking && card.shown == index)
-        if let play = moment.play {
-            face.grown = play.grow(ofBar: index, of: count, at: moment.time)
-            face.tinted = play.tint(ofBar: index, of: count, at: moment.time)
-        }
-        return face
+        return RibbonBar(segments: DayRibbon.Activity.segments(of: bar.pieces, total: bar.total,
+                                                               height: height, rank: rank),
+                         dimmed: interactive && peeking && card.shown != index,
+                         shown: interactive && peeking && card.shown == index)
     }
 
     private func averageLine(_ shape: GlanceShape) -> some View {
@@ -1147,24 +1086,14 @@ struct GlanceSection: View {
         case .fading(let since):
             let progress = max(0, min(1, date.timeIntervalSince(since) / Self.fade))
             return Moment(chartOpacity: 0.35 + 0.65 * (1 - (1 - progress) * (1 - progress)))
-        case .playing(let play, let since):
-            return Moment(play: play, time: max(0, date.timeIntervalSince(since)))
         }
     }
 
-    // The chart makes its entrance once the scan lands, every time Home opens. A full
-    // day plays the whole entrance; anything else fades in.
-    private func begin(_ ribbon: DayRibbon) {
+    // The chart fades in once the scan lands, every time Home opens.
+    private func begin() {
         guard case .waiting = entrance, scanned else { return }
-        if !reduceMotion && stretch == .today && lens == .time
-            && !(statsOn && stats.isReading) && RibbonEntrance.isDeserved(by: ribbon) {
-            let play = RibbonEntrance(total: DayRibbon.duration(ribbon.spent))
-            entrance = .playing(play, since: Date())
-            settle(after: play.duration)
-        } else {
-            entrance = reduceMotion ? .settled : .fading(since: Date())
-            settle(after: Self.fade)
-        }
+        entrance = reduceMotion ? .settled : .fading(since: Date())
+        settle(after: Self.fade)
     }
 
     private func settle(after seconds: TimeInterval) {
@@ -1180,26 +1109,6 @@ struct GlanceSection: View {
         guard isMoving else { return }
         settling?.cancel()
         entrance = .settled
-    }
-
-    // The total, large over the chart, rolling up and then flying into the sentence.
-    // Only this plain text is ever scaled; the bars sit inside menu buttons.
-    private func roll(_ play: RibbonEntrance, at time: TimeInterval) -> some View {
-        let flight = play.flight(at: time)
-        let landed = RibbonEntrance.headlineSize / RibbonEntrance.rollSize
-        let start = CGPoint(x: (sectionWidth - rollSize.width) / 2,
-                            y: trackFrame.midY - rollSize.height / 2 - Space.xs)
-        let end = CGPoint(x: numberFrame.minX,
-                          y: numberFrame.midY - rollSize.height * landed / 2)
-        return RollingTotal(play: play, time: time)
-            .fixedSize()
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { rollSize = $0 }
-            .scaleEffect(1 + (landed - 1) * flight, anchor: .topLeading)
-            .offset(x: start.x + (end.x - start.x) * flight,
-                    y: start.y + (end.y - start.y) * flight)
-            .opacity(play.rollOpacity(at: time))
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 
     // MARK: - Hover card
@@ -1359,10 +1268,6 @@ private struct RibbonBar: View {
     let dimmed: Bool
     // The bar whose card is up sits on a sunken background.
     let shown: Bool
-    // During the entrance the bar grows up from the baseline in green, and its project
-    // mix then rises from the bottom to cover the green.
-    var grown: Double?
-    var tinted: Double?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -1378,7 +1283,7 @@ private struct RibbonBar: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            if segments.isEmpty || grown != nil {
+            if segments.isEmpty {
                 RoundedRectangle(cornerRadius: Self.radius)
                     .fill(Theme.field)
                     .frame(height: Self.stubHeight)
@@ -1394,22 +1299,14 @@ private struct RibbonBar: View {
     }
 
     private var bar: some View {
-        let height = height
-        let tinted = tinted ?? 1
-        return ZStack(alignment: .bottom) {
-            layer { _ in Theme.accent }
-                .mask(alignment: .top) {
-                    Rectangle().frame(height: height * (1 - tinted))
-                }
-            layer { $0.subject.tint.colour }
-                .mask(alignment: .bottom) {
-                    Rectangle().frame(height: height * tinted)
-                }
+        VStack(spacing: DayRibbon.Activity.segmentGap) {
+            ForEach(segments.reversed()) { segment in
+                RoundedRectangle(cornerRadius: Self.radius)
+                    .fill(segment.subject.tint.colour.opacity(segmentOpacity))
+                    .frame(height: segment.height)
+            }
         }
         .frame(height: height)
-        .mask(alignment: .bottom) {
-            Rectangle().frame(height: height * (grown ?? 1))
-        }
         .background {
             RoundedRectangle(cornerRadius: Radius.tag)
                 .fill(Theme.sunken)
@@ -1419,16 +1316,6 @@ private struct RibbonBar: View {
                 .motion(Motion.reveal, value: shown)
         }
     }
-
-    private func layer(_ colour: @escaping (DayRibbon.Activity.Segment) -> Color) -> some View {
-        VStack(spacing: DayRibbon.Activity.segmentGap) {
-            ForEach(segments.reversed()) { segment in
-                RoundedRectangle(cornerRadius: Self.radius)
-                    .fill(colour(segment).opacity(segmentOpacity))
-                    .frame(height: segment.height)
-            }
-        }
-    }
 }
 
 extension View {
@@ -1436,77 +1323,6 @@ extension View {
     // environment the button sets.
     fileprivate func onFocusChange(_ handler: @escaping (Bool) -> Void) -> some View {
         FocusReader(handler: handler) { self }
-    }
-}
-
-// MARK: - Rolling total
-
-// The day's total as an odometer: each digit is a strip of numbers turning behind a
-// one-digit window, and the strips come to rest left to right.
-private struct RollingTotal: View {
-    let play: RibbonEntrance
-    let time: TimeInterval
-
-    private enum Piece {
-        case digit(column: Int)
-        case unit(String, last: Bool)
-    }
-
-    private static let line: CGFloat = 52
-    private static let unitSize: CGFloat = 18
-
-    private var pieces: [Piece] {
-        var pieces: [Piece] = []
-        var column = 0
-        let characters = Array(play.total.filter { $0 != " " })
-        for (index, character) in characters.enumerated() {
-            if character.isWholeNumber {
-                pieces.append(.digit(column: column))
-                column += 1
-            } else {
-                pieces.append(.unit(String(character), last: index == characters.count - 1))
-            }
-        }
-        return pieces
-    }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.xxs) {
-            ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
-                switch piece {
-                case .digit(let column):
-                    digit(column)
-                case .unit(let unit, let last):
-                    Text(verbatim: unit)
-                        .font(.mono(Self.unitSize, .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, Space.xxs)
-                        .padding(.trailing, last ? 0 : Space.md)
-                }
-            }
-        }
-    }
-
-    private func digit(_ column: Int) -> some View {
-        let turned = play.turn(ofDigit: column, at: time).truncatingRemainder(dividingBy: 10)
-        return numeral("0")
-            .hidden()
-            .overlay(alignment: .top) {
-                VStack(spacing: 0) {
-                    ForEach(0...10, id: \.self) { value in
-                        numeral("\(value % 10)")
-                    }
-                }
-                .offset(y: -turned * Self.line)
-            }
-            .clipped()
-    }
-
-    private func numeral(_ value: String) -> some View {
-        Text(verbatim: value)
-            .font(.serif(RibbonEntrance.rollSize, .medium))
-            .monospacedDigit()
-            .frame(height: Self.line)
     }
 }
 

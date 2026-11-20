@@ -1,7 +1,6 @@
 import SwiftUI
 
-// How a bar chart over time answers a change, played after `RibbonEntrance` has had its
-// turn.
+// How a bar chart over time answers a change.
 //
 // A zoom is a change of stretch. The time axis itself moves from the old stretch to the
 // new one, so the old bars squeeze into the place their time takes on the new axis while
