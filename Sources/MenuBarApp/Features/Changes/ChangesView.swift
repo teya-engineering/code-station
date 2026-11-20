@@ -127,7 +127,9 @@ struct ChangesView: View {
         guard diff != nil, let id = model.diffFileID else { return selected }
         return files.first { $0.id == id } ?? selected
     }
-    private var selectedFiles: [GitChange] { files.filter { !excluded.contains($0.id) } }
+    private var localFiles: [GitChange] { snapshot?.localFiles ?? [] }
+    private var selectedFiles: [GitChange] { localFiles.filter { !excluded.contains($0.id) } }
+    private var comparesToRemote: Bool { snapshot?.comparedToRemote == true }
     private var repoRoot: String { snapshot?.root ?? root }
     private var busy: Bool { loading || working != nil }
     private var repositoryName: String { repositories.first { $0.root == root }?.name ?? root }
@@ -193,7 +195,7 @@ struct ChangesView: View {
                             }
                             if !navigatorVisible { modeChoices }
                             content(narrowHistory: narrowHistory)
-                            if !navigatorVisible && mode == .changes && !files.isEmpty { commitBar }
+                            if !navigatorVisible && mode == .changes && !localFiles.isEmpty { commitBar }
                         }.frame(maxWidth: .infinity).clipped()
                     }
                     .overlay {
@@ -283,9 +285,15 @@ struct ChangesView: View {
 
     private var cleanContent: some View {
         VStack(spacing: Space.xl) {
-            PaneMessage(icon: "checkmark.seal", title: "No uncommitted changes",
+            PaneMessage(icon: "checkmark.seal",
+                        title: comparesToRemote ? "No changes from \(snapshot?.remoteBase?.ref ?? "origin")" : "No uncommitted changes",
                         detail: "\(repositoryName) has no pending changes.\n" + syncStatus) {
-                ActionButton(title: "View commit history") { mode = .history }
+                HStack(spacing: Space.md) {
+                    ActionButton(title: "View commit history") { mode = .history }
+                    if !comparesToRemote, let base = snapshot?.remoteBase {
+                        ActionButton(title: "Compare to \(base.ref)", tone: .outlined) { compare(toRemote: true) }
+                    }
+                }
             }
             .frame(maxHeight: 260)
             if let subject = snapshot?.lastCommitSubject {
@@ -322,6 +330,11 @@ struct ChangesView: View {
                              userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
     }
 
+    private var baseTitle: String {
+        guard comparesToRemote, let base = snapshot?.remoteBase else { return "Last commit" }
+        return base.ref + " @ " + String(base.commit.prefix(7))
+    }
+
     private func versionHeader(_ title: String, version: GitInspector.CopyVersion, file: GitChange) -> some View {
         HStack {
             Text(title).font(Typography.detail)
@@ -347,12 +360,14 @@ struct ChangesView: View {
         }.buttonStyle(.plain)
         .hoverLift()
         .motion(Motion.pop, value: isCopied)
-        .accessibilityLabel(version == .patch ? "Copy unified diff" : version == .before ? "Copy last commit version" : "Copy working tree version")
+        .accessibilityLabel(version == .patch ? "Copy unified diff"
+            : version == .before ? "Copy \(baseTitle) version" : "Copy working tree version")
     }
 
     private func copy(_ version: GitInspector.CopyVersion, file: GitChange) {
         Task {
-            let result = await GitInspector.copyText(for: file, root: repoRoot, version: version)
+            let result = await GitInspector.copyText(for: file, root: repoRoot, version: version,
+                                                     base: snapshot?.diffBase)
             switch result {
             case .success(let text):
                 guard Pasteboard.copy(text) else {
@@ -397,6 +412,7 @@ struct ChangesView: View {
                 HStack(spacing: Space.md) {
                     if namesProject && !compact { projectLabel }
                     branchControl(snapshot)
+                    compareChoices(snapshot, compact: compact)
                     if !compact {
                         Spacer(minLength: 0)
                         ViewThatFits(in: .horizontal) {
@@ -433,6 +449,35 @@ struct ChangesView: View {
             .appTooltip(keyBindings.tooltip("Branches and actions: " + snapshot.branch, for: .branches))
             .accessibilityLabel("Branches and actions, current branch " + snapshot.branch)
             .disabled(busy)
+    }
+
+    // Only offered when the remote's default branch is known. The base is where the
+    // branch left it, which is what a pull request compares against.
+    @ViewBuilder private func compareChoices(_ snapshot: GitSnapshot, compact: Bool) -> some View {
+        if mode == .changes, let base = snapshot.remoteBase {
+            HStack(spacing: Space.xs) {
+                if !compact {
+                    Text("Compare to").font(Typography.caption).foregroundStyle(.secondary).fixedSize()
+                }
+                ChoicePill(title: "HEAD", selected: !model.comparesToRemote, enabled: !busy) {
+                    compare(toRemote: false)
+                }
+                .appTooltip("Uncommitted changes, compared to the last commit")
+                ChoicePill(title: base.ref, selected: model.comparesToRemote, enabled: !busy) {
+                    compare(toRemote: true)
+                }
+                .appTooltip("Everything this branch changes since it left \(base.ref), committed or not")
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Compare to")
+        }
+    }
+
+    private func compare(toRemote: Bool) {
+        guard model.comparesToRemote != toRemote else { return }
+        model.comparesToRemote = toRemote
+        diffScroll = .top
+        Task { await reload() }
     }
 
     private func remoteControls(_ snapshot: GitSnapshot, compact: Bool) -> some View {
@@ -603,7 +648,7 @@ struct ChangesView: View {
             if mode == .changes && navigatorFileCount > 0 { changesFilterRow }
             filesNavigator
             if mode == .changes, let review { unsentStrip(review) }
-            if mode == .changes && !files.isEmpty { commitBar }
+            if mode == .changes && !localFiles.isEmpty { commitBar }
         }
         .motion(Motion.reveal, value: unsentCount)
         .background(Theme.card)
@@ -1192,12 +1237,12 @@ struct ChangesView: View {
     private var commitBar: some View {
         HStack(spacing: Space.md) {
             Toggle(isOn: Binding(
-                get: { selectedFiles.count == files.count },
-                set: { on in excluded = on ? [] : Set(files.map(\.id)) }
+                get: { selectedFiles.count == localFiles.count },
+                set: { on in excluded = on ? [] : Set(localFiles.map(\.id)) }
             )) {
-                Text(selectedFiles.count == files.count
-                     ? "All \(counted(files.count, "file"))"
-                     : "\(selectedFiles.count) of \(files.count) files")
+                Text(selectedFiles.count == localFiles.count
+                     ? "All \(counted(localFiles.count, "file"))"
+                     : "\(selectedFiles.count) of \(localFiles.count) files")
                     .font(Typography.detail.weight(.medium))
             }.toggleStyle(.appCheckbox)
             Spacer(minLength: 0)
@@ -1322,16 +1367,12 @@ struct ChangesView: View {
         } label: {
             HStack(spacing: Space.md) {
                 if mode == .changes {
-                    Toggle(isOn: Binding(
-                        get: { !excluded.contains(file.id) },
-                        set: { on in
-                            if on { excluded.remove(file.id) } else { excluded.insert(file.id) }
-                        }
-                    )) { EmptyView() }
-                    .toggleStyle(.appCheckbox)
-                    .appTooltip("Include in the commit")
-                    .accessibilityLabel("Include " + file.path + " in commit")
-                    .disabled(busy)
+                    if file.hasLocalChanges {
+                        commitCheckbox(file)
+                    } else {
+                        // Holds the checkbox's place so the file names stay in one column.
+                        commitCheckbox(file).hidden()
+                    }
                 }
 
                 StatusChip(kind: file.kind)
@@ -1340,6 +1381,8 @@ struct ChangesView: View {
 
                 if file.isStaged && file.isUnstaged {
                     Text("partly staged").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
+                } else if !file.hasLocalChanges {
+                    Text("committed").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
                 }
 
                 notesBadge(file, in: root)
@@ -1360,22 +1403,37 @@ struct ChangesView: View {
         .hoverFill(cornerRadius: Radius.control)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .appContextMenu {
-            let targets = fileSelection.contextMenuFiles(for: file, in: files)
+            let targets = fileSelection.contextMenuFiles(for: file, in: files).filter(\.hasLocalChanges)
             let multiple = targets.count > 1
+            let finder: [MenuEntry] = [.item("Reveal in Finder") { reveal(file) },
+                                       .item("Copy Path") { Pasteboard.copy(fileURL(file).path) }]
+            guard !targets.isEmpty else { return finder }
             return [.item(multiple ? "Commit \(targets.count) Files…" : "Commit This File…") {
                 beginCommit(with: targets)
              },
-             .separator,
-             .item("Reveal in Finder") { reveal(file) },
-             .item("Copy Path") { Pasteboard.copy(fileURL(file).path) },
-             .separator,
-             .item(multiple ? "Discard Changes in \(targets.count) Files…" : "Discard Changes",
-                   kind: .destructive) { confirmDiscard(targets) }]
+             .separator]
+             + finder
+             + [.separator,
+                .item(multiple ? "Discard Changes in \(targets.count) Files…" : "Discard Changes",
+                      kind: .destructive) { confirmDiscard(targets) }]
         }
     }
 
+    private func commitCheckbox(_ file: GitChange) -> some View {
+        Toggle(isOn: Binding(
+            get: { !excluded.contains(file.id) },
+            set: { on in
+                if on { excluded.remove(file.id) } else { excluded.insert(file.id) }
+            }
+        )) { EmptyView() }
+        .toggleStyle(.appCheckbox)
+        .appTooltip("Include in the commit")
+        .accessibilityLabel("Include " + file.path + " in commit")
+        .disabled(busy)
+    }
+
     private func beginCommit(with chosen: [GitChange]) {
-        excluded = Set(files.map(\.id)).subtracting(chosen.map(\.id))
+        excluded = Set(localFiles.map(\.id)).subtracting(chosen.map(\.id))
         openCommitDialog()
     }
 
@@ -1448,7 +1506,7 @@ struct ChangesView: View {
             if mode == .changes, let file = shownFile, !file.isBinary, diff?.images == nil {
                 if appSettings.changesDiffLayout == .sideBySide {
                     HStack {
-                        versionHeader("Last commit", version: .before, file: file)
+                        versionHeader(baseTitle, version: .before, file: file)
                         versionHeader("Working tree", version: .after, file: file)
                     }.padding(.horizontal, Space.xxl).padding(.vertical, Space.md)
                 }

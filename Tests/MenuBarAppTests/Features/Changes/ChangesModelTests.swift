@@ -6,7 +6,7 @@ import Testing
 struct ChangesModelTests {
     @Test func aLateRefreshCannotReplaceTheNewerSnapshot() async {
         let reads = SnapshotReads()
-        let model = ChangesModel(readSnapshot: { await reads.read($0) })
+        let model = ChangesModel(readSnapshot: { root, _ in await reads.read(root) })
         let stats = GitStatsCache()
         let first = Task { await model.reload(root: "/repo", fetchOrigin: false, gitStats: stats, onError: { _ in }) }
         #expect(await waitUntil { reads.pending.count == 1 })
@@ -22,7 +22,7 @@ struct ChangesModelTests {
 
     @Test func cancellationClearsLoadingWithoutPublishingTheResult() async {
         let reads = SnapshotReads()
-        let model = ChangesModel(readSnapshot: { await reads.read($0) })
+        let model = ChangesModel(readSnapshot: { root, _ in await reads.read(root) })
         let task = Task { await model.reload(root: "/repo", fetchOrigin: false, gitStats: GitStatsCache(), onError: { _ in }) }
         #expect(await waitUntil { reads.pending.count == 1 })
         task.cancel()
