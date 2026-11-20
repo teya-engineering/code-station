@@ -10,6 +10,9 @@ struct ActivitySpine: View {
     var runInShell: ((String) -> Void)? = nil
 
     @State private var expanded: Set<String> = []
+    @State private var showsEarlierCalls = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.agentTranscriptFocus) private var focus
 
     private let calls: [ToolNode]
     private let entries: [TranscriptActivityEntry]
@@ -28,42 +31,31 @@ struct ActivitySpine: View {
         self.runInShell = runInShell
     }
 
+    // A long turn shows only its latest calls until the reader asks for the rest. Every
+    // receipt is drawn in full rather than in a lazy stack: SwiftUI guesses the height of
+    // a lazy stack's unbuilt rows, and when the guess is corrected as the rows scroll into
+    // view it moves the transcript's scroll position, throwing the reader up or down the
+    // page. Folding keeps a long turn cheap without that guess.
+    static let foldedCallCount = 30
+
+    static func shownEntries(_ entries: [TranscriptActivityEntry],
+                             showsEarlier: Bool) -> (shown: ArraySlice<TranscriptActivityEntry>, earlier: Int) {
+        guard !showsEarlier, entries.count > foldedCallCount else { return (entries[...], 0) }
+        return (entries.suffix(foldedCallCount), entries.count - foldedCallCount)
+    }
+
     var body: some View {
-        // A turn's calls are drawn lazily: a long turn would otherwise build every
-        // receipt, and its diff, before a reader has scrolled anywhere near them.
-        // The caption stays outside the lazy stack. The stack guesses the height of the
-        // rows it has not built from the ones it has, and a shorter caption among them
-        // makes that guess change with the scroll position, so the transcript's height
-        // would flicker as it follows the bottom.
+        let (shown, earlier) = Self.shownEntries(entries, showsEarlier: showsEarlierCalls)
         VStack(alignment: .leading, spacing: 0) {
             if !calls.isEmpty { caption }
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(entries) { entry in
-                    switch entry {
-                    case .agents(let nodes):
-                        TranscriptAgentGroup(nodes: nodes, messageID: messageID,
-                                             projectPath: projectPath, openChange: openChange,
-                                             runInShell: runInShell)
-                            .padding(.vertical, Space.sm)
-                    case .call(let node):
-                        CallReceipt(
-                            node: node,
-                            presentation: ToolPresentationCache.presentation(
-                                for: node.tool, projectPath: projectPath),
-                            isExpanded: expanded.contains(node.id),
-                            onToggle: {
-                                if expanded.contains(node.id) {
-                                    expanded.remove(node.id)
-                                } else {
-                                    expanded.insert(node.id)
-                                }
-                            },
-                            openChange: openChange,
-                            runInShell: runInShell)
-                            .transition(.fadeIn)
-                    }
+            if earlier > 0 {
+                ActivityLink(title: "show \(counted(earlier, "earlier call"))") {
+                    withAnimation(reduceMotion ? nil : Motion.reveal) { showsEarlierCalls = true }
                 }
+                .padding(.bottom, Space.sm)
+                .transition(.fold)
             }
+            ForEach(shown) { entry in row(entry) }
         }
         .padding(.leading, Space.xxl)
         .overlay(alignment: .leading) {
@@ -75,6 +67,36 @@ struct ActivitySpine: View {
         // Only a reader's click changes an opened detail. Calls arriving and finishing
         // update their permanent rows without taking ownership of this state.
         .smoothlyResizes(when: expanded)
+        // A jump to delegated work in this turn must find its group on the page.
+        .onChange(of: focus, initial: true) {
+            if let focus, focus.messageID == messageID { showsEarlierCalls = true }
+        }
+    }
+
+    @ViewBuilder private func row(_ entry: TranscriptActivityEntry) -> some View {
+        switch entry {
+        case .agents(let nodes):
+            TranscriptAgentGroup(nodes: nodes, messageID: messageID,
+                                 projectPath: projectPath, openChange: openChange,
+                                 runInShell: runInShell)
+                .padding(.vertical, Space.sm)
+        case .call(let node):
+            CallReceipt(
+                node: node,
+                presentation: ToolPresentationCache.presentation(
+                    for: node.tool, projectPath: projectPath),
+                isExpanded: expanded.contains(node.id),
+                onToggle: {
+                    if expanded.contains(node.id) {
+                        expanded.remove(node.id)
+                    } else {
+                        expanded.insert(node.id)
+                    }
+                },
+                openChange: openChange,
+                runInShell: runInShell)
+                .transition(.fadeIn)
+        }
     }
 
     private var caption: some View {
