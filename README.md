@@ -33,7 +33,7 @@ You need macOS 15 or later and at least one supported coding agent installed and
 You need:
 
 - macOS 15 or later
-- Xcode 26 or another Swift 6.2 toolchain
+- Xcode 26 or later. The version in `.xcode-version` is the one CI uses, so it is the safest choice
 - Git
 - At least one supported coding agent installed and signed in: `claude`, `codex` or `copilot`
 

@@ -30,6 +30,14 @@ final class SessionRunner {
     // newest one speaks for the account. Older events of another kind hold older snapshots.
     private(set) var latestRateLimit: [AgentKind: RateLimit] = [:]
 
+    // A title the person asked for that did not land. Only asked-for titles are kept: an
+    // automatic one failing is not something they are waiting on.
+    struct TitleFailure: Equatable {
+        let id = UUID()
+        let reason: String
+    }
+    private(set) var titleFailure: TitleFailure?
+
     // Everything the runner keeps about one session, in one place so that removing the
     // session is one delete and nothing is left behind. Most of it outlives any single
     // turn: the queue, what the last turn left to pick up, which nudge was waved away. The
@@ -470,6 +478,7 @@ final class SessionRunner {
         let mode: SummaryMode
         let restingState: SummaryRestingState
         var recapAfterTitle = false
+        var askedFor = false
     }
 
     struct QueuedPrompt: Identifiable, Equatable, Sendable {
@@ -2895,6 +2904,20 @@ final class SessionRunner {
         }
 
         if case .title(let request) = attempt.mode {
+            if text == nil, completedNormally {
+                let raw = (streamed.isBlank ? turn.resultMessage ?? "" : streamed).trimmed
+                SessionLog.note("session title rejected words=\(raw.split(whereSeparator: \.isWhitespace).count) chars=\(raw.count)",
+                                session: sessionID)
+                if attempt.askedFor {
+                    titleFailure = TitleFailure(reason: raw.isEmpty
+                        ? "\(turn.agent.title) did not send a title back."
+                        : "\(turn.agent.title)'s answer was too long to use as a title.")
+                }
+            } else if text == nil, attempt.askedFor, !turn.stopRequested {
+                let stderr = turn.stderr.trimmed
+                titleFailure = TitleFailure(reason: turn.failure ?? turn.lastStreamError
+                    ?? (stderr.isEmpty ? "\(turn.agent.title) exited with code \(status)." : stderr))
+            }
             if let text { store.setGeneratedTitle(text, for: request) }
             setState(attempt.restingState.sessionState, for: sessionID)
             SessionLog.note(text != nil ? "session title finished" : "session title unchanged",

@@ -423,7 +423,7 @@ struct TranscriptSelectionTests {
             MessageView(message: ChatMessage(role: .user, text: "/review `some_value`"),
                         projectPath: "/tmp", textScale: 1, availableWidth: 800)
                 .equatable()
-                .environment(\.sentPromptCommandNames, ["review"])
+                .environment(\.sentPromptCommandNames, SlashCommandNames(leading: ["review"]))
         }
         defer { page.close() }
 
@@ -441,19 +441,41 @@ struct TranscriptSelectionTests {
         let page = try Page(selection: TranscriptSelection()) {
             MessageView(message: message, projectPath: "/tmp", textScale: 1)
                 .equatable()
-                .environment(\.sentPromptCommandNames, [])
+                .environment(\.sentPromptCommandNames, SlashCommandNames())
         }
         defer { page.close() }
 
         page.redraw {
             MessageView(message: message, projectPath: "/tmp", textScale: 1)
                 .equatable()
-                .environment(\.sentPromptCommandNames, ["review"])
+                .environment(\.sentPromptCommandNames, SlashCommandNames(leading: ["review"]))
         }
 
         let storage = try #require(page.views.first?.textStorage)
         #expect(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
             == NSColor(Theme.accent))
+    }
+
+    @Test func aSentPromptColoursCommandsAfterACodeBlock() throws {
+        let page = try Page(selection: TranscriptSelection()) {
+            MessageView(message: ChatMessage(role: .user,
+                                             text: "/review this\n```text\n/review\n```\nthen /tidy-up please"),
+                        projectPath: "/tmp", textScale: 1, availableWidth: 800)
+                .environment(\.sentPromptCommandNames,
+                             SlashCommandNames(leading: ["review", "tidy-up"], inline: ["tidy-up"]))
+        }
+        defer { page.close() }
+        try #require(page.views.count == 3)
+
+        let first = try #require(page.views[0].textStorage)
+        #expect(first.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+            == NSColor(Theme.accent))
+        let last = try #require(page.views[2].textStorage)
+        let later = (last.string as NSString).range(of: "/tidy-up").location
+        #expect(last.attribute(.foregroundColor, at: later, effectiveRange: nil) as? NSColor
+            == NSColor(Theme.accent))
+        #expect(last.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+            != NSColor(Theme.accent))
     }
 
     @Test func aSentCodeBlockJoinsTheSelectionAndKeepsLiteralContent() throws {
@@ -463,7 +485,7 @@ struct TranscriptSelectionTests {
             MessageView(message: ChatMessage(role: .user,
                                              text: "Before\n```text\n\(code)\n```\nAfter"),
                         projectPath: "/tmp", textScale: 1, availableWidth: 800)
-                .environment(\.sentPromptCommandNames, ["review"])
+                .environment(\.sentPromptCommandNames, SlashCommandNames(leading: ["review"]))
         }
         defer { page.close() }
         try #require(page.views.count == 3)

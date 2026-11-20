@@ -6,7 +6,7 @@ import Testing
 struct ChangesModelTests {
     @Test func aLateRefreshCannotReplaceTheNewerSnapshot() async {
         let reads = SnapshotReads()
-        let model = ChangesModel(readSnapshot: { await reads.read($0) })
+        let model = ChangesModel(readSnapshot: { root, _ in await reads.read(root) })
         let stats = GitStatsCache()
         let first = Task { await model.reload(root: "/repo", fetchOrigin: false, gitStats: stats, onError: { _ in }) }
         #expect(await waitUntil { reads.pending.count == 1 })
@@ -22,7 +22,7 @@ struct ChangesModelTests {
 
     @Test func cancellationClearsLoadingWithoutPublishingTheResult() async {
         let reads = SnapshotReads()
-        let model = ChangesModel(readSnapshot: { await reads.read($0) })
+        let model = ChangesModel(readSnapshot: { root, _ in await reads.read(root) })
         let task = Task { await model.reload(root: "/repo", fetchOrigin: false, gitStats: GitStatsCache(), onError: { _ in }) }
         #expect(await waitUntil { reads.pending.count == 1 })
         task.cancel()
@@ -30,6 +30,30 @@ struct ChangesModelTests {
         #expect(await task.value == false)
         #expect(model.snapshot == nil)
         #expect(!model.loading)
+    }
+
+    @Test func comparingToTheRemoteTurnsOffWhenTheRemoteBaseIsGone() async {
+        // No commits, so the reload does not go looking for the latest one.
+        let model = ChangesModel(readSnapshot: { _, _ in GitSnapshot(state: .ready, hasCommits: false) })
+        model.comparesToRemote = true
+        _ = await model.reload(root: "/repo", fetchOrigin: false, gitStats: GitStatsCache(), onError: { _ in })
+        #expect(!model.comparesToRemote)
+    }
+
+    @Test func theSharedCacheKeepsOnlyUncommittedWork() async {
+        let committed = GitChange(path: "a.swift", originalPath: nil, kind: .added, isStaged: false,
+                                  isUnstaged: false, added: 9, removed: 0, isBinary: false)
+        let uncommitted = GitChange(path: "b.swift", originalPath: nil, kind: .modified, isStaged: false,
+                                    isUnstaged: true, added: 1, removed: 0, isBinary: false)
+        var compared = GitSnapshot(state: .ready)
+        compared.files = [committed, uncommitted]
+        compared.uncommittedFiles = [uncommitted]
+        compared.remoteBase = GitCompareBase(ref: "origin/main", commit: "abc")
+        compared.comparedToRemote = true
+        let model = ChangesModel(readSnapshot: { _, _ in compared })
+        let stats = GitStatsCache()
+        _ = await model.reload(root: "/repo", fetchOrigin: false, gitStats: stats, onError: { _ in })
+        #expect(stats.snapshot(at: "/repo")?.files == [uncommitted])
     }
 
     @Test func showingADiffSwapsTheFileItsTextAndItsThreadsTogether() async {

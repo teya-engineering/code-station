@@ -126,7 +126,7 @@ struct ComposerSuggestionKeyTests {
         field.view.doCommand(by: #selector(NSResponder.insertTab(_:)))
         field.view.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
 
-        #expect(field.askedCommands == [.up, .down, .complete, .complete, .cancel])
+        #expect(field.askedCommands == [.up, .down, .submit, .complete, .cancel])
         #expect(field.sends == 0)
         #expect(field.recalled == 0)
         // Tab went to the menu rather than to the suggestion behind it.

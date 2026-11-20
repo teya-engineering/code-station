@@ -14,7 +14,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-26
+    # The only image with Xcode 27. It is still a preview, so if it misbehaves,
+    # go back to macos-26 and set .xcode-version to a 26.x release it carries.
+    runs-on: xcode-27
     timeout-minutes: 30
     env:
       SWIFTPM_MODULECACHE_OVERRIDE: /private/tmp/code-station-ci-module-cache
@@ -22,6 +24,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Select Xcode
+        run: ./Scripts/ci-select-xcode.sh
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
       - name: Test
         run: >-
           ./Scripts/swiftpm.sh test --disable-sandbox --no-parallel
