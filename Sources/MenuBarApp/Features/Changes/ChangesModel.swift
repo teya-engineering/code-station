@@ -196,9 +196,12 @@ final class ChangesModel {
 final class ChangesModels {
     private var models: [String: ChangesModel] = [:]
 
-    func model(for root: String) -> ChangesModel {
+    // `comparingToRemote` is where a new model starts. A model already made keeps the
+    // comparison it has.
+    func model(for root: String, comparingToRemote: Bool = false) -> ChangesModel {
         if let model = models[root] { return model }
         let model = ChangesModel()
+        model.comparesToRemote = comparingToRemote
         models[root] = model
         return model
     }

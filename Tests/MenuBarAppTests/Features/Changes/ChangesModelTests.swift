@@ -4,6 +4,16 @@ import Testing
 
 @MainActor
 struct ChangesModelTests {
+    @Test func aProjectsModelStartsOnTheComparisonAskedForAndKeepsItsOwn() {
+        let models = ChangesModels()
+        #expect(models.model(for: "/session", comparingToRemote: true).comparesToRemote)
+        #expect(!models.model(for: "/project").comparesToRemote)
+
+        // Once made, a model keeps what the person picked, whatever a later draw asks for.
+        models.model(for: "/session").comparesToRemote = false
+        #expect(!models.model(for: "/session", comparingToRemote: true).comparesToRemote)
+    }
+
     @Test func aLateRefreshCannotReplaceTheNewerSnapshot() async {
         let reads = SnapshotReads()
         let model = ChangesModel(readSnapshot: { root, _, _ in await reads.read(root) })

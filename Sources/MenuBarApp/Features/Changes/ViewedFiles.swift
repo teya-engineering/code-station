@@ -141,6 +141,19 @@ struct ViewedMark: Codable, Equatable, Sendable {
     var at: Date
 }
 
+// The file Changes opens on when it is entered. A file asked for comes first. Otherwise
+// the review picks up where it stands: the file left open while it is still to be read,
+// else the first one not viewed yet. With every file viewed, the one left open stays.
+enum OpeningFile {
+    static func pick(in files: [GitChange], requested: String?, open: String?,
+                     isViewed: (GitChange) -> Bool) -> GitChange? {
+        if let requested, let file = files.first(where: { $0.id == requested }) { return file }
+        let left = open.flatMap { id in files.first { $0.id == id } }
+        if let left, !isViewed(left) { return left }
+        return files.first { !isViewed($0) } ?? left ?? files.first
+    }
+}
+
 // How far through the changed files the reviewer is, for the progress ring and the
 // line in the turn's footer.
 struct ViewedTally: Equatable {
