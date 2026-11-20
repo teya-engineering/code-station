@@ -1,0 +1,10 @@
+# Uses that predate a rule in Scripts/check-design-rules.sh, as
+#   <rule> <count> <file>
+# A file may not go over its count. When you move one of these onto the shared
+# part, lower the count, and delete the line when it reaches zero.
+animation-value 1 Sources/MenuBarApp/App/Navigation/AppSidebar.swift
+animation-value 1 Sources/MenuBarApp/App/Navigation/SidebarNotices.swift
+animation-value 1 Sources/MenuBarApp/Features/Changes/SecondOpinionLineup.swift
+animation-value 6 Sources/MenuBarApp/Features/Home/HomeOrbit.swift
+animation-value 5 Sources/MenuBarApp/Features/Home/HomeOrbitRing.swift
+animation-value 1 Sources/MenuBarApp/Features/Sessions/DictationViews.swift
