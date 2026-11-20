@@ -27,9 +27,9 @@ enum SessionTitle {
         title = title.trimmingCharacters(in: CharacterSet(charactersIn: "*`\"“”"))
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
             .replacingOccurrences(of: "\u{2014}", with: "-")
-        guard !title.isEmpty, title.count <= 60, title.split(separator: " ").count <= 8 else {
-            return nil
-        }
+        // The prompt asks for 8 words, but models often go one over. Only the length is
+        // enforced, since that is what the sidebar and header have room for.
+        guard !title.isEmpty, title.count <= 60 else { return nil }
         return title
     }
 

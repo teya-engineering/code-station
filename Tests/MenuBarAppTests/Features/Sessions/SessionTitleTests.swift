@@ -12,8 +12,13 @@ struct SessionTitleTests {
     @Test func rejectsEmptyOrVerboseAnswers() {
         #expect(SessionTitle.cleaned(nil) == nil)
         #expect(SessionTitle.cleaned(" \n ") == nil)
-        #expect(SessionTitle.cleaned("Here is a title and an explanation of the changes") == nil)
+        #expect(SessionTitle.cleaned("Here is a title for this session and an explanation of the changes") == nil)
         #expect(SessionTitle.cleaned(String(repeating: "x", count: 61)) == nil)
+    }
+
+    @Test func acceptsAShortTitleOneWordOverThePromptLimit() {
+        #expect(SessionTitle.cleaned("Fix the retry button on the settings page again")
+            == "Fix the retry button on the settings page again")
     }
 
     @Test func namesASessionAfterWhatItsFirstPromptCarries() {
