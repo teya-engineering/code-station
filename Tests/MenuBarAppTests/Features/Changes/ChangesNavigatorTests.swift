@@ -65,7 +65,7 @@ struct ChangesLayoutTests {
         navigation.history(for: repo.path).select(commit)
         let scratch = ScratchDirectory(prefix: "history-layout")
         let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"),
-                                   preferences: UserDefaults(suiteName: "history-layout-\(UUID())")!)
+                                   preferences: scratchDefaults())
         settings.textSize = .larger
         let host = NSHostingController(rootView: ChangesView(root: repo.path, navigation: navigation)
             .environment(GitStatsCache()).environment(settings).environment(DialogPresenter()).appOverlays())
@@ -108,7 +108,7 @@ struct ChangesLayoutTests {
         let cache = GitStatsCache()
         let scratch = ScratchDirectory(prefix: "changes-selection")
         let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"),
-                                   preferences: UserDefaults(suiteName: "changes-selection-\(UUID())")!)
+                                   preferences: scratchDefaults())
         let view = ChangesView(root: repo.path, navigation: navigation)
             .environment(cache).environment(settings).environment(DialogPresenter()).appOverlays()
         let hosting = NSHostingController(rootView: view)
@@ -134,7 +134,7 @@ struct ChangesLayoutTests {
         let switcher = ProjectSwitcher(root: first.path)
         let scratch = ScratchDirectory(prefix: "changes-switch")
         let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"),
-                                   preferences: UserDefaults(suiteName: "changes-switch-\(UUID())")!)
+                                   preferences: scratchDefaults())
         let view = SwitchingChangesView(switcher: switcher, navigation: navigation, repositories: [
             ChangesRepository(root: first.path, name: "first"),
             ChangesRepository(root: second.path, name: "second")
@@ -202,7 +202,7 @@ struct ChangesLayoutTests {
         let cache = GitStatsCache()
         let scratch = ScratchDirectory(prefix: "changes-layout")
         let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"),
-                                   preferences: UserDefaults(suiteName: "changes-layout-\(UUID())")!)
+                                   preferences: scratchDefaults())
         let view = ChangesView(root: repo.path, repositories: [
             ChangesRepository(root: repo.path, name: "a-long-workspace-repository-name"),
             ChangesRepository(root: "/clean", name: "clean-repository")

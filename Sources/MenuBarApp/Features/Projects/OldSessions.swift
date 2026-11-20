@@ -296,10 +296,13 @@ enum SessionCost {
     static let live: Inspect = { path in
         var snapshot = await GitInspector.snapshot(at: path,
                                                    commandTimeout: inspectionCommandTimeout)
-        if snapshot.state == .ready {
-            snapshot.unpushedCommits = await GitInspector.unpushedCommitCount(
-                at: path, commandTimeout: inspectionCommandTimeout)
+        guard snapshot.state == .ready else { return snapshot }
+        guard let unpushed = await GitInspector.unpushedCommitCount(
+            at: path, commandTimeout: inspectionCommandTimeout) else {
+            snapshot.state = .failed("Could not count the commits that are not pushed.")
+            return snapshot
         }
+        snapshot.unpushedCommits = unpushed
         return snapshot
     }
 

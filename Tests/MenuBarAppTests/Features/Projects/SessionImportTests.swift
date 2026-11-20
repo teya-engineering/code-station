@@ -245,7 +245,7 @@ struct ImportedSessionStoreTests {
 
         let id = made.id
         #expect(!store.isTranscriptLoaded(id))
-        let reopened = ProjectStore(storeURL: store.storeURL)
+        let reopened = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
         let session = try #require(reopened.session(id))
         #expect(session.agent == .claudeCode)
         #expect(session.claudeSessionID == "claude-abc")
@@ -290,7 +290,7 @@ struct ImportedSessionStoreTests {
             messages: [ChatMessage(role: .user, text: "Import me")])
         let made = try await importing.importSession(item, into: project.id).get()
         #expect(!importing.isTranscriptLoaded(made.id))
-        #expect(ProjectStore(storeURL: store.storeURL).session(made.id) != nil)
+        #expect(ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL).session(made.id) != nil)
     }
 
     @Test func failedIndexWriteLeavesTheImportAvailableForRetry() async throws {

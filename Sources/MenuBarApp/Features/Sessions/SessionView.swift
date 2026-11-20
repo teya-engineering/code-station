@@ -1568,8 +1568,7 @@ struct SessionView: View {
     }
 
     private func conversationContent(session: ChatSession, project: Project) -> some View {
-        let blocked = !FileManager.default.fileExists(atPath: session.worktreePath ?? project.path)
-            || !runner.isAvailable(session.agent)
+        let blocked = !missingDirectories.isEmpty || !runner.isAvailable(session.agent)
         return VStack(spacing: 0) {
             if transcriptFind.isPresented {
                 FindBar(placeholder: "Find in chat",

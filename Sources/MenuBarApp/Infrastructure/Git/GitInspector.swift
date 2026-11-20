@@ -522,17 +522,19 @@ enum GitInspector {
 
     // Commits on HEAD that are on no remote branch. A repository with no remote at all
     // answers zero: nothing there was ever meant to be pushed, so every local commit
-    // would count and the answer would say nothing.
+    // would count and the answer would say nothing. Nil when git could not say, which a
+    // caller about to delete the checkout must not read as "nothing to lose".
     static func unpushedCommitCount(at path: String,
-                                    commandTimeout: TimeInterval? = nil) async -> Int {
-        guard let tool = await tool() else { return 0 }
+                                    commandTimeout: TimeInterval? = nil) async -> Int? {
+        guard let tool = await tool() else { return nil }
         let url = URL(fileURLWithPath: path)
         return await offMain {
             let remotes = run(tool, ["remote"], in: url, timeout: commandTimeout)
-            guard remotes.ok, !remotes.trimmedText.isEmpty else { return 0 }
+            guard remotes.ok else { return nil }
+            guard !remotes.trimmedText.isEmpty else { return 0 }
             let count = run(tool, ["rev-list", "--count", "HEAD", "--not", "--remotes"],
                             in: url, timeout: commandTimeout)
-            return count.ok ? Int(count.trimmedText) ?? 0 : 0
+            return count.ok ? Int(count.trimmedText) : nil
         }
     }
 

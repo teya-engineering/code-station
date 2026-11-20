@@ -8,9 +8,7 @@ struct TranscriptTimestampsTests {
     private let moment = Date()
 
     @Test func offAndMessagesAndStepsAreTheDefaultAndThePickIsKept() throws {
-        let suite = "TranscriptTimestampsTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(Preferences.timestampFormat(in: defaults) == .off)
         #expect(Preferences.timestampScope(in: defaults) == .messagesAndSteps)

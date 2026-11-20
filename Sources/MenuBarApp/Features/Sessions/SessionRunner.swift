@@ -2737,6 +2737,9 @@ final class SessionRunner {
             }
             _ = store.noteTurnEnded(for: sessionID)
             store.release(sessionID, for: .running)
+            // A Design or Build partner parked behind this turn runs in its own process,
+            // so it is free to start now that the folder is.
+            resumeDesignWorkflowQueues(after: sessionID, store: store)
             if let session = store.session(sessionID) {
                 AppNotifier.shared.turnEnded(
                     sessionID: store.userFacingSessionID(for: sessionID),
@@ -2856,9 +2859,15 @@ final class SessionRunner {
                 ChatMessage(role: .system,
                             text: "The earlier conversation could not be resumed, so this reply starts a fresh one without the previous context."),
                 to: sessionID)
+            // The new turn takes its own hold. Giving this one back first means a retry
+            // that cannot start does not keep the transcript held for good.
+            store.release(sessionID, for: .running)
             launch(turn.prompt, attachments: turn.attachments, sessionID: sessionID,
                    store: store, avatarSequence: turn.avatarSequence,
                    canRetryWithoutResume: false, isFirstTurn: turn.isFirstTurn)
+            if records[sessionID]?.turn == nil {
+                resumeDesignWorkflowQueues(after: sessionID, store: store)
+            }
             return
         }
 

@@ -71,7 +71,7 @@ struct SessionImportMemoryTests {
         store.append(message, to: session.id)
         store.selectProject(project.id)
         #expect(store.save())
-        let reopened = ProjectStore(storeURL: store.storeURL)
+        let reopened = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
 
         #expect(await reopened.knownAgentSessionIDs(inProject: project.id).contains("claude:earlier"))
         #expect(!reopened.isTranscriptLoaded(session.id))
@@ -92,12 +92,12 @@ struct SessionImportMemoryTests {
         for i in sessions.indices { sessions[i].removeValue(forKey: "knownAgentSessionIDs") }
         saved["sessions"] = sessions
         try JSONSerialization.data(withJSONObject: saved).write(to: store.storeURL)
-        let reopened = ProjectStore(storeURL: store.storeURL)
+        let reopened = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
 
         #expect(await reopened.knownAgentSessionIDs(inProject: project.id).contains("claude:old"))
         #expect(!reopened.isTranscriptLoaded(session.id))
         #expect(reopened.save())
-        let again = ProjectStore(storeURL: store.storeURL)
+        let again = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
         #expect(again.session(session.id)?.knownAgentSessionIDs == ["claude:old"])
     }
 }

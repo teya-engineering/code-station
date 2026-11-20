@@ -489,7 +489,10 @@ final class ProjectStore {
             changed = true
         }
         attention.finished.remove(visibleID)
-        if changed { scheduleIndexSave() }
+        if changed {
+            publishSidebarSessions()
+            scheduleIndexSave()
+        }
     }
 
     func recap(for sessionID: UUID) -> SessionRecap? {
@@ -502,6 +505,7 @@ final class ProjectStore {
     func setRecap(_ recap: SessionRecap, for sessionID: UUID) {
         guard let i = index(sessionID) else { return }
         sessions[i].recap = recap
+        publishSidebarSessions()
         scheduleIndexSave()
     }
 
@@ -1237,6 +1241,7 @@ final class ProjectStore {
         guard let i = index(sessionID) else { return }
         guard sessions[i].settings != settings else { return }
         sessions[i].settings = settings
+        publishSidebarSessions()
         scheduleIndexSave()
     }
 
@@ -1583,6 +1588,7 @@ final class ProjectStore {
     func setAgentAvatarName(_ name: String?, for sessionID: UUID) {
         guard let i = index(sessionID), sessions[i].agentAvatarName != name else { return }
         sessions[i].agentAvatarName = name
+        publishSidebarSessions()
         scheduleIndexSave()
     }
 
@@ -1630,6 +1636,7 @@ final class ProjectStore {
               !sessions[i].pullRequests.contains(where: { $0.url == pullRequest.url })
         else { return }
         sessions[i].pullRequests.append(pullRequest)
+        publishSidebarSessions()
         scheduleIndexSave()
     }
 
@@ -1644,6 +1651,7 @@ final class ProjectStore {
         let merged = (PullRequestScanner.find(in: sessions[i]) + sessions[i].pullRequests).deduplicatedByURL()
         guard merged != sessions[i].pullRequests else { return }
         sessions[i].pullRequests = merged
+        publishSidebarSessions()
         scheduleIndexSave()
     }
 

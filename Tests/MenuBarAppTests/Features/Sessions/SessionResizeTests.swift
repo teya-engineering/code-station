@@ -14,7 +14,7 @@ struct SessionResizeTests {
                                        seed: .init(agent: .claudeCode))
         store.setAgentSessionID("resize-fixture", agent: .claudeCode, for: session.id)
         _ = try store.startDesign(for: session.id).get()
-        let preferences = try #require(UserDefaults(suiteName: "resize-\(UUID().uuidString)"))
+        let preferences = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"),
                                    preferences: preferences)
         let runner = SessionRunner(preferences: testPreferences.store, paths: [:])

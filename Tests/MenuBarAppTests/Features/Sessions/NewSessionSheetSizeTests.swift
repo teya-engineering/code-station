@@ -68,7 +68,7 @@ struct NewSessionSheetSizeTests {
         let settings = AppSettings(
             agentAvatarURL: URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("avatar.png"),
-            preferences: UserDefaults(suiteName: "sheet-size-\(UUID().uuidString)") ?? .standard)
+            preferences: scratchDefaults())
         let measured = MeasuredHeight()
         let host = NSHostingView(rootView: HeightProbe(report: { height in MainActor.assumeIsolated { measured.value = height } }) {
             NewSessionView(project: Project(name: "probe", path: NSTemporaryDirectory())) { _ in }

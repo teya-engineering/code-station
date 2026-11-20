@@ -14,7 +14,7 @@ struct WorkspaceDetailLayoutTests {
         let (store, scratch) = TestStore.make()
         let settings = AppSettings(
             agentAvatarURL: scratch.path("avatar.png"),
-            preferences: UserDefaults(suiteName: "workspace-layout-\(UUID().uuidString)") ?? .standard)
+            preferences: scratchDefaults())
         var projects: [Project] = []
         for name in ["teya-developer-portal", "infra-metadata-api",
                      "infra-cicd-tektonkustomize", "cicd-guardrail-review"] {

@@ -712,7 +712,7 @@ struct DesignSessionTests {
     }
 
     @Test func aSessionWithNoAmbitionFollowsTheAppDefault() throws {
-        let preferences = try #require(UserDefaults(suiteName: "design-ambition-\(UUID())"))
+        let preferences = scratchDefaults()
         #expect(Preferences.designAmbition(in: preferences) == .balanced)
 
         Preferences.setDesignAmbition(.allOut, in: preferences)

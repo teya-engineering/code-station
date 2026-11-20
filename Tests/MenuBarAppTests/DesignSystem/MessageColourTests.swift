@@ -7,9 +7,7 @@ import Testing
 @MainActor
 struct MessageColourTests {
     @Test func projectIconIsTheDefaultAndThePickIsKept() throws {
-        let suite = "MessageColourTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(Preferences.messageColour(in: defaults) == .projectIcon)
         Preferences.setMessageColour(.ink, in: defaults)

@@ -10,7 +10,7 @@ struct SecondOpinionDefaultsTests {
     private let claude = SecondOpinion.Reviewer(agent: .claudeCode, model: "opus")
 
     private func store() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "second-opinion-\(UUID().uuidString)"))
+        scratchDefaults()
     }
 
     @Test func freshDefaultsKeepTodaysAsk() {
