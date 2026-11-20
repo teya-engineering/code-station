@@ -182,13 +182,14 @@ struct TroubleshootTabView: View {
             let subtitle = [name, danger].compactMap { $0 }.joined(separator: " · ")
             return .item(option.title,
                          checked: option == brief.environment,
-                         badge: option.isDangerous ? "live" : nil,
+                         badge: option.isDangerous ? "live" : "test",
                          badgeTint: option.isDangerous ? Theme.attention : nil,
                          subtitle: subtitle.nilIfBlank) {
                 runner.composer.editBrief(sessionID) { $0.environment = option }
             }
         }
         let any: MenuEntry = .item("Any environment", checked: brief.environment == nil,
+                                   badge: "auto",
                                    subtitle: "The agent works out where to look") {
             runner.composer.editBrief(sessionID) { $0.environment = nil }
         }
