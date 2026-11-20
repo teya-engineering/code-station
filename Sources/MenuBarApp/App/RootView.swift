@@ -89,6 +89,7 @@ struct RootView: View {
             ScheduledTaskConfirmation()
             SnoozeReminder()
             AppUpdateRestartPrompt()
+            TitleFailureNotice()
             QuitConfirmation(isFront: sheet == nil)
             VStack(spacing: Space.md) {
                 if let attention, attention != dismissedAttention {
@@ -581,6 +582,23 @@ private struct AppUpdateRestartPrompt: View {
         guard busy > 0 else { return "Restarting the app finishes the update." }
         return "Restarting the app finishes the update and stops "
             + "\(counted(busy, "session")) still running."
+    }
+}
+
+// Draws nothing. A title the person asked for is generated in the background, so when it
+// fails there is nothing on screen to say so unless it is said here.
+private struct TitleFailureNotice: View {
+    @Environment(DialogPresenter.self) private var dialogs
+    @Environment(SessionRunner.self) private var runner
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: runner.titleFailure) { _, failure in
+                guard let failure else { return }
+                dialogs.show(.notice("Could not generate a session title",
+                                     message: "\(failure.reason) You can still rename the session by hand."))
+            }
     }
 }
 
