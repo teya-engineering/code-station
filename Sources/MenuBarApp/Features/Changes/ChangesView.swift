@@ -201,7 +201,11 @@ struct ChangesView: View {
             // The pull request's base is known once GitHub and the branch list have both
             // answered, which can be after the first read of the files.
             .onChange(of: preferredRemoteRef) { _, ref in
-                guard let ref, snapshot?.remoteBase?.ref != ref else { return }
+                // A read already asking for this branch needs no other.
+                guard let ref, model.remoteRef != ref, snapshot?.remoteBase?.ref != ref else { return }
+                // The files were read against another branch, so in a session the file to
+                // open is picked again from the new list rather than lost with the old one.
+                if review != nil, model.comparesToRemote { appliedInitialSelection.remove(root) }
                 Task { await reload() }
             }
     }
@@ -2160,6 +2164,15 @@ struct ChangesView: View {
     }
 
     private func reload(fetchOrigin: Bool = false) async {
+        // A pull request names its base by branch, and the remote branch list is what turns
+        // that into a ref. Read the list first when a pull request is open and the list is
+        // not known yet, so the files are read against its base from the start rather than
+        // against the default branch and then again.
+        if model.remoteBranches == nil, pullRequestBase != nil, let known = snapshot {
+            let branches = await GitInspector.remoteBranches(at: root, branch: known.onBranch ? known.branch : nil)
+            guard !Task.isCancelled else { return }
+            model.remoteBranches = branches
+        }
         model.remoteRef = preferredRemoteRef
         guard await model.reload(root: root, fetchOrigin: fetchOrigin, gitStats: gitStats,
                                  onError: { error in
