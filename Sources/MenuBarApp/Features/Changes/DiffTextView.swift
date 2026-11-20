@@ -33,8 +33,8 @@ struct DiffTextView: NSViewRepresentable {
     var onRange: ((String, String) -> Void)?
     // The lines the comment being written is about, drawn picked out.
     var picked: Set<String> = []
-    // Lines added after the reviewer last marked the file viewed, named by DiffAnchor key.
-    // Each wears an amber rail down its leading edge.
+    // Lines added or removed after the reviewer last marked the file viewed, named by
+    // DiffAnchor key. Each wears an amber rail down its leading edge.
     var fresh: Set<String> = []
     // What hangs under a line, keyed by the line's id: the review comments placed there
     // and the comment being written about it. The text keeps an empty row under each of
@@ -105,6 +105,7 @@ struct DiffTextView: NSViewRepresentable {
             if let reveal, reveal != context.coordinator.revealed,
                reveal.key.map({ textView.reveal(line: $0) }) ?? textView.reveal(thread: reveal.line) {
                 context.coordinator.revealed = reveal
+                textView.flash(reveal.flash)
             }
         }
         guard context.coordinator.shown !== text else {
@@ -337,6 +338,31 @@ private final class DiffDocumentView: NSTextView {
         let target = NSRect(x: 0, y: row.midY - visible / 2, width: 1, height: visible)
         scrollToVisible(target.intersection(bounds).isEmpty ? row : target.intersection(bounds))
         return true
+    }
+
+    // Washes the named lines on screen in amber for a beat, the way the lines a gap opens
+    // are washed in the accent.
+    func flash(_ keys: Set<String>) {
+        guard !keys.isEmpty, let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return }
+        let origin = textContainerOrigin
+        let visible = enclosingScrollView?.contentView.bounds ?? visibleRect
+        let glyphs = layoutManager.glyphRange(forBoundingRect: visible.offsetBy(dx: -origin.x, dy: -origin.y),
+                                              in: textContainer)
+        var runs: [NSRect] = []
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, _, _, lineGlyphs, _ in
+            let index = layoutManager.characterIndexForGlyph(at: lineGlyphs.location)
+            guard index < storage.length,
+                  let key = storage.attribute(.diffLineAnchor, at: index, effectiveRange: nil) as? String,
+                  keys.contains(key) else { return }
+            let row = NSRect(x: 0, y: fragment.minY + origin.y, width: self.bounds.width, height: fragment.height)
+            if let last = runs.last, abs(last.maxY - row.minY) < 0.5 {
+                runs[runs.count - 1] = last.union(row)
+            } else {
+                runs.append(row)
+            }
+        }
+        marks.arrive(runs, tint: NSColor(Theme.attention), alpha: 0.22)
     }
 
     private func overThread(_ event: NSEvent) -> Bool {
@@ -690,10 +716,10 @@ private final class DiffMarksView: NSView {
     }
 
     // The new lines wear the pressed row's tint for a beat, then let it go, so the eye
-    // follows the press to what it opened. The tint only fades, so it plays the same
-    // with Reduce Motion on.
-    func arrive(_ rows: [NSRect]) {
-        let tint = color(Theme.accentNSColor, alpha: 0.16)
+    // follows the press to what it opened. A jump to lines washes them the same way in
+    // their own colour. The tint only fades, so it plays the same with Reduce Motion on.
+    func arrive(_ rows: [NSRect], tint: NSColor = Theme.accentNSColor, alpha: CGFloat = 0.16) {
+        let tint = color(tint, alpha: alpha)
         for row in rows {
             let wash = CALayer()
             CATransaction.begin()
@@ -1032,6 +1058,9 @@ struct DiffReveal: Equatable {
     // A numbered line to bring on screen rather than the thread under it, named by
     // DiffComments.key.
     var key: String? = nil
+    // Lines to wash in amber once they are on screen, so the eye finds them, by
+    // DiffComments.key.
+    var flash: Set<String> = []
 }
 
 // Where a diff that takes comments keeps room for them. It is handed to the builder off

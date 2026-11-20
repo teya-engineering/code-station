@@ -115,9 +115,35 @@ struct ViewedFilesTests {
         ]
         // Line 3 is new since it was read but unchanged against the last commit, so it
         // has no row of its own to mark.
-        let keys = ViewedLines.freshKeys([2, 3], in: lines)
+        let keys = ViewedLines.freshKeys(added: [2, 3], in: lines)
 
         #expect(keys == [DiffComments.key(DiffAnchor(side: .new, line: 2))])
+    }
+
+    @Test func theLinesRemovedSinceAreTheOnesTheViewedTextStillHad() {
+        let base = "a\nb\nc\nd"
+        // b was already gone when the file was read; c went after.
+        let viewed = "a\nc\nd"
+        let current = "a\nd"
+
+        #expect(ViewedLines.removed(since: viewed, in: current, base: base) == [3])
+        #expect(ViewedLines.removed(since: current, in: current, base: base).isEmpty)
+    }
+
+    @Test func removedLinesOfTheDiffAreMarkedByTheirOldNumber() {
+        let lines: [DiffLine] = [
+            DiffLine(id: 0, kind: .hunk, text: "@@ -1,4 +1,3 @@"),
+            DiffLine(id: 1, kind: .context, text: " a"),
+            DiffLine(id: 2, kind: .deletion, text: "-b"),
+            DiffLine(id: 3, kind: .deletion, text: "-c"),
+            DiffLine(id: 4, kind: .addition, text: "+x"),
+            DiffLine(id: 5, kind: .context, text: " d"),
+        ]
+        let keys = ViewedLines.freshKeys(added: [2], removed: [3, 4], in: lines)
+
+        // Old line 4 is d, which the diff keeps, so it has no removed row to mark.
+        #expect(keys == [DiffComments.key(DiffAnchor(side: .new, line: 2)),
+                         DiffComments.key(DiffAnchor(side: .old, line: 3))])
     }
 
     @Test func aCommitNamesTheBlobEachPathHoldsAfterIt() {
@@ -161,5 +187,8 @@ struct ViewedFilesTests {
         #expect(ViewedTally(viewed: 6, total: 7).footnote == "1 file not viewed yet")
         #expect(ViewedTally(viewed: 7, total: 7).label == "All 7 viewed")
         #expect(ViewedTally(viewed: 7, total: 7).footnote == "All 7 files viewed")
+        // In History the footer counts the open commit's files.
+        #expect(ViewedTally(viewed: 1, total: 3, inCommit: true).footnote == "2 files in this commit not viewed yet")
+        #expect(ViewedTally(viewed: 3, total: 3, inCommit: true).footnote == "All 3 files in this commit viewed")
     }
 }

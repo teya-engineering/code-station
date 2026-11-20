@@ -114,6 +114,28 @@ struct GitCompareToRemoteTests {
                          "fork": "https://github.com/someone/code-station"])
     }
 
+    @Test func theRemoteBranchABranchWasMadeFromIsReadFromItsOldestReflogEntry() {
+        let refs = ["origin/feat/a", "origin/main"]
+        let reflog = "commit: second\ncommit: first\nbranch: Created from origin/feat/a\n"
+
+        #expect(GitInspector.parseStartedFrom(reflog, refs: refs) == "origin/feat/a")
+        #expect(GitInspector.parseStartedFrom("branch: Created from refs/remotes/origin/main", refs: refs) == "origin/main")
+        // A local branch, a commit, or a remote branch since deleted is nothing to compare with.
+        #expect(GitInspector.parseStartedFrom("branch: Created from main", refs: refs) == nil)
+        #expect(GitInspector.parseStartedFrom("branch: Created from HEAD", refs: refs) == nil)
+        #expect(GitInspector.parseStartedFrom("branch: Created from origin/gone", refs: refs) == nil)
+        #expect(GitInspector.parseStartedFrom("commit: first", refs: refs) == nil)
+    }
+
+    @Test func aBranchMadeFromARemoteBranchSaysWhichOne() async throws {
+        let repo = try GitRepo()
+        try repo.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        try repo.git("checkout", "-q", "-b", "feature", "origin/main")
+
+        let branches = await GitInspector.remoteBranches(at: repo.path, branch: "feature")
+        #expect(branches.startedFrom == "origin/main")
+    }
+
     @Test func aPullRequestsBaseIsFoundOnTheRemoteThatHoldsItsRepository() {
         let branches = GitRemoteBranches(
             refs: ["fork/main", "origin/feat/a", "origin/main", "upstream/main"],

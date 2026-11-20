@@ -61,6 +61,10 @@ struct GitRemoteBranches: Sendable, Equatable {
     var refs: [String] = []
     // Remote name to its fetch URL.
     var urls: [String: String] = [:]
+    // The checkout's branch when this was read, and the remote branch it was made from, as
+    // git noted when it made it.
+    var branch: String?
+    var startedFrom: String?
 
     var remotes: [String] {
         var seen = Set<String>()
@@ -468,16 +472,35 @@ enum GitInspector {
         return nil
     }
 
-    // Every branch the remotes had at the last fetch, for picking the one to compare with.
-    static func remoteBranches(at path: String) async -> GitRemoteBranches {
+    // Every branch the remotes had at the last fetch, for picking the one to compare with,
+    // and which of them `branch` was made from.
+    static func remoteBranches(at path: String, branch: String? = nil) async -> GitRemoteBranches {
         guard let tool = await tool() else { return GitRemoteBranches() }
         let url = URL(fileURLWithPath: path)
         return await offMain(lane: .interactive) {
             let refs = run(tool, ["for-each-ref", "--format=%(refname)", "refs/remotes"], in: url)
             let urls = run(tool, ["config", "--get-regexp", "^remote\\..*\\.url$"], in: url)
-            return GitRemoteBranches(refs: refs.ok ? parseRemoteRefs(refs.text) : [],
-                                     urls: urls.ok ? parseRemoteURLs(urls.text) : [:])
+            var branches = GitRemoteBranches(refs: refs.ok ? parseRemoteRefs(refs.text) : [],
+                                             urls: urls.ok ? parseRemoteURLs(urls.text) : [:], branch: branch)
+            if let branch, !branch.isEmpty {
+                let log = run(tool, ["reflog", "show", "--format=%gs", "refs/heads/" + branch, "--"], in: url)
+                // A log cut short has lost its oldest entry, which is the one that says.
+                if log.ok, !log.truncated { branches.startedFrom = parseStartedFrom(log.text, refs: branches.refs) }
+            }
+            return branches
         }
+    }
+
+    // A branch's oldest reflog entry says what it was made from, as "branch: Created from
+    // origin/main". Only a remote branch the list holds counts; a local branch or a commit
+    // is not something to compare with.
+    static func parseStartedFrom(_ reflog: String, refs: [String]) -> String? {
+        let prefix = "branch: Created from "
+        guard let oldest = reflog.split(separator: "\n").last(where: { !$0.isEmpty }),
+              oldest.hasPrefix(prefix) else { return nil }
+        var from = String(oldest.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        if from.hasPrefix("refs/remotes/") { from.removeFirst("refs/remotes/".count) }
+        return refs.contains(from) ? from : nil
     }
 
     // `for-each-ref` lines are full ref names. A remote's HEAD only points at one of its
