@@ -42,6 +42,7 @@ struct ViewedToggle: View {
         .motion(Motion.hover, value: lit)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Viewed")
+        .accessibilityValue(isOn ? "On" : "Off")
         .accessibilityAddTraits(isOn ? [.isToggle, .isSelected] : [.isToggle])
     }
 

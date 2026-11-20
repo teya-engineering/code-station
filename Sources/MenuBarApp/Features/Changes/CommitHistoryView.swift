@@ -63,6 +63,8 @@ struct CommitHistoryView: View {
     // The session whose review keeps the files ticked off as read. Nil outside a session,
     // where files carry no tick.
     var review: ReviewTarget? = nil
+    // Hands up how far through this commit's files the reviewer is, for the turn's footer.
+    var reportTally: (ViewedTally?) -> Void = { _ in }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var fileResults: [String: GitInspector.CommitFiles] = [:]
     @State private var collapsed: Set<String> = []
@@ -104,6 +106,8 @@ struct CommitHistoryView: View {
         .background(Theme.card)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Commit")
+        .onChange(of: footerTally, initial: true) { _, tally in reportTally(tally) }
+        .onDisappear { reportTally(nil) }
         .task(id: request) {
             guard let commit = selection.commit else { return }
             let requested = request
@@ -355,7 +359,7 @@ struct CommitHistoryView: View {
             if let viewed {
                 ViewedToggle(isOn: viewed == .viewed, height: ControlHeight.sm) { toggleViewed(file) }
                     .appTooltip(viewed == .viewed ? "Mark not viewed" : "Mark viewed")
-                    .accessibilityHint("Ticks off \(file.fileName) as read for this session and folds its card")
+                    .accessibilityHint("Marks \(file.fileName) viewed for this session and folds its card")
                     .padding(.leading, Space.xs)
             }
             Text("\(position) of \(count)").font(Typography.caption).foregroundStyle(.tertiary)
@@ -384,7 +388,13 @@ struct CommitHistoryView: View {
     private func viewedTally(_ files: [GitChange]) -> ViewedTally? {
         let states = files.compactMap(viewedState)
         guard !states.isEmpty else { return nil }
-        return ViewedTally(viewed: states.filter { $0 == .viewed }.count, total: states.count)
+        return ViewedTally(viewed: states.filter { $0 == .viewed }.count, total: states.count, inCommit: true)
+    }
+
+    // The open commit's tally, once its files are read.
+    private var footerTally: ViewedTally? {
+        guard selection.commit != nil, let result, result.note == nil else { return nil }
+        return viewedTally(result.files)
     }
 
     // A file already read, here or before it was committed, opens folded away.

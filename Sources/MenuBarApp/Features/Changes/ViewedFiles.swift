@@ -100,13 +100,38 @@ enum ViewedLines {
         return added
     }
 
-    // The keys of the added lines in a diff that came in after the version viewed, which
-    // is how the diff views name a line.
-    static func freshKeys(_ added: Set<Int>, in lines: [DiffLine]) -> Set<String> {
-        guard !added.isEmpty else { return [] }
-        let additions = Set(lines.filter { $0.kind == .addition }.map(\.id))
+    // The lines of the version the diff compares with that the text viewed still held and
+    // the current text has lost, numbered as the diff numbers its removed lines. A line
+    // already gone when the file was viewed was read as removed, so it is left out.
+    static func removed(since viewed: String, in current: String, base: String) -> Set<Int> {
+        let original = base.components(separatedBy: "\n")
+        let before = viewed.components(separatedBy: "\n")
+        let after = current.components(separatedBy: "\n")
+        guard original.count + before.count <= limit, original.count + after.count <= limit else { return [] }
+        return removals(after.difference(from: original)).subtracting(removals(before.difference(from: original)))
+    }
+
+    private static func removals(_ difference: CollectionDifference<String>) -> Set<Int> {
+        var removed = Set<Int>()
+        for change in difference {
+            if case .remove(let offset, _, _) = change { removed.insert(offset + 1) }
+        }
+        return removed
+    }
+
+    // The keys of the diff's lines that changed after the version viewed: added lines by
+    // their new number, removed ones by their old. That is how the diff views name a line.
+    static func freshKeys(added: Set<Int>, removed: Set<Int> = [], in lines: [DiffLine]) -> Set<String> {
+        guard !added.isEmpty || !removed.isEmpty else { return [] }
+        let kinds = Dictionary(lines.map { ($0.id, $0.kind) }, uniquingKeysWith: { first, _ in first })
         return Set(NumberedDiffLine.lines(lines)
-            .filter { $0.side == .new && additions.contains($0.id) && added.contains($0.number) }
+            .filter { line in
+                switch (line.side, kinds[line.id]) {
+                case (.new, .addition): added.contains(line.number)
+                case (.old, .deletion): removed.contains(line.number)
+                default: false
+                }
+            }
             .map { DiffComments.key($0.anchor) })
     }
 }
@@ -121,11 +146,16 @@ struct ViewedMark: Codable, Equatable, Sendable {
 struct ViewedTally: Equatable {
     var viewed: Int
     var total: Int
+    // The files of one commit, which the footer says so it is not read as the whole change.
+    var inCommit = false
 
     var left: Int { total - viewed }
     var isDone: Bool { total > 0 && viewed == total }
     var label: String { isDone ? "All \(total) viewed" : "\(viewed) of \(total) viewed" }
-    var footnote: String { left == 0 ? "All \(counted(total, "file")) viewed" : "\(counted(left, "file")) not viewed yet" }
+    var footnote: String {
+        let place = inCommit ? " in this commit" : ""
+        return left == 0 ? "All \(counted(total, "file"))\(place) viewed" : "\(counted(left, "file"))\(place) not viewed yet"
+    }
 }
 
 // Every session's viewed files. Kept on disk with the review, so a file ticked off before

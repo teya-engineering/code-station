@@ -118,9 +118,14 @@ struct ChangesView: View {
     @State private var diffScroll = DiffTextView.Scroll.top
     // The lines of the open file added after it was last marked viewed, by DiffAnchor key.
     @State private var freshLines: FreshLines?
-    // The first of them, once "Go to the new lines" asks for it.
+    // The first of them, once "Go to the new lines" asks for it, and all of them as they
+    // were then, to wash in amber once.
     @State private var freshRevealKey: String?
+    @State private var freshRevealFlash: Set<String> = []
     @State private var freshRevealSerial = 0
+    // How far through the open commit's files the reviewer is, for the turn's footer
+    // while History is shown.
+    @State private var historyTally: ViewedTally?
     // Moves on to the next file once a tick has landed. Picking a file first cancels it.
     @State private var advanceTask: Task<Void, Never>?
     // Gap rows git is reading the hidden lines for right now.
@@ -515,7 +520,8 @@ struct ChangesView: View {
         let prRef = pullRequestBaseRef
         let picked = model.comparesToRemote ? current : nil
         func item(_ ref: String, detail: String? = nil) -> MenuItem {
-            MenuItem(label: ref, checked: ref == picked, detail: detail) { compare(with: ref) }
+            let detail = detail ?? (ref == branches.startedFrom ? "The branch this one started from" : nil)
+            return MenuItem(label: ref, checked: ref == picked, detail: detail) { compare(with: ref) }
         }
         var groups: [MenuItemGroup] = []
         if let prRef, let pullRequest = pullRequestBase {
@@ -1185,8 +1191,8 @@ struct ChangesView: View {
         return total == 0 ? nil : ViewedTally(viewed: viewed, total: total)
     }
 
-    // What the turn's footer counts: the changed files, while they are what is listed.
-    private var footerTally: ViewedTally? { mode == .changes ? viewedTally : nil }
+    // What the turn's footer counts: the changed files, or the open commit's in History.
+    private var footerTally: ViewedTally? { mode == .changes ? viewedTally : historyTally }
 
     // Reads what each changed file holds, so a file the agent has edited since it was
     // ticked off is known to be new again.
@@ -1301,10 +1307,13 @@ struct ChangesView: View {
         showToast("Viewed marks cleared", action: "Undo") { store.restore(cleared, in: session) }
     }
 
+    // Scrolls to the first of the new lines, and washes them all in amber once so the eye
+    // lands on them.
     private func goToNewLines() {
         guard let diff, let first = NumberedDiffLine.lines(diff.lines)
             .first(where: { shownFreshKeys.contains(DiffComments.key($0.anchor)) }) else { return }
         freshRevealKey = DiffComments.key(first.anchor)
+        freshRevealFlash = shownFreshKeys
         freshRevealSerial += 1
     }
 
@@ -1313,7 +1322,8 @@ struct ChangesView: View {
               let version = version(file, in: root), viewedState(file, in: root)?.isEdited == true,
               let since = review.reviews.viewed.latest(notesKey(root, file.path), in: review.sessionID)?.version
         else { return nil }
-        return FreshRequest(fileID: file.id, version: version, since: since, lines: diff.lines.count)
+        return FreshRequest(fileID: file.id, version: version, since: since, lines: diff.lines.count,
+                            base: snapshot?.diffBase(for: file))
     }
 
     private var shownFreshKeys: Set<String> {
@@ -1321,9 +1331,10 @@ struct ChangesView: View {
         return freshLines.keys
     }
 
-    // Compares the text last viewed with the file now, to find the lines added since.
+    // Compares the text last viewed with the file now, to find the lines added since, and
+    // with the version the diff compares with, to find the removed lines it still had.
     private func findFreshLines() async {
-        guard let request = freshRequest, let review else {
+        guard let request = freshRequest, let review, let file = shownFile else {
             freshLines = nil
             return
         }
@@ -1332,11 +1343,20 @@ struct ChangesView: View {
             freshLines = FreshLines(fileID: request.fileID, keys: [])
             return
         }
-        let added = await GitInspector.offMain(lane: .interactive) {
-            ViewedLines.added(since: viewed, in: current.text)
+        // A new file has nothing it was compared with, so nothing of it can be removed.
+        var original: String?
+        if file.kind != .added, !file.isUntracked {
+            original = try? await GitInspector.copyText(for: file, root: repoRoot, version: .before,
+                                                        base: request.base).get()
+        }
+        let base = original
+        let (added, removed) = await GitInspector.offMain(lane: .interactive) {
+            (ViewedLines.added(since: viewed, in: current.text),
+             base.map { ViewedLines.removed(since: viewed, in: current.text, base: $0) } ?? [])
         }
         guard !Task.isCancelled, let diff, shownFile?.id == request.fileID else { return }
-        freshLines = FreshLines(fileID: request.fileID, keys: ViewedLines.freshKeys(added, in: diff.lines))
+        freshLines = FreshLines(fileID: request.fileID,
+                                keys: ViewedLines.freshKeys(added: added, removed: removed, in: diff.lines))
     }
 
     // A tick for a file read, or an amber dot for one the agent has edited since.
@@ -1417,11 +1437,11 @@ struct ChangesView: View {
         let time = Calendar.current.isDateInToday(since)
             ? since.formatted(date: .omitted, time: .shortened)
             : since.formatted(date: .abbreviated, time: .shortened)
-        let lines = count > 0 ? " \(counted(count, "new line")) marked in amber." : ""
+        let lines = count > 0 ? " \(counted(count, "new line")) \(count == 1 ? "carries" : "carry") an amber mark." : ""
         return HStack(spacing: Space.md) {
             Circle().fill(Theme.attention).frame(width: 6, height: 6).accessibilityHidden(true)
-            Text("Edited again since you viewed it at \(time)." + lines)
-                .font(Typography.detail.weight(.medium))
+            Text("\(Text("Edited again since you viewed it at \(time).").fontWeight(.semibold))\(lines)")
+                .font(Typography.detail)
                 .foregroundStyle(Theme.attentionText)
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: Space.md)
@@ -1878,7 +1898,7 @@ struct ChangesView: View {
                     }
                     .disabled(loadingDiff)
                     .appTooltip(keyBindings.tooltip(viewed == .viewed ? "Mark not viewed" : "Mark viewed", for: .toggleViewed))
-                    .accessibilityHint("Ticks off \(file.fileName) as read for this session")
+                    .accessibilityHint("Marks \(file.fileName) viewed for this session")
                 }
                 if mode == .changes, let file = shownFile {
                     Image(systemName: "ellipsis").padding(Space.md).contentShape(Rectangle())
@@ -2028,7 +2048,7 @@ struct ChangesView: View {
             } else {
                 CommitHistoryView(root: repoRoot, selection: historySelection,
                                   back: narrow ? { historySelection.showingDetail = false } : nil,
-                                  review: review)
+                                  review: review) { historyTally = $0 }
             }
         } else {
             ChangesLoadingPlaceholder(title: "Loading history…").padding(Space.xxxl).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2142,9 +2162,11 @@ struct ChangesView: View {
             dialogs.show(.notice("Could not refresh origin", message: error))
         }), let fresh = snapshot else { return }
         // Read after the files, so the list is never held up by it. A pull request's base is
-        // found in it, and a base that differs from the default reads the files again.
-        if fresh.remoteBase != nil, model.remoteBranches == nil || fetchOrigin {
-            let branches = await GitInspector.remoteBranches(at: root)
+        // found in it, and a base that differs from the default reads the files again. A
+        // switch of branch reads it again too, since it says where the branch started.
+        let branch = fresh.onBranch ? fresh.branch : nil
+        if fresh.remoteBase != nil, model.remoteBranches == nil || fetchOrigin || model.remoteBranches?.branch != branch {
+            let branches = await GitInspector.remoteBranches(at: root, branch: branch)
             guard !Task.isCancelled else { return }
             model.remoteBranches = branches
         }
@@ -2472,7 +2494,7 @@ struct ChangesView: View {
         }
         if let key = freshRevealKey, let anchor = DiffComments.anchor(key), let diff,
            let id = lineID(for: anchor, in: diff.lines) {
-            return DiffReveal(line: id, serial: freshRevealSerial, key: key)
+            return DiffReveal(line: id, serial: freshRevealSerial, key: key, flash: freshRevealFlash)
         }
         guard let focusedComment,
               let line = placement.below.first(where: { $0.value.contains { $0.id == focusedComment } })?.key
@@ -3429,4 +3451,6 @@ private struct FreshRequest: Equatable {
     var version: String
     var since: String
     var lines: Int
+    // The commit the diff compares with, nil for the last one.
+    var base: String?
 }
