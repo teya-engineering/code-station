@@ -34,6 +34,7 @@ final class SessionRunner {
     // automatic one failing is not something they are waiting on.
     struct TitleFailure: Equatable {
         let id = UUID()
+        let sessionTitle: String
         let reason: String
     }
     private(set) var titleFailure: TitleFailure?
@@ -2878,6 +2879,14 @@ final class SessionRunner {
         requestAutomaticRecap(sessionID, unseen: unseen, store: store)
     }
 
+    // A dialog grows to fit its message, so a CLI that dumps a stack trace would push the
+    // buttons off screen. The opening lines usually name the problem.
+    nonisolated static func dialogExcerpt(_ text: String, lines: Int = 4, characters: Int = 400) -> String {
+        let kept = text.split(separator: "\n", omittingEmptySubsequences: false).prefix(lines).joined(separator: "\n")
+        let clipped = kept.count > characters ? String(kept.prefix(characters)) : kept
+        return clipped.count < text.count ? clipped.trimmed + "…" : clipped
+    }
+
     private func finishSummary(_ turn: Turn, attempt: SummaryAttempt, status: Int32,
                                sessionID: UUID, store: ProjectStore) {
         // A title runs before the turn that earned a suggestion has settled, so the ask
@@ -2909,14 +2918,21 @@ final class SessionRunner {
                 SessionLog.note("session title rejected words=\(raw.split(whereSeparator: \.isWhitespace).count) chars=\(raw.count)",
                                 session: sessionID)
                 if attempt.askedFor {
-                    titleFailure = TitleFailure(reason: raw.isEmpty
-                        ? "\(turn.agent.title) did not send a title back."
-                        : "\(turn.agent.title)'s answer was too long to use as a title.")
+                    let reason = if raw.isEmpty {
+                        "\(turn.agent.title) did not send a title back."
+                    } else if raw.count > SessionTitle.maximumLength {
+                        "\(turn.agent.title)'s answer was too long to use as a title."
+                    } else {
+                        "\(turn.agent.title) did not send back a usable title."
+                    }
+                    titleFailure = TitleFailure(sessionTitle: request.originalTitle, reason: reason)
                 }
             } else if text == nil, attempt.askedFor, !turn.stopRequested {
                 let stderr = turn.stderr.trimmed
-                titleFailure = TitleFailure(reason: turn.failure ?? turn.lastStreamError
-                    ?? (stderr.isEmpty ? "\(turn.agent.title) exited with code \(status)." : stderr))
+                let reason = turn.failure ?? turn.lastStreamError
+                    ?? (stderr.isEmpty ? "\(turn.agent.title) exited with code \(status)." : stderr)
+                titleFailure = TitleFailure(sessionTitle: request.originalTitle,
+                                            reason: Self.dialogExcerpt(reason))
             }
             if let text { store.setGeneratedTitle(text, for: request) }
             setState(attempt.restingState.sessionState, for: sessionID)
