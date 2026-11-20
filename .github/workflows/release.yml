@@ -111,9 +111,11 @@ jobs:
         run: swift --version && xcodebuild -version
 
       # Resolving here rather than during the build keeps dependency manifests,
-      # which SwiftPM compiles and runs, away from the loaded signing key.
+      # which SwiftPM compiles and runs, away from the loaded signing key. The
+      # release takes exactly the versions in Package.resolved, and fails if it
+      # is out of date rather than picking newer ones.
       - name: Resolve dependencies
-        run: swift package resolve
+        run: swift package resolve --force-resolved-versions
 
       - name: Import the Developer ID certificate
         env:

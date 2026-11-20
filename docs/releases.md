@@ -13,6 +13,8 @@ Tag a commit whose `Tests` run passed, or one whose run is still going. The rele
 
 Review the draft in GitHub Releases, then publish it. If the workflow fails for a temporary reason, run it again from GitHub Actions and select the same tag.
 
+The build uses exactly the dependency versions in `Package.resolved`. If that file is out of date with `Package.swift`, the release fails instead of resolving newer versions. Commit an updated `Package.resolved`, then tag that commit.
+
 ## Quick builds
 
 To hand a build to a few people without waiting on Apple, build the DMG on your own Mac and skip notarization:
