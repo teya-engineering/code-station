@@ -759,7 +759,7 @@ enum TranscriptLink {
                 .map { AttributedString.inlineMarkdown($0.text).linkingLocalServers() }
         case .user:
             prose = SentPrompt.segments(message.text).filter { !$0.isCode }
-                .map { SentPrompt.inline($0.text, commandNames: []) }
+                .map { SentPrompt.inline($0.text, commands: SlashCommandNames()) }
         case .system, .instructions:
             return nil
         }

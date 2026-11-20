@@ -22,7 +22,9 @@ struct ComposerField<TrailingAccessory: View>: View {
     var onRecallDown: (() -> Bool)? = nil
     // Only Claude knows the thinking keyword, so only its prompts colour it.
     var highlightsKeyword: Bool = false
-    var commandNames: Set<String> = []
+    var commandNames = SlashCommandNames()
+    // Where the caret sits as it moves, so the command menu can follow the word it is in.
+    var onCaretChange: ((ComposerCaret) -> Void)? = nil
     // Tab, command-return and escape while a suggestion is being offered above the box.
     // It answers whether it took the key, so with nothing offered tab still moves focus
     // and escape still reaches whatever else wants it.
@@ -57,7 +59,8 @@ struct ComposerField<TrailingAccessory: View>: View {
          onRecallUp: (() -> Bool)? = nil,
          onRecallDown: (() -> Bool)? = nil,
          highlightsKeyword: Bool = false,
-         commandNames: Set<String> = [],
+         commandNames: SlashCommandNames = SlashCommandNames(),
+         onCaretChange: ((ComposerCaret) -> Void)? = nil,
          onSuggestionKey: ((SuggestionKey) -> Bool)? = nil,
          onCommandKey: ((CommandKey) -> Bool)? = nil,
          onDropFiles: (([URL]) -> Void)? = nil,
@@ -79,6 +82,7 @@ struct ComposerField<TrailingAccessory: View>: View {
         self.onRecallDown = onRecallDown
         self.highlightsKeyword = highlightsKeyword
         self.commandNames = commandNames
+        self.onCaretChange = onCaretChange
         self.onSuggestionKey = onSuggestionKey
         self.onCommandKey = onCommandKey
         self.onDropFiles = onDropFiles
@@ -106,6 +110,7 @@ struct ComposerField<TrailingAccessory: View>: View {
                  onRecallDown: onRecallDown,
                  highlightsKeyword: highlightsKeyword,
                  commandNames: commandNames,
+                 onCaretChange: onCaretChange,
                  onSuggestionKey: onSuggestionKey,
                  onCommandKey: onCommandKey,
                  onDropFiles: onDropFiles,
@@ -171,7 +176,8 @@ struct TextArea: NSViewRepresentable {
     let onRecallUp: (() -> Bool)?
     let onRecallDown: (() -> Bool)?
     let highlightsKeyword: Bool
-    var commandNames: Set<String> = []
+    var commandNames = SlashCommandNames()
+    var onCaretChange: ((ComposerCaret) -> Void)? = nil
     let onSuggestionKey: ((SuggestionKey) -> Bool)?
     let onCommandKey: ((CommandKey) -> Bool)?
     var onDropFiles: (([URL]) -> Void)? = nil
@@ -194,10 +200,13 @@ struct TextArea: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? EditorView else { return }
         context.coordinator.parent = self
+        context.coordinator.updating = true
+        defer { context.coordinator.updating = false }
 
         // Only when the model moved on its own, e.g. the draft cleared after a send.
         // Writing back what the user just typed would drop the insertion point.
         if textView.string != text {
+            TextWash.clear(in: textView)
             textView.string = text
             // A prompt arriving from elsewhere is there to be worked on, so the caret
             // goes to the end of it rather than staying wherever the old text left it.
@@ -206,6 +215,7 @@ struct TextArea: NSViewRepresentable {
         }
         link?.textView = textView
         link?.applyPendingCaret()
+        link?.applyPendingWash()
 
         // Still selectable while a turn runs: making it otherwise would push first
         // responder out of the box, and the cursor would not come back when the turn ends.
@@ -243,7 +253,10 @@ struct TextArea: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextArea
         private var lastHeight: CGFloat = -1
+        private var lastCaret: ComposerCaret?
         var claimedFocus = false
+        // Set while SwiftUI hands the field new state, when its own state cannot change.
+        var updating = false
 
         init(_ parent: TextArea) { self.parent = parent }
 
@@ -293,6 +306,34 @@ struct TextArea: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
             reportHeight(of: textView)
+            reportCaret(of: textView)
+        }
+
+        // The colour of a command being typed depends on where the caret is, so it is
+        // worked out again whenever the caret moves.
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? EditorView else { return }
+            textView.refreshHighlights()
+            reportCaret(of: textView)
+        }
+
+        // A caret placed while SwiftUI is updating the field is passed on once the update
+        // is over, and read again then, so only where it settled is reported.
+        func reportCaret(of textView: NSTextView) {
+            guard parent.onCaretChange != nil else { return }
+            guard !updating else {
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    reportCaret(of: textView)
+                }
+                return
+            }
+            let selection = textView.selectedRange()
+            let caret = ComposerCaret(text: textView.string,
+                                      location: selection.length == 0 ? selection.location : nil)
+            guard caret != lastCaret else { return }
+            lastCaret = caret
+            parent.onCaretChange?(caret)
         }
 
         func handleOversizedPaste(from pasteboard: NSPasteboard) -> Bool {
@@ -372,8 +413,10 @@ struct TextArea: NSViewRepresentable {
             parent.onCommandKey?(key) == true
         }
 
-        func focusChanged(_ focused: Bool) {
+        func focusChanged(_ focused: Bool, in textView: NSTextView) {
             if parent.isFocused != focused { parent.isFocused = focused }
+            // A field built with a draft already in it has not moved its caret yet.
+            if focused { reportCaret(of: textView) }
         }
 
         // The box is sized from the laid-out text, so it has to be measured after every
@@ -398,10 +441,10 @@ struct TextArea: NSViewRepresentable {
         // change the prompt, enter the undo history, or colour the text typed after it.
         var highlightsKeyword = false
         var animatesKeyword = true
-        var commandNames: Set<String> = []
+        var commandNames = SlashCommandNames()
         var marks = ComposerMarks()
         private var keywordRanges: [NSRange] = []
-        private var commandRange: NSRange?
+        private var commandRanges: [NSRange] = []
         private var sweep: Task<Void, Never>?
         private static let frameRate = Duration.milliseconds(42)
 
@@ -411,7 +454,10 @@ struct TextArea: NSViewRepresentable {
 
         func refreshHighlights() {
             keywordRanges = highlightsKeyword ? ThinkingKeyword.ranges(in: string) : []
-            commandRange = SlashQuery.highlightedRange(in: string, commandNames: commandNames)
+            let selection = selectedRange()
+            commandRanges = SlashQuery.highlightedRanges(in: string,
+                                                         caret: selection.length == 0 ? selection.location : nil,
+                                                         names: commandNames)
 
             if keywordRanges.isEmpty || !animatesKeyword {
                 sweep?.cancel()
@@ -469,9 +515,9 @@ struct TextArea: NSViewRepresentable {
                                                                                     length: 1))
                 }
             }
-            if let commandRange {
+            for range in commandRanges where NSMaxRange(range) <= length {
                 layoutManager.addTemporaryAttribute(.foregroundColor, value: Theme.accentNSColor,
-                                                    forCharacterRange: commandRange)
+                                                    forCharacterRange: range)
             }
             // The words the engine is still guessing at, which may yet change.
             if let tentative = marks.tentative, NSMaxRange(tentative) <= length {
@@ -517,6 +563,8 @@ struct TextArea: NSViewRepresentable {
 
         override func didChangeText() {
             super.didChangeText()
+            // A wash marks where a command landed, and an edit moves the words under it.
+            TextWash.clear(in: self)
             refreshHighlights()
         }
 
@@ -599,17 +647,25 @@ struct TextArea: NSViewRepresentable {
 
         override func becomeFirstResponder() -> Bool {
             let took = super.becomeFirstResponder()
-            if took { coordinator?.focusChanged(true) }
+            if took { coordinator?.focusChanged(true, in: self) }
             return took
         }
 
         override func resignFirstResponder() -> Bool {
             let gave = super.resignFirstResponder()
             // A window merely losing key status is not the user moving focus elsewhere.
-            if gave, window?.isKeyWindow == true { coordinator?.focusChanged(false) }
+            if gave, window?.isKeyWindow == true { coordinator?.focusChanged(false, in: self) }
             return gave
         }
     }
+}
+
+// Where the caret sits, with the text it sits in. A draft can change from outside the field
+// before the field has placed its caret in it, and the two are only read together.
+struct ComposerCaret: Equatable {
+    var text: String
+    // Nil while there is a selection, when the caret is nowhere.
+    var location: Int?
 }
 
 enum ComposerPaste {
@@ -643,6 +699,7 @@ struct ComposerMarks: Equatable {
 final class ComposerFieldLink {
     weak var textView: NSTextView?
     private var pendingCaret: Int?
+    private var pendingWash: (range: NSRange, words: String)?
 
     // The end of the selection, so a selection is kept and the words follow it.
     var caret: Int? {
@@ -662,6 +719,22 @@ final class ComposerFieldLink {
         pendingCaret = nil
         textView.setSelectedRange(NSRange(location: location, length: 0))
         textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+    }
+
+    // Words just put in are washed with the accent as they land, so a command that went
+    // into the middle of a sentence shows where it went. Like the caret, the wash waits
+    // until the field holds the words it is for.
+    func wash(_ range: NSRange, holding words: String) {
+        pendingWash = (range, words)
+        DispatchQueue.main.async { [weak self] in self?.applyPendingWash() }
+    }
+
+    func applyPendingWash() {
+        guard let (range, words) = pendingWash, let textView else { return }
+        let text = textView.string as NSString
+        guard NSMaxRange(range) <= text.length, text.substring(with: range) == words else { return }
+        pendingWash = nil
+        TextWash.play(over: range, in: textView, colour: Theme.accentNSColor)
     }
 
     func frameInWindow(of range: NSRange) -> CGRect? {
