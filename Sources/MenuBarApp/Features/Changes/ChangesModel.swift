@@ -11,6 +11,10 @@ final class ChangesModel {
     // Compare the files to where the branch left the remote's default branch, so work
     // already committed shows next to what is not.
     var comparesToRemote = false
+    // The remote branch to compare with. Nil takes the remote's default branch.
+    var remoteRef: String?
+    // The remotes' branches as last fetched, for the menu that picks one.
+    var remoteBranches: GitRemoteBranches?
     var loading = false
     var working: String?
     var commits: [GitCommitSummary]?
@@ -32,10 +36,13 @@ final class ChangesModel {
     @ObservationIgnored private var renderGeneration = 0
     @ObservationIgnored private var loadGeneration = 0
 
-    @ObservationIgnored private let readSnapshot: (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot
+    @ObservationIgnored private let readSnapshot: (_ root: String, _ comparingToRemote: Bool,
+                                                   _ remoteRef: String?) async -> GitSnapshot
 
-    init(readSnapshot: @escaping (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot = {
-        await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true, comparingToRemote: $1)
+    init(readSnapshot: @escaping (_ root: String, _ comparingToRemote: Bool,
+                                  _ remoteRef: String?) async -> GitSnapshot = {
+        await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true,
+                                    comparingToRemote: $1, remoteRef: $2)
     }) {
         self.readSnapshot = readSnapshot
     }
@@ -65,7 +72,7 @@ final class ChangesModel {
             refreshFailed = true
             onError(error)
         }
-        let fresh = await readSnapshot(root, comparesToRemote)
+        let fresh = await readSnapshot(root, comparesToRemote, remoteRef)
         guard !Task.isCancelled, generation == refreshGeneration else { return false }
         snapshot = fresh
         checkedAt = Date()

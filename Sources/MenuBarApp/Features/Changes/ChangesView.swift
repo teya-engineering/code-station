@@ -19,6 +19,9 @@ struct ChangesView: View {
     private let isWorkspace: Bool
     let selectRepository: (String, String?) -> Void
     let review: ReviewTarget?
+    // The open pull requests the session works on. The one made from this checkout's branch
+    // names the branch the files are compared with until another is picked.
+    let pullRequestBases: [PullRequestBase]
 
     private var collapsedRepositories: Set<String> {
         get { navigation.collapsed }
@@ -152,6 +155,7 @@ struct ChangesView: View {
          repositories: [ChangesRepository] = [], requestedPath: String? = nil,
          navigation: ChangesNavigationMemory? = nil,
          review: ReviewTarget? = nil,
+         pullRequestBases: [PullRequestBase] = [],
          selectRepository: @escaping (String, String?) -> Void = { _, _ in }) {
         let memory = navigation ?? ChangesNavigationMemory()
         _ = memory.history(for: root)
@@ -167,6 +171,7 @@ struct ChangesView: View {
         self.requestedPath = requestedPath
         self.selectRepository = selectRepository
         self.review = review
+        self.pullRequestBases = pullRequestBases
     }
 
     // In a session the Workspace band sits over the navigator and the actions band over
@@ -181,6 +186,12 @@ struct ChangesView: View {
             .onChange(of: fileSelection.activeID) { _, _ in
                 advanceTask?.cancel()
                 freshRevealKey = nil
+            }
+            // The pull request's base is known once GitHub and the branch list have both
+            // answered, which can be after the first read of the files.
+            .onChange(of: preferredRemoteRef) { _, ref in
+                guard let ref, snapshot?.remoteBase?.ref != ref else { return }
+                Task { await reload() }
             }
     }
 
@@ -469,26 +480,53 @@ struct ChangesView: View {
             .disabled(busy)
     }
 
-    // Only offered when the remote's default branch is known. The base is where the
-    // branch left it, which is what a pull request compares against.
+    // Only offered when a remote branch is known. The base is where the branch left it,
+    // which is what a pull request compares against. The branch itself can be picked.
     @ViewBuilder private func compareChoices(_ snapshot: GitSnapshot, compact: Bool) -> some View {
         if mode == .changes, let base = snapshot.remoteBase {
             HStack(spacing: Space.xs) {
                 if !compact {
                     Text("Compare to").font(Typography.caption).foregroundStyle(.secondary).fixedSize()
                 }
-                ChoicePill(title: "HEAD", selected: !model.comparesToRemote, enabled: !busy) {
+                ChoicePill(title: "Last commit", selected: !model.comparesToRemote, enabled: !busy) {
                     compare(toRemote: false)
                 }
-                .appTooltip("Uncommitted changes, compared to the last commit")
-                ChoicePill(title: base.ref, selected: model.comparesToRemote, enabled: !busy) {
+                .appTooltip("Uncommitted changes, against the last commit")
+                MenuChoicePill(title: base.ref, selected: model.comparesToRemote, enabled: !busy,
+                               monospaced: true, menuLabel: "Pick the branch to compare with") {
                     compare(toRemote: true)
+                } entries: {
+                    compareMenu(current: base.ref)
                 }
-                .appTooltip("Everything this branch changes since it left \(base.ref), committed or not")
+                .appTooltip(model.comparesToRemote
+                            ? "Comparing with \(base.ref). Click to pick another branch"
+                            : "Everything this branch changes since it left \(base.ref), committed or not")
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Compare to")
         }
+    }
+
+    // The pull request's base first, then every remote's branches, with a filter on top
+    // since a busy remote has hundreds.
+    private func compareMenu(current: String) -> [MenuEntry] {
+        let branches = model.remoteBranches ?? GitRemoteBranches()
+        let prRef = pullRequestBaseRef
+        let picked = model.comparesToRemote ? current : nil
+        func item(_ ref: String, detail: String? = nil) -> MenuItem {
+            MenuItem(label: ref, checked: ref == picked, detail: detail) { compare(with: ref) }
+        }
+        var groups: [MenuItemGroup] = []
+        if let prRef, let pullRequest = pullRequestBase {
+            groups.append(MenuItemGroup(title: "Pull request",
+                                        items: [item(prRef, detail: "PR #\(pullRequest.number) merges here")]))
+        }
+        for remote in branches.remotes {
+            let refs = branches.refs(on: remote).filter { $0 != prRef }
+            if !refs.isEmpty { groups.append(MenuItemGroup(title: remote, items: refs.map { item($0) })) }
+        }
+        return [.searchable(groups: groups, prompt: "Filter remote branches",
+                            noResults: "No remote branch matches. Fetch from origin to see new ones.")]
     }
 
     private func compare(toRemote: Bool) {
@@ -497,6 +535,31 @@ struct ChangesView: View {
         diffScroll = .top
         Task { await reload() }
     }
+
+    private func compare(with ref: String) {
+        navigation.compareRefs[root] = ref
+        guard !(model.comparesToRemote && snapshot?.remoteBase?.ref == ref) else { return }
+        model.comparesToRemote = true
+        diffScroll = .top
+        announce("Comparing with \(ref)")
+        Task { await reload() }
+    }
+
+    // The pull request made from this checkout's branch, if the session has one open.
+    private var pullRequestBase: PullRequestBase? {
+        guard let branch = snapshot?.branch else { return nil }
+        return pullRequestBases.first { $0.headBranch == branch && !$0.baseBranch.isEmpty }
+    }
+
+    private var pullRequestBaseRef: String? {
+        guard let pullRequest = pullRequestBase, let branches = model.remoteBranches else { return nil }
+        return branches.ref(forBranch: pullRequest.baseBranch, owner: pullRequest.owner,
+                            repository: pullRequest.repository)
+    }
+
+    // The branch picked for this project, else the pull request's base. Nil leaves git to
+    // the remote's default branch.
+    private var preferredRemoteRef: String? { navigation.compareRefs[root] ?? pullRequestBaseRef }
 
     private func remoteControls(_ snapshot: GitSnapshot, compact: Bool) -> some View {
         HStack(spacing: Space.sm) {
@@ -2069,10 +2132,25 @@ struct ChangesView: View {
     }
 
     private func reload(fetchOrigin: Bool = false) async {
+        model.remoteRef = preferredRemoteRef
         guard await model.reload(root: root, fetchOrigin: fetchOrigin, gitStats: gitStats,
                                  onError: { error in
             dialogs.show(.notice("Could not refresh origin", message: error))
         }), let fresh = snapshot else { return }
+        // Read after the files, so the list is never held up by it. A pull request's base is
+        // found in it, and a base that differs from the default reads the files again.
+        if fresh.remoteBase != nil, model.remoteBranches == nil || fetchOrigin {
+            let branches = await GitInspector.remoteBranches(at: root)
+            guard !Task.isCancelled else { return }
+            model.remoteBranches = branches
+        }
+        // A branch picked before can be deleted on the remote and pruned by a fetch. The
+        // list then falls back, and says so once rather than quietly showing another base.
+        if let picked = navigation.compareRefs[root], let base = fresh.remoteBase, base.ref != picked,
+           model.remoteBranches?.refs.contains(picked) == false {
+            navigation.compareRefs[root] = nil
+            showToast("\(picked) is gone from the remote, so the files are compared with \(base.ref)")
+        }
         excluded.formIntersection(Set(fresh.files.map(\.id)))
         // A push can land between refreshes, and amending a pushed commit is exactly
         // what the checkbox exists to prevent.
