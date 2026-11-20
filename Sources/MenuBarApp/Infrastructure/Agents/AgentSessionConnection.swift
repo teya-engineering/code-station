@@ -566,7 +566,10 @@ private extension AgentSessionConnection {
         }
         let key = UUID().uuidString
         kiroPermissions[key] = (id, options)
-        return [.permissionRequest(.kiro(id: key, call: kiro.call(callID),
+        let call = kiro.call(callID)
+            ?? (consent?["capability"] as? String == "mcp"
+                ? (consent?["resource"] as? String).flatMap(KiroStream.mcpCall(resource:)) : nil)
+        return [.permissionRequest(.kiro(id: key, call: call,
                                          title: toolCall["title"] as? String ?? "Tool",
                                          projectPath: launch.directory))]
     }

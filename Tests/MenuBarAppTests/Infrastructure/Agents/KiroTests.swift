@@ -456,3 +456,115 @@ struct KiroStreamingRunnerTests {
         #expect(reply.tools.first?.textOffset == "Let me look.".count)
     }
 }
+
+// Kiro sessions are handed Code Station's MCP servers when they open, following the
+// session's own choices.
+struct KiroMCPServerTests {
+    private static let local = Server(name: "grafana", command: "npx", args: ["-y", "grafana,mcp"],
+                                      env: [EnvVar(key: "TOKEN", value: "t")], headers: [], disabled: false)
+    private static let remote = Server(name: "docs", args: [], url: "https://docs.example/mcp", type: "http",
+                                       env: [], headers: [EnvVar(key: "Authorization", value: "Bearer x")],
+                                       disabled: false)
+    private static let switchedOff = Server(name: "old", command: "old-mcp", args: [], env: [], headers: [],
+                                            disabled: true)
+    private static let all = [local, remote, switchedOff]
+
+    @Test func handsOverEveryServerSwitchedOnInTheApp() {
+        let handed = KiroMCPServer.handedTo(SessionSettings(), from: Self.all,
+                                            resolve: { $0 == "npx" ? "/opt/homebrew/bin/npx" : nil })
+        #expect(handed.map(\.name) == ["grafana", "docs"])
+        #expect(handed[0].command == "/opt/homebrew/bin/npx")
+        #expect(handed[0].args == ["-y", "grafana,mcp"])
+        #expect(handed[0].env == ["TOKEN": "t"])
+        #expect(handed[1].url == "https://docs.example/mcp")
+        #expect(handed[1].headers == ["Authorization": "Bearer x"])
+    }
+
+    @Test func followsTheSessionsChoices() {
+        #expect(KiroMCPServer.handedTo(SessionSettings(mcpServersEnabled: false), from: Self.all).isEmpty)
+        #expect(KiroMCPServer.handedTo(SessionSettings(allowedMCPServerNames: ["docs"]), from: Self.all)
+            .map(\.name) == ["docs"])
+        #expect(KiroMCPServer.handedTo(
+            SessionSettings(disabledMCPServers: [DisabledMCPServer(name: "grafana", transport: .stdio)]),
+            from: Self.all).map(\.name) == ["docs"])
+    }
+
+    @Test func leavesOutServersKiroCannotReach() {
+        let websocket = Server(name: "ws", args: [], url: "wss://x", type: "ws", env: [], headers: [], disabled: false)
+        let empty = Server(name: "empty", args: [], env: [], headers: [], disabled: false)
+        #expect(KiroMCPServer.handedTo(SessionSettings(), from: [websocket, empty]).isEmpty)
+    }
+
+    @Test func writesTheEntriesTheWayACPTakesThem() throws {
+        let handed = KiroMCPServer.handedTo(SessionSettings(), from: [Self.local, Self.remote])
+        let local = handed[0].acp
+        #expect(local["name"] as? String == "grafana")
+        #expect(local["command"] as? String == "npx")
+        #expect(local["args"] as? [String] == ["-y", "grafana,mcp"])
+        #expect(local["env"] as? [[String: String]] == [["name": "TOKEN", "value": "t"]])
+        let remote = handed[1].acp
+        #expect(remote["type"] as? String == "http")
+        #expect(remote["url"] as? String == "https://docs.example/mcp")
+        #expect(remote["headers"] as? [[String: String]] == [["name": "Authorization", "value": "Bearer x"]])
+    }
+
+    @Test func aKiroSessionOpensAndResumesWithItsServers() throws {
+        let servers = KiroMCPServer.handedTo(SessionSettings(), from: [Self.local])
+        for resume in [nil, "sess_old"] as [String?] {
+            let launch = try AgentServerLaunch(
+                configuration: AgentLaunchConfiguration(agent: .kiro, settings: SessionSettings(),
+                                                        defaults: SessionSettings(), resume: resume,
+                                                        kiroMCPServers: servers),
+                directory: "/tmp/project")
+            let params = try #require(JSONSerialization.jsonObject(with: launch.sessionParameters) as? [String: Any])
+            let handed = try #require(params["mcpServers"] as? [[String: Any]])
+            #expect(handed.map { $0["name"] as? String } == ["grafana"])
+        }
+    }
+
+    @MainActor
+    @Test func troubleshootCountsTheServersKiroIsHanded() {
+        let ready = TroubleshootMCPState.resolve(
+            agent: .kiro, enabled: true, servers: [Self.local, Self.remote], hasStartedCheck: false,
+            claude: ClaudeCodeManager(), codex: CodexCodeManager(), copilot: CopilotCodeManager())
+        #expect(ready == .ready)
+        let off = TroubleshootMCPState.resolve(
+            agent: .kiro, enabled: true, servers: [Self.local, Self.switchedOff], hasStartedCheck: false,
+            claude: ClaudeCodeManager(), codex: CodexCodeManager(), copilot: CopilotCodeManager())
+        #expect(off != .ready)
+    }
+}
+
+// How Kiro's MCP calls read in the transcript, from what kiro-cli 3.5.0 sent.
+struct KiroMCPCallTests {
+    @Test func anMCPCallReadsLikeTheOtherAgents() {
+        let call = KiroStream.call(kind: "other", title: "@ping-local/ping", input: [:])
+        #expect(call.name == "MCP")
+        #expect(call.input == "ping-local.ping")
+        #expect(KiroStream.mcpCall(resource: "ping-local/ping")?.input == "ping-local.ping")
+    }
+
+    @Test func kirosToolLoadingIsHidden() throws {
+        let wire = try KiroWire()
+        try wire.open()
+        let events = try wire.update([
+            "sessionUpdate": "tool_call", "toolCallId": "load_1", "title": "Tool Load", "kind": "other",
+            "status": "in_progress", "rawInput": ["id": "tool::ping-local::ping"],
+        ]) + wire.update([
+            "sessionUpdate": "tool_call_update", "toolCallId": "load_1", "status": "completed",
+            "rawOutput": ["message": "{\"loaded\": []}"],
+        ]) + wire.update([
+            "sessionUpdate": "tool_call", "toolCallId": "mcp_1", "title": "@ping-local/ping", "kind": "other",
+            "status": "pending", "rawInput": [:],
+        ]) + wire.update([
+            "sessionUpdate": "tool_call_update", "toolCallId": "mcp_1", "status": "completed",
+            "rawOutput": ["response": "pong", "message": "pong"],
+        ])
+        guard events.count == 2, case .toolUse(let tool) = events[0],
+              case .toolResult("mcp_1", "pong", false, nil) = events[1] else {
+            Issue.record("Unexpected events: \(events.map(\.logSummary))")
+            return
+        }
+        #expect(tool.name == "MCP")
+    }
+}

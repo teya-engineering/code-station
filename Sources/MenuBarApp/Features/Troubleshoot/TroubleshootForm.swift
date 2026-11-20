@@ -401,9 +401,13 @@ enum TroubleshootMCPState: Equatable {
                         $0.value.enabled ? nil : $0.key
                     }))
         case .kiro:
-            // The app does not register its servers with Kiro yet, so none of them count.
+            // Kiro is handed the app's servers when the session opens, so a server is
+            // there unless it is switched off in the app or Kiro cannot reach it.
             resolve(enabled: enabled, servers: servers, hasStartedCheck: true,
-                    isRefreshing: false, registeredNames: [], disabledNames: [])
+                    isRefreshing: false,
+                    registeredNames: Set(servers.filter { KiroMCPServer($0, resolve: { _ in nil }) != nil }
+                        .map(\.name)),
+                    disabledNames: Set(servers.filter(\.disabled).map(\.name)))
         }
     }
 

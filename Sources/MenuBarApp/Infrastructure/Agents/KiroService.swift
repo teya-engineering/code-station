@@ -228,3 +228,70 @@ enum KiroCLI {
                                             timeout: .seconds(30), outputByteLimit: 1_048_576)
     }
 }
+
+// One of Code Station's MCP servers, as a Kiro session is handed it when it opens.
+// Kiro takes servers per session over ACP, alongside whatever its own configuration
+// loads, so nothing is written to Kiro's files and the session's own choices hold:
+// with MCP off it is handed none, and a session narrowed to some servers gets only those.
+struct KiroMCPServer: Equatable, Sendable {
+    var name: String
+    var command: String?
+    var args: [String] = []
+    var env: [String: String] = [:]
+    var url: String?
+    // "http" or "sse" for a remote server.
+    var transport: String = "stdio"
+    var headers: [String: String] = [:]
+
+    // The servers a session is handed: the app's own, less those switched off in the
+    // app or for this session, and only the ones Kiro can reach.
+    static func handedTo(_ settings: SessionSettings, from servers: [Server],
+                         resolve: (String) -> String? = { _ in nil }) -> [KiroMCPServer] {
+        guard settings.mcpServersEnabled != false else { return [] }
+        let allowed = settings.allowedMCPServerNames.map(Set.init)
+        let switchedOff = Set((settings.disabledMCPServers ?? []).map(\.name)
+            + (settings.disabledMCPServerNames ?? []))
+        return servers.compactMap { server in
+            guard !server.disabled, !switchedOff.contains(server.name),
+                  allowed?.contains(server.name) ?? true else { return nil }
+            return KiroMCPServer(server, resolve: resolve)
+        }
+    }
+
+    init(name: String, command: String? = nil, args: [String] = [], env: [String: String] = [:],
+         url: String? = nil, transport: String = "stdio", headers: [String: String] = [:]) {
+        self.name = name
+        self.command = command
+        self.args = args
+        self.env = env
+        self.url = url
+        self.transport = transport
+        self.headers = headers
+    }
+
+    // Nil for a server Kiro cannot reach: no command and no address, or a transport
+    // other than a local command, streamable HTTP or SSE.
+    init?(_ server: Server, resolve: (String) -> String?) {
+        if let command = server.command?.trimmed, !command.isEmpty {
+            self.init(name: server.name, command: resolve(command) ?? command,
+                      args: server.args, env: EnvVar.values(server.env))
+            return
+        }
+        guard let url = server.url?.trimmed, !url.isEmpty,
+              ["http", "sse"].contains(server.transport) else { return nil }
+        self.init(name: server.name, url: url, transport: server.transport,
+                  headers: EnvVar.values(server.headers))
+    }
+
+    // The entry as ACP's session/new takes it: environment and headers as name-value
+    // lists, a remote server named by its transport.
+    var acp: [String: Any] {
+        func pairs(_ values: [String: String]) -> [[String: String]] {
+            values.sorted { $0.key < $1.key }.map { ["name": $0.key, "value": $0.value] }
+        }
+        if let command {
+            return ["name": name, "command": command, "args": args, "env": pairs(env)]
+        }
+        return ["type": transport, "name": name, "url": url ?? "", "headers": pairs(headers)]
+    }
+}

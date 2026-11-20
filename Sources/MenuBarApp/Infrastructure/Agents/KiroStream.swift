@@ -23,6 +23,9 @@ final class KiroStream: @unchecked Sendable {
     private var thoughtOpen = false
     private var calls: [String: Call] = [:]
     private var finishedCalls: Set<String> = []
+    // Kiro's own bookkeeping, such as loading an MCP tool before using it. Not work worth
+    // a row, so its result is not worth one either.
+    private var ignoredCalls: Set<String> = []
 
     func events(_ update: [String: Any]) -> [StreamEvent] {
         lock.withLock {
@@ -81,7 +84,13 @@ final class KiroStream: @unchecked Sendable {
     }
 
     private func toolCall(_ update: [String: Any]) -> [StreamEvent] {
-        guard let id = update["toolCallId"] as? String, !id.isEmpty else { return [] }
+        guard let id = update["toolCallId"] as? String, !id.isEmpty,
+              !ignoredCalls.contains(id) else { return [] }
+        if calls[id] == nil, Self.isBookkeeping(title: update["title"] as? String,
+                                                input: update["rawInput"] as? [String: Any] ?? [:]) {
+            ignoredCalls.insert(id)
+            return []
+        }
         var events: [StreamEvent] = []
         if calls[id] == nil {
             let call = Self.call(kind: update["kind"] as? String,
@@ -94,7 +103,8 @@ final class KiroStream: @unchecked Sendable {
     }
 
     private func toolCallUpdate(_ update: [String: Any]) -> [StreamEvent] {
-        guard let id = update["toolCallId"] as? String, !id.isEmpty else { return [] }
+        guard let id = update["toolCallId"] as? String, !id.isEmpty,
+              !ignoredCalls.contains(id) else { return [] }
         // An update for a call the stream never announced still has to show up, or its
         // result would have nowhere to land.
         if calls[id] == nil { return toolCall(update) }
@@ -132,6 +142,11 @@ final class KiroStream: @unchecked Sendable {
     // the app reads are renamed onto the names Claude Code sends. Anything else keeps
     // Kiro's own title and shows its arguments as they came.
     static func call(kind: String?, title: String?, input: [String: Any]) -> Call {
+        // An MCP tool is titled "@server/tool"; it reads the way other agents' MCP calls do.
+        if let title, title.hasPrefix("@"), let slash = title.firstIndex(of: "/") {
+            let server = title[title.index(after: title.startIndex)..<slash]
+            return mcpCall(server: String(server), tool: String(title[title.index(after: slash)...]))
+        }
         let path = input["path"] ?? input["file_path"]
         if let command = input["command"] as? String, kind == "execute" || kind == nil {
             return Call(name: "Bash", input: json(["command": command]), kind: kind)
@@ -163,6 +178,23 @@ final class KiroStream: @unchecked Sendable {
             let name = title.flatMap { $0.isBlank ? nil : $0 } ?? kind ?? "Tool"
             return Call(name: name, input: json(input), kind: kind)
         }
+    }
+
+    static func mcpCall(server: String, tool: String) -> Call {
+        Call(name: "MCP", input: "\(server).\(tool)", kind: "mcp")
+    }
+
+    // A permission request for an MCP tool can arrive before its call does; the request
+    // names it as "server/tool".
+    static func mcpCall(resource: String) -> Call? {
+        guard let slash = resource.firstIndex(of: "/") else { return nil }
+        return mcpCall(server: String(resource[..<slash]),
+                       tool: String(resource[resource.index(after: slash)...]))
+    }
+
+    // Kiro loads an MCP tool with a call of its own before using it.
+    static func isBookkeeping(title: String?, input: [String: Any]) -> Bool {
+        title == "Tool Load" || (input["id"] as? String)?.hasPrefix("tool::") == true
     }
 
     // The call's input as the JSON object the app reads every call's input as. Fields

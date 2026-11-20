@@ -16,13 +16,16 @@ struct AgentLaunchConfiguration: Sendable {
     let mcpConfigPath: String?
     let additionalSystemPrompt: String?
     let suggestsPrompts: Bool
+    // The app's MCP servers a Kiro session is handed when it opens.
+    let kiroMCPServers: [KiroMCPServer]
 
     init(agent: AgentKind = .claudeCode,
          settings: SessionSettings, defaults: SessionSettings,
          addDirectories: [String] = [], writableRoots: [String] = [],
          resume: String? = nil, newSessionID: String? = nil, prompt: String? = nil,
          mcpConfigPath: String? = nil, additionalSystemPrompt: String? = nil,
-         suggestsPrompts: Bool = false, discovered: [ModelChoice.Option]? = nil) {
+         suggestsPrompts: Bool = false, discovered: [ModelChoice.Option]? = nil,
+         kiroMCPServers: [KiroMCPServer] = []) {
         self.agent = agent
         self.settings = settings
         // A session keeps its model until the user changes it, even if the app default changes.
@@ -40,6 +43,7 @@ struct AgentLaunchConfiguration: Sendable {
         self.mcpConfigPath = mcpConfigPath
         self.additionalSystemPrompt = additionalSystemPrompt
         self.suggestsPrompts = suggestsPrompts
+        self.kiroMCPServers = kiroMCPServers
     }
 
     var copilotPrompt: String {

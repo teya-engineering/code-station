@@ -57,7 +57,8 @@ struct AgentServerLaunch: Sendable {
             // Kiro's default. V2 frames its requests and extensions differently.
             fullAccess = false
             arguments = ["acp", "--agent-engine", "v3"]
-            parameters = ["cwd": directory, "mcpServers": [[String: Any]]()]
+            // Opening and loading both take the servers, so a resumed session has them too.
+            parameters = ["cwd": directory, "mcpServers": configuration.kiroMCPServers.map(\.acp)]
             if let resumeID = configuration.resume { parameters["sessionId"] = resumeID }
             if configuration.prompt != nil || configuration.additionalSystemPrompt != nil {
                 parameters["initialPrompt"] = configuration.copilotPrompt

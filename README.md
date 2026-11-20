@@ -35,7 +35,7 @@ You need:
 - macOS 15 or later
 - Xcode 26 or another Swift 6.2 toolchain
 - Git
-- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in. Kiro support is in beta: Code Station's MCP servers, past Kiro sessions and credit usage are not supported yet.
+- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in. Kiro support is in beta: past Kiro sessions and credit usage are not supported yet. Kiro sessions are handed Code Station's MCP servers when they open, alongside any set up in Kiro itself.
 
 Clone the repository and create a double-clickable app bundle:
 

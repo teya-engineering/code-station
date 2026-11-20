@@ -1610,7 +1610,12 @@ final class SessionRunner {
                                         ambition: (session.settings?.designAmbition ?? catalog.designAmbition))
             } ?? implementationReference.map(AgentInstructions.implementationSystemPrompt),
             suggestsPrompts: suggestsPrompts,
-            discovered: discoveredModels[agent])
+            discovered: discoveredModels[agent],
+            kiroMCPServers: agent == .kiro
+                ? KiroMCPServer.handedTo(session.settings ?? SessionSettings(),
+                                         from: configs?.servers ?? [],
+                                         resolve: { ProcessManager.resolve($0) })
+                : [])
         // Kiro has no one-shot streaming mode, so it is always run as a session server.
         let serverLaunch = (persistentAgentSessions || agent == .kiro) && agent != .claudeCode
             ? try AgentServerLaunch(configuration: configuration, directory: workingDirectories[0]) : nil
