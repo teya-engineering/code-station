@@ -745,6 +745,8 @@ final class ReviewCommentStore {
     @ObservationIgnored private let files: PersistentFileClient
     @ObservationIgnored private var questionTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var saver: DebouncedSaver?
+    // The files ticked off as read, kept in a file of their own beside the comments.
+    @ObservationIgnored let viewed: ViewedFileStore
     // Reading files and asking git for trees is done off the main thread; tests swap in
     // their own so a round settles without touching the disk.
     @ObservationIgnored var readFile: @Sendable (String) -> String? = { path in
@@ -764,6 +766,9 @@ final class ReviewCommentStore {
         questionsURL = url.map {
             $0.deletingPathExtension().appendingPathExtension("questions").appendingPathExtension("json")
         }
+        viewed = ViewedFileStore(url: url.map {
+            $0.deletingPathExtension().appendingPathExtension("viewed").appendingPathExtension("json")
+        }, files: files)
         var failures: [String] = []
         func read<Value: Decodable>(_ type: Value.Type, at url: URL?) -> Value? {
             guard let url else { return nil }
@@ -883,6 +888,7 @@ final class ReviewCommentStore {
         rounds[sessionID] = nil
         for question in questions(sessionID) { cancelAnswer(question.id) }
         questions[sessionID] = nil
+        viewed.remove(sessionID)
         saver?.schedule()
     }
 
@@ -890,7 +896,8 @@ final class ReviewCommentStore {
     func flush() -> Bool {
         if saver?.isPending == true { saver?.flush() }
         else if saveError != nil { save() }
-        return loadError == nil && saveError == nil
+        let viewedSaved = viewed.flush()
+        return loadError == nil && saveError == nil && viewedSaved
     }
 
     // MARK: - Sorting findings

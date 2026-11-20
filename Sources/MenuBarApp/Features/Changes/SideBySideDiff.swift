@@ -63,6 +63,8 @@ struct SideBySideDiff: View {
     // comments placed there, and the comment being written if it is about those lines.
     var threads: [Int: AnyView] = [:]
     var picked: Set<String> = []
+    // Lines added after the reviewer last marked the file viewed, named by DiffAnchor key.
+    var fresh: Set<String> = []
     // A press on a line number, and whether shift was held. A diff with nowhere to send
     // comments leaves it out, and its numbers are plain text.
     var onLine: ((DiffAnchor, Bool) -> Void)?
@@ -233,6 +235,11 @@ struct SideBySideDiff: View {
         .background(line?.kind == .addition ? Theme.addition.opacity(0.12) :
                     line?.kind == .deletion ? Theme.deletion.opacity(0.12) : line == nil ? Theme.field : .clear)
         .background(isPicked ? Theme.accent.opacity(0.16) : .clear)
+        .overlay(alignment: .leading) {
+            if anchor.map({ fresh.contains(DiffComments.key($0)) }) == true {
+                Rectangle().fill(Theme.attention).frame(width: 3)
+            }
+        }
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 1) }
         .accessibilityLabel(line == nil ? "No corresponding line" : line!.text)
     }

@@ -60,6 +60,9 @@ struct CommitHistoryView: View {
     let root: String
     @Bindable var selection: CommitHistorySelection
     var back: (() -> Void)?
+    // The session whose review keeps the files ticked off as read. Nil outside a session,
+    // where files carry no tick.
+    var review: ReviewTarget? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var fileResults: [String: GitInspector.CommitFiles] = [:]
     @State private var collapsed: Set<String> = []
@@ -108,11 +111,13 @@ struct CommitHistoryView: View {
             copied = false
             if let cached = fileResults[requested] {
                 if selection.parent == nil { selection.parent = cached.parents.first }
+                collapseViewed(cached)
                 return
             }
             let loaded = await GitInspector.commitFiles(commit.hash, parent: selection.parent, root: root)
             guard !Task.isCancelled, request == requested else { return }
             fileResults[requested] = loaded
+            collapseViewed(loaded)
             if selection.parent == nil, let parent = loaded.parents.first {
                 fileResults["\(commit.hash)/\(parent)"] = loaded
                 selection.parent = parent
@@ -170,6 +175,17 @@ struct CommitHistoryView: View {
                     Text("+\(added)").foregroundStyle(Theme.addition)
                     Text("-\(removed)").foregroundStyle(Theme.deletion)
                     proportion(added: added, removed: removed)
+                    if let tally = viewedTally(result.files) {
+                        Spacer(minLength: Space.md)
+                        HStack(spacing: Space.sm) {
+                            ProgressRing(fraction: Double(tally.viewed) / Double(tally.total))
+                            Text(tally.label).monospacedDigit().contentTransition(.numericText())
+                        }
+                        .foregroundStyle(tally.isDone ? Theme.accent : Color.secondary)
+                        .motion(Motion.control, value: tally)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(tally.viewed) of \(tally.total) files in this commit viewed")
+                    }
                 } else {
                     Text(result == nil ? "Reading file changes…" : "No file changes")
                         .foregroundStyle(.secondary)
@@ -270,6 +286,7 @@ struct CommitHistoryView: View {
             ForEach(files) { file in
                 let current = selection.fileID == file.id
                 Button { jump(file) } label: {
+                    let viewed = viewedState(file) == .viewed
                     HStack(spacing: Space.md) {
                         kindLetter(file).frame(width: 20, alignment: .leading)
                         HStack(spacing: Space.md) {
@@ -278,10 +295,15 @@ struct CommitHistoryView: View {
                             if !folder.isEmpty {
                                 Text(folder).font(Typography.data).foregroundStyle(.secondary).truncationMode(.head)
                             }
-                        }.lineLimit(1)
+                        }.lineLimit(1).opacity(viewed ? 0.5 : 1)
                         Spacer(minLength: 8)
-                        counts(file)
+                        if viewed {
+                            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(Theme.accent).transition(.opacity).accessibilityHidden(true)
+                        }
+                        counts(file).opacity(viewed ? 0.5 : 1)
                     }
+                    .motion(Motion.control, value: viewed)
                     .padding(.horizontal, Space.lg).frame(height: 30)
                     .background(current ? Theme.accent.opacity(0.1) : .clear)
                     .contentShape(Rectangle())
@@ -301,6 +323,7 @@ struct CommitHistoryView: View {
 
     private func cardHeader(_ file: GitChange, position: Int, of count: Int) -> some View {
         let isCollapsed = collapsed.contains(file.id)
+        let viewed = viewedState(file)
         let shape = UnevenRoundedRectangle(topLeadingRadius: Radius.card, bottomLeadingRadius: isCollapsed ? 9 : 0,
                                            bottomTrailingRadius: isCollapsed ? 9 : 0, topTrailingRadius: Radius.card)
         return HStack(spacing: Space.md) {
@@ -319,22 +342,81 @@ struct CommitHistoryView: View {
             .accessibilityLabel("\(isCollapsed ? "Expand" : "Collapse") \(file.fileName)")
             .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
             kindLetter(file).frame(width: 20, alignment: .leading)
-            Text(file.fileName).font(Typography.label).lineLimit(1).layoutPriority(1)
-            Text(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
-                .font(Typography.data).foregroundStyle(.secondary)
-                .lineLimit(1).truncationMode(.head)
-                .textSelection(.enabled)
+            Group {
+                Text(file.fileName).font(Typography.label).lineLimit(1).layoutPriority(1)
+                Text(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
+                    .font(Typography.data).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.head)
+                    .textSelection(.enabled)
+            }
+            .opacity(viewed == .viewed ? 0.5 : 1)
             Spacer(minLength: 8)
-            counts(file)
+            counts(file).opacity(viewed == .viewed ? 0.5 : 1)
+            if let viewed {
+                ViewedToggle(isOn: viewed == .viewed, height: ControlHeight.sm) { toggleViewed(file) }
+                    .appTooltip(viewed == .viewed ? "Mark not viewed" : "Mark viewed")
+                    .accessibilityHint("Ticks off \(file.fileName) as read for this session and folds its card")
+                    .padding(.leading, Space.xs)
+            }
             Text("\(position) of \(count)").font(Typography.caption).foregroundStyle(.tertiary)
                 .padding(.leading, Space.md)
         }
+        .motion(Motion.control, value: viewed)
         .padding(.leading, Space.sm).padding(.trailing, Space.lg)
         .frame(height: 42)
         .background(Theme.card, in: shape)
         .overlay(shape.stroke(Theme.border))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(file.path), file \(position) of \(count)")
+    }
+
+    // MARK: - Viewed files
+
+    // A commit never changes, so a file in one is read or not: the blob it holds now is
+    // either one the reviewer ticked off or it is not.
+    private func viewedState(_ file: GitChange) -> ViewedState? {
+        guard let review, let version = result?.versions[file.path] else { return nil }
+        let state = review.reviews.viewed.state(ViewedFileStore.key(root: root, path: file.path),
+                                                version: version, in: review.sessionID)
+        return state == .viewed ? .viewed : .notViewed
+    }
+
+    private func viewedTally(_ files: [GitChange]) -> ViewedTally? {
+        let states = files.compactMap(viewedState)
+        guard !states.isEmpty else { return nil }
+        return ViewedTally(viewed: states.filter { $0 == .viewed }.count, total: states.count)
+    }
+
+    // A file already read, here or before it was committed, opens folded away.
+    private func collapseViewed(_ result: GitInspector.CommitFiles) {
+        guard let review else { return }
+        collapsed = Set(result.files.filter { file in
+            guard let version = result.versions[file.path] else { return false }
+            return review.reviews.viewed.state(ViewedFileStore.key(root: root, path: file.path),
+                                               version: version, in: review.sessionID) == .viewed
+        }.map(\.id))
+    }
+
+    // Ticking a file off folds its card, the way GitHub does; taking the tick back opens it.
+    private func toggleViewed(_ file: GitChange) {
+        guard let review, let version = result?.versions[file.path] else { return }
+        let store = review.reviews.viewed
+        let key = ViewedFileStore.key(root: root, path: file.path)
+        if store.state(key, version: version, in: review.sessionID) == .viewed {
+            store.unmark(key, version: version, in: review.sessionID)
+            collapsed.remove(file.id)
+            announce("\(file.fileName) marked not viewed")
+            return
+        }
+        store.mark(key, version: version, in: review.sessionID)
+        collapsed.insert(file.id)
+        announce("\(file.fileName) marked viewed")
+        guard !file.isBinary, version != FileVersion.deleted else { return }
+        let root = root
+        Task {
+            guard let text = await GitInspector.blobText(version, root: root) else { return }
+            store.keep(text, for: version)
+        }
     }
 
     private func kindLetter(_ file: GitChange) -> some View {
