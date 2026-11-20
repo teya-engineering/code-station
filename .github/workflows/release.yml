@@ -11,7 +11,8 @@ on:
 
 jobs:
   release:
-    runs-on: macos-26
+    # Same image as the Tests workflow; see the note there.
+    runs-on: xcode-27
     # The signing secrets live in the release environment, so the job has to
     # declare it. Without this the secrets.* are empty and the certificate
     # import fails.
@@ -57,13 +58,9 @@ jobs:
                exit 1 ;;
           esac
 
-      # macos-26 ships Xcode 26.x (Swift 6.3) by default - the same toolchain as
-      # local development; on macos-15 (Swift 6.1) strict concurrency rejects
-      # code that 6.3 accepts. If you ever need to pin the version, uncomment
-      # the maxim-lobanov/setup-xcode step.
-      # - uses: maxim-lobanov/setup-xcode@v1
-      #   with:
-      #     xcode-version: '16.4'
+      - name: Select Xcode
+        run: ./Scripts/ci-select-xcode.sh
+
       - name: Toolchain
         run: swift --version && xcodebuild -version
 

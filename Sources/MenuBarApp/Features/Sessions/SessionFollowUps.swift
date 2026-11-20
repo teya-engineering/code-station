@@ -137,7 +137,7 @@ final class SessionFollowUps {
             text: SessionTitle.prompt, attachments: [], customInstructions: nil,
             isAppCommand: true,
             summary: SummaryAttempt(mode: .title(SessionTitleRequest(session)),
-                                    restingState: restingState)),
+                                    restingState: restingState, askedFor: true)),
                               sessionID: conversationID, store: store)
         SessionLog.note("generating session title", session: conversationID)
         return true
