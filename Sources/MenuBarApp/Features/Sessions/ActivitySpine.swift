@@ -539,7 +539,7 @@ struct ToolOutputCard: View {
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.md)
             }
-            .frame(maxHeight: 220 * textScale)
+            .scrollCap(ScrollCap.short)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .surface(Theme.sunken, cornerRadius: Radius.control, border: Theme.border)

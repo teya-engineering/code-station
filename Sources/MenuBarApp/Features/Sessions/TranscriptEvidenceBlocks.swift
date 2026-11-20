@@ -252,7 +252,7 @@ struct TranscriptTraceBlock: View, Equatable {
         } else {
             switch TranscriptTraceSpec.parse(segment.text) {
             case .success(let spec):
-                TranscriptTraceCard(spec: spec, maxHeight: 460)
+                TranscriptTraceCard(spec: spec, maxHeight: ScrollCap.tall)
             case .failure:
                 let named = TranscriptTraceSpec.salvage(segment.text)
                 TraceUnreadableCard(traceID: named.traceID, server: named.server)

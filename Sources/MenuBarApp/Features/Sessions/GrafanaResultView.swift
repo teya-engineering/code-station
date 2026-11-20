@@ -133,8 +133,7 @@ struct GrafanaResultView: View {
                 }
                 .smoothlyResizes(when: expanded)
             }
-            .frame(maxHeight: 320 * textScale)
-            .fixedSize(horizontal: false, vertical: true)
+            .scrollCap(ScrollCap.medium)
         case .samples(let samples, _):
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.xs) {
@@ -152,8 +151,7 @@ struct GrafanaResultView: View {
                 }
                 .padding(Space.lg)
             }
-            .frame(maxHeight: 260 * textScale)
-            .fixedSize(horizontal: false, vertical: true)
+            .scrollCap(ScrollCap.short)
         case .series(let series, _):
             VStack(alignment: .leading, spacing: Space.md) {
                 HStack(spacing: Space.sm) {
@@ -268,8 +266,7 @@ struct GrafanaResultView: View {
             }
             .textSelection(.enabled)
         }
-        .frame(maxHeight: 260 * textScale)
-        .fixedSize(horizontal: false, vertical: true)
+        .scrollCap(ScrollCap.short)
     }
 
     private var summary: String {

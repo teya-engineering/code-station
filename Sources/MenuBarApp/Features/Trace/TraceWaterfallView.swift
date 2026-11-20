@@ -416,7 +416,7 @@ struct TraceWaterfallView: View {
         if let maxHeight {
             ScrollViewReader { proxy in
                 ScrollView { rowList(rows) }
-                    .frame(maxHeight: maxHeight * textScale)
+                    .scrollCap(maxHeight)
                     .onChange(of: selected) { _, id in
                         guard let id else { return }
                         proxy.scrollTo(id)
