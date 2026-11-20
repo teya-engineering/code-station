@@ -128,6 +128,47 @@ struct SessionFactsTests {
             facts: facts, showsBranch: true).contains("1 open pull requests"))
     }
 
+    // What may still need the person leads, newest first, and the merged and closed ones
+    // follow, newest first too. A state not known yet counts as one that may need them.
+    @Test func listsOpenPullRequestsFirstAndNewestFirstWithinEach() {
+        let merged = PullRequest(number: 1, url: "https://github.com/team/a/pull/1")
+        let open = PullRequest(number: 2, url: "https://github.com/team/a/pull/2")
+        let unknown = PullRequest(number: 3, url: "https://github.com/team/b/pull/3")
+        let closed = PullRequest(number: 4, url: "https://github.com/team/b/pull/4")
+        let draft = PullRequest(number: 5, url: "https://github.com/team/c/pull/5")
+        let facts = SessionFacts(
+            pullRequests: [merged, open, unknown, closed, draft],
+            pullRequestStatuses: [
+                merged.url: .init(state: .merged, title: "", headBranch: ""),
+                open.url: .init(state: .open, title: "", headBranch: ""),
+                closed.url: .init(state: .closed, title: "", headBranch: ""),
+                draft.url: .init(state: .open, title: "", headBranch: "", isDraft: true)
+            ])
+
+        #expect(facts.orderedPullRequests.map(\.number) == [5, 3, 2, 4, 1])
+    }
+
+    // An open card keeps the order it opened with when a state lands, so nothing moves
+    // under the pointer. One opened meanwhile goes on top, and one that went is dropped.
+    @Test func holdsTheOrderAnOpenCardStartedWith() {
+        let first = PullRequest(number: 1, url: "https://github.com/team/a/pull/1")
+        let second = PullRequest(number: 2, url: "https://github.com/team/a/pull/2")
+        let third = PullRequest(number: 3, url: "https://github.com/team/a/pull/3")
+        var facts = SessionFacts(pullRequests: [first, second])
+        let held = facts.orderedPullRequests.map(\.url)
+        #expect(held == [second.url, first.url])
+
+        facts.pullRequestStatuses[second.url] = .init(state: .merged, title: "", headBranch: "")
+        #expect(facts.orderedPullRequests.map(\.number) == [1, 2])
+        #expect(facts.pullRequests(holding: held).map(\.number) == [2, 1])
+
+        facts.pullRequests = [first, second, third]
+        #expect(facts.pullRequests(holding: held).map(\.number) == [3, 2, 1])
+
+        facts.pullRequests = [first, third]
+        #expect(facts.pullRequests(holding: held).map(\.number) == [3, 1])
+    }
+
     @Test func distinguishesNewSessionsFromFinishedAndRunningOnes() {
         #expect(SessionStateReading(tone: .idle, isNew: true).spokenWord == "New session")
         #expect(SessionStateReading(tone: .running, isNew: true).spokenWord == "Running")

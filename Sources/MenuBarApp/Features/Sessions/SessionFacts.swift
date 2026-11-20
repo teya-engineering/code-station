@@ -60,6 +60,36 @@ struct SessionFacts: Equatable {
         return pullRequestCountKnown ? "\(pullRequestCount) open" : "\(pullRequests.count) linked"
     }
 
+    // The pull requests that may still need the person come first, right under the count
+    // that counts them, and the merged and closed ones follow. Each group runs newest
+    // first. One whose state is not known yet might still need them, so it waits with the
+    // open ones rather than being filed away. The badge on every row is what the order
+    // follows, so the order explains itself.
+    var orderedPullRequests: [PullRequest] {
+        let newestFirst = Array(pullRequests.reversed())
+        let settled = { (pullRequest: PullRequest) -> Bool in
+            switch pullRequestStatuses[pullRequest.url]?.state {
+            case .merged?, .closed?: true
+            case .open?, nil: false
+            }
+        }
+        return newestFirst.filter { !settled($0) } + newestFirst.filter(settled)
+    }
+
+    // The order a card opened with, kept while it stays open, so a state that arrives
+    // meanwhile does not move a row out from under the pointer. A pull request opened
+    // since goes on top, where the newest open one belongs, and one that has gone is
+    // simply left out.
+    func pullRequests(holding held: [String]) -> [PullRequest] {
+        let place = Dictionary(held.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let current = orderedPullRequests
+        let arrived = current.filter { place[$0.url] == nil }
+        let kept = current.compactMap { pullRequest in place[pullRequest.url].map { ($0, pullRequest) } }
+            .sorted { $0.0 < $1.0 }
+            .map(\.1)
+        return arrived + kept
+    }
+
     static func percent(_ fraction: Double) -> String {
         "\(Int((fraction * 100).rounded()))%"
     }
@@ -165,6 +195,9 @@ struct SessionFactsChip: View {
     // as one scale rather than as bars that happen to be near each other.
     private static let meterWidth: CGFloat = 240
     private static let radius = Radius.floating
+    // The least room the pull requests keep when a short window squeezes them, a few rows
+    // and part of the next, so the list still reads as one that goes on.
+    private static let pullRequestFloor = ControlHeight.lg * 3
     // Strong enough to read on the cream card, still a step under the values.
     private static let labelInk = Color.primary.opacity(0.42)
 
@@ -196,6 +229,13 @@ struct SessionFactsChip: View {
     // for a moment so the drop reads as the action working rather than as a glitch.
     @State private var freed: Int?
     @State private var freedReset: Task<Void, Never>?
+    // How tall the card's sections above and below the pull request rows are, which is
+    // what tells the rows how much of the window is left for them.
+    @State private var aboveList: CGFloat = 0
+    @State private var belowList: CGFloat = 0
+    // The pull requests' order as the card opened, by URL, so the rows hold still while
+    // it is open. Nothing is held while it is closed, so the next opening sorts afresh.
+    @State private var heldOrder: [String]?
 
     private var focusInside: Bool {
         !focusDismissed && (chipFocused || focusedPreview == sessionID)
@@ -252,6 +292,7 @@ struct SessionFactsChip: View {
                 }
             }
             .onChange(of: isOpen) { _, open in
+                heldOrder = open ? facts.orderedPullRequests.map(\.url) : nil
                 if open {
                     escape.start {
                         if menus.isOpen { return false }
@@ -401,33 +442,20 @@ struct SessionFactsChip: View {
     private var card: some View {
         VStack(spacing: 0) {
             previewHeading.frame(height: Theme.headerHeight)
-            MenuContentScrollView(maxHeight: max(0, layout.height - Theme.headerHeight - Self.cardGap)) {
+            // The pull requests scroll inside their own section, so the rest of the card
+            // stays put however many there are. The body keeps a scroll of its own only
+            // for a window too short to hold even that.
+            MenuContentScrollView(maxHeight: bodyHeight) {
                 VStack(spacing: 0) {
-                    head
-                    if let changes = facts.changes { changesRow(changes) }
-                    pullRequestsSection
                     VStack(spacing: 0) {
-                        if let usageMonitor, usageMonitor.supports(facts.agent) {
-                            usageRow(usageMonitor)
-                        }
-                        if let context = facts.context { contextRow(context) }
-                        if let usageMonitor, usageMonitor.supports(facts.agent) {
-                            Text("\(facts.agent.title) account usage")
-                                .font(Font.system(size: Typography.Size.micro))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, Space.lg)
-                            if !usageMonitor.refreshing.contains(facts.agent),
-                               usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
-                                usageNote(usageMonitor)
-                            }
-                            ForEach(usageMonitor.usage[facts.agent]?.windows ?? []) { window in
-                                usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
-                            }
-                        }
-                        if let cost = facts.cost { costRow(cost) }
+                        head
+                        if let changes = facts.changes { changesRow(changes) }
+                        pullRequestsHeading
                     }
-                    .background(Theme.sunken)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveList = $0 }
+                    pullRequestList
+                    usageSection
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { belowList = $0 }
                 }
             }
         }
@@ -469,30 +497,79 @@ struct SessionFactsChip: View {
         .motion(Motion.control, value: pinned)
     }
 
-    private var pullRequestsSection: some View {
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            HStack {
-                Text("Pull requests").fontWeight(.semibold)
-                Spacer()
-                Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
-            }
-            .font(Typography.caption)
-            .padding(.horizontal, Space.lg)
-            .padding(.top, Space.md)
-            if facts.pullRequests.isEmpty {
-                Text("No pull requests yet")
-                    .font(Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, Space.lg)
-                    .padding(.vertical, Space.md)
-            } else {
-                ForEach(facts.pullRequests, id: \.url) { pullRequest in
-                    pullRequestRow(pullRequest)
+    private var bodyHeight: CGFloat {
+        max(0, layout.height - Theme.headerHeight - Self.cardGap)
+    }
+
+    // The pull requests are the one part of the card with no end to them, so they take
+    // the room the other sections leave and scroll inside it. Rounded down, so the
+    // sections never add up to a hair more than the body and wake its scroll for nothing.
+    private var pullRequestListHeight: CGFloat {
+        max(Self.pullRequestFloor, (bodyHeight - aboveList - belowList).rounded(.down))
+    }
+
+    // The heading stays over the list while a long one scrolls under it, so the count
+    // is still in view when the rows it counts are not.
+    private var pullRequestsHeading: some View {
+        HStack {
+            Text("Pull requests").fontWeight(.semibold)
+            Spacer()
+            Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
+        }
+        .font(Typography.caption)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.md)
+        .overlay(alignment: .top) { rule }
+    }
+
+    @ViewBuilder private var pullRequestList: some View {
+        if facts.pullRequests.isEmpty {
+            Text("No pull requests yet")
+                .font(Typography.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, Space.lg)
+                .padding(.top, Space.md + Space.xxs)
+                .padding(.bottom, Space.md + Space.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            MenuContentScrollView(maxHeight: pullRequestListHeight) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    ForEach(heldOrder.map(facts.pullRequests(holding:)) ?? facts.orderedPullRequests,
+                            id: \.url) { pullRequest in
+                        pullRequestRow(pullRequest)
+                    }
                 }
+                .padding(.top, Space.xxs)
+                .padding(.bottom, Space.sm)
             }
         }
-        .padding(.bottom, Space.sm)
-        .overlay(alignment: .top) { rule }
+    }
+
+    // What the account has left, sunken like the head, since it belongs to the account
+    // rather than to the session.
+    private var usageSection: some View {
+        VStack(spacing: 0) {
+            if let usageMonitor, usageMonitor.supports(facts.agent) {
+                usageRow(usageMonitor)
+            }
+            if let context = facts.context { contextRow(context) }
+            if let usageMonitor, usageMonitor.supports(facts.agent) {
+                Text("\(facts.agent.title) account usage")
+                    .font(Font.system(size: Typography.Size.micro))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Space.lg)
+                if !usageMonitor.refreshing.contains(facts.agent),
+                   usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
+                    usageNote(usageMonitor)
+                }
+                ForEach(usageMonitor.usage[facts.agent]?.windows ?? []) { window in
+                    usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
+                }
+            }
+            if let cost = facts.cost { costRow(cost) }
+        }
+        .background(Theme.sunken)
     }
 
     // The card's head answers both halves of the pill at a size that can be read: the
