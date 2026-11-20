@@ -6,7 +6,10 @@ import SwiftUI
 enum CommandKey {
     case up
     case down
+    // Tab.
     case complete
+    // Return, which also sends, so the menu takes it less often than tab.
+    case submit
     case cancel
 }
 
@@ -28,8 +31,7 @@ struct SlashCommandMenu: View {
     // command is being typed about. The height allowed per row is a little more than a
     // row takes, so the top of the next one shows and the list reads as having more.
     private static let visibleRows = 5
-    private let rowHeight: CGFloat = 38
-    private let rowContentHeight: CGFloat = 34
+    private let rowHeight = ControlHeight.lg + Space.xs
 
     var body: some View {
         Group {
@@ -40,7 +42,7 @@ struct SlashCommandMenu: View {
                     ScrollView {
                         rows
                     }
-                    .frame(height: CGFloat(Self.visibleRows) * rowHeight + 8)
+                    .frame(height: CGFloat(Self.visibleRows) * rowHeight + Space.md)
                     .onChange(of: selected) { _, index in
                         proxy.scrollTo(index, anchor: .center)
                     }
@@ -62,9 +64,8 @@ struct SlashCommandMenu: View {
             }
             if !startOnly.isEmpty {
                 if !commands.isEmpty {
-                    Rectangle()
-                        .fill(Theme.hairline)
-                        .frame(height: 1)
+                    Divider()
+                        .overlay(Theme.hairline)
                         .padding(.vertical, Space.xs)
                         .padding(.horizontal, Space.md)
                         .accessibilityHidden(true)
@@ -88,13 +89,12 @@ struct SlashCommandMenu: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(label(for: command.scope))
-                .font(Typography.caps)
-                .kerning(0.6)
+                .capsText()
                 .fixedSize()
         }
         .foregroundStyle(.tertiary)
         .padding(.horizontal, Space.md)
-        .frame(height: rowContentHeight)
+        .frame(height: ControlHeight.lg)
         .accessibilityRepresentation {
             Button("\(command.typed). \(Self.startOnlyNote)") {}
                 .disabled(true)
@@ -118,13 +118,12 @@ struct SlashCommandMenu: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(label(for: command.scope))
-                    .font(Typography.caps)
-                    .kerning(0.6)
+                    .capsText()
                     .foregroundStyle(.tertiary)
                     .fixedSize()
             }
             .padding(.horizontal, Space.md)
-            .frame(height: rowContentHeight)
+            .frame(height: ControlHeight.lg)
             .background(RoundedRectangle(cornerRadius: Radius.control)
                 .fill(isSelected ? Theme.accent.opacity(0.1) : Color.clear))
             .contentShape(RoundedRectangle(cornerRadius: Radius.control))

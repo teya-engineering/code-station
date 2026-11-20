@@ -46,6 +46,13 @@ struct Composer<Above: View, Accessory: View>: View {
     @State private var dropTargeted = false
     @State private var commands: [AgentCommand] = []
     @State private var commandSelection = 0
+    // Whether the arrows have walked the menu for the word at the caret. Further into a
+    // prompt return only picks a command once they have, since a slash word there is as
+    // likely a path like `/tmp` that ends the sentence.
+    @State private var commandWalked = false
+    // Moves on each time a fresh slash is typed, which is when the command files are read
+    // again, since they can change between prompts.
+    @State private var commandReload = 0
     // The slash word the menu was waved away from, so it stays away until the word
     // changes rather than coming back on the next keystroke.
     @State private var dismissedWord: SlashWord?
@@ -70,7 +77,7 @@ struct Composer<Above: View, Accessory: View>: View {
         return SlashQuery.word(in: text, caret: caret.location)
     }
 
-    private var offer: SlashOffer {
+    private func slashOffer(for word: SlashWord?) -> SlashOffer {
         guard let word, word != dismissedWord else { return SlashOffer() }
         return SlashQuery.offer(for: word, in: commands, agent: agent)
     }
@@ -95,9 +102,10 @@ struct Composer<Above: View, Accessory: View>: View {
             && !runner.composer.draft(sessionID).isEmpty
         let roots = store.session(sessionID).map(store.workingDirectories(for:)) ?? []
 
-        let offer = offer
+        let word = self.word
+        let offer = slashOffer(for: word)
         let menuShown = !offer.isEmpty && isFocused && !blocked
-        let menuNews: String? = menuShown ? offerNews(offer) : nil
+        let menuNews: String? = menuShown ? word.flatMap { offerNews(offer, for: $0) } : nil
         let noticeShown = dictationHere?.notice(for: sessionID) != nil
 
         let composer = VStack(alignment: .leading, spacing: Space.md) {
@@ -227,7 +235,7 @@ struct Composer<Above: View, Accessory: View>: View {
             if let flight = runner.composer.flight(sessionID) { runner.composer.land(flight, in: sessionID) }
         }
 
-        watchingCommands(composer, roots: roots, menuNews: menuNews)
+        watchingCommands(composer, roots: roots, word: word, menuNews: menuNews)
         .background {
             if dictationHere != nil {
                 WindowAnchor(monitor: dictateShortcut).keyMonitor(dictateShortcut, follows: .dictate)
@@ -270,11 +278,11 @@ struct Composer<Above: View, Accessory: View>: View {
 
     // What keeps the command menu in step with the field: the commands on offer, the word
     // the caret is in, and what is read out about them.
-    private func watchingCommands(_ content: some View, roots: [String], menuNews: String?) -> some View {
+    private func watchingCommands(_ content: some View, roots: [String], word: SlashWord?,
+                                  menuNews: String?) -> some View {
         content
-            // Saved drafts need the command names too. Refresh as the menu opens or closes,
-            // since command files can change between prompts.
-            .task(id: [agent.rawValue, String(word == nil)] + roots) {
+            // Saved drafts need the command names too, so they are read on arrival as well.
+            .task(id: [agent.rawValue, String(commandReload)] + roots) {
                 let agent = agent
                 let loaded = await Task.detached {
                     AgentCommands.all(for: agent, workingDirectories: roots)
@@ -284,6 +292,8 @@ struct Composer<Above: View, Accessory: View>: View {
             }
             .onChange(of: word) { _, typed in
                 commandSelection = 0
+                commandWalked = false
+                if typed?.query.isEmpty == true { commandReload += 1 }
                 // Waving the menu away is about the word that was on screen, so the next one
                 // typed gets its own answer.
                 if typed != dismissedWord { dismissedWord = nil }
@@ -446,8 +456,7 @@ struct Composer<Above: View, Accessory: View>: View {
     }
 
     // What the menu says to someone who cannot see it, each time what it holds changes.
-    private func offerNews(_ offer: SlashOffer) -> String? {
-        guard let word else { return nil }
+    private func offerNews(_ offer: SlashOffer, for word: SlashWord) -> String? {
         if offer.usable.isEmpty, offer.startOnly.count == 1, let only = offer.startOnly.first {
             return "\(only.typed) \(SlashCommandMenu.startOnlyNote.lowercased())"
         }
@@ -458,14 +467,16 @@ struct Composer<Above: View, Accessory: View>: View {
         return "\(count) \(count == 1 ? "command matches" : "commands match") /\(word.query)"
     }
 
-    // The keys the menu answers, taken only while it is on screen. Return picks the
-    // highlighted command rather than sending, so a half-typed name can never be sent as
-    // a prompt by the key that finishes it; the next return sends what it left behind.
+    // The keys the menu answers, taken only while it is on screen. Tab picks the
+    // highlighted command. Return does too for the first word of a prompt, so a half-typed
+    // name is never sent as a prompt by the key that finishes it; the next return sends
+    // what it left behind. Further in, return sends unless the arrows have walked the menu.
     // The rows that only work at the start of a prompt are passed over: with nothing else
     // on offer the arrows and return keep their usual meaning.
     private func commandKey(_ key: CommandKey) -> Bool {
-        let offer = offer
-        guard !blocked, !offer.isEmpty else { return false }
+        let word = self.word
+        let offer = slashOffer(for: word)
+        guard !blocked, let word, !offer.isEmpty else { return false }
         if key == .cancel {
             dismissedWord = word
             return true
@@ -476,11 +487,16 @@ struct Composer<Above: View, Accessory: View>: View {
         switch key {
         case .up:
             commandSelection = (selected - 1 + usable.count) % usable.count
+            commandWalked = true
             announceRow(usable[commandSelection])
         case .down:
             commandSelection = (selected + 1) % usable.count
+            commandWalked = true
             announceRow(usable[commandSelection])
         case .complete:
+            take(usable[selected])
+        case .submit:
+            guard word.atStart || commandWalked else { return false }
             take(usable[selected])
         case .cancel:
             break

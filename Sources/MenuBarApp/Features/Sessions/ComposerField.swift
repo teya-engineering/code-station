@@ -304,6 +304,8 @@ struct TextArea: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            // A wash waiting for words a pick put in is stale once the person edits.
+            parent.link?.dropPendingWash()
             parent.text = textView.string
             reportHeight(of: textView)
             reportCaret(of: textView)
@@ -313,7 +315,7 @@ struct TextArea: NSViewRepresentable {
         // worked out again whenever the caret moves.
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? EditorView else { return }
-            textView.refreshHighlights()
+            textView.refreshCommandColours()
             reportCaret(of: textView)
         }
 
@@ -352,7 +354,7 @@ struct TextArea: NSViewRepresentable {
                 guard parent.submitsOnReturn else { return false }
                 if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                     textView.insertText("\n", replacementRange: textView.selectedRange())
-                } else if !commandKey(.complete) {
+                } else if !commandKey(.submit) {
                     parent.onSubmit()
                 }
                 return true
@@ -454,10 +456,7 @@ struct TextArea: NSViewRepresentable {
 
         func refreshHighlights() {
             keywordRanges = highlightsKeyword ? ThinkingKeyword.ranges(in: string) : []
-            let selection = selectedRange()
-            commandRanges = SlashQuery.highlightedRanges(in: string,
-                                                         caret: selection.length == 0 ? selection.location : nil,
-                                                         names: commandNames)
+            commandRanges = currentCommandRanges()
 
             if keywordRanges.isEmpty || !animatesKeyword {
                 sweep?.cancel()
@@ -476,6 +475,23 @@ struct TextArea: NSViewRepresentable {
                 }
             }
             colourHighlights()
+        }
+
+        // A caret move only changes the colour of the word it leaves or enters, and a
+        // drag fires one of these for every step, so the rest is redrawn only when that
+        // colour changes.
+        func refreshCommandColours() {
+            let ranges = currentCommandRanges()
+            guard ranges != commandRanges else { return }
+            commandRanges = ranges
+            colourHighlights()
+        }
+
+        private func currentCommandRanges() -> [NSRange] {
+            let selection = selectedRange()
+            return SlashQuery.highlightedRanges(in: string,
+                                                caret: selection.length == 0 ? selection.location : nil,
+                                                names: commandNames)
         }
 
         private func colourHighlights() {
@@ -727,6 +743,10 @@ final class ComposerFieldLink {
     func wash(_ range: NSRange, holding words: String) {
         pendingWash = (range, words)
         DispatchQueue.main.async { [weak self] in self?.applyPendingWash() }
+    }
+
+    func dropPendingWash() {
+        pendingWash = nil
     }
 
     func applyPendingWash() {

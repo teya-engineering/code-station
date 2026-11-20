@@ -437,14 +437,17 @@ struct SlashOffer: Equatable {
 // or `and/or`, never counts. A leading command runs to the first space, since that is
 // how the CLI reads one. Later on the agent reads the prompt as prose, so the name is
 // the run of letters, digits and `_-:.` after the slash, without a full stop or colon at
-// its end.
+// its end. Code, in a fenced block or in backticks, is sent as written and never runs, so
+// a slash word in it does not count.
 enum SlashQuery {
     private static let slash = UInt16(UInt8(ascii: "/"))
+    private static let backtick = UInt16(UInt8(ascii: "`"))
 
     // Every slash word in the text, in order. A paragraph that comes later in a prompt,
     // such as one under a code block, does not open it, so nothing in it is at the start.
     static func words(in text: String, opensPrompt: Bool = true) -> [SlashWord] {
         let units = Array(text.utf16)
+        let code = codeRanges(in: text, units: units)
         var words: [SlashWord] = []
         var index = 0
         var blank = true
@@ -456,7 +459,9 @@ enum SlashQuery {
             var end = index + 1
             while end < units.count, !isSpace(units[end]) { end += 1 }
             let body = units[(index + 1)..<end]
-            if units[index] == slash, !body.contains(slash) {
+            let start = index
+            if units[index] == slash, !body.contains(slash),
+               !code.contains(where: { NSLocationInRange(start, $0) }) {
                 let atStart = opensPrompt && blank
                 var nameEnd = end
                 if !atStart {
@@ -503,8 +508,10 @@ enum SlashQuery {
 
     // At the start of a prompt everything that matches is offered. Further in, a match the
     // agent only acts on as the first word is shown apart, so it is clear why it is there
-    // and that it will not run.
+    // and that it will not run. A slash on its own further in is usually just a slash, as
+    // in `A / B`, so nothing is offered until a letter follows it.
     static func offer(for word: SlashWord, in commands: [AgentCommand], agent: AgentKind) -> SlashOffer {
+        guard word.atStart || !word.query.isEmpty else { return SlashOffer() }
         let found = matches(word.query, in: commands)
         guard !word.atStart else { return SlashOffer(usable: found) }
         return SlashOffer(usable: found.filter { $0.worksMidPrompt(for: agent) },
@@ -528,6 +535,76 @@ enum SlashQuery {
                                                  with: settled ? typed : typed + " ")
         let steps = !settled || next.map { $0.isWhitespace && !$0.isNewline } == true ? 1 : 0
         return (completed, start + (typed as NSString).length + steps)
+    }
+
+    // What Markdown shows as code, the way the transcript reads it: every line from a fence
+    // to the fence that closes it, or to the end if none does, and each span opened by a
+    // run of backticks and closed by a run just as long.
+    private static func codeRanges(in text: String, units: [UInt16]) -> [NSRange] {
+        guard units.contains(backtick) || text.contains("~~~") else { return [] }
+        var ranges: [NSRange] = []
+        var prose: [NSRange] = []
+        var fence: Fence?
+        var fenceStart = 0
+        var proseStart = 0
+        var offset = 0
+        for line in text.components(separatedBy: "\n") {
+            let length = line.utf16.count
+            let lineFence = Fence(line)
+            if let opened = fence {
+                if let lineFence, opened.isClosed(by: lineFence) {
+                    ranges.append(NSRange(location: fenceStart, length: offset + length - fenceStart))
+                    fence = nil
+                    proseStart = offset + length
+                }
+            } else if let lineFence, lineFence.opens {
+                prose.append(NSRange(location: proseStart, length: offset - proseStart))
+                fence = lineFence
+                fenceStart = offset
+            }
+            offset += length + 1
+        }
+        if fence != nil {
+            ranges.append(NSRange(location: fenceStart, length: units.count - fenceStart))
+        } else {
+            prose.append(NSRange(location: proseStart, length: max(units.count - proseStart, 0)))
+        }
+
+        for part in prose {
+            var index = part.location
+            let end = NSMaxRange(part)
+            while index < end {
+                guard units[index] == backtick else {
+                    index += 1
+                    continue
+                }
+                let run = backtickRun(at: index, in: units, before: end)
+                var search = index + run
+                var closed = false
+                while search < end {
+                    guard units[search] == backtick else {
+                        search += 1
+                        continue
+                    }
+                    let closing = backtickRun(at: search, in: units, before: end)
+                    if closing == run {
+                        ranges.append(NSRange(location: index, length: search + closing - index))
+                        index = search + closing
+                        closed = true
+                        break
+                    }
+                    search += closing
+                }
+                if !closed { index += run }
+            }
+        }
+        return ranges
+    }
+
+    private static func backtickRun(at index: Int, in units: [UInt16], before end: Int) -> Int {
+        var length = 0
+        while index + length < end, units[index + length] == backtick { length += 1 }
+        return length
     }
 
     private static func isSpace(_ unit: UInt16) -> Bool {

@@ -107,35 +107,44 @@ enum SentPrompt {
 
     // Markdown takes characters out as it renders, so a command found in the typed text is
     // not at the same place in what is shown. Each one is marked in the typed text with a
-    // character the parser keeps as it is, and found again by that mark once it renders.
-    // The marks are then taken out, leaving the rendered prompt and where each command
-    // ended up in it.
-    private static let marker: Character = "\u{E000}"
+    // character of its own that the parser keeps as it is, and found again by that mark
+    // once it renders. A command whose mark Markdown dropped, such as one in a link
+    // address, is simply left plain. The marks are then taken out, leaving the rendered
+    // prompt and where each command ended up in it.
+    private static let marks: Range<UInt32> = 0xE000..<0xF000
 
     private static func rendering(_ text: String, locating ranges: [NSRange]) -> (AttributedString, [NSRange]) {
-        guard !ranges.isEmpty, !text.contains(marker) else { return (.inlineMarkdown(text), []) }
-        let marked = NSMutableString(string: text)
-        for range in ranges.reversed() {
-            marked.insert(String(marker), at: range.location)
+        guard !ranges.isEmpty, ranges.count <= marks.count,
+              !text.unicodeScalars.contains(where: { marks.contains($0.value) }) else {
+            return (.inlineMarkdown(text), [])
         }
-        var attributed = AttributedString.inlineMarkdown(marked as String)
+        let marked = NSMutableString(string: text)
+        for (index, range) in ranges.enumerated().reversed() {
+            guard let mark = Unicode.Scalar(marks.lowerBound + UInt32(index)) else { continue }
+            marked.insert(String(mark), at: range.location)
+        }
+        let rendered = AttributedString.inlineMarkdown(marked as String)
 
         // Where each mark sits once the marks before it are gone. A mark is one UTF-16 unit.
-        let markUnit = String(marker).utf16.first
-        var places: [Int] = []
-        for (offset, unit) in String(attributed.characters).utf16.enumerated() where unit == markUnit {
-            places.append(offset - places.count)
+        var places: [Int: Int] = [:]
+        var removed = 0
+        for (offset, unit) in String(rendered.characters).utf16.enumerated() where marks.contains(UInt32(unit)) {
+            places[Int(UInt32(unit) - marks.lowerBound)] = offset - removed
+            removed += 1
         }
-        while let mark = attributed.characters.firstIndex(of: marker) {
+        var attributed = rendered
+        while let mark = attributed.characters.firstIndex(where: {
+            $0.unicodeScalars.contains { marks.contains($0.value) }
+        }) {
             attributed.removeSubrange(mark..<attributed.characters.index(after: mark))
         }
-        guard places.count == ranges.count else { return (attributed, []) }
 
         // A command that Markdown changed on the way, such as a name with underscores read
         // as emphasis, is left as it was drawn.
         let shown = String(attributed.characters) as NSString
         let typed = text as NSString
-        let found = zip(places, ranges).compactMap { place, range -> NSRange? in
+        let found = ranges.enumerated().compactMap { index, range -> NSRange? in
+            guard let place = places[index] else { return nil }
             let moved = NSRange(location: place, length: range.length)
             guard NSMaxRange(moved) <= shown.length,
                   shown.substring(with: moved) == typed.substring(with: range) else { return nil }

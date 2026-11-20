@@ -97,6 +97,15 @@ struct SentPromptTests {
         #expect(start == 53)
     }
 
+    @Test func aCommandMarkdownDropsLeavesTheOthersColoured() {
+        let text = SentPrompt.inline(
+            "[docs](https://example.com 'see /address-pr-comments') then /pr-description",
+            commands: names)
+
+        #expect(String(text.characters) == "docs then /pr-description")
+        #expect(commands(in: text) == ["/pr-description"])
+    }
+
     @Test func preservesPlainPromptWhitespace() {
         let prompt = "  first\n\nsecond  \n"
 

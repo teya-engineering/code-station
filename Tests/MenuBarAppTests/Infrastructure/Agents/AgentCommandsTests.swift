@@ -65,6 +65,22 @@ struct AgentCommandsTests {
         #expect(SlashQuery.words(in: "/review.", opensPrompt: false).map(\.name) == ["review"])
     }
 
+    @Test func aSlashWordInCodeIsNeverACommand() {
+        #expect(SlashQuery.words(in: "run `x /address-pr-comments` now").isEmpty)
+        #expect(SlashQuery.words(in: "run ``a ` /address-pr-comments`` now").isEmpty)
+        let fenced = "see:\n```\n/address-pr-comments\n```\nthen /review"
+        #expect(SlashQuery.words(in: fenced).map(\.name) == ["review"])
+        #expect(SlashQuery.words(in: "~~~\n/address-pr-comments").isEmpty)
+        // Until the closing backtick is typed the span is not code yet.
+        #expect(SlashQuery.word(in: "run `x /add", caret: 11) != nil)
+        #expect(SlashQuery.word(in: "run `x /add`", caret: 11) == nil)
+        // A backtick with nothing to close it is only a backtick.
+        #expect(SlashQuery.words(in: "it's a ` then /address-pr-comments").map(\.name)
+            == ["address-pr-comments"])
+        // Code before the first command still counts as words before it.
+        #expect(SlashQuery.words(in: "```\nx\n```\n/clear").map(\.atStart) == [false])
+    }
+
     private let names = SlashCommandNames(
         leading: ["clear", "review", "validate-pr-comments", "address-pr-comments", "humanizer:humanizer"],
         inline: ["validate-pr-comments", "address-pr-comments", "humanizer:humanizer"])
@@ -89,6 +105,7 @@ struct AgentCommandsTests {
         #expect(coloured("Summarise it, then /cl", caret: 22) == [])
         #expect(coloured("/review.", opensPrompt: false) == [])
         #expect(coloured("/address-pr-comments.", opensPrompt: false) == ["/address-pr-comments"])
+        #expect(coloured("/review `then /address-pr-comments`") == ["/review"])
     }
 
     @Test func laterInAPromptOnlyCommandsThatStillRunAreOffered() {
@@ -105,6 +122,12 @@ struct AgentCommandsTests {
         let offer = SlashQuery.offer(for: later, in: commands, agent: .claudeCode)
         #expect(offer.usable.map(\.name) == ["cleanup-worktree"])
         #expect(offer.startOnly.map(\.name) == ["clear"])
+
+        // A slash on its own is the whole list at the start, and just a slash later on.
+        #expect(SlashQuery.offer(for: SlashQuery.word(in: "/", caret: 1)!, in: commands,
+                                 agent: .claudeCode).usable.count == commands.count)
+        #expect(SlashQuery.offer(for: SlashQuery.word(in: "A / B", caret: 3)!, in: commands,
+                                 agent: .claudeCode).isEmpty)
 
         // The app expands only a leading command for Codex and Copilot, so nothing later
         // in their prompts would run.

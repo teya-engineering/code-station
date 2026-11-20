@@ -279,4 +279,52 @@ struct ComposerCommandTests {
         field.view.insertText("x", replacementRange: NSRange(location: 26, length: 0))
         #expect(field.view.subviews.count == before)
     }
+
+    @Test func returnAndTabAskTheMenuDifferently() {
+        var keys: [CommandKey] = []
+        var sent = false
+        let area = TextArea(text: .constant("then /add"), isFocused: .constant(false),
+                            isEnabled: true, font: .systemFont(ofSize: 13),
+                            onSubmit: { sent = true }, onOversizedPaste: { _ in },
+                            onRecallUp: nil, onRecallDown: nil,
+                            highlightsKeyword: false,
+                            onSuggestionKey: nil,
+                            onCommandKey: { keys.append($0); return false },
+                            animatesKeyword: false, onHeightChange: { _ in })
+        let coordinator = TextArea.Coordinator(area)
+        let view = coordinator.makeField().documentView as! TextArea.EditorView
+        view.setSelectedRange(NSRange(location: 9, length: 0))
+
+        view.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+
+        #expect(keys == [.complete, .submit])
+        // The menu turned return down, so it sends.
+        #expect(sent)
+    }
+
+    @Test func aWashThatNeverLandedIsDroppedOnceThePersonEdits() {
+        let link = ComposerFieldLink()
+        let area = TextArea(text: .constant("then "), isFocused: .constant(false),
+                            isEnabled: true, font: .systemFont(ofSize: 13),
+                            onSubmit: {}, onOversizedPaste: { _ in },
+                            onRecallUp: nil, onRecallDown: nil,
+                            highlightsKeyword: false,
+                            onSuggestionKey: nil, onCommandKey: nil,
+                            link: link,
+                            animatesKeyword: false, onHeightChange: { _ in })
+        let coordinator = TextArea.Coordinator(area)
+        let view = coordinator.makeField().documentView as! TextArea.EditorView
+        link.textView = view
+        let before = view.subviews.count
+
+        // The pick was overtaken, so its words never arrive.
+        link.wash(NSRange(location: 5, length: 5), holding: "/tidy")
+        link.applyPendingWash()
+        view.setSelectedRange(NSRange(location: 5, length: 0))
+        view.insertText("/tidy", replacementRange: view.selectedRange())
+        link.applyPendingWash()
+
+        #expect(view.subviews.count == before)
+    }
 }
