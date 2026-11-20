@@ -19,7 +19,7 @@ Kiro ships as a beta. It works end to end, but it lacks parts the other agents h
 - `AgentKind.isBeta` marks it. Agent menus describe it as "Beta · AWS's coding agent." The session bar shows a `BetaChip` beside its name, with the explanation in the tooltip. The first-run wizard shows the chip on its card.
 - The Kiro section of Settings › Agents carries a BETA badge and one sentence on what beta means: what works, and what is not supported yet.
 
-Kiro leaves beta when Code Station hands its MCP servers to Kiro sessions. The sign-in check must also have been confirmed against each kind of sign-in, or Kiro must offer a supported way to ask. Importing past sessions and showing credits are wanted, but they do not hold the label back. Leaving beta means setting `isBeta` to false.
+Kiro leaves beta when the sign-in check has been confirmed against each kind of sign-in, or Kiro must offer a supported way to ask. Importing past sessions and showing credits are wanted, but they do not hold the label back. Leaving beta means setting `isBeta` to false.
 
 Code Station runs Kiro through the official CLI as a session server, `kiro-cli acp --agent-engine v3`. The engine is pinned so that a user's own `acp.agentEngine` setting cannot switch the app onto a protocol it does not speak. The minimum CLI version is 3.5.0.
 
@@ -31,6 +31,8 @@ Code Station runs Kiro through the official CLI as a session server, `kiro-cli a
 - `KiroStream` maps `session/update` notifications onto `StreamEvent`. Text and thinking reach the transcript chunk by chunk as Kiro writes them, through `textChunk` and `thinkingChunk` events that say whether they carry on the current block. A tool call or a turn boundary ends the block. Tool calls are renamed onto the names the app already draws (Read, Edit, Write, Bash).
 
 Tool access goes through ACP's `session/request_permission`. The session's access mode answers file edits inside the session's folders when edits are allowed. Every other request becomes the existing permission card, and its answer selects the option Kiro offered for allow once, always allow, or deny. Kiro offers "Allow edits", "Every step" and "Plan only". It has no judge for risky steps, so "Risky only" is not offered. Kiro takes no effort level, so effort is hidden, or locked on Default where a form needs the field.
+
+Code Station's MCP servers reach Kiro per session, not through Kiro's own configuration. `session/new` and `session/load` take an `mcpServers` list. Kiro loads those servers for that session only, alongside its own. The runner builds the list from the app's servers, following the session's choices: MCP off hands over none, a session narrowed to some servers gets only those, and servers switched off in the app or for the session are left out. Local commands are resolved to full paths. Remote servers keep their headers. Nothing is written to `~/.kiro`, so the servers do not appear in `kiro-cli` outside Code Station. Registering them there would load them in every Kiro session, and Kiro cannot switch a server off for one session. MCP calls are shown like other agents' (`MCP`, `server.tool`). Kiro's own "Tool Load" call, which loads an MCP tool before using it, is hidden.
 
 Signing in runs plain `kiro-cli login`, in the same terminal sheet as the other agents. The app keeps no sign-in fields of its own, because Kiro's menu covers every way in.
 
@@ -46,6 +48,8 @@ Kiro sessions get the same transcript, permission card, queue, changes view and 
 
 The app depends on details Kiro may change: the V3 protocol, its extension names, and the layout of its database. A change to the database layout makes the sign-in check fall back to `whoami`, which has read organisation accounts as signed out. A change to the protocol fails sessions visibly rather than silently.
 
-Kiro cannot take a prompt during a turn, so mid-turn prompts queue, as they do for Copilot. The app does not yet hand its MCP servers to Kiro, import past Kiro sessions, or show credit usage; Kiro uses its own MCP configuration meanwhile.
+Kiro cannot take a prompt during a turn, so mid-turn prompts queue, as they do for Copilot. The app does not yet import past Kiro sessions or show credit usage.
+
+Servers in Kiro's own configuration load in every Kiro session, and Kiro has no way to switch them off for one session. A session with MCP off is handed none of Code Station's servers, but Kiro's own still load. Kiro reviewers and prompt suggestions run as one-shot chats and get no MCP servers from the app.
 
 Protocol behaviour is covered by tests built from recorded ACP messages, and by a fake ACP server in the runner tests. A live organisation sign-in was confirmed by a tester. The app's own tests cannot exercise one.
