@@ -11,7 +11,8 @@ on:
 
 jobs:
   release:
-    runs-on: macos-26
+    # Same image as the Tests workflow; see the note there.
+    runs-on: xcode-27
     # The signing secrets live in the release environment, so the job has to
     # declare it. Without this the secrets.* are empty and the certificate
     # import fails.
@@ -57,13 +58,23 @@ jobs:
                exit 1 ;;
           esac
 
-      # macos-26 ships Xcode 26.x (Swift 6.3) by default - the same toolchain as
-      # local development; on macos-15 (Swift 6.1) strict concurrency rejects
-      # code that 6.3 accepts. If you ever need to pin the version, uncomment
-      # the maxim-lobanov/setup-xcode step.
-      # - uses: maxim-lobanov/setup-xcode@v1
-      #   with:
-      #     xcode-version: '16.4'
+      # The release is built with the same Xcode as the Tests workflow, named in
+      # .xcode-version. Its SDK is the one AppKit sees at run time, so a release
+      # built with another one can behave differently from what was tested.
+      - name: Select Xcode
+        run: |
+          version="$(tr -d '[:space:]' < .xcode-version)"
+          if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error file=.xcode-version::not an Xcode version: $version"
+            exit 1
+          fi
+          xcode="/Applications/Xcode_$version.app"
+          if [ ! -d "$xcode" ]; then
+            echo "::error file=.xcode-version::Xcode $version is not on this image; it has: $(printf '%s ' /Applications/Xcode_*.app)"
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+
       - name: Toolchain
         run: swift --version && xcodebuild -version
 
