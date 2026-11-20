@@ -61,6 +61,47 @@ struct GitCompareBase: Sendable, Equatable {
     var commit: String
 }
 
+// The branches the remotes had at the last fetch, and where each remote lives, so the
+// list can be compared with any of them and a pull request's base can be found among them.
+struct GitRemoteBranches: Sendable, Equatable {
+    var refs: [String] = []
+    // Remote name to its fetch URL.
+    var urls: [String: String] = [:]
+
+    var remotes: [String] {
+        var seen = Set<String>()
+        return refs.compactMap { $0.split(separator: "/", maxSplits: 1).first.map(String.init) }
+            .filter { seen.insert($0).inserted }
+    }
+
+    func refs(on remote: String) -> [String] { refs.filter { $0.hasPrefix(remote + "/") } }
+
+    // The ref a pull request merges into: the branch on the remote that holds the pull
+    // request's repository, then on origin, then on any remote that has it.
+    func ref(forBranch branch: String, owner: String?, repository: String?) -> String? {
+        let named = refs.filter { $0.hasSuffix("/" + branch) && $0.split(separator: "/", maxSplits: 1).last.map(String.init) == branch }
+        guard !named.isEmpty else { return nil }
+        if let owner, let repository {
+            let slug = (owner + "/" + repository).lowercased()
+            if let remote = urls.first(where: { Self.slug(of: $0.value) == slug })?.key,
+               let ref = named.first(where: { $0.hasPrefix(remote + "/") }) {
+                return ref
+            }
+        }
+        return named.first { $0.hasPrefix("origin/") } ?? named.first
+    }
+
+    // "owner/repository" from an HTTPS or SSH remote URL.
+    static func slug(of url: String) -> String? {
+        var text = url.lowercased()
+        if text.hasSuffix(".git") { text.removeLast(4) }
+        while text.hasSuffix("/") { text.removeLast() }
+        let parts = text.split(whereSeparator: { $0 == "/" || $0 == ":" })
+        guard parts.count >= 2 else { return nil }
+        return parts.suffix(2).joined(separator: "/")
+    }
+}
+
 enum GitRepoState: Sendable, Equatable {
     case ready
     case notARepo
@@ -293,7 +334,8 @@ enum GitInspector {
 
     static func snapshot(at path: String, commandTimeout: TimeInterval? = nil,
                          lane: Lane = .background, comparingToLastCommit: Bool = false,
-                         findingRemoteBase: Bool = false, comparingToRemote: Bool = false) async -> GitSnapshot {
+                         findingRemoteBase: Bool = false, comparingToRemote: Bool = false,
+                         remoteRef: String? = nil) async -> GitSnapshot {
         guard let tool = await tool() else { return .state(.gitMissing) }
         let url = URL(fileURLWithPath: path)
         return await offMain(lane: lane) {
@@ -302,13 +344,14 @@ enum GitInspector {
                      commandTimeout: commandTimeout,
                      comparingToLastCommit: comparingToLastCommit,
                      findingRemoteBase: findingRemoteBase,
-                     comparingToRemote: comparingToRemote)
+                     comparingToRemote: comparingToRemote,
+                     remoteRef: remoteRef)
         }
     }
 
     private static func snapshot(tool: GitTool, url: URL, commandTimeout: TimeInterval?,
                                  comparingToLastCommit: Bool, findingRemoteBase: Bool,
-                                 comparingToRemote: Bool) -> GitSnapshot {
+                                 comparingToRemote: Bool, remoteRef: String?) -> GitSnapshot {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         guard exists && isDirectory.boolValue else { return .state(.missingFolder) }
@@ -400,7 +443,7 @@ enum GitInspector {
         snapshot.files = files
 
         if (findingRemoteBase || comparingToRemote) && snapshot.hasCommits {
-            snapshot.remoteBase = remoteBase(tool: tool, url: url, timeout: commandTimeout)
+            snapshot.remoteBase = remoteBase(tool: tool, url: url, timeout: commandTimeout, preferring: remoteRef)
         }
         if comparingToRemote, let base = snapshot.remoteBase {
             let committed = run(tool, ["diff", base.commit, "--name-status", "-z", "--no-ext-diff", "-M"],
@@ -455,21 +498,66 @@ enum GitInspector {
         return branch.isEmpty ? nil : branch
     }
 
-    // The usual names are tried after origin/HEAD, which may be missing or still point at
-    // a branch the remote has since renamed and pruned.
-    private static func remoteBase(tool: GitTool, url: URL, timeout: TimeInterval?) -> GitCompareBase? {
+    // The remote branch picked, when one was and it is still there. Otherwise the remote's
+    // default branch, with the usual names tried after origin/HEAD, which may be missing or
+    // still point at a branch the remote has since renamed and pruned.
+    private static func remoteBase(tool: GitTool, url: URL, timeout: TimeInterval?,
+                                   preferring preferred: String?) -> GitCompareBase? {
         var candidates = ["origin/main", "origin/master"]
         if let named = originDefaultBranch(tool, in: url, timeout: timeout) {
             candidates.removeAll { $0 == "origin/" + named }
             candidates.insert("origin/" + named, at: 0)
         }
+        // Only a remote branch is taken, so a name typed elsewhere can never become an option
+        // to git.
+        if let preferred, !preferred.hasPrefix("-"), preferred.contains("/") {
+            candidates.insert("refs/remotes/" + preferred, at: 0)
+        }
         for ref in candidates {
             let base = run(tool, ["merge-base", "HEAD", ref], in: url, timeout: timeout)
             if base.ok && !base.trimmedText.isEmpty {
-                return GitCompareBase(ref: ref, commit: base.trimmedText)
+                let name = ref.hasPrefix("refs/remotes/") ? String(ref.dropFirst("refs/remotes/".count)) : ref
+                return GitCompareBase(ref: name, commit: base.trimmedText)
             }
         }
         return nil
+    }
+
+    // Every branch the remotes had at the last fetch, for picking the one to compare with.
+    static func remoteBranches(at path: String) async -> GitRemoteBranches {
+        guard let tool = await tool() else { return GitRemoteBranches() }
+        let url = URL(fileURLWithPath: path)
+        return await offMain(lane: .interactive) {
+            let refs = run(tool, ["for-each-ref", "--format=%(refname)", "refs/remotes"], in: url)
+            let urls = run(tool, ["config", "--get-regexp", "^remote\\..*\\.url$"], in: url)
+            return GitRemoteBranches(refs: refs.ok ? parseRemoteRefs(refs.text) : [],
+                                     urls: urls.ok ? parseRemoteURLs(urls.text) : [:])
+        }
+    }
+
+    // `for-each-ref` lines are full ref names. A remote's HEAD only points at one of its
+    // branches, so it is left out.
+    static func parseRemoteRefs(_ text: String) -> [String] {
+        text.split(separator: "\n").compactMap { line in
+            let ref = line.trimmingCharacters(in: .whitespaces)
+            guard ref.hasPrefix("refs/remotes/") else { return nil }
+            let name = String(ref.dropFirst("refs/remotes/".count))
+            guard name.contains("/"), !name.hasSuffix("/HEAD") else { return nil }
+            return name
+        }
+        .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    // `config --get-regexp` lines are "remote.<name>.url <url>".
+    static func parseRemoteURLs(_ text: String) -> [String: String] {
+        var urls: [String: String] = [:]
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2, parts[0].hasPrefix("remote."), parts[0].hasSuffix(".url") else { continue }
+            let name = String(parts[0].dropFirst("remote.".count).dropLast(".url".count))
+            if urls[name] == nil { urls[name] = parts[1] }
+        }
+        return urls
     }
 
     // The working tree's files joined with the ones that differ from the base. A file

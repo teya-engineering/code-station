@@ -41,6 +41,12 @@ struct GitHubReviewParserTests {
         #expect(status?.headRepositoryURL == "https://github.com/contributor/app")
     }
 
+    @Test func readsTheBranchThePullRequestMergesInto() {
+        let status = GitHubReviewParser.status(from: Data(#"{"state":"open","head":{"ref":"fix"},"base":{"ref":"release/2026-11"}}"#.utf8))
+
+        #expect(status?.baseBranch == "release/2026-11")
+    }
+
     @Test func readsWhenThePullRequestWasOpened() {
         let status = GitHubReviewParser.status(from: Data(#"{"state":"open","created_at":"2026-10-16T10:00:00Z"}"#.utf8))
 

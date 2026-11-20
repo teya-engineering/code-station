@@ -242,6 +242,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | Pick one from a list | `.appMenu`, or `OptionMenu` for the ready-made dropdown |
 | Pick one of a few, all visible | `ChoicePill`s in an `HStack` |
+| A choice in that row that carries a value of its own, such as which branch to compare with | `MenuChoicePill` (`Controls/MenuChoicePill.swift`), beside the `ChoicePill`s. The words pick the choice; the chevron opens an `.appMenu` of values, and so do the words once the choice is picked. Pass `monospaced: true` for a value the machine made, such as a branch. |
 | Pick how much, from narrow to wide | `ScopeTrack` (`Controls/ScopeTrack.swift`): stops in order, a knob that slides to the one picked, arrow keys to move along it |
 | Turn on any number of a few, all visible | `ToggleChip`: a tick and a tint when on. `ToggleChip(fixed:)` for something always included, shown with a lock. Pass `warns: true` for a choice with a cost. |
 | Pick one, each with a sentence | `OptionRow` |

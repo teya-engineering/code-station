@@ -117,6 +117,9 @@ final class ChangesNavigationMemory {
     // How far through the changed files the reviewer is, read by the turn's footer, which
     // sits outside the screen that counts them.
     var viewedTally: ViewedTally?
+    // The remote branch each project's files were last compared with, picked from the
+    // header. A project with none picked compares with its pull request's base.
+    var compareRefs: [String: String] = [:]
     // Files whose comments are folded away, and files showing their resolved ones too,
     // keyed by repository and path.
     var foldedNotes: Set<String> = []
@@ -315,6 +318,16 @@ struct ChangesRepository: Identifiable {
         guard snapshot.state == .ready else { return "Unavailable" }
         return snapshot.files.isEmpty ? "Clean" : "\(snapshot.files.count) changed"
     }
+}
+
+// A pull request the session works on, as Changes needs it: the branch it is made from,
+// so it can be matched to a checkout, and the branch it merges into, to compare with.
+struct PullRequestBase: Equatable, Sendable {
+    var number: Int
+    var headBranch: String
+    var baseBranch: String
+    var owner: String?
+    var repository: String?
 }
 
 // Where comments left on a diff go: the session whose changes these are, and its agent.
