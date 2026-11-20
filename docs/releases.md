@@ -11,7 +11,7 @@ The `Release` GitHub Actions workflow first waits for the `Tests` workflow to pa
 
 Tag a commit whose `Tests` run passed, or one whose run is still going. The release waits for that run. Every push to `main` gets its own `Tests` run, and a later push never cancels it. If the run failed for a temporary reason, or someone cancelled it by hand, re-run it from GitHub Actions before tagging. You can also re-run the release afterwards. A commit that was never the head of a push to `main` has no such run and cannot be released.
 
-Review the draft in GitHub Releases, then publish it. If the workflow fails for a temporary reason, run it again from GitHub Actions and select the same tag.
+Review the draft in GitHub Releases, then publish it. If the workflow fails for a temporary reason, run it again from GitHub Actions and select the same tag. A re-run replaces the files on the draft it made before, but never changes a release that has been published.
 
 The build uses exactly the dependency versions in `Package.resolved`. If that file is out of date with `Package.swift`, the release fails instead of resolving newer versions. Commit an updated `Package.resolved`, then tag that commit.
 

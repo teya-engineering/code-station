@@ -164,15 +164,28 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/build.keychain-db"
 
-      - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          # No target_commitish: the tag already exists by now, and GitHub
-          # discards it in that case rather than moving the tag.
-          tag_name: v${{ steps.v.outputs.version }}
-          name: Teya Code Station ${{ steps.v.outputs.version }}
-          draft: true          # review it before making it public
-          generate_release_notes: true
-          files: |
-            build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg
-            build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg.sha256
+      # The gh CLI on the runner rather than a third-party action, so no code
+      # from outside GitHub runs with the contents: write token.
+      - name: Publish the draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          dmg="build/TeyaCodeStation-$VERSION.dmg"
+          # A re-run after a failed upload finds the draft it made and replaces
+          # its files. A published release is never touched.
+          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$draft" != true ]; then
+              echo "::error::$tag is already published; leaving its files alone"
+              exit 1
+            fi
+            gh release upload "$tag" "$dmg" "$dmg.sha256" --clobber
+          else
+            # --verify-tag: the tag exists by now, and gh must never create or
+            # move one. --draft: review it before making it public.
+            gh release create "$tag" "$dmg" "$dmg.sha256" \
+              --verify-tag --draft --generate-notes \
+              --title "Teya Code Station $VERSION"
+          fi
