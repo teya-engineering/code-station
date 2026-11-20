@@ -35,7 +35,8 @@ final class ChangesModel {
     @ObservationIgnored private let readSnapshot: (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot
 
     init(readSnapshot: @escaping (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot = {
-        await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true, comparingToRemote: $1)
+        await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true,
+                                   findingRemoteBase: true, comparingToRemote: $1)
     }) {
         self.readSnapshot = readSnapshot
     }
@@ -69,9 +70,12 @@ final class ChangesModel {
         guard !Task.isCancelled, generation == refreshGeneration else { return false }
         snapshot = fresh
         checkedAt = Date()
+        // A remote that went away takes the choice with it, so it does not come back on
+        // its own when the remote returns.
+        if fresh.state == .ready && fresh.remoteBase == nil { comparesToRemote = false }
         // The cache feeds the uncommitted totals shown elsewhere, which committed work
         // must not inflate.
-        if !fresh.comparedToRemote { gitStats.store(fresh, at: root) }
+        gitStats.store(fresh.againstLastCommit, at: root)
         latestCommit = nil
         if fresh.files.isEmpty && fresh.hasCommits {
             let latest = await GitInspector.recentCommits(at: fresh.root, limit: 1).commits.first
@@ -99,7 +103,7 @@ final class ChangesModel {
         let generation = loadGeneration
         loadingDiff = true
         defer { if generation == loadGeneration { loadingDiff = false } }
-        let loaded = await GitInspector.reviewDiff(for: file, root: root, base: snapshot?.diffBase)
+        let loaded = await GitInspector.reviewDiff(for: file, root: root, base: snapshot?.diffBase(for: file))
         guard !Task.isCancelled, generation == loadGeneration, isCurrent() else { return nil }
         return loaded
     }

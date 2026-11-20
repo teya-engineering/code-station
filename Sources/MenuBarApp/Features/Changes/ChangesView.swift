@@ -292,6 +292,7 @@ struct ChangesView: View {
                     ActionButton(title: "View commit history") { mode = .history }
                     if !comparesToRemote, let base = snapshot?.remoteBase {
                         ActionButton(title: "Compare to \(base.ref)", tone: .outlined) { compare(toRemote: true) }
+                            .disabled(busy)
                     }
                 }
             }
@@ -330,8 +331,8 @@ struct ChangesView: View {
                              userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
     }
 
-    private var baseTitle: String {
-        guard comparesToRemote, let base = snapshot?.remoteBase else { return "Last commit" }
+    private func baseTitle(for file: GitChange) -> String {
+        guard snapshot?.diffBase(for: file) != nil, let base = snapshot?.remoteBase else { return "Last commit" }
         return base.ref + " @ " + String(base.commit.prefix(7))
     }
 
@@ -361,13 +362,13 @@ struct ChangesView: View {
         .hoverLift()
         .motion(Motion.pop, value: isCopied)
         .accessibilityLabel(version == .patch ? "Copy unified diff"
-            : version == .before ? "Copy \(baseTitle) version" : "Copy working tree version")
+            : version == .before ? "Copy \(baseTitle(for: file)) version" : "Copy working tree version")
     }
 
     private func copy(_ version: GitInspector.CopyVersion, file: GitChange) {
         Task {
             let result = await GitInspector.copyText(for: file, root: repoRoot, version: version,
-                                                     base: snapshot?.diffBase)
+                                                     base: snapshot?.diffBase(for: file))
             switch result {
             case .success(let text):
                 guard Pasteboard.copy(text) else {
@@ -474,7 +475,7 @@ struct ChangesView: View {
     }
 
     private func compare(toRemote: Bool) {
-        guard model.comparesToRemote != toRemote else { return }
+        guard !busy, model.comparesToRemote != toRemote else { return }
         model.comparesToRemote = toRemote
         diffScroll = .top
         Task { await reload() }
@@ -1403,7 +1404,10 @@ struct ChangesView: View {
         .hoverFill(cornerRadius: Radius.control)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .appContextMenu {
-            let targets = fileSelection.contextMenuFiles(for: file, in: files).filter(\.hasLocalChanges)
+            // A row with only committed work has nothing to commit or discard, and acting
+            // on the rest of the selection from it would not touch the row under the pointer.
+            let ids = file.hasLocalChanges ? Set(fileSelection.contextMenuFiles(for: file, in: files).map(\.id)) : []
+            let targets = localFiles.filter { ids.contains($0.id) }
             let multiple = targets.count > 1
             let finder: [MenuEntry] = [.item("Reveal in Finder") { reveal(file) },
                                        .item("Copy Path") { Pasteboard.copy(fileURL(file).path) }]
@@ -1506,7 +1510,7 @@ struct ChangesView: View {
             if mode == .changes, let file = shownFile, !file.isBinary, diff?.images == nil {
                 if appSettings.changesDiffLayout == .sideBySide {
                     HStack {
-                        versionHeader(baseTitle, version: .before, file: file)
+                        versionHeader(baseTitle(for: file), version: .before, file: file)
                         versionHeader("Working tree", version: .after, file: file)
                     }.padding(.horizontal, Space.xxl).padding(.vertical, Space.md)
                 }

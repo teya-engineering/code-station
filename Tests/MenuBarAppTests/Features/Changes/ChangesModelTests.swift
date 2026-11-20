@@ -32,6 +32,30 @@ struct ChangesModelTests {
         #expect(!model.loading)
     }
 
+    @Test func comparingToTheRemoteTurnsOffWhenTheRemoteBaseIsGone() async {
+        // No commits, so the reload does not go looking for the latest one.
+        let model = ChangesModel(readSnapshot: { _, _ in GitSnapshot(state: .ready, hasCommits: false) })
+        model.comparesToRemote = true
+        _ = await model.reload(root: "/repo", fetchOrigin: false, gitStats: GitStatsCache(), onError: { _ in })
+        #expect(!model.comparesToRemote)
+    }
+
+    @Test func theSharedCacheKeepsOnlyUncommittedWork() async {
+        let committed = GitChange(path: "a.swift", originalPath: nil, kind: .added, isStaged: false,
+                                  isUnstaged: false, added: 9, removed: 0, isBinary: false)
+        let uncommitted = GitChange(path: "b.swift", originalPath: nil, kind: .modified, isStaged: false,
+                                    isUnstaged: true, added: 1, removed: 0, isBinary: false)
+        var compared = GitSnapshot(state: .ready)
+        compared.files = [committed, uncommitted]
+        compared.uncommittedFiles = [uncommitted]
+        compared.remoteBase = GitCompareBase(ref: "origin/main", commit: "abc")
+        compared.comparedToRemote = true
+        let model = ChangesModel(readSnapshot: { _, _ in compared })
+        let stats = GitStatsCache()
+        _ = await model.reload(root: "/repo", fetchOrigin: false, gitStats: stats, onError: { _ in })
+        #expect(stats.snapshot(at: "/repo")?.files == [uncommitted])
+    }
+
     @Test func showingADiffSwapsTheFileItsTextAndItsThreadsTogether() async {
         let model = ChangesModel()
         let lines = [DiffLine(id: 0, kind: .hunk, text: "@@ -1,1 +1,2 @@"),

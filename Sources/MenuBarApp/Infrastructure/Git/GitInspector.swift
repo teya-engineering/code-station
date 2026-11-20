@@ -46,6 +46,12 @@ struct GitChange: Identifiable, Sendable, Equatable {
     // which leaves nothing to stage, commit or discard.
     var hasLocalChanges: Bool { isStaged || isUnstaged }
     var fileName: String { (path as NSString).lastPathComponent }
+
+    mutating func apply(_ count: GitInspector.LineCount) {
+        added = count.binary ? nil : count.added
+        removed = count.binary ? nil : count.removed
+        isBinary = count.binary
+    }
 }
 
 // Where this branch left the remote's default branch, which is what a pull request
@@ -88,12 +94,35 @@ struct GitSnapshot: Sendable, Equatable {
     // what the branch has committed since it left the remote's default branch.
     var remoteBase: GitCompareBase?
     var comparedToRemote = false
+    // Compared to the remote, the rows in `files` describe each file next to the base,
+    // which is not what a commit or a discard acts on. These are the same files as git
+    // status sees them, counted against the last commit.
+    var uncommittedFiles: [GitChange] = []
+    // The paths that differ from the base. A file changed only since the last commit,
+    // in a way that brings it back to the base, is not among them.
+    var pathsChangedFromBase: Set<String> = []
 
-    // What the per-file diffs compare against, or nil for the last commit.
-    var diffBase: String? { comparedToRemote ? remoteBase?.commit : nil }
-    // The files a commit or a discard can act on. Compared to the remote, the list also
-    // holds files only changed by commits, which have nothing left to commit.
-    var localFiles: [GitChange] { files.filter(\.hasLocalChanges) }
+    // The files a commit or a discard can act on.
+    var localFiles: [GitChange] { comparedToRemote ? uncommittedFiles : files }
+
+    // What a file's diff compares against, or nil for the last commit. A file that only
+    // differs from the last commit shows that, since next to the base it has no change.
+    func diffBase(for file: GitChange) -> String? {
+        guard comparedToRemote, pathsChangedFromBase.contains(file.path) else { return nil }
+        return remoteBase?.commit
+    }
+
+    // The same snapshot as it looks against the last commit, for anything that counts
+    // uncommitted work.
+    var againstLastCommit: GitSnapshot {
+        guard comparedToRemote else { return self }
+        var snapshot = self
+        snapshot.files = uncommittedFiles
+        snapshot.uncommittedFiles = []
+        snapshot.pathsChangedFromBase = []
+        snapshot.comparedToRemote = false
+        return snapshot
+    }
 
     var totalAdded: Int { files.compactMap(\.added).reduce(0, +) }
     var totalRemoved: Int { files.compactMap(\.removed).reduce(0, +) }
@@ -264,7 +293,7 @@ enum GitInspector {
 
     static func snapshot(at path: String, commandTimeout: TimeInterval? = nil,
                          lane: Lane = .background, comparingToLastCommit: Bool = false,
-                         comparingToRemote: Bool = false) async -> GitSnapshot {
+                         findingRemoteBase: Bool = false, comparingToRemote: Bool = false) async -> GitSnapshot {
         guard let tool = await tool() else { return .state(.gitMissing) }
         let url = URL(fileURLWithPath: path)
         return await offMain(lane: lane) {
@@ -272,12 +301,14 @@ enum GitInspector {
                      url: url,
                      commandTimeout: commandTimeout,
                      comparingToLastCommit: comparingToLastCommit,
+                     findingRemoteBase: findingRemoteBase,
                      comparingToRemote: comparingToRemote)
         }
     }
 
     private static func snapshot(tool: GitTool, url: URL, commandTimeout: TimeInterval?,
-                                 comparingToLastCommit: Bool, comparingToRemote: Bool) -> GitSnapshot {
+                                 comparingToLastCommit: Bool, findingRemoteBase: Bool,
+                                 comparingToRemote: Bool) -> GitSnapshot {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         guard exists && isDirectory.boolValue else { return .state(.missingFolder) }
@@ -348,26 +379,59 @@ enum GitInspector {
 
         var files = parseStatus(status.text)
 
-        if comparingToLastCommit && snapshot.hasCommits {
+        let lastCommit = snapshot.hasCommits ? "HEAD" : emptyTree
+        let countArguments = comparingToLastCommit
+            ? [["diff", lastCommit, "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]]
+            : [["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"],
+               ["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]]
+        let counts = lineCounts(countArguments, tool: tool, url: url, timeout: commandTimeout)
+        for i in files.indices {
+            if let count = counts[files[i].path] {
+                files[i].apply(count)
+            } else if files[i].isUntracked {
+                // Untracked files are not in any diff, so count their lines ourselves.
+                let measured = measureUntracked(at: root.appendingPathComponent(files[i].path))
+                files[i].added = measured.lines
+                files[i].removed = measured.lines == nil ? nil : 0
+                files[i].isBinary = measured.isBinary
+            }
+        }
+        files.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        snapshot.files = files
+
+        if (findingRemoteBase || comparingToRemote) && snapshot.hasCommits {
             snapshot.remoteBase = remoteBase(tool: tool, url: url, timeout: commandTimeout)
         }
         if comparingToRemote, let base = snapshot.remoteBase {
             let committed = run(tool, ["diff", base.commit, "--name-status", "-z", "--no-ext-diff", "-M"],
                                 in: url, timeout: commandTimeout)
             guard committed.ok else { return .state(.failed(committed.failureMessage)) }
-            files = merging(files, with: parseNameStatus(committed.text))
+            let entries = parseNameStatus(committed.text)
+            var merged = merging(files, with: entries)
+            let baseCounts = lineCounts([["diff", base.commit, "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]],
+                                        tool: tool, url: url, timeout: commandTimeout)
+            let changed = Set(entries.map(\.path))
+            for i in merged.indices where changed.contains(merged[i].path) {
+                if let count = baseCounts[merged[i].path] { merged[i].apply(count) }
+            }
+            merged.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+            snapshot.uncommittedFiles = files
+            snapshot.files = merged
+            snapshot.pathsChangedFromBase = changed
             snapshot.comparedToRemote = true
         }
+        return snapshot
+    }
 
-        var counts: [String: (added: Int?, removed: Int?, binary: Bool)] = [:]
-        let lastCommit = snapshot.hasCommits ? "HEAD" : emptyTree
-        let countArguments = comparingToLastCommit
-            ? [["diff", snapshot.diffBase ?? lastCommit,
-                "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]]
-            : [["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"],
-               ["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]]
-        for arguments in countArguments {
-            let output = run(tool, arguments, in: url, timeout: commandTimeout)
+    private static let emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+    typealias LineCount = (added: Int?, removed: Int?, binary: Bool)
+
+    private static func lineCounts(_ argumentSets: [[String]], tool: GitTool, url: URL,
+                                   timeout: TimeInterval?) -> [String: LineCount] {
+        var counts: [String: LineCount] = [:]
+        for arguments in argumentSets {
+            let output = run(tool, arguments, in: url, timeout: timeout)
             guard output.ok else { continue }
             for entry in parseNumstat(output.text) {
                 let current = counts[entry.path] ?? (0, 0, false)
@@ -378,35 +442,27 @@ enum GitInspector {
                 )
             }
         }
-
-        for i in files.indices {
-            if let count = counts[files[i].path] {
-                files[i].added = count.binary ? nil : count.added
-                files[i].removed = count.binary ? nil : count.removed
-                files[i].isBinary = count.binary
-            } else if files[i].isUntracked {
-                // Untracked files are not in any diff, so count their lines ourselves.
-                let measured = measureUntracked(at: root.appendingPathComponent(files[i].path))
-                files[i].added = measured.lines
-                files[i].removed = measured.lines == nil ? nil : 0
-                files[i].isBinary = measured.isBinary
-            }
-        }
-
-        files.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-        snapshot.files = files
-        return snapshot
+        return counts
     }
 
-    private static let emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
-    // The remote's default branch, as origin/HEAD names it. A remote added by hand has no
-    // origin/HEAD, so the usual names are tried after it.
-    private static func remoteBase(tool: GitTool, url: URL, timeout: TimeInterval?) -> GitCompareBase? {
+    // What origin calls its default branch, without the remote's name, read from the
+    // origin/HEAD ref a clone leaves behind. A remote added by hand has none.
+    static func originDefaultBranch(_ tool: GitTool, in url: URL, timeout: TimeInterval? = nil) -> String? {
         let named = run(tool, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
                         in: url, timeout: timeout)
-        let candidates = named.ok && !named.trimmedText.isEmpty
-            ? [named.trimmedText] : ["origin/main", "origin/master"]
+        guard named.ok, named.trimmedText.hasPrefix("origin/") else { return nil }
+        let branch = String(named.trimmedText.dropFirst("origin/".count))
+        return branch.isEmpty ? nil : branch
+    }
+
+    // The usual names are tried after origin/HEAD, which may be missing or still point at
+    // a branch the remote has since renamed and pruned.
+    private static func remoteBase(tool: GitTool, url: URL, timeout: TimeInterval?) -> GitCompareBase? {
+        var candidates = ["origin/main", "origin/master"]
+        if let named = originDefaultBranch(tool, in: url, timeout: timeout) {
+            candidates.removeAll { $0 == "origin/" + named }
+            candidates.insert("origin/" + named, at: 0)
+        }
         for ref in candidates {
             let base = run(tool, ["merge-base", "HEAD", ref], in: url, timeout: timeout)
             if base.ok && !base.trimmedText.isEmpty {
@@ -418,16 +474,22 @@ enum GitInspector {
 
     // The working tree's files joined with the ones that differ from the base. A file
     // the working tree also changed keeps its staging state; its kind is what it is next
-    // to the base, so a file the branch added reads as added.
+    // to the base, so a file the branch added reads as added. A local rename that the
+    // base diff sees as a separate delete and add stays one renamed row, since the old
+    // path's deletion is part of the local work.
     static func merging(_ local: [GitChange],
                         with committed: [(path: String, originalPath: String?, kind: GitStatusKind)]) -> [GitChange] {
         var files = local
         var index = Dictionary(uniqueKeysWithValues: files.enumerated().map { ($1.path, $0) })
+        let renamedAway = Set(local.compactMap(\.originalPath))
         for entry in committed {
             if let at = index[entry.path] {
                 guard files[at].kind != .conflicted && !files[at].isUntracked else { continue }
+                if entry.originalPath == nil && files[at].originalPath != nil { continue }
                 files[at].kind = entry.kind
                 files[at].originalPath = entry.originalPath
+            } else if renamedAway.contains(entry.path) {
+                continue
             } else {
                 index[entry.path] = files.count
                 files.append(GitChange(path: entry.path,
