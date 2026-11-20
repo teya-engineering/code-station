@@ -47,7 +47,7 @@ struct PermissionCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Space.lg)
         }
-        .frame(maxHeight: 340 * textScale)
+        .scrollCap(ScrollCap.medium)
         .frame(maxWidth: .infinity, alignment: .leading)
         .surface(Theme.card, cornerRadius: Radius.control, border: Theme.border)
         .clipShape(RoundedRectangle(cornerRadius: Radius.control))
