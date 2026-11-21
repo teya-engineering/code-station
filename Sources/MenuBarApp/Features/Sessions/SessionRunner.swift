@@ -95,6 +95,9 @@ final class SessionRunner {
         // How the last turn the user asked for ended, for the seal under its answer. Held
         // in memory only, since nothing on disk says when a turn started.
         var lastEnding: TurnEnding?
+        // The spinner words Claude was set up with when the last turn started. Kept past
+        // the turn, so the next one opens with them rather than switching a moment in.
+        var spinnerVerbs: ClaudeSpinnerVerbs?
 
         // A turn inside a command, parked on a question or holding for a task is quiet
         // for a reason. Only silence with none of those is a turn that has stopped moving.
@@ -324,6 +327,8 @@ final class SessionRunner {
     // When the wait began, so a parked session counts from the moment it stopped working
     // rather than from the start of the turn.
     func waitingSince(_ sessionID: UUID) -> Date? { records[sessionID]?.wait?.since }
+
+    func spinnerVerbs(_ sessionID: UUID) -> ClaudeSpinnerVerbs? { records[sessionID]?.spinnerVerbs }
 
     // Whether the wait has gone on long enough that it is not going to end by itself. A
     // task that never reports leaves the turn held open for good, so the state light has
@@ -1544,6 +1549,20 @@ final class SessionRunner {
         Task { [weak turn] in
             let heads = await startHeads.value
             turn?.startHeads = heads
+        }
+        // Read from the folders this turn's Claude reads, which for an imported session can
+        // be a history folder the app itself was not started with. The files are read off
+        // the main thread, since every turn does this.
+        if agent == .claudeCode, summary == nil {
+            let configDirectory = plan.historyDirectory.map { URL(fileURLWithPath: $0) }
+                ?? agent.configDirectory()
+            Task { [weak self] in
+                let verbs = await Task.detached {
+                    ClaudeSpinnerVerbs.load(configDirectory: configDirectory, lead: workingDirectory)
+                }.value
+                guard let record = self?.records[sessionID], record.spinnerVerbs != verbs else { return }
+                record.spinnerVerbs = verbs
+            }
         }
         if let presetSessionID = plan.presetSessionID {
             turn.agentSessionID = presetSessionID

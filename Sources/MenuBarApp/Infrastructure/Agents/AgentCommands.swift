@@ -131,8 +131,7 @@ enum AgentCommands {
         let roots = workingDirectories.map { URL(fileURLWithPath: $0) }
         switch agent {
         case .claudeCode:
-            let base = environment["CLAUDE_CONFIG_DIR"].map { URL(fileURLWithPath: $0) }
-                ?? home.appendingPathComponent(".claude")
+            let base = agent.configDirectory(environment: environment, home: home)
             // Claude settles a skill's name the other way round from a command's: your own
             // skill over the project's, and a skill over any command of the same name.
             return [Folder(url: base.appendingPathComponent("skills"), scope: .user, holds: .skills)]
@@ -143,8 +142,7 @@ enum AgentCommands {
                 + [Folder(url: base.appendingPathComponent("commands"), scope: .user, holds: .commands)]
                 + pluginFolders(base: base, lead: roots.first)
         case .codex:
-            let base = environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
-                ?? home.appendingPathComponent(".codex")
+            let base = agent.configDirectory(environment: environment, home: home)
             return [Folder(url: base.appendingPathComponent("prompts"), scope: .user, holds: .commands)]
         case .copilot:
             return roots.map { Folder(url: $0.appendingPathComponent(".github/prompts"), scope: .project,
@@ -159,13 +157,8 @@ enum AgentCommands {
     // project. A worktree belongs to the project of the checkout it came from, and that
     // checkout's path is the one a project install records.
     static func pluginFolders(base: URL, lead: URL?) -> [Folder] {
-        var settings = [base.appendingPathComponent("settings.json")]
-        if let lead {
-            settings += [lead.appendingPathComponent(".claude/settings.json"),
-                         lead.appendingPathComponent(".claude/settings.local.json")]
-        }
         var enabled: [String: Bool] = [:]
-        for file in settings {
+        for file in claudeSettingsFiles(base: base, lead: lead) {
             for (key, value) in jsonObject(at: file)?["enabledPlugins"] as? [String: Any] ?? [:] {
                 if let on = value as? Bool { enabled[key] = on }
             }
@@ -194,6 +187,17 @@ enum AgentCommands {
                                namespace: name)]
         }
         return folders
+    }
+
+    // The settings files Claude reads in the folder it runs in, farthest first, so a
+    // later file overrides an earlier one.
+    static func claudeSettingsFiles(base: URL, lead: URL?) -> [URL] {
+        var files = [base.appendingPathComponent("settings.json")]
+        if let lead {
+            files += [lead.appendingPathComponent(".claude/settings.json"),
+                      lead.appendingPathComponent(".claude/settings.local.json")]
+        }
+        return files
     }
 
     private static func jsonObject(at url: URL) -> [String: Any]? {

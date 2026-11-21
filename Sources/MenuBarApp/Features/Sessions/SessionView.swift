@@ -1829,8 +1829,7 @@ struct SessionView: View {
                            sessionID: sessionID,
                            avatarName: session.agentAvatarName,
                            agentTitle: session.agent.title,
-                           agent: session.agent,
-                           lead: store.workingDirectory(for: session),
+                           spinnerVerbs: runner.spinnerVerbs(sessionID),
                            completionActivity: runner.completionActivity(sessionID),
                            tasks: runner.backgroundTasks(sessionID),
                            waitingSince: runner.waitingSince(sessionID))
