@@ -60,8 +60,8 @@ Add tests for behavior and business logic. Trivial view wiring, accessors, and f
 
 - `Package.swift` defines one macOS executable target and one test target.
 - `Sources/MenuBarApp/App` creates the window, owns shared service lifetimes, and composes the main navigation.
-- `Sources/MenuBarApp/Features` groups each feature's views and behavior: Projects, Sessions, Changes, PullRequestReviews, Explorer, Design, Tasks, Home, Stats, Notes, Settings, MCP, Skills, Dispatch, Terminal, MobileAccess, Shortcuts, Docker, Trace, and Troubleshoot.
-- `Sources/MenuBarApp/Infrastructure` contains agent protocols, Git and GitHub operations, persistence, process execution, local HTTP, and system integration.
+- `Sources/MenuBarApp/Features` groups each feature's views and behavior: Projects, Sessions, Changes, PullRequestReviews, Explorer, Design, Tasks, Home, Stats, Notes, Settings, MCP, Skills, Dispatch, Terminal, MobileAccess, Shortcuts, Docker, Trace, Troubleshoot, Sunlight, and CursorEffects.
+- `Sources/MenuBarApp/Infrastructure` contains agent protocols, Git and GitHub operations, persistence, process execution, local HTTP, system integration, and small shared helpers.
 - `Sources/MenuBarApp/DesignSystem` contains the palette, typography, controls, layout components, and motion.
 - `Sources/MenuBarApp/Resources` contains bundled assets, including the mobile page's HTML, CSS, and JavaScript.
 - `Tests/MenuBarAppTests` follows the same folders. Shared fixtures live in `Support`.
