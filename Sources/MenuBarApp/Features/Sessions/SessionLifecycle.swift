@@ -19,9 +19,9 @@ struct PlannedRebuild: Equatable, Sendable {
 }
 
 struct WorktreeOperations: Sendable {
-    let addProject: @Sendable (String, String, UUID, String?) async
+    let addProject: @Sendable (String, String, UUID, String?, String?) async
         -> Result<GitWorktree.Created, GitWorktree.Failure>
-    let addWorkspaceProject: @Sendable (String, String, UUID, UUID, String?) async
+    let addWorkspaceProject: @Sendable (String, String, UUID, UUID, String?, String?) async
         -> Result<GitWorktree.Created, GitWorktree.Failure>
     let remove: @Sendable (String, String?, String?) async
         -> Result<Void, GitWorktree.Failure>
@@ -37,13 +37,14 @@ struct WorktreeOperations: Sendable {
     }
 
     static let live = WorktreeOperations(
-        addProject: { path, name, sessionID, base in
+        addProject: { path, name, sessionID, base, branch in
             await GitWorktree.add(projectPath: path, projectName: name,
-                                  sessionID: sessionID, from: base)
+                                  sessionID: sessionID, from: base, branch: branch)
         },
-        addWorkspaceProject: { path, name, projectID, sessionID, base in
+        addWorkspaceProject: { path, name, projectID, sessionID, base, branch in
             await GitWorktree.add(projectPath: path, projectName: name,
-                                  projectID: projectID, sessionID: sessionID, from: base)
+                                  projectID: projectID, sessionID: sessionID, from: base,
+                                  branch: branch)
         },
         remove: { worktree, project, branch in
             await GitWorktree.remove(worktreePath: worktree,
@@ -59,7 +60,8 @@ enum SessionLifecycle {
     }
 
     static func createWorktreeSession(in project: Project, id sessionID: UUID,
-                                      base: String?, agent: AgentKind = .claudeCode,
+                                      base: String?, branch: String? = nil,
+                                      agent: AgentKind = .claudeCode,
                                       model: String? = nil, agentAvatarName: String? = nil,
                                       mode: SessionMode = .chat,
                                       carryChanges: Bool = false,
@@ -73,7 +75,8 @@ enum SessionLifecycle {
                 message: "The project is no longer in the app."))
         }
 
-        let planned = GitWorktree.plan(projectName: project.name, sessionID: sessionID)
+        let planned = GitWorktree.plan(projectName: project.name, sessionID: sessionID,
+                                       branch: branch)
         var reservations = [planned.path]
         store.reserveWorktree(at: planned.path, for: project.id)
         defer {
@@ -82,7 +85,7 @@ enum SessionLifecycle {
             }
         }
 
-        switch await worktrees.addProject(project.path, project.name, sessionID, base) {
+        switch await worktrees.addProject(project.path, project.name, sessionID, base, branch) {
         case .failure(let failure):
             return .failure(Failure(title: "Could not create a worktree",
                                     message: failure.message))
@@ -150,11 +153,12 @@ enum SessionLifecycle {
             }
 
             let planned = GitWorktree.plan(projectName: project.name, projectID: project.id,
-                                           sessionID: choice.sessionID)
+                                           sessionID: choice.sessionID, branch: choice.branch)
             store.reserveWorktree(at: planned.path, for: project.id)
             reservations.append((project.id, planned.path))
             switch await worktrees.addWorkspaceProject(
-                project.path, project.name, project.id, choice.sessionID, selected.base) {
+                project.path, project.name, project.id, choice.sessionID, selected.base,
+                choice.branch) {
             case .success(let worktree):
                 if worktree.path != planned.path {
                     store.reserveWorktree(at: worktree.path, for: project.id)

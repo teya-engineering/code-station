@@ -17,6 +17,9 @@ enum GitPushPreview: Sendable, Equatable {
     // origin refuses the push. The only way through is to replace origin's copy at `tip`,
     // which drops the `unrelated` commits from origin.
     case nameOnOrigin(outgoing: [GitRemoteCommit], unrelated: [GitRemoteCommit], tip: String)
+    // Origin's tip is an old version of this branch, left by an amend or a rebase. Pushing
+    // replaces the `replaced` commits on origin, and refuses if origin no longer points at `tip`.
+    case rewroteUpstream(outgoing: [GitRemoteCommit], replaced: [GitRemoteCommit], tip: String)
     case failed(String)
 }
 
@@ -149,7 +152,7 @@ enum GitActions {
         }
         let url = URL(fileURLWithPath: root)
         return await GitInspector.offMain {
-            reconcile(tool, in: url, with: "@{u}")
+            reconcile(tool, in: url, with: "@{u}", refusingRewrittenTip: true)
         }
     }
 
@@ -218,12 +221,13 @@ enum GitActions {
     // and nothing they pushed is lost.
     static func push(hasUpstream: Bool, replacing tip: String? = nil, at root: String) async -> String? {
         await perform(at: root) { tool, url in
-            if hasUpstream { return GitInspector.run(tool, ["push"], in: url) }
-            guard let tip else { return GitInspector.run(tool, ["push", "-u", "origin", "HEAD"], in: url) }
+            let publish = hasUpstream ? [] : ["-u", "origin", "HEAD"]
+            guard let tip else { return GitInspector.run(tool, ["push"] + publish, in: url) }
             let branch = GitInspector.run(tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
             guard branch.ok else { return branch }
-            return GitInspector.run(tool, ["push", "--force-with-lease=refs/heads/\(branch.trimmedText):\(tip)",
-                                           "-u", "origin", "HEAD"], in: url)
+
+            return GitInspector.run(tool, ["push", "--force-with-lease=refs/heads/\(branch.trimmedText):\(tip)"]
+                                    + publish, in: url)
         }
     }
 
@@ -258,8 +262,26 @@ enum GitActions {
 
             let behind = GitInspector.run(tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..@{u}"], in: url)
             let incoming = behind.ok ? parseRemoteCommits(behind.text) : []
-            return incoming.isEmpty ? .commits(commits) : .behindUpstream(incoming: incoming, outgoing: commits)
+            guard !incoming.isEmpty else { return .commits(commits) }
+            guard !commits.isEmpty, let upstream = rewrittenTip("@{u}", tool, in: url) else {
+                return .behindUpstream(incoming: incoming, outgoing: commits)
+            }
+
+            return .rewroteUpstream(outgoing: commits, replaced: incoming, tip: upstream)
         }
+    }
+
+    // After an amend or rebase the old tip survives only in this branch's reflog, so a hit means the ref was rewritten here.
+    private static func rewrittenTip(_ ref: String, _ tool: GitInspector.GitTool, in url: URL) -> String? {
+        let branch = GitInspector.run(tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
+        let tip = GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: url)
+        guard branch.ok, tip.ok else { return nil }
+        let reflog = GitInspector.run(tool, ["reflog", "show", "--format=%H", "refs/heads/\(branch.trimmedText)", "--"],
+                                      in: url)
+        guard reflog.ok, reflog.text.split(whereSeparator: \.isNewline).contains(where: { $0 == tip.trimmedText })
+        else { return nil }
+
+        return tip.trimmedText
     }
 
     // Where origin's branch of the same name points, or nil when origin has none. A branch
@@ -347,8 +369,8 @@ enum GitActions {
         }
     }
 
-    private static func reconcile(_ tool: GitInspector.GitTool, in url: URL,
-                                  with target: String) -> GitPullOutcome {
+    private static func reconcile(_ tool: GitInspector.GitTool, in url: URL, with target: String,
+                                  refusingRewrittenTip: Bool = false) -> GitPullOutcome {
         guard !GitBranches.blocksOtherActions(tool, url) else {
             return .failed("Finish or abort the current operation in Branches before pulling.")
         }
@@ -363,6 +385,9 @@ enum GitActions {
             return .failed("Could not read how far this branch is from \(target).")
         }
         guard behind > 0 else { return .upToDate }
+        if refusingRewrittenTip, ahead > 0, rewrittenTip(target, tool, in: url) != nil {
+            return .failed("You rewrote these commits, so pulling would bring the old versions back. Push to replace them on origin instead.")
+        }
 
         let incoming = GitInspector.run(
             tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..\(target)"], in: url)

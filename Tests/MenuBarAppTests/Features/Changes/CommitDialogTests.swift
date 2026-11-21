@@ -9,10 +9,11 @@ struct CommitDialogTests {
     ]
 
     private func model(draft: ChangesCommitDraft = ChangesCommitDraft(), files: [GitChange]? = nil,
-                       canAmend: Bool = true, result: String? = nil,
+                       canAmend: Bool = true, lastCommitPublished: Bool = false,
+                       result: String? = nil,
                        record: @escaping (String, Bool) -> Void = { _, _ in }) -> CommitDialogModel {
         CommitDialogModel(draft: draft, files: files ?? self.files, canAmend: canAmend,
-                          lastSubject: "Remove gallery button") { message, _, amend in
+                          lastCommitPublished: lastCommitPublished, lastSubject: "Remove gallery button") { message, _, amend in
             record(message, amend)
             return result
         }

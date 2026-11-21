@@ -192,15 +192,23 @@ struct PushReviewView: View {
                     RemoteCommitList(commits: model.incoming, emptyMessage: "", incoming: true)
                     listLabel("Going up", count: model.commits.count)
                 } else if replaces {
-                    Text("Origin already has a branch called \(Text(remote.name).fontWeight(.semibold).foregroundStyle(.primary)), but it is not part of this branch’s history. The two only share a name. Pushing replaces it, and the commits below leave origin.")
+                    Group {
+                        if model.rewrote {
+                            Text("You rewrote \(counted(model.replaced.count, "commit")) that \(Text(remoteName).fontWeight(.semibold).foregroundStyle(.primary)) already has. Pushing replaces them there.")
+                        } else {
+                            Text("Origin already has a branch called \(Text(remote.name).fontWeight(.semibold).foregroundStyle(.primary)), but it is not part of this branch’s history. The two only share a name. Pushing replaces it, and the commits below leave origin.")
+                        }
+                    }
                         .font(Typography.detail).foregroundStyle(Theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
-                    Label("If someone still needs those commits, cancel and give this branch a new name instead.", systemImage: "exclamationmark.triangle")
+                    Label(model.rewrote ? "Anyone who pulled the old commits will have to reset their branch."
+                          : "If someone still needs those commits, cancel and give this branch a new name instead.",
+                          systemImage: "exclamationmark.triangle")
                         .font(Typography.detail).foregroundStyle(Theme.warningText)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(Space.lg).frame(maxWidth: .infinity, alignment: .leading)
                         .background(Theme.warningBackground, in: RoundedRectangle(cornerRadius: Radius.control))
-                    listLabel("Removed from origin", count: model.replaced.count)
+                    listLabel(model.rewrote ? "Replaced on origin" : "Removed from origin", count: model.replaced.count)
                     RemoteCommitList(commits: model.replaced, emptyMessage: "", incoming: true)
                     listLabel("Going up", count: model.commits.count)
                 } else if model.nameOnOrigin {

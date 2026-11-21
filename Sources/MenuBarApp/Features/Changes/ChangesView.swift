@@ -134,11 +134,12 @@ struct ChangesView: View {
     private var busy: Bool { loading || working != nil }
     private var repositoryName: String { repositories.first { $0.root == root }?.name ?? root }
 
-    // Amending rewrites the last commit, which is only safe while nothing else has it:
-    // an unpublished branch, or one that is ahead of its upstream.
-    private var canAmend: Bool {
-        guard let snapshot, snapshot.hasCommits else { return false }
-        return snapshot.upstream == nil || snapshot.ahead > 0
+    private var canAmend: Bool { snapshot?.hasCommits == true }
+
+    private var lastCommitPublished: Bool {
+        guard let snapshot else { return false }
+
+        return snapshot.upstream != nil && snapshot.ahead == 0
     }
 
     init(root: String, initiallySelectedPath: String? = nil,
@@ -1268,6 +1269,7 @@ struct ChangesView: View {
         mode = .changes
         let operationRoot = repoRoot
         let dialog = CommitDialogModel(draft: commitDraft, files: chosen, canAmend: canAmend,
+                                       lastCommitPublished: lastCommitPublished,
                                        lastSubject: snapshot.lastCommitSubject) { message, files, amend in
             working = amend ? "Amending…" : "Committing…"
             announce(working ?? "Committing…")
@@ -1725,8 +1727,6 @@ struct ChangesView: View {
             dialogs.show(.notice("Could not refresh origin", message: error))
         }), let fresh = snapshot else { return }
         excluded.formIntersection(Set(fresh.files.map(\.id)))
-        // A push can land between refreshes, and amending a pushed commit is exactly
-        // what the checkbox exists to prevent.
         if amend && !canAmend { amend = false }
 
         if mode == .history {

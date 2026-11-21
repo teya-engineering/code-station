@@ -528,6 +528,75 @@ struct GitActionsTests {
         #expect(commits.map(\.subject) == ["local work"])
     }
 
+    // A pushed commit, then amended, so origin holds the version from before the amend.
+    private func amendedAfterPush() throws -> (repo: GitRepo, remote: GitRepo, oldTip: String) {
+        let remote = try GitRepo.bare()
+        let repo = try GitRepo()
+        try repo.addRemote(remote)
+        try repo.write("work.txt", "first try")
+        try repo.commit("work")
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        let oldTip = repo.head
+        try repo.write("work.txt", "second try")
+        try repo.git("commit", "-qa", "--amend", "--no-edit")
+
+        return (repo, remote, oldTip)
+    }
+
+    @Test func anAmendedPushedCommitReplacesItsOldVersionOnOrigin() async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+
+        let preview = await GitActions.commitsToPush(hasUpstream: true, at: repo.path)
+        guard case .rewroteUpstream(let outgoing, let replaced, let tip) = preview else {
+            #expect(Bool(false), "an amended pushed commit has to be reported as rewritten")
+            return
+        }
+        #expect(outgoing.map(\.subject) == ["work"])
+        #expect(replaced.map(\.id) == [oldTip])
+        #expect(tip == oldTip)
+
+        #expect(await GitActions.push(hasUpstream: true, replacing: tip, at: repo.path) == nil)
+        #expect(try remote.git("rev-parse", "main") == repo.head)
+    }
+
+    @Test func replacingARewrittenUpstreamRefusesWhenOriginMovedSinceTheReview() async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+        let other = try remote.clone()
+        try other.write("later.txt", "pushed after the review")
+        try other.commit("later work")
+        try other.git("push", "-q")
+
+        #expect(await GitActions.push(hasUpstream: true, replacing: oldTip, at: repo.path) != nil)
+        #expect(try remote.git("rev-parse", "main") == other.head)
+    }
+
+    @Test func pullRefusesToBringBackCommitsThatWereRewritten() async throws {
+        let (repo, _, _) = try amendedAfterPush()
+        let before = repo.head
+
+        guard case .failed = await GitActions.pull(at: repo.path) else {
+            #expect(Bool(false), "pulling the old version of an amended commit has to be refused")
+            return
+        }
+        #expect(repo.head == before)
+    }
+
+    @Test func pullBringsBackCommitsAfterAResetWithNothingNew() async throws {
+        let remote = try GitRepo.bare()
+        let repo = try GitRepo()
+        try repo.addRemote(remote)
+        try repo.write("work.txt", "pushed")
+        try repo.commit("work")
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        try repo.git("reset", "-q", "--hard", "HEAD~1")
+
+        guard case .updated = await GitActions.pull(at: repo.path) else {
+            #expect(Bool(false), "a reset with nothing new has to pull origin's commits back")
+            return
+        }
+        #expect(try remote.git("rev-parse", "main") == repo.head)
+    }
+
     @Test func updateCheckoutMovesUpToTheRemoteTip() async throws {
         let remote = try GitRepo.bare()
         let first = try GitRepo()

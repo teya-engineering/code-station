@@ -52,23 +52,25 @@ enum GitWorktree {
     // choice shows this, so it has to be the same answer `add` acts on rather than a
     // description of it.
     //
-    // The session id makes the folder and branch unique; the project name keeps them
-    // recognisable when browsing the worktrees directory by hand.
-    static func plan(projectName: String, sessionID: UUID) -> Created {
+    // The project name keeps folders recognisable when browsing the worktrees directory by hand.
+    static func plan(projectName: String, sessionID: UUID, branch: String? = nil) -> Created {
         let suffix = String(sessionID.uuidString.prefix(8)).lowercased()
         let name = safeName(projectName)
+
         return Created(path: baseDirectory.appendingPathComponent("\(name)-\(suffix)").path,
-                       branch: "code-station/\(suffix)")
+                       branch: branch ?? "code-station/\(suffix)")
     }
 
     // Workspace checkouts share a session folder. The project id suffix prevents two
     // repositories with the same display name from choosing the same path.
-    static func plan(projectName: String, projectID: UUID, sessionID: UUID) -> Created {
+    static func plan(projectName: String, projectID: UUID, sessionID: UUID,
+                     branch: String? = nil) -> Created {
         let sessionSuffix = String(sessionID.uuidString.prefix(8)).lowercased()
         let projectSuffix = String(projectID.uuidString.prefix(8)).lowercased()
         let folder = baseDirectory.appendingPathComponent(sessionSuffix, isDirectory: true)
+
         return Created(path: folder.appendingPathComponent("\(safeName(projectName))-\(projectSuffix)").path,
-                       branch: "code-station/\(sessionSuffix)")
+                       branch: branch ?? "code-station/\(sessionSuffix)")
     }
 
     private static func safeName(_ projectName: String) -> String {
@@ -79,17 +81,18 @@ enum GitWorktree {
     // whatever the project folder has checked out. Naming a ref is what lets a session
     // start from the remote tip while the user's own checkout stays as it is.
     static func add(projectPath: String, projectName: String, sessionID: UUID,
-                    from base: String? = nil) async -> Result<Created, Failure> {
+                    from base: String? = nil, branch: String? = nil) async -> Result<Created, Failure> {
         await add(projectPath: projectPath,
-                  planned: plan(projectName: projectName, sessionID: sessionID),
+                  planned: plan(projectName: projectName, sessionID: sessionID, branch: branch),
                   from: base)
     }
 
     static func add(projectPath: String, projectName: String, projectID: UUID,
-                    sessionID: UUID, from base: String? = nil) async -> Result<Created, Failure> {
+                    sessionID: UUID, from base: String? = nil,
+                    branch: String? = nil) async -> Result<Created, Failure> {
         await add(projectPath: projectPath,
                   planned: plan(projectName: projectName, projectID: projectID,
-                                sessionID: sessionID),
+                                sessionID: sessionID, branch: branch),
                   from: base)
     }
 
