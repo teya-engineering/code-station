@@ -555,33 +555,22 @@ struct CommandRunnerTests {
 
 struct ProcessPipeTests {
     // Foundation's Pipe answers descriptor exhaustion with two handles on descriptor 0,
-    // which is stdin. A pipe that cannot be made has to fail instead.
-    @Test func failsRatherThanHandingOutStdinWhenNoDescriptorIsFree() throws {
-        var limit = rlimit()
-        try #require(getrlimit(RLIMIT_NOFILE, &limit) == 0)
-        let original = limit
-        defer { setrlimit(RLIMIT_NOFILE, &limit) }
-        var highest: Int32 = 0
-        for descriptor in Int32(0)..<Int32(limit.rlim_cur) where fcntl(descriptor, F_GETFD) >= 0 {
-            highest = descriptor
-        }
-        limit.rlim_cur = rlim_t(highest + 1)
-        try #require(setrlimit(RLIMIT_NOFILE, &limit) == 0)
-        // Numbers below the highest one may be free, so they are taken first.
-        var fillers: [Int32] = []
-        while true {
-            let filler = open("/dev/null", O_RDONLY)
-            guard filler >= 0 else { break }
-            fillers.append(filler)
+    // which is stdin. A pipe that cannot be made has to fail instead. The pipe call fails
+    // the way it does when the process is out of descriptors, rather than this test using
+    // them all up: the limit is shared by the whole process, so every test running beside
+    // this one would fail to open a file too.
+    @Test func failsRatherThanHandingOutStdinWhenNoDescriptorIsFree() {
+        var asked = 0
+        let error = #expect(throws: CommandRunner.RunError.self) {
+            try ProcessPipe(opening: { _ in
+                asked += 1
+                errno = EMFILE
+                return -1
+            })
         }
 
-        let error = #expect(throws: CommandRunner.RunError.self) { try ProcessPipe() }
-        for filler in fillers { close(filler) }
-        limit = original
-        setrlimit(RLIMIT_NOFILE, &limit)
-
+        #expect(asked == 1)
         #expect(error?.errorDescription?.contains("Too many open files") == true)
-        #expect(fcntl(STDIN_FILENO, F_GETFD) >= 0)
     }
 
     @Test func opensTwoDistinctEnds() throws {
