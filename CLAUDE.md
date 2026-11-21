@@ -31,6 +31,7 @@ Read `docs/design-system.md` before building or changing anything a person can s
 - Buttons are `.buttonStyle(.plain)` with a hand-styled label: a filled pill for the main action, a card-and-border pill for a secondary one, accent-coloured text for a small inline one. Style the label inside the button and give it a `.contentShape`, so the whole pill is clickable, not just the text.
 - Text fields are `.textFieldStyle(.plain)` on a `Theme.field` background with a `Theme.border` stroke.
 - The only sanctioned native surface is `NSOpenPanel`/`NSSavePanel`, since the file chooser belongs to the system.
+- `./Scripts/check-design-rules.sh` fails on the controls above and on `.animation(_:value:)` outside `DesignSystem`, and the `Lint` workflow runs it on every pull request. Fix what it finds rather than adding to `Scripts/design-rules-baseline.txt`.
 - Everything is drawn with the shared palette and type in `Theme.swift`, so anything new should read as part of the same system.
 
 ## Motion
