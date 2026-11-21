@@ -898,3 +898,11 @@ struct AgentLoginSheet: View {
             command: agent.loginCommand)
     }
 }
+
+extension AccountUsageWindow {
+    var colour: Color {
+        if usedPercent >= Self.criticalPercent { return Theme.deletion }
+        if usedPercent >= Self.warningPercent { return Theme.attention }
+        return Theme.dotOn
+    }
+}

@@ -16,7 +16,7 @@ struct ConfigManagerView: View {
     @State private var addingPresetGroup: SiteDefaults.MCP.PresetGroup?
     @State private var showingAddJSON = false
     @State private var grafanaExpanded = false
-    @State private var expandedAgents: Set<AgentConfiguredServer.Source> = []
+    @State private var expandedAgents: Set<AgentKind> = []
     // A server two agents hold has a row under each, so the pick names the agent too.
     @State private var selectedAgentConfigured: AgentConfiguredSelection?
     @State private var filter = ""
@@ -70,7 +70,7 @@ struct ConfigManagerView: View {
         .onChange(of: filter) {
             if !filter.isBlank {
                 grafanaExpanded = true
-                expandedAgents = Set(AgentConfiguredServer.Source.allCases)
+                expandedAgents = Set(AgentKind.allCases)
             }
         }
         .onChange(of: agentConfiguredServers.map(\.name)) {
@@ -173,7 +173,7 @@ struct ConfigManagerView: View {
                     }
                     ForEach(otherServers) { row(for: $0) }
                     // Grouped by agent, so who owns a server is read before its name.
-                    ForEach(AgentConfiguredServer.Source.allCases) { source in
+                    ForEach(AgentKind.allCases) { source in
                         let held = filteredAgentConfiguredServers.filter {
                             $0.registration(from: source) != nil
                         }
@@ -335,7 +335,7 @@ struct ConfigManagerView: View {
             })
     }
 
-    private func expandedBinding(_ source: AgentConfiguredServer.Source) -> Binding<Bool> {
+    private func expandedBinding(_ source: AgentKind) -> Binding<Bool> {
         Binding {
             expandedAgents.contains(source)
         } set: { expanded in
@@ -365,7 +365,7 @@ struct ConfigManagerView: View {
     }
 
     private func row(for server: AgentConfiguredServer,
-                     from source: AgentConfiguredServer.Source) -> some View {
+                     from source: AgentKind) -> some View {
         let selection = AgentConfiguredSelection(name: server.name, source: source)
         let selected = selectedAgentConfigured == selection
         return Button {
@@ -430,11 +430,11 @@ struct ConfigManagerView: View {
 
 private struct AgentConfiguredSelection: Equatable {
     let name: String
-    let source: AgentConfiguredServer.Source
+    let source: AgentKind
 }
 
 private struct AgentConfiguredGroupHeader: View {
-    let source: AgentConfiguredServer.Source
+    let source: AgentKind
     let total: Int
     let needingLook: Int
     @Binding var expanded: Bool
@@ -593,7 +593,7 @@ private struct ServerRow: View {
 
 private struct AgentConfiguredServerRow: View {
     let server: AgentConfiguredServer
-    let source: AgentConfiguredServer.Source
+    let source: AgentKind
     let selected: Bool
 
     private var registration: AgentConfiguredServer.Registration? {

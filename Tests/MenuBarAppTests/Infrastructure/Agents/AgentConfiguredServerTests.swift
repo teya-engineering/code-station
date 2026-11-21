@@ -103,7 +103,7 @@ struct AgentConfiguredServerTests {
 
     // MARK: - Status
 
-    private func registration(_ source: AgentConfiguredServer.Source,
+    private func registration(_ source: AgentKind,
                               url: String? = "https://mcp.example/mcp",
                               enabled: Bool = true,
                               auth: AgentConfiguredServer.Auth = .none,
@@ -143,9 +143,9 @@ struct AgentConfiguredServerTests {
         #expect(registration(.codex, auth: .signedOut).offersSignIn)
         #expect(!registration(.codex, auth: .none).offersSignIn)
         #expect(!registration(.copilot).offersSignIn)
-        #expect(!AgentConfiguredServer.Source.claudeCode.canSwitch)
-        #expect(AgentConfiguredServer.Source.codex.canSwitch)
-        #expect(AgentConfiguredServer.Source.copilot.canSwitch)
+        #expect(!AgentKind.claudeCode.canSwitch)
+        #expect(AgentKind.codex.canSwitch)
+        #expect(AgentKind.copilot.canSwitch)
     }
 
     @Test func carriesEachAgentsOwnHealthAuthAndWork() throws {

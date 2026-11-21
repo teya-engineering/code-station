@@ -523,15 +523,14 @@ enum SecondOpinion {
     // Reads the reviewer's output as it streams and reports each call it makes. It only
     // ever sees chunks, so it keeps the part of a line that has not ended yet.
     private final class ActivityReader: @unchecked Sendable {
-        private let agent: AgentKind
+        private let parser: AgentStreamParser
         private let writing: String
         private let report: @Sendable (String) -> Void
-        private let copilot = CopilotStream()
         private let lock = NSLock()
         private var partial = Data()
 
         init(agent: AgentKind, writing: String, report: @escaping @Sendable (String) -> Void) {
-            self.agent = agent
+            parser = AgentStreamParser(agent: agent)
             self.writing = writing
             self.report = report
         }
@@ -546,12 +545,7 @@ enum SecondOpinion {
             }
             lock.unlock()
             for line in lines where !line.isBlank {
-                let events: [StreamEvent] = switch agent {
-                case .claudeCode: StreamEvent.parse(line)
-                case .codex: StreamEvent.parseCodex(line)
-                case .copilot: copilot.parse(line)
-                }
-                for event in events {
+                for event in parser.parse(line) {
                     switch event {
                     case .toolUse(let tool): report(SecondOpinion.activity(for: tool))
                     case .text: report(writing)
@@ -577,11 +571,10 @@ enum SecondOpinion {
             }
             return output
         case .codex, .copilot:
-            let copilot = CopilotStream()
+            let parser = AgentStreamParser(agent: agent)
             var parts: [String] = []
             for line in output.split(separator: "\n") {
-                let events = agent == .codex ? StreamEvent.parseCodex(String(line)) : copilot.parse(String(line))
-                for case .text(let text) in events { parts.append(text) }
+                for case .text(let text) in parser.parse(String(line)) { parts.append(text) }
             }
             return parts.joined(separator: "\n")
         }

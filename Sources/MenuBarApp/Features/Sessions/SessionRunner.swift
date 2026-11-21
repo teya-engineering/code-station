@@ -1730,13 +1730,9 @@ final class SessionRunner {
             }
         }
         turn.connection = connection
-        let copilotStream = CopilotStream()
+        let parser = AgentStreamParser(agent: agent, projectPath: workingDirectory)
         let parseLine: @Sendable (String) -> [StreamEvent] = { line in
-            let events = switch agent {
-            case .claudeCode: StreamEvent.parse(line, projectPath: workingDirectory)
-            case .codex: StreamEvent.parseCodex(line)
-            case .copilot: copilotStream.parse(line)
-            }
+            let events = parser.parse(line)
             let detail = events.isEmpty
                 ? "stream event ignored bytes=\(line.utf8.count)"
                 : events.map(\.logSummary).joined(separator: ", ")
