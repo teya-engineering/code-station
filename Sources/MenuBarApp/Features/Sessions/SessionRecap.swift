@@ -46,6 +46,66 @@ struct SessionRecap: Codable, Equatable, Sendable {
     }
 }
 
+// Where the recap card on the rail stands, with the rules that move it in one place.
+struct RecapCard: Equatable {
+    enum Shown: Equatable {
+        case closed
+        case open
+        // Open with a recap nobody asked for, until the card is in place. It appears
+        // where it hangs without moving, since nobody clicked anything for it.
+        case arrivingUnasked
+    }
+
+    private(set) var shown = Shown.closed
+    // Only ever set while the card is open: closing it is reading it.
+    private(set) var needsAttention = false
+    // Whether the person asked for the recap that is on its way.
+    var requested = false
+
+    var isOpen: Bool { shown != .closed }
+
+    // A recap the person asked for lifts into place, and so does one that refreshes a
+    // card already open.
+    var arrivalLifts: Bool { requested || isOpen }
+
+    // A session opened with a recap shows it, unread.
+    mutating func appeared(with recap: SessionRecap?) {
+        if recap == nil {
+            shown = .closed
+        } else if shown == .closed {
+            shown = .open
+        }
+        needsAttention = recap != nil
+    }
+
+    mutating func recapChanged(old: SessionRecap?, new: SessionRecap?, finished: Bool) {
+        guard old != new else { return }
+        guard new != nil else {
+            shown = .closed
+            needsAttention = false
+            return
+        }
+        if shown == .closed { shown = requested ? .open : .arrivingUnasked }
+        requested = false
+        needsAttention = finished
+    }
+
+    // Once it is in place, closing it fades out like any other.
+    mutating func landed() {
+        if shown == .arrivingUnasked { shown = .open }
+    }
+
+    mutating func toggle() {
+        needsAttention = false
+        shown = isOpen ? .closed : .open
+    }
+
+    mutating func close() {
+        needsAttention = false
+        shown = .closed
+    }
+}
+
 // The trigger on the header rail. The card it opens is hung off the rail itself rather
 // than off this button, so catching up never moves the transcript away from where it was
 // and the card still lands under the rail when the button folds into the overflow.

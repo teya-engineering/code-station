@@ -384,6 +384,42 @@ final class ReviewCommentStore {
         }
     }
 
+    // Reviews sent from Changes, matched to the messages that carried them. Each shows as
+    // one card where its prompt would be. The answers the agent wrote under each comment's
+    // heading live in the card's threads, so they are cut from the turn's text, and a reply
+    // sent in a thread is left to the thread instead of showing as a message of its own.
+    func sentReviews(in messages: [ChatMessage], sessionID: UUID)
+        -> (cards: [UUID: ReviewRound], hidden: Set<UUID>, cuts: [UUID: Int]) {
+        let rounds = rounds(sessionID)
+        guard !rounds.isEmpty else { return ([:], [], [:]) }
+        var cards: [UUID: ReviewRound] = [:]
+        var hidden: Set<UUID> = []
+        var cuts: [UUID: Int] = [:]
+        for (index, message) in messages.enumerated() where message.role == .user {
+            let prompt = message.text.trimmed
+            let count: Int
+            let settled: Bool
+            if let round = rounds.last(where: { $0.prompt == prompt }) {
+                cards[message.id] = round
+                count = round.comments.count
+                settled = round.isSettled
+            } else if isThreadReply(prompt: prompt, in: sessionID) {
+                hidden.insert(message.id)
+                count = 1
+                settled = awaitingReply(prompt: prompt, in: sessionID) == nil
+            } else {
+                continue
+            }
+            guard let reply = messages[(index + 1)...].prefix(while: { $0.role != .user })
+                .last(where: { $0.role == .assistant }) else { continue }
+            // While the turn runs, only text under a heading is known to be an answer.
+            let cut = settled ? ReviewAnswers.read(reply, count: count)?.start : ReviewAnswers.split(reply.text)?.start
+            guard let cut else { continue }
+            if reply.cut(at: cut).isEmpty { hidden.insert(reply.id) } else { cuts[reply.id] = cut }
+        }
+        return (cards, hidden, cuts)
+    }
+
     // Every sent comment on one file, with the round it went in, oldest first.
     func threads(_ sessionID: UUID, root: String, path: String) -> [(round: ReviewRound, comment: ReviewComment)] {
         threads(sessionID).filter { $0.comment.root == root && $0.comment.path == path }

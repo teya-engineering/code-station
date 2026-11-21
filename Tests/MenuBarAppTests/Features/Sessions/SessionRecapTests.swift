@@ -21,6 +21,83 @@ struct SessionRecapTests {
     }
 }
 
+struct RecapCardTests {
+    private let recap = SessionRecap(text: "Ready to review.", generatedAt: Date(timeIntervalSince1970: 1),
+                                     source: .prompt)
+    private let later = SessionRecap(text: "Reviewed.", generatedAt: Date(timeIntervalSince1970: 2),
+                                     source: .prompt)
+
+    @Test func aSessionOpenedWithARecapShowsItUnread() {
+        var card = RecapCard()
+        card.appeared(with: recap)
+        #expect(card.shown == .open)
+        #expect(card.needsAttention)
+
+        card.appeared(with: nil)
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+    }
+
+    @Test func aRecapNobodyAskedForArrivesWithoutLifting() {
+        var card = RecapCard()
+        #expect(!card.arrivalLifts)
+        card.recapChanged(old: nil, new: recap, finished: true)
+        #expect(card.shown == .arrivingUnasked)
+        #expect(card.needsAttention)
+
+        card.landed()
+        #expect(card.shown == .open)
+    }
+
+    @Test func aRequestedRecapLiftsAndClearsTheRequest() {
+        var card = RecapCard()
+        card.requested = true
+        #expect(card.arrivalLifts)
+        card.recapChanged(old: nil, new: recap, finished: false)
+        #expect(card.shown == .open)
+        #expect(!card.requested)
+        #expect(!card.needsAttention)
+    }
+
+    @Test func aRefreshKeepsAnOpenCardAsItIs() {
+        var card = RecapCard()
+        card.recapChanged(old: nil, new: recap, finished: false)
+        #expect(card.arrivalLifts)
+        card.recapChanged(old: recap, new: later, finished: true)
+        #expect(card.shown == .arrivingUnasked)
+        #expect(card.needsAttention)
+    }
+
+    @Test func anUnchangedRecapChangesNothing() {
+        var card = RecapCard()
+        card.requested = true
+        card.recapChanged(old: recap, new: recap, finished: true)
+        #expect(card == { var same = RecapCard(); same.requested = true; return same }())
+    }
+
+    @Test func aRecapThatGoesClosesTheCard() {
+        var card = RecapCard()
+        card.appeared(with: recap)
+        card.recapChanged(old: recap, new: nil, finished: true)
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+    }
+
+    @Test func togglingAndClosingReadTheRecap() {
+        var card = RecapCard()
+        card.appeared(with: recap)
+        card.toggle()
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+        card.toggle()
+        #expect(card.isOpen)
+        card.recapChanged(old: recap, new: later, finished: true)
+        card.close()
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+    }
+}
+
 @MainActor
 struct SessionRecapStoreTests {
     private let testPreferences = TestPreferences()
