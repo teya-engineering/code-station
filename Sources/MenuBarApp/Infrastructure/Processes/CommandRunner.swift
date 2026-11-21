@@ -707,8 +707,15 @@ struct ProcessPipe {
     let fileHandleForWriting: FileHandle
 
     init() throws {
+        try self.init(opening: { Darwin.pipe($0) })
+    }
+
+    // Takes the call that makes the pipe, so a test can have it fail the way pipe does
+    // when the process is out of descriptors. Really running out would starve every other
+    // test running at the same time.
+    init(opening makePipe: (UnsafeMutablePointer<Int32>) -> Int32) throws {
         var ends: [Int32] = [-1, -1]
-        guard Darwin.pipe(&ends) == 0 else {
+        guard makePipe(&ends) == 0 else {
             throw CommandRunner.RunError.launch(String(cString: strerror(errno)))
         }
         fileHandleForReading = FileHandle(fileDescriptor: ends[0], closeOnDealloc: true)
