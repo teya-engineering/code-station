@@ -807,6 +807,18 @@ final class ProjectStore {
     func addWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID,
                       removeWhenEmptyAfterDays: Int? = nil, now: Date = Date())
         -> ProjectWorkspace? {
+        let workspace = insertWorkspace(name: name, projectIDs: projectIDs,
+                                        leadProjectID: leadProjectID,
+                                        removeWhenEmptyAfterDays: removeWhenEmptyAfterDays,
+                                        now: now)
+        if workspace != nil { saveIndex() }
+
+        return workspace
+    }
+
+    private func insertWorkspace(name: String, projectIDs: [UUID], leadProjectID: UUID,
+                                 removeWhenEmptyAfterDays: Int?, now: Date)
+        -> ProjectWorkspace? {
         let trimmed = name.trimmed
         var seen: Set<UUID> = []
         let members = projectIDs.filter {
@@ -826,7 +838,7 @@ final class ProjectStore {
                                          emptySince: now)
         workspaces.append(workspace)
         workspaces.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        saveIndex()
+
         return workspace
     }
 
@@ -912,14 +924,24 @@ final class ProjectStore {
 
     @discardableResult
     func addProject(_ projectID: UUID, toWorkspace id: UUID) -> Bool {
+        let usesWorktree = project(projectID)?.isGitRepository ?? false
+        guard insertProject(projectID, intoWorkspace: id, usesWorktree: usesWorktree) else { return false }
+        saveIndex()
+
+        return true
+    }
+
+    @discardableResult
+    private func insertProject(_ projectID: UUID, intoWorkspace id: UUID,
+                               usesWorktree: Bool) -> Bool {
         guard let project = project(projectID), project.kind == .project,
               let i = workspaces.firstIndex(where: { $0.id == id }),
               !workspaces[i].projectIDs.contains(projectID) else { return false }
         workspaces[i].projectIDs.append(projectID)
-        if project.isGitRepository {
+        if usesWorktree {
             workspaces[i].worktreeProjectIDs.append(projectID)
         }
-        saveIndex()
+
         return true
     }
 
@@ -1138,6 +1160,51 @@ final class ProjectStore {
         return saveOrRollBack(session, failure: "The session could not be saved.") {
             rollBackSessionInsertion(session.id, selection: previousSelection,
                                      projectID: previousProjectID)
+        }
+    }
+
+    func attachProject(_ checkout: SessionProject, toSession sessionID: UUID)
+        -> Result<ChatSession, PersistenceFailure> {
+        let refused = PersistenceFailure(message: "The project could not be attached to this session.")
+        guard let i = index(sessionID), let attached = project(checkout.projectID) else {
+            return .failure(refused)
+        }
+        let before = sessions[i]
+        let sessionsBefore = sessions
+        let workspacesBefore = workspaces
+        let checkouts = checkoutProjects(for: before)
+        guard !checkouts.contains(where: { $0.projectID == checkout.projectID }) else {
+            return .failure(refused)
+        }
+        if let workspaceID = before.workspaceID {
+            insertProject(checkout.projectID, intoWorkspace: workspaceID,
+                          usesWorktree: checkout.worktreePath != nil)
+        } else {
+            guard let lead = project(before.projectID),
+                  let workspace = insertWorkspace(
+                      name: ProjectWorkspace.name(joining: lead.name, attached.name),
+                      projectIDs: [lead.id, attached.id], leadProjectID: lead.id,
+                      removeWhenEmptyAfterDays: nil, now: Date()) else {
+                return .failure(refused)
+            }
+            if let w = workspaces.firstIndex(where: { $0.id == workspace.id }) {
+                workspaces[w].worktreeProjectIDs = (before.worktreePath == nil ? [] : [lead.id])
+                    + (checkout.worktreePath == nil ? [] : [attached.id])
+            }
+            sessions[i].workspaceID = workspace.id
+        }
+        sessions[i].sessionProjects = checkouts + [checkout]
+        if let design = designSession(for: sessionID), let d = index(design.id) {
+            sessions[d].workspaceID = sessions[i].workspaceID
+            sessions[d].sessionProjects = sessions[i].sessionProjects
+        }
+        publishSidebarSessions()
+        markIndexDirty()
+
+        return saveOrRollBack(sessions[i], failure: "The session could not be saved.") {
+            sessions = sessionsBefore
+            workspaces = workspacesBefore
+            publishSidebarSessions()
         }
     }
 
@@ -2086,7 +2153,8 @@ final class ProjectStore {
               source.worktreePath == nil, source.workspaceID == nil else { return false }
         guard let message = transcript(of: sessionID).first(where: { $0.id == messageID }),
               message.role == .user, let checkpoint = message.checkpoint else { return false }
-        return checkpoint.codexSessionID == nil && checkpoint.copilotSessionID == nil
+
+        return !checkpoint.agent.reusesConversationID
     }
 
     // A new session in the same project holding the conversation up to just before this

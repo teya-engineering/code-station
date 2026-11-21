@@ -137,10 +137,13 @@ struct RewindTests {
     // over each other in.
     @Test func aCodexConversationDoesNotFork() {
         var prompt = ChatMessage(role: .user, text: "One")
-        prompt.checkpoint = ConversationCheckpoint(agent: .claudeCode,
-                                                   codexSessionID: "thread-1")
+        prompt.checkpoint = ConversationCheckpoint(agent: .codex, codexSessionID: "thread-1")
         store.append(prompt, to: session.id)
+        var unstarted = ChatMessage(role: .user, text: "Two")
+        unstarted.checkpoint = ConversationCheckpoint(agent: .codex)
+        store.append(unstarted, to: session.id)
 
         #expect(!store.canForkSession(session.id, before: prompt.id))
+        #expect(!store.canForkSession(session.id, before: unstarted.id))
     }
 }

@@ -58,6 +58,7 @@ struct SessionView: View {
     @State private var sinceReviewFiles: Set<String>?
     @State private var explorerShowsDesignFiles = false
     @State private var shortcutEditor: ShortcutEditorRequest?
+    @State private var attachingProject = false
     @State private var composerBarWidth: CGFloat = 340
     @State private var exportingDesignMaterials = false
     @State private var transcriptWindow = TranscriptWindow()
@@ -310,6 +311,19 @@ struct SessionView: View {
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
                     shortcuts.saveShortcut(shortcut)
+                }
+                .appOverlays()
+            }
+            .sheet(isPresented: $attachingProject) {
+                AttachProjectSheet(sessionID: sessionID) { newWorkspace in
+                    if let newWorkspace {
+                        showRailNote("Moved into the \(newWorkspace) workspace", icon: "checkmark")
+                    }
+                    guard let current = store.session(sessionID) else { return }
+                    let roots = store.workingDirectories(for: current)
+                    if let added = roots.last { collapsedExplorerProjects.insert(added) }
+                    sampleMissingFolders()
+                    refreshStats(roots)
                 }
                 .appOverlays()
             }
@@ -587,6 +601,10 @@ struct SessionView: View {
                     return usageTooltip(usage, agent: session.agent,
                                         clearable: !contextActions().isEmpty)
                 },
+                attachProject: session.workspaceID != nil
+                    || store.project(session.projectID)?.kind == .project
+                    ? { attachingProject = true } : nil,
+                attachDisabled: runner.state(sessionID).isBusy || runner.isBeingRemoved(sessionID),
                 showNote: { showRailNote($0) })
         }
         .fixedSize(horizontal: false, vertical: true)
