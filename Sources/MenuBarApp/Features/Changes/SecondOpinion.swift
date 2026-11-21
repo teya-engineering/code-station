@@ -697,3 +697,92 @@ enum SecondOpinion {
         return number <= lines.count ? lines[number - 1] : nil
     }
 }
+
+// What a second opinion was asked to do, kept with its run so Try again asks the same.
+struct SecondOpinionRequest: Equatable, Sendable {
+    enum Scope: Equatable, Sendable {
+        case all
+        case file(root: String, path: String)
+        // Only what changed after the last review was sent, compared against the tree
+        // recorded in each project at that moment.
+        case sinceReview(trees: [String: String])
+
+        var isSinceReview: Bool {
+            if case .sinceReview = self { return true }
+            return false
+        }
+    }
+
+    var focus: [SecondOpinion.Focus] = SecondOpinion.Focus.standard
+    // Anything else to look for, in the person's own words.
+    var note = ""
+    var scope: Scope = .all
+    var repositories: [ReviewRepository]
+    var executable: String
+    // Nil keeps every MCP server away from the reviewer.
+    var servers: SecondOpinion.ServerAccess? = nil
+}
+
+// One reviewer's lane in the second opinion: what it is reading, how long it has taken,
+// and what it came to.
+struct SecondOpinionRun: Equatable, Identifiable {
+    enum State: Equatable {
+        case running
+        case finished(found: Int)
+        case failed(String)
+    }
+
+    var reviewer: SecondOpinion.Reviewer
+    var started: Date
+    var ended: Date?
+    var state: State = .running
+    var activity = "Gathering the changes"
+    // The last few things it did, oldest first, ending with the activity.
+    var recent = ["Gathering the changes"]
+    var request: SecondOpinionRequest
+
+    var agent: AgentKind { reviewer.agent }
+    var id: SecondOpinion.Reviewer { reviewer }
+    var isRunning: Bool { state == .running }
+}
+
+// Where the second opinion stands, which is what the header's control says and opens.
+enum SecondOpinionStatus: Equatable {
+    case ask
+    case reviewing(agents: [AgentKind], started: Date, pending: Int)
+    case failed(AgentKind)
+    case ready(agents: [AgentKind], pending: Int)
+    case settled(kept: Int, dismissed: Int)
+
+    @MainActor
+    init(reviews: ReviewCommentStore, sessionID: UUID) {
+        self.init(runs: reviews.runs(sessionID),
+                  findings: reviews.comments(sessionID).filter { $0.reviewer != nil },
+                  dismissed: reviews.dismissedFindings(sessionID).count)
+    }
+
+    init(runs: [SecondOpinionRun], findings: [ReviewComment], dismissed: Int) {
+        let pending = findings.filter(\.isPending)
+        let running = runs.filter(\.isRunning)
+        if !running.isEmpty {
+            self = .reviewing(agents: unique(running.map(\.agent)), started: running.map(\.started).min() ?? Date(),
+                              pending: pending.count)
+        } else if let failed = runs.first(where: { if case .failed = $0.state { true } else { false } }),
+                  pending.isEmpty {
+            self = .failed(failed.agent)
+        } else if !pending.isEmpty {
+            let voices = Set(pending.flatMap(\.reviewers))
+            self = .ready(agents: AgentKind.allCases.filter(voices.contains), pending: pending.count)
+        } else if !runs.isEmpty {
+            self = .settled(kept: findings.count { !$0.isPending }, dismissed: dismissed)
+        } else {
+            self = .ask
+        }
+    }
+}
+
+// Each agent once, in the order given. Two seats can run the same agent on two models.
+func unique(_ agents: [AgentKind]) -> [AgentKind] {
+    var seen = Set<AgentKind>()
+    return agents.filter { seen.insert($0).inserted }
+}
