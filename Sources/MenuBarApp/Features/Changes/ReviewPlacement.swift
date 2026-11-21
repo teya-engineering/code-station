@@ -107,3 +107,11 @@ struct ReviewPlacement: Equatable {
         return (moved, end.id)
     }
 }
+
+// Where everything left on the open file sits in the diff on screen: the comments not
+// sent yet, the sent ones, and the questions, each keyed by the line it is drawn below.
+struct DiffPlacements {
+    var comments = ReviewPlacement()
+    var sent = ReviewPlacement()
+    var questions: [Int: [ReviewQuestion]] = [:]
+}

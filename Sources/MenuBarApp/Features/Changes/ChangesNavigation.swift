@@ -360,6 +360,8 @@ struct CommentDraft: Equatable {
 @Observable
 final class ChangesCommitDraft {
     var message = ""
+    // Files the next commit leaves out. Tracking the exclusions rather than the picks
+    // means a file that appears between refreshes starts selected, like everything else.
     var excluded: Set<GitChange.ID> = []
     var amend = false
     var messageBeforeAmend = ""
