@@ -126,7 +126,7 @@ struct DictationControllerTests {
     }
 
     private func makeDictation() -> Dictation {
-        Dictation(engine: speech, preferences: UserDefaults(suiteName: "DictationTests-\(UUID())")!)
+        Dictation(engine: speech, preferences: scratchDefaults())
     }
 
     private func start(_ dictation: Dictation, caret: Int) async {

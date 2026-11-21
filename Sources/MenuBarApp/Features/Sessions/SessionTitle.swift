@@ -17,6 +17,8 @@ enum SessionTitle {
     Do not use tools or change files. Summarise the main goal of this conversation as a short session title in one sentence, using at most 8 words and 60 characters. Use simple language and sentence case. Do not answer the task or mention that you are generating a title. Use no markdown, quotes, prefixes, or em dashes. Return only the title.
     """
 
+    static let maximumLength = 60
+
     static func cleaned(_ text: String?) -> String? {
         guard var title = text?.trimmed, !title.isEmpty else { return nil }
         title = title.trimmingCharacters(in: CharacterSet(charactersIn: "#*`\"“”"))
@@ -29,7 +31,7 @@ enum SessionTitle {
             .replacingOccurrences(of: "\u{2014}", with: "-")
         // The prompt asks for 8 words, but models often go one over. Only the length is
         // enforced, since that is what the sidebar and header have room for.
-        guard !title.isEmpty, title.count <= 60 else { return nil }
+        guard !title.isEmpty, title.count <= maximumLength else { return nil }
         return title
     }
 

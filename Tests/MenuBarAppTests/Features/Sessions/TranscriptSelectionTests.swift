@@ -3,8 +3,8 @@ import SwiftUI
 import Testing
 @testable import MenuBarApp
 
-// A transcript draws every paragraph as its own text view, so selecting across two of
-// them is something the app has to arrange rather than something AppKit does.
+// A transcript is drawn as several text views, so selecting across two of them is
+// something the app has to arrange rather than something AppKit does.
 @MainActor
 struct TranscriptSelectionTests {
     private static let first = "The first paragraph of the answer."

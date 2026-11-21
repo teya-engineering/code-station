@@ -302,12 +302,15 @@ struct GitCommitSummary: Identifiable, Sendable, Equatable {
     }
 }
 
-// Read-only git inspection for a project folder.
+// Git inspection for a project folder.
 //
-// Claude Code edits the user's real working tree, so this is the main safety net for
-// "what did the agent just change?". It has to be accurate and it must never write:
-// every command here only reads, and GIT_OPTIONAL_LOCKS=0 keeps us from touching the
-// index lock while the user's own git is running in the same repo.
+// An agent edits the user's real working tree, so this is the main safety net for
+// "what did the agent just change?". The inspections have to be accurate and must never
+// write: each one only reads, and GIT_OPTIONAL_LOCKS=0 keeps it from touching the index
+// lock while the user's own git is running in the same repo.
+//
+// The runner at the end of the file is the one way the app starts git, so the types
+// that do change a repository share it.
 enum GitInspector {
 
     // Rendering more than this many diff lines is slow and nobody reads that far.
@@ -633,17 +636,19 @@ enum GitInspector {
 
     // Commits on HEAD that are on no remote branch. A repository with no remote at all
     // answers zero: nothing there was ever meant to be pushed, so every local commit
-    // would count and the answer would say nothing.
+    // would count and the answer would say nothing. Nil when git could not say, which a
+    // caller about to delete the checkout must not read as "nothing to lose".
     static func unpushedCommitCount(at path: String,
-                                    commandTimeout: TimeInterval? = nil) async -> Int {
-        guard let tool = await tool() else { return 0 }
+                                    commandTimeout: TimeInterval? = nil) async -> Int? {
+        guard let tool = await tool() else { return nil }
         let url = URL(fileURLWithPath: path)
         return await offMain {
             let remotes = run(tool, ["remote"], in: url, timeout: commandTimeout)
-            guard remotes.ok, !remotes.trimmedText.isEmpty else { return 0 }
+            guard remotes.ok else { return nil }
+            guard !remotes.trimmedText.isEmpty else { return 0 }
             let count = run(tool, ["rev-list", "--count", "HEAD", "--not", "--remotes"],
                             in: url, timeout: commandTimeout)
-            return count.ok ? Int(count.trimmedText) ?? 0 : 0
+            return count.ok ? Int(count.trimmedText) : nil
         }
     }
 
@@ -1420,9 +1425,9 @@ enum GitInspector {
                     environment extra: [String: String] = [:],
                     outputChunkHandler: (@Sendable (Data) -> Void)? = nil) -> CommandOutput {
         var environment = GitEnvironment.nonInteractive(searchPath: tool.searchPath)
-        // Only TreeSnapshots sends anything, and what it sends is GIT_INDEX_FILE: an index
-        // of its own to record into, so that recording cannot disturb the one the reader's
-        // own staged work lives in.
+        // What a caller adds wins over the shared settings. A snapshot sends
+        // GIT_INDEX_FILE, an index of its own to record into, so that recording cannot
+        // disturb the one the reader's own staged work lives in.
         environment.merge(extra) { _, override in override }
 
         var result = CommandOutput()

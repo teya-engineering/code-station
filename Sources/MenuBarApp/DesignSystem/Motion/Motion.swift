@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - Motion
 
 // The pace everything interactive moves at. A switch, a pill, a menu and a pane all move
-// on one of these three curves, so the window reads as a single surface reacting rather
+// on one of these curves, so the window reads as a single surface reacting rather
 // than a set of parts each keeping its own time.
 enum Motion {
     static let hoverDuration: TimeInterval = 0.12

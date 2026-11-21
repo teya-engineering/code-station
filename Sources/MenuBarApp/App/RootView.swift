@@ -597,7 +597,7 @@ private struct TitleFailureNotice: View {
             .onChange(of: runner.titleFailure) { _, failure in
                 guard let failure else { return }
                 dialogs.show(.notice("Could not generate a session title",
-                                     message: "\(failure.reason) You can still rename the session by hand."))
+                                     message: "\(failure.reason)\n\nYou can still rename “\(failure.sessionTitle)” by hand."))
             }
     }
 }

@@ -206,7 +206,8 @@ struct SessionTitleRunnerTests {
 
     @Test(arguments: [("failure", "exited with code 1"),
                       ("empty", "did not send a title back"),
-                      ("verbose", "too long to use as a title")])
+                      ("verbose", "too long to use as a title"),
+                      ("unusable", "did not send back a usable title")])
     func anAskedForTitleThatFailsSaysWhy(outcome: String, reason: String) async throws {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex, titleOutcome: outcome))
         defer { harness.tearDown() }
@@ -215,7 +216,16 @@ struct SessionTitleRunnerTests {
         #expect(harness.runner.regenerateTitle(harness.session.id, store: harness.store))
         #expect(await waitUntil { harness.runner.titleFailure != nil })
         #expect(harness.runner.titleFailure?.reason.contains(reason) == true)
+        #expect(harness.runner.titleFailure?.sessionTitle == "Fix the login retry")
         #expect(harness.store.session(harness.session.id)?.title == "Fix the login retry")
+    }
+
+    @Test func aLongErrorIsCutToItsOpeningLines() {
+        let trace = (1...50).map { "frame \($0)" }.joined(separator: "\n")
+        #expect(SessionRunner.dialogExcerpt("error: bad flag\n" + trace)
+            == "error: bad flag\nframe 1\nframe 2\nframe 3…")
+        #expect(SessionRunner.dialogExcerpt(String(repeating: "x", count: 500)).count == 401)
+        #expect(SessionRunner.dialogExcerpt("error: bad flag") == "error: bad flag")
     }
 
     @Test func enablingTitlesDoesNotRenameAnExistingConversation() async throws {
@@ -336,6 +346,7 @@ struct SessionTitleRunnerTests {
                 failure) exit 1 ;;
                 empty) answer='' ;;
                 verbose) answer='Here is a title and an explanation of all of the changes made in this session' ;;
+                unusable) answer='Title:' ;;
             esac
         fi
         \(output)

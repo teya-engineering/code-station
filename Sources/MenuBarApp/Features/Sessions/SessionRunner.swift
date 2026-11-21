@@ -34,6 +34,7 @@ final class SessionRunner {
     // automatic one failing is not something they are waiting on.
     struct TitleFailure: Equatable {
         let id = UUID()
+        let sessionTitle: String
         let reason: String
     }
     private(set) var titleFailure: TitleFailure?
@@ -595,8 +596,8 @@ final class SessionRunner {
 
     // A turn only remembers anything because it is handed a resume id, so dropping that
     // id is the whole of clearing the context: the next turn starts a conversation from
-    // nothing in the same folder, on the same branch, with the same settings. Neither CLI
-    // has a command for this, and neither needs one - it works the same for both.
+    // nothing in the same folder, on the same branch, with the same settings. No CLI
+    // has a command for this, and none needs one - it works the same for every agent.
     //
     // The transcript is left alone. It belongs to the person reading it, not to the agent.
     @discardableResult
@@ -749,7 +750,7 @@ final class SessionRunner {
         setState(.idle, for: sessionID)
     }
 
-    // Only the exact word, and only on its own. Both CLIs have real slash commands -
+    // Only the exact word, and only on its own. The CLIs have real slash commands -
     // skills, built-ins - that belong to the agent and have to travel to it untouched.
     nonisolated static func isClearCommand(_ text: String) -> Bool {
         text.trimmed.lowercased() == "/clear"
@@ -2320,9 +2321,6 @@ final class SessionRunner {
                 turn.lastStreamError = message
                 setState(.reconnecting(message), for: sessionID)
 
-            // Sent after the result, since the turn has to be over before there is
-            // anything to predict. The preference is read again here because it can be
-            // turned off while the turn that asked for one is still running.
             case .steerAccepted(let requestID):
                 turn.steersInFlight[requestID] = nil
 
@@ -2333,6 +2331,9 @@ final class SessionRunner {
                 SessionLog.note("steer rejected: \(message)", session: sessionID)
                 takeBack(steer, turn: turn, sessionID: sessionID, store: store)
 
+            // Sent after the result, since the turn has to be over before there is
+            // anything to predict. The preference is read again here because it can be
+            // turned off while the turn that asked for one is still running.
             case .promptSuggestion(let suggestion):
                 guard turn.summary == nil, followUps.promptSuggestionsEnabled() else { continue }
                 records[sessionID]?.suggestion = suggestion
@@ -2736,6 +2737,9 @@ final class SessionRunner {
             }
             _ = store.noteTurnEnded(for: sessionID)
             store.release(sessionID, for: .running)
+            // A Design or Build partner parked behind this turn runs in its own process,
+            // so it is free to start now that the folder is.
+            resumeDesignWorkflowQueues(after: sessionID, store: store)
             if let session = store.session(sessionID) {
                 AppNotifier.shared.turnEnded(
                     sessionID: store.userFacingSessionID(for: sessionID),
@@ -2855,9 +2859,15 @@ final class SessionRunner {
                 ChatMessage(role: .system,
                             text: "The earlier conversation could not be resumed, so this reply starts a fresh one without the previous context."),
                 to: sessionID)
+            // The new turn takes its own hold. Giving this one back first means a retry
+            // that cannot start does not keep the transcript held for good.
+            store.release(sessionID, for: .running)
             launch(turn.prompt, attachments: turn.attachments, sessionID: sessionID,
                    store: store, avatarSequence: turn.avatarSequence,
                    canRetryWithoutResume: false, isFirstTurn: turn.isFirstTurn)
+            if records[sessionID]?.turn == nil {
+                resumeDesignWorkflowQueues(after: sessionID, store: store)
+            }
             return
         }
 
@@ -2876,6 +2886,14 @@ final class SessionRunner {
                 sessionTitle: session.title, failure: message)
         }
         requestAutomaticRecap(sessionID, unseen: unseen, store: store)
+    }
+
+    // A dialog grows to fit its message, so a CLI that dumps a stack trace would push the
+    // buttons off screen. The opening lines usually name the problem.
+    nonisolated static func dialogExcerpt(_ text: String, lines: Int = 4, characters: Int = 400) -> String {
+        let kept = text.split(separator: "\n", omittingEmptySubsequences: false).prefix(lines).joined(separator: "\n")
+        let clipped = kept.count > characters ? String(kept.prefix(characters)) : kept
+        return clipped.count < text.count ? clipped.trimmed + "…" : clipped
     }
 
     private func finishSummary(_ turn: Turn, attempt: SummaryAttempt, status: Int32,
@@ -2909,14 +2927,21 @@ final class SessionRunner {
                 SessionLog.note("session title rejected words=\(raw.split(whereSeparator: \.isWhitespace).count) chars=\(raw.count)",
                                 session: sessionID)
                 if attempt.askedFor {
-                    titleFailure = TitleFailure(reason: raw.isEmpty
-                        ? "\(turn.agent.title) did not send a title back."
-                        : "\(turn.agent.title)'s answer was too long to use as a title.")
+                    let reason = if raw.isEmpty {
+                        "\(turn.agent.title) did not send a title back."
+                    } else if raw.count > SessionTitle.maximumLength {
+                        "\(turn.agent.title)'s answer was too long to use as a title."
+                    } else {
+                        "\(turn.agent.title) did not send back a usable title."
+                    }
+                    titleFailure = TitleFailure(sessionTitle: request.originalTitle, reason: reason)
                 }
             } else if text == nil, attempt.askedFor, !turn.stopRequested {
                 let stderr = turn.stderr.trimmed
-                titleFailure = TitleFailure(reason: turn.failure ?? turn.lastStreamError
-                    ?? (stderr.isEmpty ? "\(turn.agent.title) exited with code \(status)." : stderr))
+                let reason = turn.failure ?? turn.lastStreamError
+                    ?? (stderr.isEmpty ? "\(turn.agent.title) exited with code \(status)." : stderr)
+                titleFailure = TitleFailure(sessionTitle: request.originalTitle,
+                                            reason: Self.dialogExcerpt(reason))
             }
             if let text { store.setGeneratedTitle(text, for: request) }
             setState(attempt.restingState.sessionState, for: sessionID)
@@ -2989,7 +3014,6 @@ final class SessionRunner {
         if let url = turn.mcpConfigURL { try? FileManager.default.removeItem(at: url) }
     }
 
-    // One live turn. Only ever touched on the main actor.
     // What a steer added to the transcript, kept until the agent says the turn took it so
     // a refused one can be taken back out.
     fileprivate struct SteerInFlight {
@@ -3002,6 +3026,7 @@ final class SessionRunner {
         var answered = false
     }
 
+    // One live turn. Only ever touched on the main actor.
     fileprivate final class Turn {
         let token = UUID()
         let processGroup: pid_t

@@ -380,7 +380,7 @@ struct LocalServerPreviewPageTests {
             (store, scratch) = TestStore.make()
             let project = try TestStore.project(in: store)
             session = store.newSession(in: project.id, seed: .init(agent: .codex))
-            let preferences = try #require(UserDefaults(suiteName: "preview-page-\(UUID().uuidString)"))
+            let preferences = scratchDefaults()
             settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"), preferences: preferences)
             shortcuts = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
             previews.open(address)

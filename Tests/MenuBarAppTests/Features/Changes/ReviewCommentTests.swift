@@ -702,7 +702,7 @@ struct SecondOpinionTests {
     }
 
     @Test func theUsualLineupIsRemembered() throws {
-        let defaults = try #require(UserDefaults(suiteName: "lineup-\(UUID().uuidString)"))
+        let defaults = scratchDefaults()
         #expect(Preferences.secondOpinionLineup(in: defaults).isEmpty)
         let lineup = [SecondOpinion.Reviewer(agent: .codex, model: "gpt-5.6-sol", effort: "high"),
                       SecondOpinion.Reviewer(agent: .copilot, model: "claude-sonnet-5")]

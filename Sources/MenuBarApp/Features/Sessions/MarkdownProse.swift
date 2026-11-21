@@ -409,7 +409,7 @@ extension MarkdownBlock {
 }
 
 extension MarkdownBlock {
-    // The gap the stack used to leave between two blocks.
+    // The gap between two blocks of prose.
     static let proseGap: CGFloat = 12
 
     // Sizes step down the way the app's own headers do: serif for the two big levels,
@@ -875,8 +875,8 @@ func transcriptNSFont(size: CGFloat, weight: NSFont.Weight,
     return NSFont(descriptor: slanted, size: size) ?? base
 }
 
-// How one line of a shared text view is set. Several blocks draw in one view, so what
-// used to be the view's own type and its gap in the stack travels with the text instead.
+// How one line of a shared text view is set. Several blocks draw in one view, so each
+// block's type and the gap above it travel with the text rather than with a view.
 struct TranscriptBlockStyle: Codable, Hashable, Sendable {
     // Before the text scale, so one setting still moves the whole page.
     var size: CGFloat
@@ -1701,12 +1701,12 @@ struct ProseRun: Identifiable, Equatable, Sendable {
     let blocks: [MarkdownBlock]
 }
 
-// A run of prose as one text view, or a single block drawn the way it always was.
+// A run of prose as one text view, or a single block drawn on its own.
 //
-// Every block used to be its own text view, and a transcript is mostly paragraphs, so a
-// long conversation ran to hundreds of them. They are what scrolling costs: AppKit walks
-// the whole view tree for tracking areas and SwiftUI walks the whole display list, on
-// every frame, however little of it is on screen.
+// A transcript is mostly paragraphs, so a text view for each block would run a long
+// conversation to hundreds of them. Views are what scrolling costs: AppKit walks the
+// whole view tree for tracking areas and SwiftUI walks the whole display list, on every
+// frame, however little of it is on screen.
 struct ProseRunView: View, Equatable {
     let run: ProseRun
     let projectPath: String
@@ -1791,7 +1791,7 @@ struct MarkdownBlockView: View, Equatable {
     }
 
     // A paragraph that holds images renders as text runs with each image between them
-    // at reading size; without any it stays one piece of text, exactly as before.
+    // at reading size; without any it stays one piece of text.
     @ViewBuilder private func paragraph(_ text: String, lineSpacing: CGFloat = 0) -> some View {
         let parts = MarkdownBlock.resolvedParts(text) {
             TranscriptImage.resolve($0, projectPath: projectPath)

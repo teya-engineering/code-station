@@ -45,13 +45,31 @@ struct WorkingWordsTests {
 
     @Test func everyPersonalityCyclesOnlyThroughItsOwnPhrases() {
         for personality in AgentPersonality.allCases {
-            let words = WorkingWords(personality: personality)
+            let words = WorkingWords(personality: personality, agent: .codex, lead: nil)
             let seen = (0..<personality.workingWords.count).map {
                 words.word(after: Double($0) * WorkingWords.interval)
             }
 
             #expect(Set(seen) == Set(personality.workingWords))
         }
+    }
+
+    // A checkout's local settings are the nearest Claude reads, so the words set there
+    // decide the row whatever the machine's own settings say.
+    @Test func onlyTheDefaultBotInAClaudeSessionTakesClaudesSpinnerVerbs() throws {
+        let scratch = ScratchDirectory(prefix: "working-words")
+        let settings = scratch.path(".claude/settings.local.json")
+        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Box box box"]}}"#.utf8).write(to: settings)
+        let lead = scratch.url.path
+
+        #expect(WorkingWords(personality: .standard, agent: .claudeCode, lead: lead).word(after: 0)
+                == "Box box box")
+        #expect(WorkingWords(personality: .standard, agent: .codex, lead: lead).word(after: 0)
+                != "Box box box")
+        #expect(AgentPersonality.cat.workingWords.contains(
+            WorkingWords(personality: .cat, agent: .claudeCode, lead: lead).word(after: 0)))
     }
 
     // The bot preview in Appearance shows a line in the chosen bot's voice. It is drawn

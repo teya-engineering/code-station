@@ -158,9 +158,7 @@ struct KeyBindingsTests {
     }
 
     @Test func changesSurviveARelaunch() throws {
-        let suite = "KeyBindingsTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         var bindings = KeyBindings()
         bindings.set(KeyCombo("p", [.command, .option]), for: .commandPalette)
@@ -177,9 +175,7 @@ struct KeyBindingsTests {
 
     // A command dropped or made fixed in a later version must not leave a key behind.
     @Test func savedChangesForUnknownOrFixedCommandsAreDropped() throws {
-        let suite = "KeyBindingsTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         let saved: [String: KeyCombo?] = ["gone": KeyCombo("g"), "quit": KeyCombo("j"),
                                           "workingSet": KeyCombo("\\"),

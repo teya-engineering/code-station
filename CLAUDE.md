@@ -1,5 +1,16 @@
 # Project Instructions
 
+## Docs and decisions
+
+All docs live in `docs/`. Do not add docs anywhere else, apart from the usual root files (`README.md`, `CONTRIBUTING.md`, `LICENSE`).
+
+- `docs/adrs/` holds the decisions behind how the app is built, one short file per topic (`NNNN-short-title.md`). Read the ADR for an area before changing an established pattern in it.
+- ADRs stay high level: the context, what is true now and why, and what follows from it. Leave out class lists, method names and step-by-step flows, since the code shows those.
+- ADRs describe the current state only. When a change alters a decision, rewrite its ADR in the same change so it says what is true now, and delete the old text. No status, dates, "superseded by" notes or changelogs. If a decision no longer applies, delete the ADR.
+- If a change makes a new decision a future reader would ask about, say an ADR is needed and wait. Do not write one unprompted.
+- Guides for working in an area (`docs/design-system.md`, `docs/site-configuration.md`, `docs/releases.md`) sit beside the ADRs and follow the same rule: describe what is true now.
+- `docs/adrs/0001-decision-records.md` has the full format.
+
 ## Design system
 
 Read `docs/design-system.md` before building or changing anything a person can see. It lists the steps and the shared parts, and when to use each.

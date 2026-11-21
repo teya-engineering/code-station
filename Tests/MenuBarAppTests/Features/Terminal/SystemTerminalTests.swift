@@ -100,7 +100,7 @@ struct TerminalDestinationTests {
     }
 
     @Test func opensInTheDrawerUntilATerminalAppIsPicked() {
-        let defaults = UserDefaults(suiteName: "terminal-destination-\(UUID().uuidString)")!
+        let defaults = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: URL(fileURLWithPath: "/tmp/avatar"),
                                    preferences: defaults)
 

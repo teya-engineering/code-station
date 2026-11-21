@@ -188,7 +188,7 @@ struct ChangesView: View {
     // In a session the Workspace band sits over the navigator and the actions band over
     // the content, so the two rules meet as one line and the navigator row is the only
     // thing that names the project. A single project has no Workspace band, so its
-    // header spans the pane as before.
+    // header spans the whole pane.
     var body: some View {
         screen
             .task(id: freshRequest) { await findFreshLines() }

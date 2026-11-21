@@ -197,7 +197,7 @@ struct DesignConversationViewTests {
         }
         let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: "/usr/bin/true"])
         runner.composer.editDraft(session.id) { $0.text = "Keep this draft" }
-        let preferences = try #require(UserDefaults(suiteName: "design-floating-\(UUID().uuidString)"))
+        let preferences = scratchDefaults()
         let hosting = NSHostingController(rootView:
             DesignView(sessionID: session.id)
                 .environment(\._accessibilityReduceMotion, reduceMotion)
@@ -403,7 +403,7 @@ struct DesignConversationViewTests {
                                      atomically: true, encoding: .utf8)
         }
         let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: "/usr/bin/true"])
-        let preferences = try #require(UserDefaults(suiteName: "design-empty-\(UUID().uuidString)"))
+        let preferences = scratchDefaults()
         let hosting = NSHostingController(rootView:
             DesignView(sessionID: session.id)
                 .environment(store)
@@ -486,7 +486,7 @@ struct DesignConversationViewTests {
         try "#!/bin/sh\nsleep 5\n".write(to: agent, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: agent.path)
         let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: agent.path])
-        let preferences = try #require(UserDefaults(suiteName: "design-turn-\(UUID().uuidString)"))
+        let preferences = scratchDefaults()
         let hosting = NSHostingController(rootView:
             DesignView(sessionID: session.id)
                 .environment(store)

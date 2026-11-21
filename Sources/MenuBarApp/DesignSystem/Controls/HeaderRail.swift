@@ -46,10 +46,6 @@ enum HeaderRailState {
     }
 }
 
-// An icon-only button on that rail. It stands the same height as a tab so the whole rail
-// reads as one row, and it always carries a word: with no label beside the glyph, the
-// tooltip is the only thing that says what the button opens. Left without an action it
-// draws as a label, for the overflow that hangs a menu under itself.
 // A rail button that opens a menu rather than acting. Put `.appMenu` on it: the glyph
 // takes the open colour while its own menu is on screen.
 struct HeaderRailMenuButton: View {
@@ -64,6 +60,10 @@ struct HeaderRailMenuButton: View {
     }
 }
 
+// An icon-only button on that rail. It stands the same height as a tab so the whole rail
+// reads as one row, and it always carries a word: with no label beside the glyph, the
+// tooltip is the only thing that says what the button opens. Left without an action it
+// draws as a label, for the overflow that hangs a menu under itself.
 struct HeaderRailButton: View {
     let icon: String
     var state: HeaderRailState = .rest
