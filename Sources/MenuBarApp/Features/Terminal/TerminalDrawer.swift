@@ -254,7 +254,7 @@ struct TerminalToggle: View {
         SystemTerminal.open(directory)
         note?("Opened a shell in \(SystemTerminal.appName)", "arrow.up.forward.app")
     }
-    return Preferences.terminalBundleID == nil ? [here, app] : [app, here]
+    return Preferences.terminalBundleID() == nil ? [here, app] : [app, here]
 }
 
 // The one way a screen reaches its terminal from the keyboard: a hidden button holding

@@ -149,9 +149,11 @@ enum CursorEffectActivity: Hashable {
 extension Preferences {
     static func cursorEffects(in store: UserDefaults = .standard) -> CursorEffectsSettings {
         let values = store.dictionary(forKey: "cursorEffects") ?? [:]
+        let fallback = CursorEffectsSettings()
         return CursorEffectsSettings(
-            effect: (values["effect"] as? String).flatMap(CursorEffect.init(rawValue:)) ?? .none,
-            schedule: (values["schedule"] as? String).flatMap(CursorEffectSchedule.init(rawValue:)) ?? .whileRunning)
+            effect: (values["effect"] as? String).flatMap(CursorEffect.init(rawValue:)) ?? fallback.effect,
+            schedule: (values["schedule"] as? String).flatMap(CursorEffectSchedule.init(rawValue:))
+                ?? fallback.schedule)
     }
 
     static func setCursorEffects(_ value: CursorEffectsSettings, in store: UserDefaults = .standard) {

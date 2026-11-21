@@ -25,12 +25,7 @@ struct SettingsView: View {
     @State private var note: String?
     @State private var noteIcon = "checkmark"
     @State private var notes = 0
-    @State private var appearanceBeforeReset: (
-        appearance: Appearance, textSize: TextSize, messageColour: MessageColour,
-        timestampFormat: TimestampFormat, timestampScope: TimestampScope,
-        iconStyle: DiceBearAvatarStyle, iconSet: SidebarIconSet,
-        sunlight: Bool, sunlightMode: SunlightMode, warmth: Double,
-        cursorEffects: CursorEffectsSettings)?
+    @State private var appearanceBeforeReset: AppearanceSettings?
     @State private var secondOpinion = Preferences.secondOpinionDefaults()
     @State private var secondOpinionBeforeReset: SecondOpinionDefaults?
     @FocusState private var searchFocused: Bool
@@ -266,27 +261,13 @@ struct SettingsView: View {
     }
 
     private func resetAppearance() {
-        appearanceBeforeReset = (settings.appearance, settings.textSize, settings.messageColour,
-                                 settings.timestampFormat, settings.timestampScope,
-                                 settings.diceBearAvatarStyle, settings.sidebarIconSet,
-                                 settings.sunlightEnabled, settings.sunlightMode, settings.sunlightNightKelvin,
-                                 settings.cursorEffects)
+        appearanceBeforeReset = settings.appearanceSettings
         settings.resetAppearance()
     }
 
     private func undoAppearanceReset() {
         guard let previous = appearanceBeforeReset else { return }
-        settings.appearance = previous.appearance
-        settings.textSize = previous.textSize
-        settings.messageColour = previous.messageColour
-        settings.timestampFormat = previous.timestampFormat
-        settings.timestampScope = previous.timestampScope
-        settings.diceBearAvatarStyle = previous.iconStyle
-        settings.sidebarIconSet = previous.iconSet
-        settings.sunlightEnabled = previous.sunlight
-        settings.sunlightMode = previous.sunlightMode
-        settings.sunlightNightKelvin = previous.warmth
-        settings.cursorEffects = previous.cursorEffects
+        settings.appearanceSettings = previous
         appearanceBeforeReset = nil
     }
 

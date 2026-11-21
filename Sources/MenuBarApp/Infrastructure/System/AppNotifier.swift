@@ -63,7 +63,7 @@ final class AppNotifier: NSObject {
     // the beat the sidebar's tick starts drawing on, so sound and sight land together.
     private func playFinishedSound() {
         guard isBundled else { return }
-        let sound = Preferences.sessionFinishedSound()
+        let sound = Preferences.sessionFinishedSound.read()
         Task {
             try? await Task.sleep(for: TurnMotion.soundBeat)
             sound.play()

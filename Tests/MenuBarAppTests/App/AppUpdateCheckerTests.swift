@@ -113,7 +113,7 @@ struct AppUpdateCheckerTests {
 
         #expect(relaunched.availableRelease == update)
         #expect(relaunched.announcedRelease == nil)
-        #expect(Preferences.dismissedAppUpdateVersion(in: preferences) == "2.0.0")
+        #expect(Preferences.dismissedAppUpdateVersion.read(in: preferences) == "2.0.0")
     }
 
     @MainActor

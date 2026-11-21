@@ -129,7 +129,7 @@ final class AppUpdateChecker {
         self.now = now
         self.releaseEndpoint = releaseEndpoint
         self.installTarget = installTarget
-        dismissedVersion = Preferences.dismissedAppUpdateVersion(in: preferences)
+        dismissedVersion = Preferences.dismissedAppUpdateVersion.read(in: preferences)
         availableRelease = Self.available(
             Preferences.cachedAppUpdateRelease(in: preferences),
             to: self.installedVersion)
@@ -176,7 +176,7 @@ final class AppUpdateChecker {
     func dismissAnnouncement() {
         guard let version = announcedRelease?.version else { return }
         dismissedVersion = version
-        Preferences.setDismissedAppUpdateVersion(version, in: preferences)
+        Preferences.dismissedAppUpdateVersion.write(version, in: preferences)
     }
 
     // For the places where the page is how the update is taken, so going there is acting

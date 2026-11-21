@@ -215,13 +215,13 @@ final class SessionRunner {
         self.stalledAfter = stalledAfter
         self.stallCheckInterval = stallCheckInterval
         self.waitingStaleAfter = waitingStaleAfter
-        self.memoryLimit = memoryLimit ?? { Preferences.sessionMemoryLimit(in: preferences).bytes() }
+        self.memoryLimit = memoryLimit ?? { Preferences.sessionMemoryLimit.read(in: preferences).bytes() }
         self.midTurnPromptDelivery = midTurnPromptDelivery
-            ?? { Preferences.midTurnPromptDelivery(in: preferences) }
+            ?? { Preferences.midTurnPromptDelivery.read(in: preferences) }
         followUps = SessionFollowUps(
             automaticRecapsEnabled: automaticRecapsEnabled ?? { Preferences.sessionRecapsEnabled(in: preferences) },
-            automaticTitlesEnabled: automaticTitlesEnabled ?? { Preferences.sessionTitlesEnabled(in: preferences) },
-            promptSuggestionsEnabled: promptSuggestionsEnabled ?? { Preferences.promptSuggestionsEnabled(in: preferences) })
+            automaticTitlesEnabled: automaticTitlesEnabled ?? { Preferences.sessionTitlesEnabled.read(in: preferences) },
+            promptSuggestionsEnabled: promptSuggestionsEnabled ?? { Preferences.promptSuggestionsEnabled.read(in: preferences) })
     }
 
     func defaults(for agent: AgentKind) -> SessionSettings { catalog.defaults(for: agent) }

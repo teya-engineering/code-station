@@ -44,7 +44,7 @@ enum WorktreeOpener {
     }
 
     static var current: WorktreeApp? {
-        chosen(from: apps, saved: Preferences.openInBundleID)
+        chosen(from: apps, saved: Preferences.openInBundleID())
     }
 
     // An app that has been removed since it was picked falls back to Finder, which every
@@ -73,7 +73,7 @@ enum WorktreeOpener {
     }
 
     static func choose(_ app: WorktreeApp) {
-        Preferences.openInBundleID = app.bundleID
+        Preferences.setOpenInBundleID(app.bundleID)
     }
 
     static func open(_ path: String, in app: WorktreeApp) {

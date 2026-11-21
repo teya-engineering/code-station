@@ -94,14 +94,14 @@ struct SunlightSettingsTests {
     @Test func theSwitchAndWarmthAreSavedAndReadBack() {
         let store = UserDefaults(suiteName: "SunlightSettingsTests")!
         store.removePersistentDomain(forName: "SunlightSettingsTests")
-        #expect(!Preferences.sunlightEnabled(in: store))
+        #expect(!Preferences.sunlightEnabled.read(in: store))
         #expect(Preferences.sunlightNightKelvin(in: store) == Sunlight.nightKelvin)
-        #expect(Preferences.sunlightMode(in: store) == .followsSun)
-        Preferences.setSunlightEnabled(true, in: store)
-        Preferences.setSunlightMode(.fixed, in: store)
+        #expect(Preferences.sunlightMode.read(in: store) == .followsSun)
+        Preferences.sunlightEnabled.write(true, in: store)
+        Preferences.sunlightMode.write(.fixed, in: store)
         Preferences.setSunlightNightKelvin(2700, in: store)
-        #expect(Preferences.sunlightEnabled(in: store))
-        #expect(Preferences.sunlightMode(in: store) == .fixed)
+        #expect(Preferences.sunlightEnabled.read(in: store))
+        #expect(Preferences.sunlightMode.read(in: store) == .fixed)
         #expect(Preferences.sunlightNightKelvin(in: store) == 2700)
     }
 

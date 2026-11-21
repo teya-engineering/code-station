@@ -110,7 +110,7 @@ enum DesignAmbition: String, Codable, Sendable, CaseIterable, Identifiable {
 
     // What a session runs with: its own choice, or the app's Design default.
     static func resolved(_ value: String?, in store: UserDefaults = .standard) -> Self {
-        valid(value) ?? Preferences.designAmbition(in: store)
+        valid(value) ?? Preferences.designAmbition.read(in: store)
     }
 
     func changeNote(from previous: DesignAmbition) -> String {

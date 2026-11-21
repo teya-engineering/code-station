@@ -622,7 +622,7 @@ final class MobileAccessController {
         // made there starts on the app's own defaults.
         let agent = runner.agent
         let model = runner.defaults(for: agent).model
-        let avatar = Preferences.defaultAgentAvatarName()
+        let avatar = Preferences.defaultAgentAvatarName.read()
         let worktree = command.worktree == true && project.isGitRepository
 
         Task { @MainActor in

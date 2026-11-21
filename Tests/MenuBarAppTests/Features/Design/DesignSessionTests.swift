@@ -713,10 +713,10 @@ struct DesignSessionTests {
 
     @Test func aSessionWithNoAmbitionFollowsTheAppDefault() throws {
         let preferences = scratchDefaults()
-        #expect(Preferences.designAmbition(in: preferences) == .balanced)
+        #expect(Preferences.designAmbition.read(in: preferences) == .balanced)
 
-        Preferences.setDesignAmbition(.allOut, in: preferences)
-        #expect(Preferences.designAmbition(in: preferences) == .allOut)
+        Preferences.designAmbition.write(.allOut, in: preferences)
+        #expect(Preferences.designAmbition.read(in: preferences) == .allOut)
 
         let older = try JSONDecoder().decode(SessionSettings.self, from: Data(#"{"model":"opus"}"#.utf8))
         #expect(older.designAmbition == nil)

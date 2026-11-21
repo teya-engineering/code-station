@@ -63,7 +63,7 @@ struct SteerTests {
         let id = harness.session.id
         let runner = harness.runner
         let store = harness.store
-        Preferences.setMidTurnPromptDelivery(.afterTurn, in: harness.scratch.preferences.store)
+        Preferences.midTurnPromptDelivery.write(.afterTurn, in: harness.scratch.preferences.store)
 
         runner.send("Start the work", sessionID: id, store: store)
         #expect(await waitUntil {
