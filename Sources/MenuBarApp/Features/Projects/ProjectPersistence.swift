@@ -62,6 +62,8 @@ struct ProjectPersistence: Sendable {
         Self.queue.sync { writeContents(batch) }
     }
 
+    // Takes its place on the queue before it returns, so a removal the caller makes next
+    // always runs after this write and is not undone by it.
     func write(_ batch: Batch, completion: @escaping @Sendable (WriteCompletion) -> Void) {
         Self.queue.async { completion(writeContents(batch)) }
     }
