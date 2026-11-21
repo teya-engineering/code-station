@@ -119,9 +119,9 @@ enum DesignHandoffLifecycle {
 
 enum GitRevision {
     static func head(at path: String) async -> String? {
-        guard let tool = await GitInspector.tool() else { return nil }
-        return await GitInspector.offMain {
-            let result = GitInspector.run(
+        guard let tool = Git.tool() else { return nil }
+        return await Git.offMain {
+            let result = Git.run(
                 tool, ["rev-parse", "--verify", "HEAD"], in: URL(fileURLWithPath: path))
             guard result.ok, !result.text.isBlank else { return nil }
             return result.text.trimmed

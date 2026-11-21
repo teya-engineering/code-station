@@ -15,8 +15,8 @@ struct FindInFilesTests {
 
     @Test func leavesOutWhatGitIgnores() async throws {
         let scratch = ScratchDirectory()
-        let git = GitInspector.GitTool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
-        #expect(GitInspector.run(git, ["init", "-q"], in: scratch.url).ok)
+        let git = Git.Tool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
+        #expect(Git.run(git, ["init", "-q"], in: scratch.url).ok)
         let src = scratch.url.appendingPathComponent("src")
         let packages = scratch.url.appendingPathComponent("node_modules/lib")
         try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
@@ -35,7 +35,7 @@ struct FindInFilesTests {
 
     @Test func searchesEverythingOutsideARepository() async throws {
         let scratch = ScratchDirectory()
-        let git = GitInspector.GitTool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
+        let git = Git.Tool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
         try Data("text".utf8).write(to: scratch.url.appendingPathComponent("a.txt"))
 
         let paths = await FileTextSearch.unignoredPaths(beneath: scratch.url.path, tool: git)

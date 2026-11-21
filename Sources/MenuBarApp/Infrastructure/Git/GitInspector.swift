@@ -1,262 +1,5 @@
 import Foundation
 
-// What a file looks like right now compared to the last commit.
-enum GitStatusKind: Sendable, Equatable {
-    case modified, added, deleted, renamed, untracked, conflicted
-
-    // Single letter for the chip in the file list.
-    var letter: String {
-        switch self {
-        case .modified: "M"
-        case .added: "A"
-        case .deleted: "D"
-        case .renamed: "R"
-        case .untracked: "U"
-        case .conflicted: "!"
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .modified: "modified"
-        case .added: "added"
-        case .deleted: "deleted"
-        case .renamed: "renamed"
-        case .untracked: "untracked"
-        case .conflicted: "conflicted"
-        }
-    }
-}
-
-// One changed file. Line counts are nil when git cannot count them, which happens for
-// binary files and for untracked files we could not read.
-struct GitChange: Identifiable, Sendable, Equatable {
-    var path: String
-    var originalPath: String?
-    var kind: GitStatusKind
-    var isStaged: Bool
-    var isUnstaged: Bool
-    var added: Int?
-    var removed: Int?
-    var isBinary: Bool
-
-    var id: String { path }
-    var isUntracked: Bool { kind == .untracked }
-    // False for a file that only differs from the base through commits already made,
-    // which leaves nothing to stage, commit or discard.
-    var hasLocalChanges: Bool { isStaged || isUnstaged }
-    var fileName: String { (path as NSString).lastPathComponent }
-
-    mutating func apply(_ count: GitInspector.LineCount) {
-        added = count.binary ? nil : count.added
-        removed = count.binary ? nil : count.removed
-        isBinary = count.binary
-    }
-}
-
-// Where this branch left the remote's default branch, which is what a pull request
-// compares against.
-struct GitCompareBase: Sendable, Equatable {
-    var ref: String
-    var commit: String
-}
-
-enum GitRepoState: Sendable, Equatable {
-    case ready
-    case notARepo
-    case missingFolder
-    case gitMissing
-    case failed(String)
-}
-
-struct GitSnapshot: Sendable, Equatable {
-    var state: GitRepoState
-    var root: String = ""
-    var branch: String = ""
-    // A brand new repo has a branch name but nothing to diff against yet.
-    var hasCommits: Bool = true
-    // On a detached head there is no branch to be on, so nothing is marked current.
-    var onBranch: Bool = false
-    // The remote branch this one tracks, and how the two have drifted apart.
-    var upstream: String?
-    var trackingKnown = false
-    var ahead: Int = 0
-    var behind: Int = 0
-    // The subject of the newest commit and when it landed, which is what says whether the
-    // folder has been worked in recently or only read.
-    var lastCommitSubject: String?
-    var lastCommitDate: Date?
-    var files: [GitChange] = []
-    // Commits on HEAD that no remote has. Only filled in by cleanup, which needs it to
-    // know whether deleting a checkout throws away the only copy of some commits.
-    var unpushedCommits = 0
-    // Only read for the Changes screen. When files are compared to it, they also hold
-    // what the branch has committed since it left the remote's default branch.
-    var remoteBase: GitCompareBase?
-    var comparedToRemote = false
-    // Compared to the remote, the rows in `files` describe each file next to the base,
-    // which is not what a commit or a discard acts on. These are the same files as git
-    // status sees them, counted against the last commit.
-    var uncommittedFiles: [GitChange] = []
-    // The paths that differ from the base. A file changed only since the last commit,
-    // in a way that brings it back to the base, is not among them.
-    var pathsChangedFromBase: Set<String> = []
-
-    // The files a commit or a discard can act on.
-    var localFiles: [GitChange] { comparedToRemote ? uncommittedFiles : files }
-
-    // What a file's diff compares against, or nil for the last commit. A file that only
-    // differs from the last commit shows that, since next to the base it has no change.
-    func diffBase(for file: GitChange) -> String? {
-        guard comparedToRemote, pathsChangedFromBase.contains(file.path) else { return nil }
-        return remoteBase?.commit
-    }
-
-    // The same snapshot as it looks against the last commit, for anything that counts
-    // uncommitted work.
-    var againstLastCommit: GitSnapshot {
-        guard comparedToRemote else { return self }
-        var snapshot = self
-        snapshot.files = uncommittedFiles
-        snapshot.uncommittedFiles = []
-        snapshot.pathsChangedFromBase = []
-        snapshot.comparedToRemote = false
-        return snapshot
-    }
-
-    var totalAdded: Int { files.compactMap(\.added).reduce(0, +) }
-    var totalRemoved: Int { files.compactMap(\.removed).reduce(0, +) }
-
-    func syncDescription(remoteUnavailable: Bool = false) -> String {
-        if remoteUnavailable { return "Remote status unavailable" }
-        guard let upstream else { return "No upstream branch" }
-        guard trackingKnown else { return "Remote status unknown" }
-        if ahead > 0 || behind > 0 { return "\(ahead) ahead · \(behind) behind \(upstream)" }
-        return "Up to date with \(upstream) (last fetched)"
-    }
-
-    // What the remote needs from this branch, in the order the header offers it: a pull
-    // comes first so a push after it is not refused.
-    var remoteActions: [GitRemoteAction] {
-        var actions: [GitRemoteAction] = []
-        if upstream != nil && behind > 0 { actions.append(.pull(behind)) }
-        if hasCommits {
-            if upstream == nil {
-                actions.append(.publish)
-            } else if ahead > 0 {
-                actions.append(.push(ahead))
-            }
-        }
-        return actions
-    }
-
-    static func state(_ state: GitRepoState) -> GitSnapshot { GitSnapshot(state: state) }
-}
-
-enum GitRemoteAction: Sendable, Equatable, Hashable {
-    case pull(Int)
-    case push(Int)
-    case publish
-}
-
-// Which version of a file a diff put on its new side, so the lines it left out can be
-// read back from the same place the diff came from.
-enum DiffRevision: Sendable, Equatable, Hashable {
-    case workingTree
-    case index
-    case commit(String)
-}
-
-// Which end of a gap a press opens. The arrow points the way the reader is travelling:
-// down carries on from the code above the gap, up reads back from the code below it.
-enum DiffExpandDirection: String, Sendable, Equatable, Hashable {
-    case up, down, all
-}
-
-// A run of unchanged lines a diff left out, and the row that stands in for it. Line
-// numbers count the new side of the file, which is the side we can read back.
-struct DiffGap: Sendable, Equatable, Hashable {
-    var revision: DiffRevision
-    var path: String
-    // Handed out while parsing and never touched again. A gap opens from either end, so
-    // neither of its line numbers stays put long enough to name the row it belongs to.
-    var id: Int
-    var start: Int
-    // Nil for the gap after the last hunk: a diff never says how long the file is, so
-    // the size of that one only settles once the lines are read back.
-    var count: Int?
-
-    // Names one row for as long as the diff is open. A file diff parses the staged and
-    // the unstaged side apart from each other, so the version is part of the name too.
-    var key: String {
-        let version = switch revision {
-        case .workingTree: "tree"
-        case .index: "index"
-        case .commit(let hash): hash
-        }
-        return "\(version)|\(path)|\(id)"
-    }
-}
-
-struct DiffLine: Identifiable, Sendable, Equatable {
-    enum Kind: Sendable, Equatable {
-        case addition, deletion, hunk, context, meta, section, gap
-    }
-
-    var id: Int
-    var kind: Kind
-    var text: String
-    // Only on a gap row: the lines that row stands for, which is what it carries its
-    // controls for.
-    var gap: DiffGap?
-}
-
-// What one press on a gap row brings back: the lines to drop in beside it, and whatever
-// is still hidden after that.
-struct DiffExpansion: Sendable, Equatable {
-    var lines: [DiffLine] = []
-    var gap: DiffGap?
-}
-
-// Both sides of a changed picture. A side is nil when that version does not exist: a
-// new image has no before, a deleted one has no after.
-struct DiffImages: Sendable, Equatable {
-    var before: Data?
-    var after: Data?
-}
-
-struct FileDiff: Sendable, Equatable {
-    var lines: [DiffLine] = []
-    // True when we stopped rendering early so a huge diff cannot stall the UI.
-    var truncated: Bool = false
-    var totalLines: Int = 0
-    // Rows that are not diff output: the gap rows, and the unchanged lines a reader
-    // opened from one. They do not count towards what a cut-short diff says it holds back.
-    var revealed: Int = 0
-    var note: String?
-    // Set instead of lines when the file is a picture, which has nothing to show as text.
-    var images: DiffImages?
-}
-
-// One commit in the recent history list.
-struct GitCommitSummary: Identifiable, Sendable, Equatable {
-    var hash: String
-    var shortHash: String
-    var author: String
-    var relativeDate: String
-    var subject: String
-    var date: Date? = nil
-
-    var id: String { hash }
-
-    // A query names a commit by words from its subject or by the start of its hash.
-    func matches(_ query: String) -> Bool {
-        let query = query.trimmingCharacters(in: .whitespaces)
-        return query.isEmpty || subject.localizedCaseInsensitiveContains(query)
-            || hash.lowercased().hasPrefix(query.lowercased())
-    }
-}
-
 // Git inspection for a project folder.
 //
 // An agent edits the user's real working tree, so this is the main safety net for
@@ -264,42 +7,22 @@ struct GitCommitSummary: Identifiable, Sendable, Equatable {
 // write: each one only reads, and GIT_OPTIONAL_LOCKS=0 keeps it from touching the index
 // lock while the user's own git is running in the same repo.
 //
-// The runner at the end of the file is the one way the app starts git, so the types
-// that do change a repository share it.
+// Git is started through the runner in `Git`, which the types that do change a
+// repository share.
 enum GitInspector {
 
     // Rendering more than this many diff lines is slow and nobody reads that far.
     static let diffLineLimit = 2000
-    // Very long lines (minified files) are the other way a diff can stall layout.
-    private static let lineCharacterLimit = 2000
-    private static let outputByteLimit = 8 << 20
     private static let untrackedByteLimit = 4 << 20
-    // Git commands use blocking process and pipe calls. Serial queues keep those calls
-    // from exhausting the shared dispatch pool when many folders need inspection.
-    //
-    // There are two: reads a person is watching for must not wait behind the periodic
-    // sweep over every repository in the sidebar. Both lanes only read, and
-    // GIT_OPTIONAL_LOCKS=0 means two lanes in the same repository cannot fight over
-    // the index, so running them side by side is safe.
-    enum Lane: Sendable { case interactive, background }
-
-    private static let backgroundQueue = DispatchQueue(
-        label: "com.teya.code-station.git",
-        qos: .userInitiated
-    )
-    private static let interactiveQueue = DispatchQueue(
-        label: "com.teya.code-station.git.interactive",
-        qos: .userInitiated
-    )
 
     // MARK: - Snapshot
 
     static func snapshot(at path: String, commandTimeout: TimeInterval? = nil,
-                         lane: Lane = .background, comparingToLastCommit: Bool = false,
+                         lane: Git.Lane = .background, comparingToLastCommit: Bool = false,
                          findingRemoteBase: Bool = false, comparingToRemote: Bool = false) async -> GitSnapshot {
-        guard let tool = await tool() else { return .state(.gitMissing) }
+        guard let tool = Git.tool() else { return .state(.gitMissing) }
         let url = URL(fileURLWithPath: path)
-        return await offMain(lane: lane) {
+        return await Git.offMain(lane: lane) {
             snapshot(tool: tool,
                      url: url,
                      commandTimeout: commandTimeout,
@@ -309,15 +32,15 @@ enum GitInspector {
         }
     }
 
-    private static func snapshot(tool: GitTool, url: URL, commandTimeout: TimeInterval?,
+    private static func snapshot(tool: Git.Tool, url: URL, commandTimeout: TimeInterval?,
                                  comparingToLastCommit: Bool, findingRemoteBase: Bool,
                                  comparingToRemote: Bool) -> GitSnapshot {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         guard exists && isDirectory.boolValue else { return .state(.missingFolder) }
 
-        let top = run(tool, ["rev-parse", "--show-toplevel"], in: url,
-                      timeout: commandTimeout)
+        let top = Git.run(tool, ["rev-parse", "--show-toplevel"], in: url,
+                          timeout: commandTimeout)
         guard top.ok else {
             // git says "not a git repository" for a plain folder, which is not an error.
             let message = top.errorText.lowercased()
@@ -329,13 +52,13 @@ enum GitInspector {
         snapshot.root = top.trimmedText
         let root = URL(fileURLWithPath: snapshot.root)
 
-        let head = run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url,
-                       timeout: commandTimeout)
+        let head = Git.run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url,
+                           timeout: commandTimeout)
         if head.ok {
             let name = head.trimmedText
             if name == "HEAD" {
-                let sha = run(tool, ["rev-parse", "--short", "HEAD"], in: url,
-                              timeout: commandTimeout)
+                let sha = Git.run(tool, ["rev-parse", "--short", "HEAD"], in: url,
+                                  timeout: commandTimeout)
                 snapshot.branch = "detached at " + sha.trimmedText
             } else {
                 snapshot.branch = name
@@ -344,16 +67,16 @@ enum GitInspector {
         } else {
             // No commits yet, so HEAD points at a branch that does not exist.
             snapshot.hasCommits = false
-            let symbolic = run(tool, ["symbolic-ref", "--short", "HEAD"], in: url,
-                               timeout: commandTimeout)
+            let symbolic = Git.run(tool, ["symbolic-ref", "--short", "HEAD"], in: url,
+                                   timeout: commandTimeout)
             snapshot.branch = symbolic.ok ? symbolic.trimmedText : "HEAD"
         }
 
         if snapshot.hasCommits {
             // Unix time and the subject on one line, split on a tab the subject cannot
             // contain because git strips it out of the first line.
-            let last = run(tool, ["log", "-1", "--format=%ct\t%s"], in: url,
-                           timeout: commandTimeout)
+            let last = Git.run(tool, ["log", "-1", "--format=%ct\t%s"], in: url,
+                               timeout: commandTimeout)
             let parts = last.trimmedText.split(separator: "\t", maxSplits: 1)
             if last.ok, parts.count == 2, let seconds = TimeInterval(parts[0]) {
                 snapshot.lastCommitDate = Date(timeIntervalSince1970: seconds)
@@ -361,12 +84,12 @@ enum GitInspector {
             }
         }
 
-        let upstream = run(tool, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-                           in: url, timeout: commandTimeout)
+        let upstream = Git.run(tool, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+                               in: url, timeout: commandTimeout)
         if upstream.ok {
             snapshot.upstream = upstream.trimmedText
-            let drift = run(tool, ["rev-list", "--left-right", "--count", "HEAD...@{u}"],
-                            in: url, timeout: commandTimeout)
+            let drift = Git.run(tool, ["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+                                in: url, timeout: commandTimeout)
             if let drift = drift.aheadBehind {
                 snapshot.trackingKnown = true
                 snapshot.ahead = drift.ahead
@@ -376,17 +99,17 @@ enum GitInspector {
 
         // -uall lists untracked files one by one instead of collapsing whole directories,
         // which is what we need for per-file counts.
-        let status = run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url,
-                         timeout: commandTimeout)
+        let status = Git.run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url,
+                             timeout: commandTimeout)
         guard status.ok else { return .state(.failed(status.failureMessage)) }
 
         var files = parseStatus(status.text)
 
-        let lastCommit = snapshot.hasCommits ? "HEAD" : emptyTree
+        let lastCommit = snapshot.hasCommits ? "HEAD" : Git.emptyTree
+        let numstat = ["--numstat", "-z"] + Git.plainDiff + ["-M"]
         let countArguments = comparingToLastCommit
-            ? [["diff", lastCommit, "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]]
-            : [["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"],
-               ["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]]
+            ? [["diff", lastCommit] + numstat]
+            : [["diff"] + numstat, ["diff", "--cached"] + numstat]
         let counts = lineCounts(countArguments, tool: tool, url: url, timeout: commandTimeout)
         for i in files.indices {
             if let count = counts[files[i].path] {
@@ -406,12 +129,12 @@ enum GitInspector {
             snapshot.remoteBase = remoteBase(tool: tool, url: url, timeout: commandTimeout)
         }
         if comparingToRemote, let base = snapshot.remoteBase {
-            let committed = run(tool, ["diff", base.commit, "--name-status", "-z", "--no-ext-diff", "-M"],
-                                in: url, timeout: commandTimeout)
+            let committed = Git.run(tool, ["diff", base.commit, "--name-status", "-z", "--no-ext-diff", "-M"],
+                                    in: url, timeout: commandTimeout)
             guard committed.ok else { return .state(.failed(committed.failureMessage)) }
             let entries = parseNameStatus(committed.text)
             var merged = merging(files, with: entries)
-            let baseCounts = lineCounts([["diff", base.commit, "--numstat", "-z", "--no-ext-diff", "--no-textconv", "-M"]],
+            let baseCounts = lineCounts([["diff", base.commit] + numstat],
                                         tool: tool, url: url, timeout: commandTimeout)
             let changed = Set(entries.map(\.path))
             for i in merged.indices where changed.contains(merged[i].path) {
@@ -426,15 +149,13 @@ enum GitInspector {
         return snapshot
     }
 
-    private static let emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
     typealias LineCount = (added: Int?, removed: Int?, binary: Bool)
 
-    private static func lineCounts(_ argumentSets: [[String]], tool: GitTool, url: URL,
+    private static func lineCounts(_ argumentSets: [[String]], tool: Git.Tool, url: URL,
                                    timeout: TimeInterval?) -> [String: LineCount] {
         var counts: [String: LineCount] = [:]
         for arguments in argumentSets {
-            let output = run(tool, arguments, in: url, timeout: timeout)
+            let output = Git.run(tool, arguments, in: url, timeout: timeout)
             guard output.ok else { continue }
             for entry in parseNumstat(output.text) {
                 let current = counts[entry.path] ?? (0, 0, false)
@@ -450,9 +171,9 @@ enum GitInspector {
 
     // What origin calls its default branch, without the remote's name, read from the
     // origin/HEAD ref a clone leaves behind. A remote added by hand has none.
-    static func originDefaultBranch(_ tool: GitTool, in url: URL, timeout: TimeInterval? = nil) -> String? {
-        let named = run(tool, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-                        in: url, timeout: timeout)
+    static func originDefaultBranch(_ tool: Git.Tool, in url: URL, timeout: TimeInterval? = nil) -> String? {
+        let named = Git.run(tool, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+                            in: url, timeout: timeout)
         guard named.ok, named.trimmedText.hasPrefix("origin/") else { return nil }
         let branch = String(named.trimmedText.dropFirst("origin/".count))
         return branch.isEmpty ? nil : branch
@@ -460,14 +181,14 @@ enum GitInspector {
 
     // The usual names are tried after origin/HEAD, which may be missing or still point at
     // a branch the remote has since renamed and pruned.
-    private static func remoteBase(tool: GitTool, url: URL, timeout: TimeInterval?) -> GitCompareBase? {
+    private static func remoteBase(tool: Git.Tool, url: URL, timeout: TimeInterval?) -> GitCompareBase? {
         var candidates = ["origin/main", "origin/master"]
         if let named = originDefaultBranch(tool, in: url, timeout: timeout) {
             candidates.removeAll { $0 == "origin/" + named }
             candidates.insert("origin/" + named, at: 0)
         }
         for ref in candidates {
-            let base = run(tool, ["merge-base", "HEAD", ref], in: url, timeout: timeout)
+            let base = Git.run(tool, ["merge-base", "HEAD", ref], in: url, timeout: timeout)
             if base.ok && !base.trimmedText.isEmpty {
                 return GitCompareBase(ref: ref, commit: base.trimmedText)
             }
@@ -512,13 +233,13 @@ enum GitInspector {
     // answers zero. The count is shared by the project screen and the sidebar monitor so
     // one inspection can support both the exact location line and the smaller safety mark.
     static func uncommittedFileCount(at path: String) async -> Int {
-        guard let tool = await tool() else { return 0 }
+        guard let tool = Git.tool() else { return 0 }
         let url = URL(fileURLWithPath: path)
-        return await offMain {
+        return await Git.offMain {
             var isDirectory: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             guard exists && isDirectory.boolValue else { return 0 }
-            let status = run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url)
+            let status = Git.run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url)
             return status.ok ? parseStatus(status.text).count : 0
         }
     }
@@ -529,14 +250,14 @@ enum GitInspector {
     // caller about to delete the checkout must not read as "nothing to lose".
     static func unpushedCommitCount(at path: String,
                                     commandTimeout: TimeInterval? = nil) async -> Int? {
-        guard let tool = await tool() else { return nil }
+        guard let tool = Git.tool() else { return nil }
         let url = URL(fileURLWithPath: path)
-        return await offMain {
-            let remotes = run(tool, ["remote"], in: url, timeout: commandTimeout)
+        return await Git.offMain {
+            let remotes = Git.run(tool, ["remote"], in: url, timeout: commandTimeout)
             guard remotes.ok else { return nil }
             guard !remotes.trimmedText.isEmpty else { return 0 }
-            let count = run(tool, ["rev-list", "--count", "HEAD", "--not", "--remotes"],
-                            in: url, timeout: commandTimeout)
+            let count = Git.run(tool, ["rev-list", "--count", "HEAD", "--not", "--remotes"],
+                                in: url, timeout: commandTimeout)
             return count.ok ? Int(count.trimmedText) : nil
         }
     }
@@ -548,10 +269,10 @@ enum GitInspector {
     // The full hash of the commit checked out at a path. Nil outside a repository and in
     // one with no commits yet.
     static func head(at path: String) async -> String? {
-        guard let tool = await tool() else { return nil }
-        return await offMain(lane: .interactive) {
-            let output = run(tool, ["rev-parse", "--verify", "--quiet", "HEAD"],
-                             in: URL(fileURLWithPath: path))
+        guard let tool = Git.tool() else { return nil }
+        return await Git.offMain(lane: .interactive) {
+            let output = Git.run(tool, ["rev-parse", "--verify", "--quiet", "HEAD"],
+                                 in: URL(fileURLWithPath: path))
             let hash = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return output.ok && !hash.isEmpty ? hash : nil
         }
@@ -587,12 +308,12 @@ enum GitInspector {
 
     static func recentCommits(at path: String, limit: Int = historyLimit)
         async -> (commits: [GitCommitSummary], note: String?) {
-        guard let tool = await tool() else { return ([], "Could not find git on PATH.") }
+        guard let tool = Git.tool() else { return ([], Git.notFoundMessage) }
         let url = URL(fileURLWithPath: path)
-        return await offMain {
+        return await Git.offMain {
             // Tabs separate the fields because git strips them from the subject line,
             // so the record splits cleanly whatever the subject says.
-            let output = run(tool, ["log", "--no-color", "-n", "\(limit)",
+            let output = Git.run(tool, ["log", "--no-color", "-n", "\(limit)",
                                     "--format=%H%x09%h%x09%an%x09%cr%x09%ct%x09%s"], in: url)
             guard output.ok else {
                 // A repository with no commits yet has an empty history, not a broken one.
@@ -621,17 +342,17 @@ enum GitInspector {
     }
 
     static func commitFiles(_ hash: String, parent: String? = nil, root: String) async -> CommitFiles {
-        guard let tool = await tool() else { return CommitFiles(note: "Could not find git on PATH.") }
-        return await offMain(lane: .interactive) {
+        guard let tool = Git.tool() else { return CommitFiles(note: Git.notFoundMessage) }
+        return await Git.offMain(lane: .interactive) {
             let url = URL(fileURLWithPath: root)
-            let ancestry = run(tool, ["rev-list", "--parents", "-n", "1", hash], in: url)
+            let ancestry = Git.run(tool, ["rev-list", "--parents", "-n", "1", hash], in: url)
             guard ancestry.ok else { return CommitFiles(note: ancestry.failureMessage) }
             let parents = ancestry.text.split(whereSeparator: \.isWhitespace).dropFirst().map(String.init)
             let base = parent ?? parents.first
             let command = base.map { ["diff", $0, hash] } ?? ["show", "--format=", hash]
-            let options = ["--no-ext-diff", "--no-textconv", "-M"]
-            let names = run(tool, command + options + ["--name-status", "-z"], in: url)
-            let stats = run(tool, command + options + ["--numstat", "-z"], in: url)
+            let options = Git.plainDiff + ["-M"]
+            let names = Git.run(tool, command + options + ["--name-status", "-z"], in: url)
+            let stats = Git.run(tool, command + options + ["--numstat", "-z"], in: url)
             guard names.ok, stats.ok, !names.truncated, !stats.truncated else {
                 return CommitFiles(parents: parents, note: "Could not read all changed files. " + (names.ok ? stats.failureMessage : names.failureMessage))
             }
@@ -663,13 +384,13 @@ enum GitInspector {
     static func commitFileDiff(_ hash: String, parent: String?, file: GitChange,
                                root: String, limit: Int = diffLineLimit) async -> FileDiff {
         if file.isBinary { return FileDiff(note: "Preview unavailable for binary file: \(file.path)") }
-        guard let tool = await tool() else { return FileDiff(note: "Could not find git on PATH.") }
-        return await offMain(lane: .interactive) {
+        guard let tool = Git.tool() else { return FileDiff(note: Git.notFoundMessage) }
+        return await Git.offMain(lane: .interactive) {
             let command = parent.map { ["diff", $0, hash] } ?? ["show", "--format=", hash]
             let paths = [file.originalPath, file.path].compactMap { $0 }
-            let output = run(tool, ["--literal-pathspecs"] + command
-                             + ["--no-color", "--no-ext-diff", "--no-textconv", "-M", "--"] + paths,
-                             in: URL(fileURLWithPath: root))
+            let output = Git.run(tool, ["--literal-pathspecs"] + command
+                                 + ["--no-color"] + Git.plainDiff + ["-M", "--"] + paths,
+                                 in: URL(fileURLWithPath: root))
             guard output.ok else { return FileDiff(note: output.failureMessage) }
             let parsed = parse(output.text, startingAt: 0, limit: limit,
                                revision: .commit(hash), path: file.path)
@@ -685,17 +406,17 @@ enum GitInspector {
     // and unstaged work are shown apart against the last commit.
     static func diff(for change: GitChange, root: String, limit: Int = diffLineLimit,
                      base: String? = nil) async -> FileDiff {
-        guard let tool = await tool() else {
-            return FileDiff(note: "Could not find git on PATH.")
+        guard let tool = Git.tool() else {
+            return FileDiff(note: Git.notFoundMessage)
         }
         // Always the fast lane: a per-file diff only ever loads because someone just
         // clicked the file and is looking at an empty pane until it arrives.
-        return await offMain(lane: .interactive) {
+        return await Git.offMain(lane: .interactive) {
             diff(tool: tool, change: change, root: root, limit: limit, base: base)
         }
     }
 
-    private static func diff(tool: GitTool, change: GitChange, root: String, limit: Int,
+    private static func diff(tool: Git.Tool, change: GitChange, root: String, limit: Int,
                              base: String?) -> FileDiff {
         let rootURL = URL(fileURLWithPath: root)
         guard FileManager.default.fileExists(atPath: root) else {
@@ -729,11 +450,9 @@ enum GitInspector {
         }
 
         for source in sources {
-            // --no-ext-diff and --no-textconv keep a repo's own diff drivers from running:
-            // we only ever want git's own output here.
             let arguments = ["--no-pager", "--literal-pathspecs"] + source.arguments
-                + ["--no-color", "--no-ext-diff", "--no-textconv", "-M", "--"] + pathspec
-            let output = run(tool, arguments, in: rootURL)
+                + ["--no-color"] + Git.plainDiff + ["-M", "--"] + pathspec
+            let output = Git.run(tool, arguments, in: rootURL)
             guard output.ok else {
                 diff.note = output.failureMessage
                 return diff
@@ -768,7 +487,7 @@ enum GitInspector {
 
     // A picture is compared by eye, so the pane gets the bytes of each side rather than
     // a text diff: the last committed version from git and the current one from disk.
-    private static func imageDiff(tool: GitTool, change: GitChange, root: URL, base: String?) -> FileDiff {
+    private static func imageDiff(tool: Git.Tool, change: GitChange, root: URL, base: String?) -> FileDiff {
         var images = DiffImages()
         if change.kind != .untracked && change.kind != .added {
             images.before = committedBytes(tool: tool, path: change.originalPath ?? change.path,
@@ -786,10 +505,10 @@ enum GitInspector {
     // The shared runner keeps output as text, which would mangle a picture, so the raw
     // chunks are gathered as they arrive. The "./" makes git read the path from the
     // folder it runs in rather than from the top of the repository.
-    private static func committedBytes(tool: GitTool, path: String, at commit: String, in root: URL) -> Data? {
+    private static func committedBytes(tool: Git.Tool, path: String, at commit: String, in root: URL) -> Data? {
         let collected = ByteCollector()
-        let output = run(tool, ["--no-pager", "show", commit + ":./" + path], in: root,
-                         captureByteLimit: untrackedByteLimit) { collected.append($0) }
+        let output = Git.run(tool, ["--no-pager", "show", commit + ":./" + path], in: root,
+                             captureByteLimit: untrackedByteLimit) { collected.append($0) }
         guard output.ok, !output.truncated else { return nil }
         return collected.data
     }
@@ -836,8 +555,8 @@ enum GitInspector {
     // hidden between the two sides.
     static func expand(_ gap: DiffGap, _ direction: DiffExpandDirection,
                        root: String) async -> DiffExpansion {
-        guard let tool = await tool() else { return DiffExpansion(gap: gap) }
-        return await offMain(lane: .interactive) {
+        guard let tool = Git.tool() else { return DiffExpansion(gap: gap) }
+        return await Git.offMain(lane: .interactive) {
             let rootURL = URL(fileURLWithPath: root)
             guard let text = contents(of: gap.path, at: gap.revision, tool: tool, root: rootURL)
             else { return DiffExpansion() }
@@ -865,7 +584,7 @@ enum GitInspector {
     }
 
     private static func contents(of path: String, at revision: DiffRevision,
-                                 tool: GitTool, root: URL) -> String? {
+                                 tool: Git.Tool, root: URL) -> String? {
         switch revision {
         case .workingTree:
             guard let data = readLimited(root.appendingPathComponent(path)),
@@ -878,271 +597,22 @@ enum GitInspector {
         }
     }
 
-    private static func show(_ object: String, tool: GitTool, root: URL) -> String? {
-        let output = run(tool, ["--no-pager", "show", object], in: root)
+    private static func show(_ object: String, tool: Git.Tool, root: URL) -> String? {
+        let output = Git.run(tool, ["--no-pager", "show", object], in: root)
         guard output.ok, !output.truncated else { return nil }
         return output.text
     }
 
-    // MARK: - Parsing
-
-    // Porcelain v1 records are "XY path", NUL separated. A rename adds a second record
-    // holding the old path.
-    private static func parseStatus(_ text: String) -> [GitChange] {
-        let records = text.components(separatedBy: "\0")
-        var files: [GitChange] = []
-        var i = 0
-        while i < records.count {
-            let entry = Array(records[i])
-            i += 1
-            guard entry.count > 3 else { continue }
-            let index = entry[0]
-            let worktree = entry[1]
-            let path = String(entry[3...])
-
-            var original: String?
-            if index == "R" || index == "C" || worktree == "R" || worktree == "C" {
-                guard i < records.count else { break }
-                original = records[i]
-                i += 1
-            }
-
-            let untracked = index == "?" && worktree == "?"
-            let conflicted = index == "U" || worktree == "U"
-                || (index == "A" && worktree == "A") || (index == "D" && worktree == "D")
-
-            let kind: GitStatusKind
-            if untracked {
-                kind = .untracked
-            } else if conflicted {
-                kind = .conflicted
-            } else {
-                kind = self.kind(from: index == " " ? worktree : index)
-            }
-
-            files.append(GitChange(
-                path: path,
-                originalPath: original,
-                kind: kind,
-                isStaged: !untracked && index != " ",
-                isUnstaged: untracked || worktree != " ",
-                added: nil,
-                removed: nil,
-                isBinary: false))
-        }
-        return files
-    }
-
-    // --name-status -z records are a status then a path, NUL separated. A rename or a
-    // copy carries a score in its status and the old path before the new one.
-    static func parseNameStatus(_ text: String) -> [(path: String, originalPath: String?, kind: GitStatusKind)] {
-        let records = text.components(separatedBy: "\0")
-        var entries: [(path: String, originalPath: String?, kind: GitStatusKind)] = []
-        var i = 0
-        while i + 1 < records.count {
-            guard let letter = records[i].first else { i += 1; continue }
-            if letter == "R" || letter == "C" {
-                guard i + 2 < records.count else { break }
-                entries.append((records[i + 2], records[i + 1], kind(from: letter)))
-                i += 3
-            } else {
-                entries.append((records[i + 1], nil, kind(from: letter)))
-                i += 2
-            }
-        }
-        return entries
-    }
-
-    private static func kind(from letter: Character) -> GitStatusKind {
-        switch letter {
-        case "A", "C": .added
-        case "D": .deleted
-        case "R": .renamed
-        default: .modified
-        }
-    }
-
-    // numstat -z records are "added\tremoved\tpath". A rename leaves the path empty and
-    // puts the old and new paths in the two records that follow.
-    private static func parseNumstat(_ text: String) -> [(path: String, added: Int?, removed: Int?)] {
-        let records = text.components(separatedBy: "\0")
-        var entries: [(String, Int?, Int?)] = []
-        var i = 0
-        while i < records.count {
-            let parts = records[i].split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
-            i += 1
-            guard parts.count >= 3 else { continue }
-            // git writes "-" for both counts when the file is binary.
-            let added = Int(parts[0])
-            let removed = Int(parts[1])
-            var path = parts[2]
-            if path.isEmpty {
-                guard i + 1 < records.count else { break }
-                i += 1
-                path = records[i]
-                i += 1
-            }
-            guard !path.isEmpty else { continue }
-            entries.append((path, added, removed))
-        }
-        return entries
-    }
-
-    // What one pass over git's output found. Gap rows are ours rather than git's, so
-    // they are counted apart from the diff's own rows.
-    private struct ParsedDiff {
-        var lines: [DiffLine] = []
-        var total = 0
-        var extra = 0
-        var binary = false
-
-        var truncated: Bool { total > lines.count - extra }
-    }
-
-    // Header lines before the first hunk are noise we already show elsewhere, so they are
-    // dropped. Once inside a hunk every line is classified by its first character only:
-    // a removed line whose own text starts with "--" would otherwise look like a header.
-    private static func parse(
-        _ text: String, startingAt offset: Int, limit: Int,
-        revision: DiffRevision, path defaultPath: String
-    ) -> ParsedDiff {
-        var result = ParsedDiff()
-        var inHunk = false
-        var path = defaultPath
-        // Where the new side of the file has got to, so a hunk starting further down
-        // says how many unchanged lines the diff skipped over.
-        var nextNewLine = 1
-        // An added file is shown whole, so it has no tail left to offer.
-        var whole = false
-        var gapID = 0
-
-        // A row for lines the diff left out. It goes where the hole is, so it keeps
-        // sitting between the lines shown on either side of it however it is opened.
-        func openGap(from start: Int, count: Int?) {
-            if let count, count <= 0 { return }
-            guard result.lines.count < limit else { return }
-            result.extra += 1
-            result.lines.append(DiffLine(
-                id: offset + result.lines.count, kind: .gap, text: "",
-                gap: DiffGap(revision: revision, path: path, id: gapID,
-                             start: start, count: count)))
-            gapID += 1
-        }
-
-        // Whatever the file has after its last hunk. A deleted file has no new side to
-        // read, and its hunks never move the new line count off the start.
-        func openTail() {
-            guard inHunk, !whole, nextNewLine > 1 else { return }
-            openGap(from: nextNewLine, count: nil)
-        }
-
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(raw)
-            if line.hasPrefix("diff --git") {
-                // Start of another file in the same output: back to header lines.
-                openTail()
-                inHunk = false
-                whole = false
-                path = fileName(fromDiffHeader: line)
-                nextNewLine = 1
-                continue
-            }
-            if !inHunk {
-                if line.hasPrefix("@@") {
-                    inHunk = true
-                } else if line.hasPrefix("Binary files") || line.hasPrefix("GIT binary patch") {
-                    result.binary = true
-                    break
-                } else if line.hasPrefix("rename from") || line.hasPrefix("rename to")
-                            || line.hasPrefix("new file mode") || line.hasPrefix("deleted file mode") {
-                    if line.hasPrefix("new file mode") { whole = true }
-                    result.total += 1
-                    if result.lines.count < limit {
-                        result.lines.append(DiffLine(id: offset + result.lines.count,
-                                                     kind: .meta, text: line))
-                    }
-                    continue
-                } else {
-                    continue
-                }
-            }
-
-            let kind: DiffLine.Kind
-            switch line.first {
-            case "@": kind = .hunk
-            case "+": kind = .addition
-            case "-": kind = .deletion
-            case "\\": kind = .meta
-            default: kind = .context
-            }
-
-            if kind == .hunk, let range = newSideRange(ofHunk: line) {
-                // A hunk that only removes lines is written as sitting after a line
-                // rather than at one, so the first line it shows is the next one.
-                let firstShown = range.count == 0 ? range.start + 1 : range.start
-                openGap(from: nextNewLine, count: firstShown - nextNewLine)
-                nextNewLine = max(nextNewLine, firstShown + range.count)
-            }
-
-            result.total += 1
-            if result.lines.count < limit {
-                result.lines.append(DiffLine(id: offset + result.lines.count, kind: kind,
-                                             text: clean(line)))
-            }
-        }
-
-        // A trailing newline always produces one empty final line.
-        if let last = result.lines.last, last.text.isEmpty, last.kind == .context {
-            result.lines.removeLast()
-            result.total -= 1
-        }
-        openTail()
-        return result
-    }
-
-    // "@@ -12,7 +34,9 @@ trailing" says the new side starts at line 34 and covers 9
-    // lines. A missing count means one line.
-    private static func newSideRange(ofHunk line: String) -> (start: Int, count: Int)? {
-        let fields = line.split(separator: " ")
-        guard fields.count >= 3, fields[2].hasPrefix("+") else { return nil }
-        let numbers = fields[2].dropFirst().split(separator: ",")
-        guard let start = Int(numbers[0]) else { return nil }
-        guard numbers.count > 1 else { return (start, 1) }
-        guard let count = Int(numbers[1]) else { return nil }
-        return (start, count)
-    }
-
-    // "diff --git a/old b/new" names the file; the b side is where it lives now. Paths
-    // with unusual characters arrive quoted, so the quote is part of the marker then.
-    private static func fileName(fromDiffHeader line: String) -> String {
-        if let range = line.range(of: " \"b/") {
-            var name = String(line[range.upperBound...])
-            if name.hasSuffix("\"") { name.removeLast() }
-            return name
-        }
-        if let range = line.range(of: " b/") {
-            return String(line[range.upperBound...])
-        }
-        return line
-    }
-
-    private static func clean(_ line: String) -> String {
-        var text = line.replacingOccurrences(of: "\t", with: "    ")
-        text = text.replacingOccurrences(of: "\r", with: "")
-        if text.count > lineCharacterLimit {
-            text = String(text.prefix(lineCharacterLimit)) + " …"
-        }
-        return text
-    }
+    // MARK: - Review and copy
 
     static func reviewDiff(for change: GitChange, root: String, base: String? = nil) async -> FileDiff {
         if change.isBinary || FileTree.imageKinds.contains((change.path as NSString).pathExtension.lowercased()) {
             return await diff(for: change, root: root, base: base)
         }
-        guard let tool = await tool() else { return FileDiff(note: "Git is unavailable.") }
-        return await offMain(lane: .interactive) {
-            let output = run(tool, patchArguments(for: change, tool: tool, root: root, base: base),
-                             in: URL(fileURLWithPath: root))
+        guard let tool = Git.tool() else { return FileDiff(note: Git.unavailableMessage) }
+        return await Git.offMain(lane: .interactive) {
+            let output = Git.run(tool, patchArguments(for: change, tool: tool, root: root, base: base),
+                                 in: URL(fileURLWithPath: root))
             guard output.ok || (change.isUntracked && output.status == 1) else { return FileDiff(note: output.failureMessage) }
             let parsed = parse(output.text, startingAt: 0, limit: diffLineLimit,
                                revision: .workingTree, path: change.path)
@@ -1152,34 +622,34 @@ enum GitInspector {
         }
     }
 
-    private static func patchArguments(for change: GitChange, tool: GitTool, root: String,
+    private static func patchArguments(for change: GitChange, tool: Git.Tool, root: String,
                                        base: String?) -> [String] {
         if change.isUntracked {
             return ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", change.path]
         }
         var paths = [change.path]
         if let original = change.originalPath { paths.insert(original, at: 0) }
-        return ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "-M",
-                base ?? lastCommit(tool: tool, root: root), "--"] + paths
+        return ["diff", "--no-color"] + Git.plainDiff
+            + ["-M", base ?? lastCommit(tool: tool, root: root), "--"] + paths
     }
 
-    private static func lastCommit(tool: GitTool, root: String) -> String {
-        run(tool, ["rev-parse", "--verify", "HEAD"], in: URL(fileURLWithPath: root)).ok ? "HEAD" : emptyTree
+    private static func lastCommit(tool: Git.Tool, root: String) -> String {
+        Git.run(tool, ["rev-parse", "--verify", "HEAD"], in: URL(fileURLWithPath: root)).ok ? "HEAD" : Git.emptyTree
     }
 
     enum CopyVersion: Sendable { case patch, before, after }
 
     static func copyText(for change: GitChange, root: String, version: CopyVersion,
                          base: String? = nil) async -> Result<String, CopyError> {
-        guard let tool = await tool() else { return .failure(CopyError(message: "Git is unavailable.")) }
-        return await offMain(lane: .interactive) {
+        guard let tool = Git.tool() else { return .failure(CopyError(message: Git.unavailableMessage)) }
+        return await Git.offMain(lane: .interactive) {
             let url = URL(fileURLWithPath: root)
             if version == .after || (version == .before && (change.isUntracked || change.kind == .added)) {
                 if version == .before || change.kind == .deleted { return .success("") }
                 do {
                     let file = url.appendingPathComponent(change.path)
                     let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= outputByteLimit else {
+                    guard size <= Git.outputByteLimit else {
                         return .failure(CopyError(message: "This file is too large to copy in full. Open it in an editor to copy it."))
                     }
                     return .success(try String(contentsOf: file, encoding: .utf8))
@@ -1188,7 +658,7 @@ enum GitInspector {
             let arguments = version == .before
                 ? ["show", (base ?? "HEAD") + ":" + (change.originalPath ?? change.path)]
                 : patchArguments(for: change, tool: tool, root: root, base: base)
-            let result = run(tool, arguments, in: url)
+            let result = Git.run(tool, arguments, in: url)
             guard (result.ok || (change.isUntracked && result.status == 1)), !result.truncated else {
                 return .failure(CopyError(message: result.truncated ? "This file is too large to copy in full. Open it in an editor to copy it." : result.failureMessage))
             }
@@ -1220,121 +690,5 @@ enum GitInspector {
     private static func sum(_ a: Int?, _ b: Int?) -> Int? {
         guard let a, let b else { return nil }
         return a + b
-    }
-
-    // MARK: - Running git
-
-    // The runner below is shared with every other part of the app that starts git, so
-    // they all behave the same way: same lookup, same environment, same pipe handling.
-    struct GitTool: Sendable {
-        var path: String
-        var searchPath: String
-    }
-
-    // ProcessManager owns executable lookup, and a Finder launched app has almost no PATH,
-    // so reuse it rather than assuming /usr/bin/git exists.
-    @MainActor static func tool() -> GitTool? {
-        guard let path = ProcessManager.resolve("git") else { return nil }
-        return GitTool(path: path, searchPath: ProcessManager.searchPath)
-    }
-
-    struct CommandOutput: Sendable {
-        var text = ""
-        var errorText = ""
-        var status: Int32 = -1
-        var truncated = false
-        // The command was stopped for running past its timeout, which says the other end
-        // was slow rather than that it said no.
-        var timedOut = false
-
-        var ok: Bool { status == 0 }
-        // Most answers are one line, and git ends every one of them with a newline.
-        var trimmedText: String { text.trimmed }
-        var failureMessage: String {
-            let trimmed = errorText.trimmed
-            return trimmed.isEmpty ? "git exited with code \(status)." : trimmed
-        }
-
-        // The two numbers `rev-list --left-right --count ours...theirs` prints: commits
-        // only ours has, then commits only theirs has. Every caller names the local side
-        // first so the pair reads the same way everywhere. Nil when git could not say.
-        var aheadBehind: (ahead: Int, behind: Int)? {
-            let counts = text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
-            guard ok, counts.count == 2 else { return nil }
-            return (counts[0], counts[1])
-        }
-    }
-
-    // `directory` is nil for callers that steer git with `-C` instead: the folder they
-    // target may no longer exist, and a missing working directory would keep the
-    // process from launching at all.
-    static func run(_ tool: GitTool, _ arguments: [String], in directory: URL? = nil,
-                    timeout: TimeInterval? = nil,
-                    captureByteLimit: Int = GitInspector.outputByteLimit,
-                    environment extra: [String: String] = [:],
-                    outputChunkHandler: (@Sendable (Data) -> Void)? = nil) -> CommandOutput {
-        var environment = GitEnvironment.nonInteractive(searchPath: tool.searchPath)
-        // What a caller adds wins over the shared settings. A snapshot sends
-        // GIT_INDEX_FILE, an index of its own to record into, so that recording cannot
-        // disturb the one the reader's own staged work lives in.
-        environment.merge(extra) { _, override in override }
-
-        var result = CommandOutput()
-        do {
-            let output = try CommandRunner.runBlocking(
-                executable: tool.path,
-                arguments: arguments,
-                currentDirectory: directory,
-                environment: environment,
-                outputChunkHandler: outputChunkHandler,
-                timeout: timeout.map { .seconds($0) },
-                outputByteLimit: captureByteLimit
-            )
-            result.text = output.output
-            result.errorText = output.errorOutput
-            result.status = output.status
-            result.truncated = output.outputTruncated || output.errorOutputTruncated
-        } catch {
-            result.errorText = error.localizedDescription
-            result.timedOut = error as? CommandRunner.RunError == .timedOut
-        }
-        return result
-    }
-
-    // The same run for a command the caller may give up on, such as a fetch the user
-    // stops: cancelling the calling task stops git and everything it started.
-    static func runCancellable(_ tool: GitTool, _ arguments: [String], in directory: URL? = nil,
-                               timeout: TimeInterval? = nil) async -> CommandOutput {
-        var result = CommandOutput()
-        do {
-            let output = try await CommandRunner.run(
-                executable: tool.path,
-                arguments: arguments,
-                currentDirectory: directory,
-                environment: GitEnvironment.nonInteractive(searchPath: tool.searchPath),
-                timeout: timeout.map { .seconds($0) },
-                outputByteLimit: GitInspector.outputByteLimit
-            )
-            result.text = output.output
-            result.errorText = output.errorOutput
-            result.status = output.status
-            result.truncated = output.outputTruncated || output.errorOutputTruncated
-        } catch {
-            result.errorText = error.localizedDescription
-            result.timedOut = error as? CommandRunner.RunError == .timedOut
-        }
-        return result
-    }
-
-    // Git is slow enough on a big repo to be felt, so it runs on a serial background
-    // queue rather than the main thread or an unbounded number of shared workers.
-    static func offMain<T: Sendable>(lane: Lane = .background,
-                                     _ work: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            let queue = lane == .interactive ? interactiveQueue : backgroundQueue
-            queue.async {
-                continuation.resume(returning: work())
-            }
-        }
     }
 }

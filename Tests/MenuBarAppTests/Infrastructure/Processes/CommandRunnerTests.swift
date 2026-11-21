@@ -366,9 +366,9 @@ struct CommandRunnerTests {
     }
 
     @Test func gitRunnerBoundsAndDrainsBothStreams() async {
-        let tool = GitInspector.GitTool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
-        let output = await GitInspector.offMain {
-            GitInspector.run(
+        let tool = Git.Tool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
+        let output = await Git.offMain {
+            Git.run(
                 tool,
                 ["-c", "yes output | head -c 100000; yes error | head -c 100000 >&2"],
                 timeout: 2,
@@ -384,12 +384,12 @@ struct CommandRunnerTests {
 
     @Test func gitRunnerTimeoutKillsADescendantThatInheritedThePipes() async throws {
         let pidFile = scratch.path("child.pid")
-        let tool = GitInspector.GitTool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
+        let tool = Git.Tool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
         let arguments = backgroundChildArguments(pidFile: pidFile,
                                                   keepLeaderRunning: true)
         let started = ContinuousClock.now
-        let output = await GitInspector.offMain {
-            GitInspector.run(tool, arguments, timeout: 0.2)
+        let output = await Git.offMain {
+            Git.run(tool, arguments, timeout: 0.2)
         }
 
         #expect(output.status == -1)
@@ -405,7 +405,7 @@ struct CommandRunnerTests {
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<20 {
                 group.addTask {
-                    await GitInspector.offMain {
+                    await Git.offMain {
                         probe.enter()
                         usleep(10_000)
                         probe.leave()

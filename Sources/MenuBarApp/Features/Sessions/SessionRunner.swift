@@ -1489,7 +1489,7 @@ final class SessionRunner {
         // Where the tree stands before the turn touches it. Without this the turn's first
         // call would be credited with everything that changed since the last one ended,
         // which is whatever was edited by hand in between.
-        if let git = GitInspector.tool() {
+        if let git = Git.tool() {
             TreeSnapshots.shared.baseline(at: workingDirectory, using: git)
         }
         // Read before the agent starts, which is long before it could make a commit.
@@ -2002,7 +2002,7 @@ final class SessionRunner {
                                     describesOwnChange: Bool,
                                     fallbackEditIDs: [String] = [], turn: Turn,
                                     sessionID: UUID, store: ProjectStore) {
-        guard TreeSnapshots.measures(name), let git = GitInspector.tool() else { return }
+        guard TreeSnapshots.measures(name), let git = Git.tool() else { return }
         let messageID = turn.messageID
         TreeSnapshots.shared.change(at: turn.workingDirectory, using: git) { change in
             guard let change else { return }

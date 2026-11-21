@@ -187,9 +187,9 @@ enum FileTextSearch {
     // output are rarely what the reader is after, and in a web project they hold far more
     // text than the budget, so the files that matter would never be read. The paths are
     // relative to `root`. Nil outside a repository, where every file is searched.
-    static func unignoredPaths(beneath root: String, tool: GitInspector.GitTool) async -> Set<String>? {
-        await GitInspector.offMain(lane: .interactive) {
-            let output = GitInspector.run(
+    static func unignoredPaths(beneath root: String, tool: Git.Tool) async -> Set<String>? {
+        await Git.offMain(lane: .interactive) {
+            let output = Git.run(
                 tool, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
                 in: URL(fileURLWithPath: root), captureByteLimit: 64 << 20)
             guard output.ok, !output.truncated else { return nil }
@@ -307,7 +307,7 @@ final class FindInFilesModel {
     }
 
     func load() async {
-        let tool = GitInspector.tool()
+        let tool = Git.tool()
         async let walked = FileTree.files(
             beneath: URL(fileURLWithPath: root), includeHidden: includeHidden)
         var paths: Set<String>?

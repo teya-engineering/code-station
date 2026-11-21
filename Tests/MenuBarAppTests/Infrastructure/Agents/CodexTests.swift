@@ -1004,7 +1004,7 @@ private extension RunnerHarness {
     // Snapshots run in order on one queue, so waiting on one of our own is waiting for
     // the turn's baseline to have been taken.
     func waitForBaseline() async {
-        let git = GitInspector.GitTool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
+        let git = Git.Tool(path: "/usr/bin/git", searchPath: "/usr/bin:/bin")
         _ = await withCheckedContinuation { continuation in
             TreeSnapshots.shared.change(at: projectURL.path, using: git) {
                 continuation.resume(returning: $0)
