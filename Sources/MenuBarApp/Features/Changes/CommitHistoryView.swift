@@ -381,7 +381,7 @@ struct CommitHistoryView: View {
     private func viewedState(_ file: GitChange) -> ViewedState? {
         guard let review, let version = result?.versions[file.path] else { return nil }
         let state = review.reviews.viewed.state(ViewedFileStore.key(root: root, path: file.path),
-                                                version: version, in: review.sessionID)
+                                                change: version, in: review.sessionID)
         return state == .viewed ? .viewed : .notViewed
     }
 
@@ -403,7 +403,7 @@ struct CommitHistoryView: View {
         collapsed = Set(result.files.filter { file in
             guard let version = result.versions[file.path] else { return false }
             return review.reviews.viewed.state(ViewedFileStore.key(root: root, path: file.path),
-                                               version: version, in: review.sessionID) == .viewed
+                                               change: version, in: review.sessionID) == .viewed
         }.map(\.id))
     }
 
@@ -412,20 +412,20 @@ struct CommitHistoryView: View {
         guard let review, let version = result?.versions[file.path] else { return }
         let store = review.reviews.viewed
         let key = ViewedFileStore.key(root: root, path: file.path)
-        if store.state(key, version: version, in: review.sessionID) == .viewed {
-            store.unmark(key, version: version, in: review.sessionID)
+        if store.state(key, change: version, in: review.sessionID) == .viewed {
+            store.unmark(key, change: version, in: review.sessionID)
             collapsed.remove(file.id)
             announce("\(file.fileName) marked not viewed")
             return
         }
-        store.mark(key, version: version, in: review.sessionID)
+        store.mark(key, change: version, in: review.sessionID)
         collapsed.insert(file.id)
         announce("\(file.fileName) marked viewed")
-        guard !file.isBinary, version != FileVersion.deleted else { return }
+        guard !file.isBinary, version.after != .absent else { return }
         let root = root
         Task {
-            guard let text = await GitInspector.blobText(version, root: root) else { return }
-            store.keep(text, for: version)
+            guard let text = await GitInspector.blobText(version.after.blob, root: root) else { return }
+            store.keep(text, for: version.after.blob)
         }
     }
 

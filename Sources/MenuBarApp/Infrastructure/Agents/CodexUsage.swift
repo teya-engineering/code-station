@@ -97,11 +97,12 @@ struct CodexUsage: Equatable, Sendable {
 
 enum CodexUsageReader {
     static func read(at path: String, searchPath: String) async -> CodexUsage? {
-        guard let initialize = messageData([
+        let framer = AgentMessageFramer(format: .jsonLines)
+        guard let initialize = framer.frame([
             "id": 1,
             "method": "initialize",
             "params": ["clientInfo": ["name": "Teya", "version": "1"]],
-        ]), let usageRequest = messageData([
+        ]), let usageRequest = framer.frame([
             "id": 2,
             "method": "account/rateLimits/read",
         ]) else { return nil }
@@ -133,11 +134,5 @@ enum CodexUsageReader {
             return CodexUsage(response: result)
         }
         return nil
-    }
-
-    private static func messageData(_ object: [String: Any]) -> Data? {
-        guard var data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        data.append(0x0A)
-        return data
     }
 }

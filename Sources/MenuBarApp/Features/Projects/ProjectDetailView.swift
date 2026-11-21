@@ -32,8 +32,7 @@ struct ProjectDetailView: View {
     // How many sessions the agents ran in this folder that the app does not hold yet. The
     // button that brings them in only shows when there is something to bring.
     @State private var importableCount = 0
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     private var terminalScope: TerminalScope { .project(projectID) }
     private var shortcutScope: ShortcutScope { .project(projectID) }
@@ -62,16 +61,7 @@ struct ProjectDetailView: View {
                 }
             }
             .background(Theme.background)
-            .overlay(alignment: .topTrailing) {
-                ZStack {
-                    if let note {
-                        HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
-                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                    }
-                }
-                .motion(Motion.reveal, value: note)
-            }
+            .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxxl)
             .background(TerminalShortcut(scope: terminalScope, directory: project.path,
                                          focusTerminal: $terminalFocused)
                             .disabled(store.isMissing(project)))
@@ -695,16 +685,8 @@ struct ProjectDetailView: View {
         showNote("Showed \(project.name) in Finder")
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "arrow.up.forward.app")
     }
 }
 

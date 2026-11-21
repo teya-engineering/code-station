@@ -2,9 +2,28 @@ import CryptoKit
 import Foundation
 import Observation
 
-// A changed file the reviewer has ticked off as read. The tick is on one version of the
-// file's content, so it lasts while that content does: the agent editing the file again
-// makes a new version, and the file asks to be looked at once more.
+// Both sides matter: reading a small commit must not tick off a larger branch diff.
+struct ViewedChange: Codable, Equatable, Sendable {
+    struct Version: Codable, Equatable, Sendable {
+        var mode: String
+        var blob: String
+
+        init(mode: String, blob: String) {
+            self.mode = mode
+            self.blob = mode == "000000" ? FileVersion.deleted : blob
+        }
+
+        static let absent = Version(mode: "000000", blob: FileVersion.deleted)
+    }
+
+    var before: Version
+    var after: Version
+    var originalPath: String?
+
+    func hasSameBase(as other: ViewedChange) -> Bool {
+        before == other.before && originalPath == other.originalPath
+    }
+}
 
 enum ViewedState: Equatable {
     case notViewed
@@ -32,8 +51,24 @@ enum ViewedState: Equatable {
 enum FileVersion {
     // A deleted file has no content, and stays the same deletion until it comes back.
     static let deleted = "deleted"
-    // Past this a file is named by its size and age instead of read whole on every refresh.
-    static let readLimit = 32 << 20
+
+    static func entry(at url: URL) -> ViewedChange.Version? {
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        } catch let error as NSError {
+            return error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError ? .absent : nil
+        }
+        if attributes[.type] as? FileAttributeType == .typeSymbolicLink {
+            guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path) else { return nil }
+            return .init(mode: "120000", blob: blobID(Data(target.utf8)))
+        }
+        guard attributes[.type] as? FileAttributeType == .typeRegular else { return nil }
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        let mode = permissions & 0o111 == 0 ? "100644" : "100755"
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        return .init(mode: mode, blob: blobID(data))
+    }
 
     // Git's own id for the content, so a version seen on disk is the same version as the
     // blob a later commit stores, and a file committed as it was read is still read.
@@ -44,38 +79,11 @@ enum FileVersion {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    // What each changed file holds on disk now, keyed by its path.
-    static func onDisk(_ files: [GitChange], root: String) async -> [String: String] {
-        let rootURL = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
-            var versions: [String: String] = [:]
-            for file in files {
-                versions[file.path] = version(of: file, in: rootURL)
-            }
-            return versions
-        }
-    }
-
-    private static func version(of file: GitChange, in root: URL) -> String {
-        guard file.kind != .deleted else { return deleted }
-        let url = root.appendingPathComponent(file.path)
-        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else {
-            return deleted
-        }
-        let size = values.fileSize ?? 0
-        if size > readLimit {
-            let age = values.contentModificationDate?.timeIntervalSince1970 ?? 0
-            return "large:\(size):\(Int(age))"
-        }
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return deleted }
-        return blobID(data)
-    }
-
     // The text of a version read from disk now, for finding the lines added after it was
     // viewed. Nil for anything that is not plain text or is too big to keep.
     static func text(at path: String, root: String) async -> (version: String, text: String)? {
         let url = URL(fileURLWithPath: root).appendingPathComponent(path)
-        return await GitInspector.offMain(lane: .interactive) {
+        return await Git.offMain(lane: .interactive) {
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
                   data.count <= ViewedFileStore.textLimit,
                   let text = String(data: data, encoding: .utf8) else { return nil }
@@ -139,6 +147,8 @@ enum ViewedLines {
 struct ViewedMark: Codable, Equatable, Sendable {
     var version: String
     var at: Date
+    // Older marks did not record the comparison, so they cannot prove a diff was read.
+    var change: ViewedChange? = nil
 }
 
 // The file Changes opens on when it is entered. A file asked for comes first. Otherwise
@@ -216,37 +226,54 @@ final class ViewedFileStore {
     // The same key the file's comments are kept under: its git root, a slash and the path.
     static func key(root: String, path: String) -> String { root + "/" + path }
 
-    func state(_ key: String, version: String?, in session: UUID) -> ViewedState {
-        guard let version, let list = marks[session]?[key], let last = list.last else { return .notViewed }
-        return list.contains { $0.version == version } ? .viewed : .edited(since: last.at)
+    func state(_ key: String, change: ViewedChange?, in session: UUID) -> ViewedState {
+        guard let change, let list = marks[session]?[key],
+              let last = list.last(where: { $0.change?.hasSameBase(as: change) == true }) else { return .notViewed }
+        return list.contains { $0.change == change } ? .viewed : .edited(since: last.at)
     }
 
-    // The newest version ticked off, which new lines are measured from.
-    func latest(_ key: String, in session: UUID) -> ViewedMark? { marks[session]?[key]?.last }
+    func latest(_ key: String, change: ViewedChange, in session: UUID) -> ViewedMark? {
+        marks[session]?[key]?.last { $0.change?.hasSameBase(as: change) == true }
+    }
 
     func hasMarks(_ session: UUID) -> Bool { !(marks[session]?.isEmpty ?? true) }
 
     // Every tick in a session, to put back if clearing them was a slip.
     func marks(in session: UUID) -> [String: [ViewedMark]] { marks[session] ?? [:] }
 
-    func restore(_ restored: [String: [ViewedMark]], in session: UUID) {
-        marks[session] = restored.isEmpty ? nil : restored
+    struct Checkpoint {
+        var marks: [String: [ViewedMark]]
+        var texts: [String: String]
+    }
+
+    func checkpoint(in session: UUID) -> Checkpoint {
+        let saved = marks(in: session)
+        let versions = Set(saved.values.flatMap { $0.map(\.version) })
+        return Checkpoint(marks: saved, texts: Dictionary(uniqueKeysWithValues: versions.compactMap { version in
+            text(of: version).map { (version, $0) }
+        }))
+    }
+
+    func restore(_ checkpoint: Checkpoint, in session: UUID) {
+        marks[session] = checkpoint.marks.isEmpty ? nil : checkpoint.marks
+        for (version, text) in checkpoint.texts { keepText(text, for: version) }
         changed()
     }
 
-    func mark(_ key: String, version: String, text: String? = nil, in session: UUID, at date: Date = Date()) {
+    func mark(_ key: String, change: ViewedChange, text: String? = nil, in session: UUID, at date: Date = Date()) {
         var list = marks[session]?[key] ?? []
-        list.removeAll { $0.version == version }
-        list.append(ViewedMark(version: version, at: date))
+        let version = change.after.blob
+        list.removeAll { $0.change == change }
+        list.append(ViewedMark(version: version, at: date, change: change))
         if list.count > Self.keptVersions { list.removeFirst(list.count - Self.keptVersions) }
         marks[session, default: [:]][key] = list
         if let text, text.utf8.count <= Self.textLimit { keepText(text, for: version) }
         changed()
     }
 
-    func unmark(_ key: String, version: String, in session: UUID) {
+    func unmark(_ key: String, change: ViewedChange, in session: UUID) {
         guard var list = marks[session]?[key] else { return }
-        list.removeAll { $0.version == version }
+        list.removeAll { $0.change == change }
         marks[session]?[key] = list.isEmpty ? nil : list
         if marks[session]?.isEmpty == true { marks[session] = nil }
         changed()

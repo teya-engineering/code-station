@@ -79,7 +79,7 @@ struct FirstRunWizard: View {
     }
 
     private func refresh(_ agent: AgentKind?) {
-        runner.refreshAvailableAgents()
+        runner.catalog.refreshAvailableAgents()
         if agent == nil || agent == .claudeCode { claude.refresh() }
         if agent == nil || agent == .codex { codex.refresh() }
         if agent == nil || agent == .copilot { copilot.refresh() }
@@ -87,9 +87,9 @@ struct FirstRunWizard: View {
 
     private func finish(openProject: Bool) {
         guard setup.finish(in: store, openProject: openProject) else { return }
-        runner.refreshAvailableAgents()
-        if !setup.agentWasDeferred, runner.isAvailable(setup.selectedAgent) {
-            runner.agent = setup.selectedAgent
+        runner.catalog.refreshAvailableAgents()
+        if !setup.agentWasDeferred, runner.catalog.isAvailable(setup.selectedAgent) {
+            runner.catalog.agent = setup.selectedAgent
         }
         onFinish()
     }

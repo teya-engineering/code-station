@@ -34,7 +34,7 @@ struct WorkspaceChangesView: View {
     }
 
     // One screen shows the open project and lists the others in its navigator from the
-    // shared git cache. Picking another project swaps what the screen shows rather than
+    // saved comparisons. Picking another project swaps what the screen shows rather than
     // building a new screen, so the navigator stays where it was. What a project has to
     // remember is kept in the navigation memory, so a project opens where it was left.
     var body: some View {
@@ -57,7 +57,7 @@ struct WorkspaceChangesView: View {
         (pullRequestReviews.loaded[session.id] ?? []).filter(\.isOpen).map { loaded in
             PullRequestBase(number: loaded.pullRequest.number, headBranch: loaded.status.headBranch,
                             baseBranch: loaded.status.baseBranch, owner: loaded.pullRequest.owner,
-                            repository: loaded.pullRequest.repository)
+                            repository: loaded.pullRequest.repository, headRepositoryURL: loaded.status.headRepositoryURL)
         }
     }
 
@@ -66,9 +66,9 @@ struct WorkspaceChangesView: View {
         let author = runner.author(of: session)
         return ReviewTarget(sessionID: sessionID, agent: session.agent, reviews: runner.reviews,
                             authorModel: author.model, authorEffort: author.effort,
-                            executable: { [runner] in runner.executable(for: $0) },
+                            executable: { [runner] in runner.catalog.executable(for: $0) },
                             isBusy: { [runner] in runner.state(sessionID).isBusy },
-                            send: { [runner, store] in runner.send($0, sessionID: sessionID, store: store) },
+                            send: { [runner] in runner.send($0, sessionID: sessionID) },
                             openChat: reviewSent,
                             conversation: { [store, session, initialRoot] in
                                 let current = store.session(sessionID) ?? session

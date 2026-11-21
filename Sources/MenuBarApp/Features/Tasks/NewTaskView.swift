@@ -122,7 +122,7 @@ struct NewTaskView: View {
                 Spacer(minLength: 8)
                 AgentAndBotPicker(avatars: appSettings.agentAvatars,
                                   selectedAvatarName: avatarBinding,
-                                  agent: agent ?? runner.agent,
+                                  agent: agent ?? runner.catalog.agent,
                                   agentMenu: agentMenu)
             }
             .padding(.leading, Space.lg)
@@ -154,7 +154,7 @@ struct NewTaskView: View {
     }
 
     private var agentMenu: [MenuEntry] {
-        [.item("Use the default (\(runner.agent.title))", checked: agent == nil) {
+        [.item("Use the default (\(runner.catalog.agent.title))", checked: agent == nil) {
             agent = nil
         }, .separator]
         + AgentKind.allCases.map { kind in

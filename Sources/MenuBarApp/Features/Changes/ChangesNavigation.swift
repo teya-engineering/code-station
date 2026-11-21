@@ -111,9 +111,9 @@ final class ChangesNavigationMemory {
     var fileFilter = ""
     // Leaves the files already marked viewed out of the list.
     var hideViewed = false
-    // What each changed file holds now, by project and then path, so a file's viewed tick
-    // is known the moment the list is drawn again rather than after the files are read.
-    var fileVersions: [String: [String: String]] = [:]
+    // Each project's chosen comparison, including committed work and viewed identities.
+    // The shared Git cache holds only uncommitted work.
+    var snapshots: [String: GitSnapshot] = [:]
     // How far through the changed files the reviewer is, read by the turn's footer, which
     // sits outside the screen that counts them.
     var viewedTally: ViewedTally?
@@ -331,6 +331,17 @@ struct PullRequestBase: Equatable, Sendable {
     var baseBranch: String
     var owner: String?
     var repository: String?
+    var headRepositoryURL: String? = nil
+
+    static func matching(_ candidates: [Self], branch: String, remotes: GitRemoteBranches) -> Self? {
+        let repositories = Set(remotes.urls.values.compactMap(GitRemoteBranches.slug))
+        return candidates.first { candidate in
+            guard candidate.headBranch == branch, !candidate.baseBranch.isEmpty else { return false }
+            let base = candidate.owner.flatMap { owner in candidate.repository.map { (owner + "/" + $0).lowercased() } }
+            let head = candidate.headRepositoryURL.flatMap(GitRemoteBranches.slug)
+            return [base, head].compactMap { $0 }.contains { repositories.contains($0) }
+        }
+    }
 }
 
 // Where comments left on a diff go: the session whose changes these are, and its agent.
@@ -384,6 +395,8 @@ struct CommentDraft: Equatable {
 @Observable
 final class ChangesCommitDraft {
     var message = ""
+    // Files the next commit leaves out. Tracking the exclusions rather than the picks
+    // means a file that appears between refreshes starts selected, like everything else.
     var excluded: Set<GitChange.ID> = []
     var amend = false
     var messageBeforeAmend = ""

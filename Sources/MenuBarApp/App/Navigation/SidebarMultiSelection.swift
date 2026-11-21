@@ -181,8 +181,8 @@ enum SidebarBulkAction {
     private static func subject(of targets: Targets, in store: ProjectStore) -> Dialog.Impact.Subject? {
         guard targets.projects.isEmpty, targets.workspaces.isEmpty,
               let first = targets.sessions.first else { return nil }
-        let container = first.workspaceID ?? first.projectID
-        guard targets.sessions.allSatisfy({ ($0.workspaceID ?? $0.projectID) == container })
+        let container = first.containerID
+        guard targets.sessions.allSatisfy({ $0.containerID == container })
         else { return nil }
         if let workspace = store.workspace(container) {
             return .init(name: workspace.name, kind: .workspace)

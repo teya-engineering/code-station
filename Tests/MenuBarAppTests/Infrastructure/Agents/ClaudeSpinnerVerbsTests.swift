@@ -9,7 +9,7 @@ struct ClaudeSpinnerVerbsTests {
     private let scratch = ScratchDirectory(prefix: "spinner-verbs")
     private let words = ["Mulling", "Pondering"]
 
-    private var home: URL { scratch.path("home") }
+    private var config: URL { scratch.path("config") }
     private var lead: String { scratch.path("checkout").path }
 
     private func write(_ text: String, to path: String) throws {
@@ -19,56 +19,66 @@ struct ClaudeSpinnerVerbsTests {
         try Data(text.utf8).write(to: url)
     }
 
-    private func applied(environment: [String: String] = [:]) -> [String] {
-        ClaudeSpinnerVerbs.applied(to: words, lead: lead, home: home, environment: environment)
+    private func applied() -> [String] {
+        ClaudeSpinnerVerbs.load(configDirectory: config, lead: lead)?.applied(to: words) ?? words
     }
 
     @Test func leavesTheWordsAloneWhenNothingIsSet() throws {
-        #expect(applied() == words)
-        try write(#"{"theme": "dark"}"#, to: "home/.claude/settings.json")
-        #expect(applied() == words)
+        #expect(ClaudeSpinnerVerbs.load(configDirectory: config, lead: lead) == nil)
+        try write(#"{"theme": "dark"}"#, to: "config/settings.json")
+        #expect(ClaudeSpinnerVerbs.load(configDirectory: config, lead: lead) == nil)
     }
 
     @Test func replaceUsesOnlyThePersonsVerbs() throws {
         try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Box box box", "Sending it into Turn 1"]}}"#,
-                  to: "home/.claude/settings.json")
+                  to: "config/settings.json")
         #expect(applied() == ["Box box box", "Sending it into Turn 1"])
     }
 
-    // Claude adds the verbs to its own when no mode is given, and a verb already in the
-    // list is not added twice.
     @Test func appendAddsTheVerbsToTheWordsGiven() throws {
-        try write(#"{"spinnerVerbs": {"verbs": ["Pondering", "Lifting and coasting"]}}"#,
-                  to: "home/.claude/settings.json")
+        try write(#"{"spinnerVerbs": {"mode": "append", "verbs": ["Pondering", "Lifting and coasting"]}}"#,
+                  to: "config/settings.json")
         #expect(applied() == ["Mulling", "Pondering", "Lifting and coasting"])
     }
 
-    @Test func theNearestFileWins() throws {
-        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Mine"]}}"#,
-                  to: "home/.claude/settings.json")
-        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Shared"]}}"#,
+    // Claude merges its settings files rather than picking one: the nearest mode wins and
+    // the lists are joined, so a checkout that only adds a verb still replaces the words
+    // when the person's own file says to.
+    @Test func theFilesAreMergedTheWayClaudeMergesThem() throws {
+        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Mine", "Shared"]}}"#,
+                  to: "config/settings.json")
+        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Shared", "Project"]}}"#,
                   to: "checkout/.claude/settings.json")
-        #expect(applied() == ["Shared"])
-
-        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Local"]}}"#,
+        try write(#"{"spinnerVerbs": {"mode": "append", "verbs": ["Local"]}}"#,
                   to: "checkout/.claude/settings.local.json")
-        #expect(applied() == ["Local"])
+
+        #expect(ClaudeSpinnerVerbs.load(configDirectory: config, lead: lead)
+                == ClaudeSpinnerVerbs(mode: .append, verbs: ["Mine", "Shared", "Project", "Local"]))
     }
 
-    @Test func followsAMovedConfigFolder() throws {
-        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Moved"]}}"#,
-                  to: "elsewhere/settings.json")
-        #expect(applied(environment: ["CLAUDE_CONFIG_DIR": scratch.path("elsewhere").path]) == ["Moved"])
+    // Claude rejects a setting with no mode, or with something other than a list of
+    // words, and skips that file. The files below it still count.
+    @Test func aFileClaudeRejectsIsSkipped() throws {
+        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Mine"]}}"#, to: "config/settings.json")
+        for broken in [#"{"spinnerVerbs": {"verbs": ["Box"]}}"#,
+                       #"{"spinnerVerbs": {"mode": "replace", "verbs": "Box"}}"#,
+                       #"{"spinnerVerbs": {"mode": "shuffle", "verbs": ["Box"]}}"#,
+                       #"{"spinnerVerbs": {"mode": "replace", "verbs": ["Box"]"#] {
+            try write(broken, to: "checkout/.claude/settings.local.json")
+            #expect(applied() == ["Mine"])
+        }
     }
 
-    // An empty or broken setting would leave the row with nothing to say, so the app's
-    // words stay instead.
+    // A replace with nothing usable in it would leave the row with nothing to say, so the
+    // app's words stay instead, as Claude's own do.
     @Test func keepsTheWordsWhenTheSettingHasNothingToSay() throws {
         try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["  ", ""]}}"#,
-                  to: "home/.claude/settings.json")
+                  to: "config/settings.json")
         #expect(applied() == words)
+    }
 
-        try write(#"{"spinnerVerbs": "Pondering"}"#, to: "home/.claude/settings.json")
-        #expect(applied() == words)
+    @Test func readsOnlyTheConfigFolderWithoutACheckout() throws {
+        try write(#"{"spinnerVerbs": {"mode": "replace", "verbs": ["Mine"]}}"#, to: "config/settings.json")
+        #expect(ClaudeSpinnerVerbs.load(configDirectory: config, lead: nil)?.verbs == ["Mine"])
     }
 }

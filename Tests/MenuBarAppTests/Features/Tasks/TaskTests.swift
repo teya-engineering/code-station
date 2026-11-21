@@ -99,7 +99,7 @@ struct TaskTests {
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
                                      in: tasksURL).get()
         // No executables: the run records its prompt but no process can start.
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
 
         let session = try TaskRun.run(task, store: store, runner: runner,
                                       agentAvatarName: nil).get()
@@ -113,8 +113,8 @@ struct TaskTests {
         let store = ProjectStore(preferences: testPreferences.store, storeURL: storeURL)
         let task = try store.addTask(named: "Sweep", prompt: "Do the thing.",
                                      in: tasksURL).get()
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
-        runner.agent = .claudeCode
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
+        runner.catalog.agent = .claudeCode
 
         store.setTaskSpec(TaskSpec(prompt: "Do the thing.", agent: .codex), for: task.id)
         let overridden = try TaskRun.run(try #require(store.project(task.id)), store: store,

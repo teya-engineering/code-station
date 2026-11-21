@@ -14,7 +14,7 @@ struct PromptHistoryTests {
 
     init() throws {
         (store, scratch) = TestStore.make()
-        runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let project = try TestStore.project(in: store)
         session = store.newSession(in: project.id)
     }
@@ -28,8 +28,8 @@ struct PromptHistoryTests {
 
     private var draft: String { runner.composer.draft(session.id).text }
 
-    private func pressUp() -> Bool { runner.recallEarlier(session.id, store: store) }
-    private func pressDown() -> Bool { runner.recallLater(session.id, store: store) }
+    private func pressUp() -> Bool { runner.recallEarlier(session.id) }
+    private func pressDown() -> Bool { runner.recallLater(session.id) }
 
     // MARK: - Reading the transcript
 
@@ -172,7 +172,7 @@ struct PromptHistoryTests {
 
         #expect(pressUp())
         #expect(draft == "Second")
-        #expect(runner.recallEarlier(other.id, store: store))
+        #expect(runner.recallEarlier(other.id))
         #expect(runner.composer.draft(other.id).text == "Elsewhere")
         #expect(draft == "Second")
     }

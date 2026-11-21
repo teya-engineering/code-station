@@ -176,6 +176,55 @@ struct SessionStateReading: Equatable {
     }
 }
 
+extension SessionFacts {
+    // Read from the session and from what git last said about each of its folders:
+    // `snapshots` has one entry for each folder, lead checkout first, and nil where git
+    // has not answered yet.
+    //
+    // The lead checkout is the one the branch speaks for. A worktree session knows its
+    // branch from creation, so the branch can draw on the first frame instead of waiting
+    // for git and shifting the chip.
+    init(session: ChatSession, snapshots: [GitSnapshot?], reviews: [PullRequestReviewStore.Loaded],
+         modelTitle: (String) -> String, showsCost: Bool) {
+        let answered = snapshots.compactMap { $0 }
+        let hasSnapshots = !snapshots.isEmpty && answered.count == snapshots.count
+        self.init(
+            branch: (snapshots.first ?? nil)?.branch
+                ?? session.worktreeBranch
+                ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
+            changes: Changes(snapshots: answered, summary: session.summary)
+                ?? (hasSnapshots ? .init(files: 0, added: 0, removed: 0) : nil),
+            pullRequests: session.pullRequests,
+            pullRequestStatuses: Dictionary(reviews.map { ($0.pullRequest.url, $0.status) },
+                                            uniquingKeysWith: { first, _ in first }),
+            model: session.usage?.model(for: session.agent).map(modelTitle),
+            cost: showsCost ? session.usage?.costUSD : nil,
+            context: session.usage?.contextFraction(for: session.agent),
+            agent: session.agent)
+    }
+}
+
+extension SessionFacts.Changes {
+    // How far the working tree has moved, for the Changes tab and for the card behind the
+    // branch. Until git has answered for this tree, the transcript's own running total
+    // stands in - the same numbers the session's sidebar row shows - so the counts arrive
+    // with the deck instead of a few seconds later. That total has no file count and can
+    // disagree with the tree (it keeps counting across commits and repeat edits), so it
+    // is only a stand-in until the first snapshot lands and corrects it.
+    init?(snapshots: [GitSnapshot], summary: SessionSummary) {
+        guard !snapshots.isEmpty else {
+            guard summary.added > 0 || summary.removed > 0 else { return nil }
+            self.init(files: 0, added: summary.added, removed: summary.removed)
+            return
+        }
+        let files = snapshots.reduce(0) { $0 + $1.files.count }
+        guard files > 0 else { return nil }
+        self.init(files: files,
+                  added: snapshots.reduce(0) { $0 + $1.totalAdded },
+                  removed: snapshots.reduce(0) { $0 + $1.totalRemoved })
+    }
+}
+
 // MARK: - The pill
 
 // What the session is up to: its state over the branch it is on, with every other fact

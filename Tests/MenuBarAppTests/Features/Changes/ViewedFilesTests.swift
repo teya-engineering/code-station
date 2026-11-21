@@ -9,6 +9,10 @@ struct ViewedFilesTests {
     private let session = UUID()
     private let key = ViewedFileStore.key(root: "/repo", path: "Sources/App.swift")
 
+    private func change(_ version: String, before: String = "base") -> ViewedChange {
+        ViewedChange(before: .init(mode: "100644", blob: before), after: .init(mode: "100644", blob: version))
+    }
+
     @Test func aVersionIsGitsOwnBlobID() {
         // `printf 'hello\n' | git hash-object --stdin` and `git hash-object /dev/null`.
         #expect(FileVersion.blobID(Data("hello\n".utf8)) == "ce013625030ba8dba906f756967f9e9ca394464a")
@@ -17,53 +21,53 @@ struct ViewedFilesTests {
 
     @Test func aTickLastsWhileTheContentDoes() {
         let store = ViewedFileStore(url: nil)
-        #expect(store.state(key, version: "v1", in: session) == .notViewed)
+        #expect(store.state(key, change: change("v1"), in: session) == .notViewed)
 
         let read = Date(timeIntervalSince1970: 1_000)
-        store.mark(key, version: "v1", in: session, at: read)
-        #expect(store.state(key, version: "v1", in: session) == .viewed)
-        #expect(store.state(key, version: "v2", in: session) == .edited(since: read))
+        store.mark(key, change: change("v1"), in: session, at: read)
+        #expect(store.state(key, change: change("v1"), in: session) == .viewed)
+        #expect(store.state(key, change: change("v2"), in: session) == .edited(since: read))
         // Not yet read, so nothing can be said about it.
-        #expect(store.state(key, version: nil, in: session) == .notViewed)
+        #expect(store.state(key, change: nil, in: session) == .notViewed)
         // Another session has its own ticks.
-        #expect(store.state(key, version: "v1", in: UUID()) == .notViewed)
+        #expect(store.state(key, change: change("v1"), in: UUID()) == .notViewed)
     }
 
     @Test func readingANewVersionKeepsTheOlderOnesRead() {
         let store = ViewedFileStore(url: nil)
-        store.mark(key, version: "v1", in: session)
-        store.mark(key, version: "v2", in: session, at: Date(timeIntervalSince1970: 2_000))
+        store.mark(key, change: change("v1"), in: session)
+        store.mark(key, change: change("v2"), in: session, at: Date(timeIntervalSince1970: 2_000))
 
-        #expect(store.state(key, version: "v1", in: session) == .viewed)
-        #expect(store.state(key, version: "v2", in: session) == .viewed)
-        #expect(store.latest(key, in: session)?.version == "v2")
+        #expect(store.state(key, change: change("v1"), in: session) == .viewed)
+        #expect(store.state(key, change: change("v2"), in: session) == .viewed)
+        #expect(store.latest(key, change: change("v2"), in: session)?.version == "v2")
 
-        store.unmark(key, version: "v2", in: session)
-        #expect(store.state(key, version: "v2", in: session) == .edited(since: store.latest(key, in: session)!.at))
-        store.unmark(key, version: "v1", in: session)
-        #expect(store.state(key, version: "v1", in: session) == .notViewed)
+        store.unmark(key, change: change("v2"), in: session)
+        #expect(store.state(key, change: change("v2"), in: session) == .edited(since: store.latest(key, change: change("v2"), in: session)!.at))
+        store.unmark(key, change: change("v1"), in: session)
+        #expect(store.state(key, change: change("v1"), in: session) == .notViewed)
         #expect(!store.hasMarks(session))
     }
 
     @Test func onlyTheNewestVersionsAreRemembered() {
         let store = ViewedFileStore(url: nil)
-        for index in 0..<(ViewedFileStore.keptVersions + 3) { store.mark(key, version: "v\(index)", in: session) }
+        for index in 0..<(ViewedFileStore.keptVersions + 3) { store.mark(key, change: change("v\(index)"), in: session) }
 
         #expect(store.marks(in: session)[key]?.count == ViewedFileStore.keptVersions)
-        #expect(store.state(key, version: "v0", in: session) != .viewed)
-        #expect(store.state(key, version: "v\(ViewedFileStore.keptVersions + 2)", in: session) == .viewed)
+        #expect(store.state(key, change: change("v0"), in: session) != .viewed)
+        #expect(store.state(key, change: change("v\(ViewedFileStore.keptVersions + 2)"), in: session) == .viewed)
     }
 
     @Test func clearingCanBeTakenBack() {
         let store = ViewedFileStore(url: nil)
-        store.mark(key, version: "v1", in: session)
-        let cleared = store.marks(in: session)
+        store.mark(key, change: change("v1"), in: session)
+        let cleared = store.checkpoint(in: session)
 
         store.clear(session)
-        #expect(store.state(key, version: "v1", in: session) == .notViewed)
+        #expect(store.state(key, change: change("v1"), in: session) == .notViewed)
 
         store.restore(cleared, in: session)
-        #expect(store.state(key, version: "v1", in: session) == .viewed)
+        #expect(store.state(key, change: change("v1"), in: session) == .viewed)
     }
 
     @Test func ticksAndTheirTextOutliveARelaunch() throws {
@@ -74,11 +78,11 @@ struct ViewedFilesTests {
         let version = FileVersion.blobID(Data(text.utf8))
 
         let store = ViewedFileStore(url: url)
-        store.mark(key, version: version, text: text, in: session)
+        store.mark(key, change: change(version), text: text, in: session)
         #expect(store.flush())
 
         let reopened = ViewedFileStore(url: url)
-        #expect(reopened.state(key, version: version, in: session) == .viewed)
+        #expect(reopened.state(key, change: change(version), in: session) == .viewed)
         #expect(reopened.text(of: version) == text)
 
         // Once no tick names the version, its text goes too.
@@ -90,8 +94,8 @@ struct ViewedFilesTests {
 
     @Test func textArrivingAfterTheTickWasTakenBackIsDropped() {
         let store = ViewedFileStore(url: nil)
-        store.mark(key, version: "v1", in: session)
-        store.unmark(key, version: "v1", in: session)
+        store.mark(key, change: change("v1"), in: session)
+        store.unmark(key, change: change("v1"), in: session)
 
         store.keep("late", for: "v1")
         #expect(store.text(of: "v1") == nil)
@@ -159,26 +163,22 @@ struct ViewedFilesTests {
         ].joined(separator: "\0")
 
         #expect(GitInspector.parseRawVersions(raw) == [
-            "Sources/App.swift": after,
-            "Sources/New.swift": added,
-            "Sources/Gone.swift": FileVersion.deleted,
-            "Sources/Renamed.swift": renamed,
+            "Sources/App.swift": change(after, before: modified),
+            "Sources/New.swift": ViewedChange(before: .absent, after: .init(mode: "100644", blob: added)),
+            "Sources/Gone.swift": ViewedChange(before: .init(mode: "100644", blob: modified), after: .absent),
+            "Sources/Renamed.swift": ViewedChange(before: .init(mode: "100644", blob: modified),
+                                                 after: .init(mode: "100644", blob: renamed), originalPath: "Sources/Old.swift"),
         ])
     }
 
-    @Test func aFileOnDiskIsNamedByItsContent() async throws {
+    @Test func aFileOnDiskIsNamedByItsContent() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("viewed-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data("hello\n".utf8).write(to: folder.appendingPathComponent("a.txt"))
-        let files = [
-            GitChange(path: "a.txt", kind: .modified, isStaged: false, isUnstaged: true, isBinary: false),
-            GitChange(path: "gone.txt", kind: .deleted, isStaged: false, isUnstaged: true, isBinary: false),
-        ]
-
-        let versions = await FileVersion.onDisk(files, root: folder.path)
-
-        #expect(versions == ["a.txt": "ce013625030ba8dba906f756967f9e9ca394464a", "gone.txt": FileVersion.deleted])
+        #expect(FileVersion.entry(at: folder.appendingPathComponent("a.txt")) ==
+                .init(mode: "100644", blob: "ce013625030ba8dba906f756967f9e9ca394464a"))
+        #expect(FileVersion.entry(at: folder.appendingPathComponent("gone.txt")) == .absent)
     }
 
     @Test func changesOpensOnTheFirstFileNotViewedYet() {

@@ -197,7 +197,7 @@ enum OldSessionSweep {
             return 0
         }
 
-        let isBusy = { (id: UUID) in runner.isBusy(id, store: store) }
+        let isBusy = { (id: UUID) in runner.isBusy(id) }
         let isOpen = { (id: UUID) in store.selection == .session(id) }
         let snoozedUntil = { (session: ChatSession) in store.snoozeDeadline(for: session) }
         let orphans = rule.includesOrphans ? orphans : []
@@ -244,7 +244,7 @@ enum OldSessionSweep {
             guard let session = store.session(sessionID) else { return false }
             return !OldSessions.isKept(session, now: now)
                 && store.selection != .session(sessionID)
-                && !runner.isBusy(sessionID, store: store)
+                && !runner.isBusy(sessionID)
                 && !ProjectSnooze.isActive(store.snoozeDeadline(for: session), now: now)
         }
 

@@ -195,7 +195,7 @@ struct DesignConversationViewTests {
             store.append(ChatMessage(role: .assistant, text: "Message \(index)\n\n" +
                 String(repeating: "Keep the reader's place in this conversation. ", count: 12)), to: session.id)
         }
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: "/usr/bin/true"])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [.codex: "/usr/bin/true"])
         runner.composer.editDraft(session.id) { $0.text = "Keep this draft" }
         let preferences = scratchDefaults()
         let hosting = NSHostingController(rootView:
@@ -402,7 +402,7 @@ struct DesignConversationViewTests {
             try "Design notes".write(to: directory.appendingPathComponent("handoff.md"),
                                      atomically: true, encoding: .utf8)
         }
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: "/usr/bin/true"])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [.codex: "/usr/bin/true"])
         let preferences = scratchDefaults()
         let hosting = NSHostingController(rootView:
             DesignView(sessionID: session.id)
@@ -485,7 +485,7 @@ struct DesignConversationViewTests {
         let agent = scratch.path("slow-agent")
         try "#!/bin/sh\nsleep 5\n".write(to: agent, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: agent.path)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: agent.path])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [.codex: agent.path])
         let preferences = scratchDefaults()
         let hosting = NSHostingController(rootView:
             DesignView(sessionID: session.id)
@@ -527,7 +527,7 @@ struct DesignConversationViewTests {
             $0 as? DesignConversationDismissal.ObserverView
         }.first)
 
-        runner.send("Improve this screen", sessionID: session.id, store: store)
+        runner.send("Improve this screen", sessionID: session.id)
         try await settle()
 
         #expect(runner.state(session.id).isBusy)

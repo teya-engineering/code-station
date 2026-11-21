@@ -145,9 +145,7 @@ enum ProjectSort: String, CaseIterable, Identifiable {
     // Whether a row counts as pinned in the order `apply` gives: a pinned session pins
     // the row it sits under.
     static func pinnedIDs(of items: [SidebarItem], sessions: [ChatSession]) -> Set<UUID> {
-        let pinnedContainerIDs = Set(sessions.lazy.filter(\.isPinned).map {
-            $0.workspaceID ?? $0.projectID
-        })
+        let pinnedContainerIDs = Set(sessions.lazy.filter(\.isPinned).map(\.containerID))
         return Set(items.lazy.filter { $0.isPinned || pinnedContainerIDs.contains($0.id) }.map(\.id))
     }
 
@@ -155,7 +153,7 @@ enum ProjectSort: String, CaseIterable, Identifiable {
     // are left out: moving a session inside its row says nothing about the row.
     static func sortDates(of items: [SidebarItem], sessions: [ChatSession]) -> [UUID: Date] {
         let activity: [UUID: Date] = sessions.reduce(into: [:]) { latest, session in
-            let containerID = session.workspaceID ?? session.projectID
+            let containerID = session.containerID
             let seen = latest[containerID] ?? .distantPast
             if session.lastActivity > seen { latest[containerID] = session.lastActivity }
         }

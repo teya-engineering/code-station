@@ -1,0 +1,337 @@
+import Foundation
+import Testing
+@testable import MenuBarApp
+
+struct SessionRecapTests {
+    @Test func cleansARecapForPlainTextDisplay() {
+        #expect(SessionRecap.cleaned("  ## Goal\n\nDone \u{2014} continue with tests.  ")
+            == "Goal Done - continue with tests.")
+    }
+
+    @Test func rejectsClaudeCodeControlMessages() {
+        #expect(SessionRecap.nativeText(from: "Couldn't generate a recap. Run with --debug.") == nil)
+        #expect(SessionRecap.nativeText(from: "Nothing to recap yet - send a message first.") == nil)
+        #expect(SessionRecap.nativeText(from: "Recap cancelled.") == nil)
+    }
+
+    @Test func acceptsAClaudeCodeRecap() {
+        #expect(SessionRecap.nativeText(
+            from: "The retry change is complete and tested. Review the diff next.")
+            == "The retry change is complete and tested. Review the diff next.")
+    }
+}
+
+struct RecapCardTests {
+    private let recap = SessionRecap(text: "Ready to review.", generatedAt: Date(timeIntervalSince1970: 1),
+                                     source: .prompt)
+    private let later = SessionRecap(text: "Reviewed.", generatedAt: Date(timeIntervalSince1970: 2),
+                                     source: .prompt)
+
+    @Test func aSessionOpenedWithARecapShowsItUnread() {
+        var card = RecapCard()
+        card.appeared(with: recap)
+        #expect(card.shown == .open)
+        #expect(card.needsAttention)
+
+        card.appeared(with: nil)
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+    }
+
+    @Test func aRecapNobodyAskedForArrivesWithoutLifting() {
+        var card = RecapCard()
+        #expect(!card.arrivalLifts)
+        card.recapChanged(old: nil, new: recap, finished: true)
+        #expect(card.shown == .arrivingUnasked)
+        #expect(card.needsAttention)
+
+        card.landed()
+        #expect(card.shown == .open)
+    }
+
+    @Test func aRequestedRecapLiftsAndClearsTheRequest() {
+        var card = RecapCard()
+        card.requested = true
+        #expect(card.arrivalLifts)
+        card.recapChanged(old: nil, new: recap, finished: false)
+        #expect(card.shown == .open)
+        #expect(!card.requested)
+        #expect(!card.needsAttention)
+    }
+
+    @Test func aRefreshKeepsAnOpenCardAsItIs() {
+        var card = RecapCard()
+        card.recapChanged(old: nil, new: recap, finished: false)
+        #expect(card.arrivalLifts)
+        card.recapChanged(old: recap, new: later, finished: true)
+        #expect(card.shown == .arrivingUnasked)
+        #expect(card.needsAttention)
+    }
+
+    @Test func anUnchangedRecapChangesNothing() {
+        var card = RecapCard()
+        card.requested = true
+        card.recapChanged(old: recap, new: recap, finished: true)
+        #expect(card == { var same = RecapCard(); same.requested = true; return same }())
+    }
+
+    @Test func aRecapThatGoesClosesTheCard() {
+        var card = RecapCard()
+        card.appeared(with: recap)
+        card.recapChanged(old: recap, new: nil, finished: true)
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+    }
+
+    @Test func togglingAndClosingReadTheRecap() {
+        var card = RecapCard()
+        card.appeared(with: recap)
+        card.toggle()
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+        card.toggle()
+        #expect(card.isOpen)
+        card.recapChanged(old: recap, new: later, finished: true)
+        card.close()
+        #expect(card.shown == .closed)
+        #expect(!card.needsAttention)
+    }
+}
+
+@MainActor
+struct SessionRecapStoreTests {
+    private let testPreferences = TestPreferences()
+    private let store: ProjectStore
+    private let scratch: ScratchDirectory
+    private let project: Project
+
+    init() throws {
+        (store, scratch) = TestStore.make()
+        project = try TestStore.project(in: store)
+    }
+
+    @Test func persistsTheLatestRecapOutsideTheTranscript() throws {
+        let session = store.newSession(in: project.id)
+        let recap = SessionRecap(text: "The work is complete.",
+                                 generatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                 source: .prompt)
+
+        store.setRecap(recap, for: session.id)
+        #expect(store.save())
+
+        let reloaded = try #require(ProjectStore(preferences: testPreferences.store, storeURL: store.storeURL).session(session.id))
+        #expect(reloaded.recap == recap)
+        #expect(store.transcript(of: session.id).isEmpty)
+    }
+
+    @Test func markingTheSessionSeenDismissesItsRecap() {
+        let session = store.newSession(in: project.id)
+        store.setRecap(SessionRecap(text: "Ready to review.", generatedAt: Date(),
+                                    source: .claudeCode), for: session.id)
+
+        store.markSessionSeen(session.id)
+
+        #expect(store.recap(for: session.id) == nil)
+    }
+}
+
+@MainActor
+struct SessionRecapRunnerTests {
+    @Test func keepsAPromptRecapOutOfTheTranscriptWhileItStreams() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-1","item_type":"agent_message","text":"Initial response"}}'
+        else
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-2","item_type":"agent_message","text":"The change is complete. Review it next."}}'
+            : > "$folder/recap-streamed"
+            while [ ! -f "$folder/release-recap" ]; do sleep 0.01; done
+        fi
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Make the change", sessionID: harness.session.id)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.runner.recap(harness.session.id))
+        #expect(await waitUntil {
+            FileManager.default.fileExists(atPath: harness.scratch.path("recap-streamed").path)
+                && harness.runner.state(harness.session.id) == .streaming
+        })
+
+        #expect(harness.runner.isRecapping(harness.session.id))
+        #expect(harness.runner.completionActivity(harness.session.id) == .recap)
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Make the change", "Initial response"])
+
+        try Data().write(to: harness.scratch.path("release-recap"))
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+        #expect(harness.runner.completionActivity(harness.session.id) == nil)
+        #expect(harness.store.recap(for: harness.session.id)?.text
+            == "The change is complete. Review it next.")
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Make the change", "Initial response"])
+    }
+
+    // The finish sound plays as the turn ends, so the rail has to say so at the same time
+    // rather than once the recap that follows has been written.
+    @Test func aTurnThatEndedUnseenNeedsYouWhileItsRecapIsWritten() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-1","item_type":"agent_message","text":"Initial response"}}'
+        else
+            while [ ! -f "$folder/release-recap" ]; do sleep 0.01; done
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-2","item_type":"agent_message","text":"All done."}}'
+        fi
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """)
+        defer { harness.tearDown() }
+        harness.store.selection = .home
+
+        harness.runner.send("Make the change", sessionID: harness.session.id)
+        #expect(await waitUntil { harness.store.hasFinished(harness.session.id) })
+        _ = harness.runner.recap(harness.session.id)
+        #expect(await waitUntil {
+            harness.runner.isRecapping(harness.session.id)
+                && harness.runner.state(harness.session.id).isBusy
+        })
+
+        let notice = SidebarNotices.all(store: harness.store, runner: harness.runner)
+            .first { $0.session.id == harness.session.id }?.notice
+        #expect(notice == .finished)
+
+        try Data().write(to: harness.scratch.path("release-recap"))
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+    }
+
+    @Test func usesClaudeCodesNativeRecapWithoutAddingItToTheTranscript() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: """
+        IFS= read -r input
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s' "$input" > "$folder/prompt-$count.txt"
+        printf '%s\n' '{"type":"system","subtype":"init","session_id":"claude-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Initial response"}]}}'
+            printf '%s\n' '{"type":"result","is_error":false,"result":"Initial response"}'
+        else
+            printf '%s\n' '{"type":"result","is_error":false,"result":"The retry change is complete and tested. Review the diff next."}'
+        fi
+        """)
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Improve retries", sessionID: harness.session.id)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.runner.recap(harness.session.id))
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+
+        let recap = try #require(harness.store.recap(for: harness.session.id))
+        #expect(recap.source == .claudeCode)
+        #expect(recap.text == "The retry change is complete and tested. Review the diff next.")
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Improve retries", "Initial response"])
+        let command = try String(contentsOf: harness.scratch.path("prompt-2.txt"), encoding: .utf8)
+        #expect(command.contains("/recap"))
+    }
+
+    @Test func fallsBackToAPromptWhenTheNativeRecapIsUnavailable() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: """
+        IFS= read -r input
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s' "$input" > "$folder/prompt-$count.txt"
+        printf '%s\n' '{"type":"system","subtype":"init","session_id":"claude-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Initial response"}]}}'
+            printf '%s\n' '{"type":"result","is_error":false,"result":"Initial response"}'
+        elif [ "$count" -eq 2 ]; then
+            printf '%s\n' '{"type":"result","is_error":false,"result":"Could not generate a recap because it is disabled."}'
+        else
+            printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"The change is ready. Review it next."}]}}'
+            printf '%s\n' '{"type":"result","is_error":false,"result":"The change is ready. Review it next."}'
+        fi
+        """)
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Make the change", sessionID: harness.session.id)
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.runner.recap(harness.session.id))
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+
+        #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Make the change", "Initial response"])
+        let fallback = try String(contentsOf: harness.scratch.path("prompt-3.txt"), encoding: .utf8)
+        #expect(fallback.contains("Use simple English and at most 35 words"))
+        #expect(fallback.contains("Leave out background, minor details, and commentary"))
+    }
+
+    @Test func automaticallyRecapsOnlyAnUnseenFinishedTurn() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        count_file="$folder/count"
+        count=0
+        if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-1","item_type":"agent_message","text":"Work complete"}}'
+        else
+            printf '%s\n' '{"type":"item.completed","item":{"id":"answer-2","item_type":"agent_message","text":"The requested work is complete. Review the result next."}}'
+        fi
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """, automaticRecapsEnabled: { true })
+        defer { harness.tearDown() }
+        let other = harness.store.newSession(in: harness.session.projectID)
+        harness.store.selection = .session(other.id)
+
+        harness.runner.send("Do the work", sessionID: harness.session.id)
+
+        #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
+        #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
+        #expect(harness.store.transcript(of: harness.session.id).map(\.text)
+            == ["Do the work", "Work complete"])
+        #expect(harness.store.hasFinished(harness.session.id))
+    }
+
+    @Test func doesNotAutomaticallyRecapATurnThatFinishesOnScreen() async throws {
+        let harness = try RunnerHarness(agent: .codex, script: """
+        input=$(cat)
+        printf '%s' "$input" > "$folder/prompt.txt"
+        printf '%s\n' '{"type":"thread.started","thread_id":"thread-1"}'
+        printf '%s\n' '{"type":"item.completed","item":{"id":"answer-1","item_type":"agent_message","text":"Work complete"}}'
+        printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
+        """, automaticRecapsEnabled: { true })
+        defer { harness.tearDown() }
+        harness.store.selection = .session(harness.session.id)
+
+        harness.runner.send("Do the work", sessionID: harness.session.id)
+
+        #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        #expect(harness.store.recap(for: harness.session.id) == nil)
+        #expect(!harness.runner.isRecapping(harness.session.id))
+    }
+}
