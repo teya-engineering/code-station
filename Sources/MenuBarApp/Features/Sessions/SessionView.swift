@@ -1829,6 +1829,8 @@ struct SessionView: View {
                            sessionID: sessionID,
                            avatarName: session.agentAvatarName,
                            agentTitle: session.agent.title,
+                           agent: session.agent,
+                           lead: store.workingDirectory(for: session),
                            completionActivity: runner.completionActivity(sessionID),
                            tasks: runner.backgroundTasks(sessionID),
                            waitingSince: runner.waitingSince(sessionID))
