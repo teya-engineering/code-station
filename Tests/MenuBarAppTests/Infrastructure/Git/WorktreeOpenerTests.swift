@@ -39,3 +39,37 @@ struct WorktreeOpenerTests {
         #expect(apps == [cursor, ghostty, finder])
     }
 }
+
+@MainActor
+struct WorktreeOpenerAddedAppTests {
+    private let textEdit = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+    private let textEditID = "com.apple.TextEdit"
+
+    @Test func anAddedAppIsListedAndChosen() {
+        let saved = (Preferences.openInBundleID, Preferences.openInAddedBundleIDs)
+        defer {
+            (Preferences.openInBundleID, Preferences.openInAddedBundleIDs) = saved
+            WorktreeOpener.refresh()
+        }
+
+        let added = WorktreeOpener.add(appAt: textEdit)
+
+        #expect(added?.bundleID == textEditID)
+        #expect(WorktreeOpener.apps.contains { $0.bundleID == textEditID })
+        #expect(WorktreeOpener.current?.bundleID == textEditID)
+    }
+
+    @Test func removingTheChosenAppFallsBackToFinder() {
+        let saved = (Preferences.openInBundleID, Preferences.openInAddedBundleIDs)
+        defer {
+            (Preferences.openInBundleID, Preferences.openInAddedBundleIDs) = saved
+            WorktreeOpener.refresh()
+        }
+
+        WorktreeOpener.add(appAt: textEdit)
+        WorktreeOpener.remove(textEditID)
+
+        #expect(!WorktreeOpener.apps.contains { $0.bundleID == textEditID })
+        #expect(WorktreeOpener.current?.bundleID == WorktreeOpener.finderID)
+    }
+}

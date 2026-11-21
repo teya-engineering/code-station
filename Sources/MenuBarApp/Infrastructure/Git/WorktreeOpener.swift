@@ -9,9 +9,9 @@ struct WorktreeApp: Equatable, Identifiable {
     var id: String { bundleID }
 }
 
-// Where "Open in" sends a session's folder: the code editors on this Mac, Finder, and the
-// chosen terminal. The last app picked is remembered, so the main half of the button does
-// the same thing every time until someone picks another.
+// Where "Open in" sends a session's folder: the code editors on this Mac, the apps the
+// person added, Finder, and the chosen terminal. The last app picked is remembered, so the
+// main half of the button does the same thing every time until someone picks another.
 @MainActor
 enum WorktreeOpener {
     static let finderID = "com.apple.finder"
@@ -25,6 +25,17 @@ enum WorktreeOpener {
         "com.sublimetext.4",
         "com.jetbrains.intellij",
         "com.jetbrains.intellij.ce",
+        "com.jetbrains.goland",
+        "com.jetbrains.pycharm",
+        "com.jetbrains.pycharm.ce",
+        "com.jetbrains.WebStorm",
+        "com.jetbrains.rustrover",
+        "com.jetbrains.PhpStorm",
+        "com.jetbrains.rubymine",
+        "com.jetbrains.CLion",
+        "com.jetbrains.datagrip",
+        "com.jetbrains.rider",
+        "com.google.android.studio",
     ]
 
     // Asking Launch Services on every redraw of the header would be wasted work, so the
@@ -76,6 +87,49 @@ enum WorktreeOpener {
         Preferences.openInBundleID = app.bundleID
     }
 
+    static var addedApps: [WorktreeApp] {
+        let added = Set(Preferences.openInAddedBundleIDs)
+
+        return apps.filter { added.contains($0.bundleID) }
+    }
+
+    @discardableResult
+    static func add(appAt url: URL) -> WorktreeApp? {
+        guard let id = SystemTerminal.bundleID(of: url) else { return nil }
+        if !apps.contains(where: { $0.bundleID == id }),
+           !Preferences.openInAddedBundleIDs.contains(id) {
+            Preferences.openInAddedBundleIDs.append(id)
+            refresh()
+        }
+        Preferences.openInBundleID = id
+
+        return current
+    }
+
+    static func pickApp(dialogs: DialogPresenter) -> WorktreeApp? {
+        guard let url = FilePicker.chooseFile(prompt: "Add",
+                                              message: "Pick an app to open folders in.",
+                                              types: [.application],
+                                              directory: URL(fileURLWithPath: "/Applications"))
+        else { return nil }
+        guard let app = add(appAt: url) else {
+            dialogs.show(.notice(
+                "Could not use that app",
+                message: "\(SystemTerminal.name(of: url)) does not look like an application macOS can open."))
+            return nil
+        }
+
+        return app
+    }
+
+    static func remove(_ bundleID: String) {
+        Preferences.openInAddedBundleIDs.removeAll { $0 == bundleID }
+        if Preferences.openInBundleID == bundleID {
+            Preferences.openInBundleID = nil
+        }
+        refresh()
+    }
+
     static func open(_ path: String, in app: WorktreeApp) {
         let folder = URL(fileURLWithPath: path, isDirectory: true)
         switch app.bundleID {
@@ -92,7 +146,7 @@ enum WorktreeOpener {
     }
 
     private static func installed() -> [WorktreeApp] {
-        let editors = editorIDs.compactMap(app(withBundleID:))
+        let editors = (editorIDs + Preferences.openInAddedBundleIDs).compactMap(app(withBundleID:))
         let terminalURL = SystemTerminal.appURL
         let terminal = SystemTerminal.bundleID(of: terminalURL).map {
             WorktreeApp(bundleID: $0, name: SystemTerminal.name(of: terminalURL), url: terminalURL)

@@ -445,6 +445,11 @@ enum Preferences {
         set { set(newValue, "openInBundleID", in: store) }
     }
 
+    static var openInAddedBundleIDs: [String] {
+        get { store.stringArray(forKey: "openInAddedBundleIDs") ?? [] }
+        set { store.set(newValue, forKey: "openInAddedBundleIDs") }
+    }
+
     // A saved external site file sits ahead of the conventional and bundled locations.
     // Imported first-run configuration uses the conventional Application Support file.
     static func siteDefaultsURL(in store: UserDefaults = .standard) -> URL? {

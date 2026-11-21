@@ -120,6 +120,8 @@ struct ExplorerView: View {
     @State private var notes = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.keyBindings) private var keyBindings
+    @Environment(\.showExternalNote) private var showExternalNote
+    @Environment(\.openShell) private var openShell
     @FocusState private var treeFocused: Bool
     // The row being renamed, by path. The name is edited in place, the way Finder does it.
     @State private var renaming: String?
@@ -439,6 +441,9 @@ struct ExplorerView: View {
             treeCursorVisible = false
             treeFocused = true
             selectRoot(project.root)
+        }
+        .appContextMenu {
+            FolderActions.entries(for: project.root, openShell: openShell, note: showExternalNote)
         }
     }
 

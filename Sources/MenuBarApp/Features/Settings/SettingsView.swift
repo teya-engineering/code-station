@@ -25,6 +25,7 @@ struct SettingsView: View {
     @State private var note: String?
     @State private var noteIcon = "checkmark"
     @State private var notes = 0
+    @State private var openInChanges = 0
     @State private var appearanceBeforeReset: (
         appearance: Appearance, textSize: TextSize, messageColour: MessageColour,
         timestampFormat: TimestampFormat, timestampScope: TimestampScope,
@@ -890,6 +891,10 @@ struct SettingsView: View {
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
                 SettingsRowDivider()
+                openIn
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
+                SettingsRowDivider()
                 startAtLogin
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
@@ -961,6 +966,65 @@ struct SettingsView: View {
             return
         }
         settings.terminalBundleID = id
+    }
+
+    private var openIn: some View {
+        // WorktreeOpener is not observed, so this count is what redraws the row after a change.
+        let _ = openInChanges
+        let value = WorktreeOpener.current?.name ?? "Finder"
+        let added = WorktreeOpener.addedApps
+
+        return VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .top, spacing: Space.lg) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text("Open in")
+                        .font(Typography.body.weight(.semibold))
+                    Text("The app a session's Open in button sends its folder to. Editors on this Mac are listed on their own. Add any other app to list it too.")
+                        .font(Typography.detail)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                OptionMenu(value: value) { openInMenu }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel("Open in: \(value)")
+            }
+            ForEach(added) { app in
+                HStack(spacing: Space.md) {
+                    Image(nsImage: WorktreeOpener.icon(for: app))
+                        .resizable()
+                        .frame(width: ControlHeight.xs, height: ControlHeight.xs)
+                        .accessibilityHidden(true)
+                    Text(app.name)
+                        .font(Typography.body)
+                    Spacer(minLength: 0)
+                    InlineLink(title: "Remove", tint: Theme.deletion) {
+                        WorktreeOpener.remove(app.bundleID)
+                        openInChanges += 1
+                    }
+                }
+                .transition(.fold)
+            }
+        }
+        .motion(Motion.reveal, value: added.map(\.id))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var openInMenu: [MenuEntry] {
+        let current = WorktreeOpener.current
+
+        return WorktreeOpener.apps.map { app in
+            .item(app.name, image: WorktreeOpener.icon(for: app), imageShape: .tile,
+                  checked: app == current) {
+                WorktreeOpener.choose(app)
+                openInChanges += 1
+            }
+        } + [
+            .separator,
+            .item("Add app…", icon: "plus") {
+                if WorktreeOpener.pickApp(dialogs: dialogs) != nil { openInChanges += 1 }
+            },
+        ]
     }
 
     private var startAtLogin: some View {

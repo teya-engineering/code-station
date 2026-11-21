@@ -61,6 +61,8 @@ enum SettingsSearchIndex {
     static let entries = [
         result("Terminal", .general, .generalSystem,
                "system open shell command app"),
+        result("Open in", .general, .generalSystem,
+               "system open folder editor app finder cursor vscode jetbrains add remove"),
         result("Start at login", .general, .generalSystem,
                "system launch log in startup"),
         result("Sessions shown", .general, .generalSidebar,

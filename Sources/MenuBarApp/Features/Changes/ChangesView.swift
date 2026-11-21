@@ -51,6 +51,8 @@ struct ChangesView: View {
     @Environment(AppSettings.self) private var appSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.askSecondOpinionOnFile) private var askSecondOpinionOnFile
+    @Environment(\.showExternalNote) private var showExternalNote
+    @Environment(\.openShell) private var openShell
 
     @State private var commentDraft: CommentDraft?
     @State private var toast: ReviewToast?
@@ -567,12 +569,15 @@ struct ChangesView: View {
     }
 
     private func repositoryMenu(_ snapshot: GitSnapshot) -> [MenuEntry] {
-        var entries = snapshot.remoteActions.compactMap { action -> MenuEntry? in
+        var entries = FolderActions.entries(for: root, openShell: openShell,
+                                            note: showExternalNote) + [.separator]
+        let pulls = snapshot.remoteActions.compactMap { action -> MenuEntry? in
             guard case .pull(let count) = action else { return nil }
             return .item("Pull \(counted(count, "commit"))", icon: "arrow.down") { pull() }
         }
-        if !entries.isEmpty { entries.append(.separator) }
+        if !pulls.isEmpty { entries += pulls + [.separator] }
         entries.append(.item("Branches and actions", icon: "point.topleft.down.to.point.bottomright.curvepath") { showBranches() })
+
         return entries
     }
 
