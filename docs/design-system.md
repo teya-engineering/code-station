@@ -244,10 +244,12 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | Pick one from a list | `.appMenu`, or `OptionMenu` for the ready-made dropdown |
 | Pick one of a few, all visible | `ChoicePill`s in an `HStack` |
+| A choice in that row that carries a value of its own, such as which branch to compare with | `MenuChoicePill` (`Controls/MenuChoicePill.swift`), beside the `ChoicePill`s. The words pick the choice; the chevron opens an `.appMenu` of values, and so do the words once the choice is picked. Pass `monospaced: true` for a value the machine made, such as a branch. |
 | Pick how much, from narrow to wide | `ScopeTrack` (`Controls/ScopeTrack.swift`): stops in order, a knob that slides to the one picked, arrow keys to move along it |
 | Turn on any number of a few, all visible | `ToggleChip`: a tick and a tint when on. `ToggleChip(fixed:)` for something always included, shown with a lock. Pass `warns: true` for a choice with a cost. |
 | Pick one, each with a sentence | `OptionRow` |
 | On or off | `.toggleStyle(.appSwitch)`, `.toggleStyle(.appCheckbox)`, `SettingsToggleRow`. Use `.appSwitch(warns: true)` or `SettingsToggleRow(warns: true)` for a switch with a cost, which turns the attention colour when on. |
+| Tick off a changed file as read | `ViewedToggle` (`Controls/ViewedToggle.swift`): an outlined pill with a `CheckboxMark` and "Viewed". `ControlHeight.md` in a pane's header, `.sm` in a card's own header. Pass `edited: true` for a file changed since it was ticked, which gives the pill an amber edge. Kept apart from a row's commit checkbox so the two never read as one. |
 | A number in a range | `AppSlider` |
 | Text | `.appTextField()`, `AppTextEditor` |
 | A date | `DayField` |
@@ -285,6 +287,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
+| How far through a short list the person is | `ProgressRing` (`Layout/ProgressRing.swift`): a 14-point ring beside a count such as "3 of 7 viewed". The arc draws round with `Motion.draw`. The words carry the count, so the ring stays out of the accessibility tree. |
 | A few readings on one slim line, each with a closer look | A row of cells, each a dot, a name, the reading and a `ChangeFigure`. Resting on a cell opens a `ReadingPeek` (`Layout/StatParts.swift`) above it, as the content of a hanging `Tooltip` with `side: .above`: the name, the reading, how it moved in words ("18% less than yesterday"), and a `Sparkline` that draws itself out from the left. The figures roll with `.numericText` when the reading moves. |
 | A run of readings, as a line | `Sparkline`. Pass a long run through `Sparkline.thinned` first, so it keeps its shape at a small size. |
 | A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means; pass `icon:` to lead with an `IconBadge` |

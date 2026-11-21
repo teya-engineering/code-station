@@ -6,6 +6,7 @@ struct WorkspaceChangesView: View {
     let initialPath: String?
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(PullRequestReviewStore.self) private var pullRequestReviews
     @Binding var selectedRoot: String
     let navigation: ChangesNavigationMemory
     // Goes back to the conversation, where a sent review is taken up.
@@ -41,12 +42,22 @@ struct WorkspaceChangesView: View {
                     repositories: roots.map { ChangesRepository(root: $0, name: name($0)) },
                     requestedPath: request?.root == selectedRoot ? request?.path : nil,
                     navigation: navigation,
-                    review: review) { root, path in
+                    review: review,
+                    pullRequestBases: pullRequestBases) { root, path in
             request = ChangesNavigatorItem(root: root, path: path)
             selectedRoot = root
         }
         .onChange(of: ChangesNavigatorItem(root: initialRoot, path: initialPath)) { _, item in
             if item.path != nil { request = item }
+        }
+    }
+
+    // The session's open pull requests, as GitHub last described them.
+    private var pullRequestBases: [PullRequestBase] {
+        (pullRequestReviews.loaded[session.id] ?? []).filter(\.isOpen).map { loaded in
+            PullRequestBase(number: loaded.pullRequest.number, headBranch: loaded.status.headBranch,
+                            baseBranch: loaded.status.baseBranch, owner: loaded.pullRequest.owner,
+                            repository: loaded.pullRequest.repository)
         }
     }
 

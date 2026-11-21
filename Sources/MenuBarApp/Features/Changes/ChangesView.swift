@@ -14,11 +14,18 @@ struct ChangesView: View {
     // when another project is picked. Each project still gets a model of its own: git work
     // started for one project can only ever land in that project's model.
     @State private var models = ChangesModels()
-    private var model: ChangesModel { models.model(for: root) }
+    // A session's work is reviewed against the branch it will merge into, unless the
+    // person chose the last commit for this project.
+    private var model: ChangesModel {
+        models.model(for: root, comparingToRemote: review != nil && !navigation.lastCommitCompares.contains(root))
+    }
     @State private var navigation: ChangesNavigationMemory
     private let isWorkspace: Bool
     let selectRepository: (String, String?) -> Void
     let review: ReviewTarget?
+    // The open pull requests the session works on. The one made from this checkout's branch
+    // names the branch the files are compared with until another is picked.
+    let pullRequestBases: [PullRequestBase]
 
     private var collapsedRepositories: Set<String> {
         get { navigation.collapsed }
@@ -113,6 +120,18 @@ struct ChangesView: View {
     private var diffText: NSAttributedString? { model.diffText }
     private var loadingDiff: Bool { model.loadingDiff }
     @State private var diffScroll = DiffTextView.Scroll.top
+    // The lines of the open file added after it was last marked viewed, by DiffAnchor key.
+    @State private var freshLines: FreshLines?
+    // The first of them, once "Go to the new lines" asks for it, and all of them as they
+    // were then, to wash in amber once.
+    @State private var freshRevealKey: String?
+    @State private var freshRevealFlash: Set<String> = []
+    @State private var freshRevealSerial = 0
+    // How far through the open commit's files the reviewer is, for the turn's footer
+    // while History is shown.
+    @State private var historyTally: ViewedTally?
+    // Moves on to the next file once a tick has landed. Picking a file first cancels it.
+    @State private var advanceTask: Task<Void, Never>?
     // Gap rows git is reading the hidden lines for right now.
     private var expanding: Set<String> { model.expanding }
     // Projects whose first file has been picked, or that kept the one picked before.
@@ -145,13 +164,16 @@ struct ChangesView: View {
          repositories: [ChangesRepository] = [], requestedPath: String? = nil,
          navigation: ChangesNavigationMemory? = nil,
          review: ReviewTarget? = nil,
+         pullRequestBases: [PullRequestBase] = [],
          selectRepository: @escaping (String, String?) -> Void = { _, _ in }) {
         let memory = navigation ?? ChangesNavigationMemory()
         _ = memory.history(for: root)
         _navigation = State(initialValue: memory)
         _ = memory.commitDraft(for: root)
         isWorkspace = navigation != nil
-        _appliedInitialSelection = State(initialValue: navigation?.selections[root] != nil
+        // In a session the opening file is picked again on the way in, since the file left
+        // open may have been viewed since.
+        _appliedInitialSelection = State(initialValue: navigation?.selections[root] != nil && review == nil
             && initiallySelectedPath == nil && requestedPath == nil ? [root] : [])
         self.root = root
         self.initiallySelectedPath = initiallySelectedPath
@@ -160,6 +182,7 @@ struct ChangesView: View {
         self.requestedPath = requestedPath
         self.selectRepository = selectRepository
         self.review = review
+        self.pullRequestBases = pullRequestBases
     }
 
     // In a session the Workspace band sits over the navigator and the actions band over
@@ -167,6 +190,27 @@ struct ChangesView: View {
     // thing that names the project. A single project has no Workspace band, so its
     // header spans the whole pane.
     var body: some View {
+        screen
+            .task(id: freshRequest) { await findFreshLines() }
+            .onChange(of: footerTally, initial: true) { _, tally in navigation.viewedTally = tally }
+            .onChange(of: focusedComment) { _, id in if id != nil { freshRevealKey = nil } }
+            .onChange(of: fileSelection.activeID) { _, _ in
+                advanceTask?.cancel()
+                freshRevealKey = nil
+            }
+            // The pull request's base is known once GitHub and the branch list have both
+            // answered, which can be after the first read of the files.
+            .onChange(of: preferredRemoteRef) { _, ref in
+                // A read already asking for this branch needs no other.
+                guard let ref, model.remoteRef != ref, snapshot?.remoteBase?.ref != ref else { return }
+                // The files were read against another branch, so in a session the file to
+                // open is picked again from the new list rather than lost with the old one.
+                if review != nil, model.comparesToRemote { appliedInitialSelection.remove(root) }
+                Task { await reload() }
+            }
+    }
+
+    private var screen: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 // A narrow history has no room for two columns, so the navigator and the
@@ -452,34 +496,89 @@ struct ChangesView: View {
             .disabled(busy)
     }
 
-    // Only offered when the remote's default branch is known. The base is where the
-    // branch left it, which is what a pull request compares against.
+    // Only offered when a remote branch is known. The base is where the branch left it,
+    // which is what a pull request compares against. The branch itself can be picked.
     @ViewBuilder private func compareChoices(_ snapshot: GitSnapshot, compact: Bool) -> some View {
         if mode == .changes, let base = snapshot.remoteBase {
             HStack(spacing: Space.xs) {
                 if !compact {
                     Text("Compare to").font(Typography.caption).foregroundStyle(.secondary).fixedSize()
                 }
-                ChoicePill(title: "HEAD", selected: !model.comparesToRemote, enabled: !busy) {
+                ChoicePill(title: "Last commit", selected: !model.comparesToRemote, enabled: !busy) {
                     compare(toRemote: false)
                 }
-                .appTooltip("Uncommitted changes, compared to the last commit")
-                ChoicePill(title: base.ref, selected: model.comparesToRemote, enabled: !busy) {
+                .appTooltip("Uncommitted changes, against the last commit")
+                MenuChoicePill(title: base.ref, selected: model.comparesToRemote, enabled: !busy,
+                               monospaced: true, menuLabel: "Pick the branch to compare with") {
                     compare(toRemote: true)
+                } entries: {
+                    compareMenu(current: base.ref)
                 }
-                .appTooltip("Everything this branch changes since it left \(base.ref), committed or not")
+                .appTooltip(model.comparesToRemote
+                            ? "Comparing with \(base.ref). Click to pick another branch"
+                            : "Everything this branch changes since it left \(base.ref), committed or not")
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Compare to")
         }
     }
 
+    // The pull request's base first, then every remote's branches, with a filter on top
+    // since a busy remote has hundreds.
+    private func compareMenu(current: String) -> [MenuEntry] {
+        let branches = model.remoteBranches ?? GitRemoteBranches()
+        let prRef = pullRequestBaseRef
+        let picked = model.comparesToRemote ? current : nil
+        func item(_ ref: String, detail: String? = nil) -> MenuItem {
+            let detail = detail ?? (ref == branches.startedFrom ? "The branch this one started from" : nil)
+            return MenuItem(label: ref, checked: ref == picked, detail: detail) { compare(with: ref) }
+        }
+        var groups: [MenuItemGroup] = []
+        if let prRef, let pullRequest = pullRequestBase {
+            groups.append(MenuItemGroup(title: "Pull request",
+                                        items: [item(prRef, detail: "PR #\(pullRequest.number) merges here")]))
+        }
+        for remote in branches.remotes {
+            let refs = branches.refs(on: remote).filter { $0 != prRef }
+            if !refs.isEmpty { groups.append(MenuItemGroup(title: remote, items: refs.map { item($0) })) }
+        }
+        return [.searchable(groups: groups, prompt: "Filter remote branches",
+                            noResults: "No remote branch matches. Fetch from origin to see new ones.")]
+    }
+
     private func compare(toRemote: Bool) {
         guard !busy, model.comparesToRemote != toRemote else { return }
+        if toRemote { navigation.lastCommitCompares.remove(root) } else { navigation.lastCommitCompares.insert(root) }
         model.comparesToRemote = toRemote
         diffScroll = .top
         Task { await reload() }
     }
+
+    private func compare(with ref: String) {
+        navigation.compareRefs[root] = ref
+        navigation.lastCommitCompares.remove(root)
+        guard !(model.comparesToRemote && snapshot?.remoteBase?.ref == ref) else { return }
+        model.comparesToRemote = true
+        diffScroll = .top
+        announce("Comparing with \(ref)")
+        Task { await reload() }
+    }
+
+    // The pull request made from this checkout's branch, if the session has one open.
+    private var pullRequestBase: PullRequestBase? {
+        guard let branch = snapshot?.branch else { return nil }
+        return pullRequestBases.first { $0.headBranch == branch && !$0.baseBranch.isEmpty }
+    }
+
+    private var pullRequestBaseRef: String? {
+        guard let pullRequest = pullRequestBase, let branches = model.remoteBranches else { return nil }
+        return branches.ref(forBranch: pullRequest.baseBranch, owner: pullRequest.owner,
+                            repository: pullRequest.repository)
+    }
+
+    // The branch picked for this project, else the pull request's base. Nil leaves git to
+    // the remote's default branch.
+    private var preferredRemoteRef: String? { navigation.compareRefs[root] ?? pullRequestBaseRef }
 
     private func remoteControls(_ snapshot: GitSnapshot, compact: Bool) -> some View {
         HStack(spacing: Space.sm) {
@@ -639,6 +738,9 @@ struct ChangesView: View {
             ChoicePill(title: "Changes \(navigatorFileCount)", selected: mode == .changes) { mode = .changes }
             ChoicePill(title: "History", selected: mode == .history) { mode = .history }
             Spacer(minLength: 0)
+            if mode == .changes, let tally = viewedTally {
+                viewedProgress(tally).transition(.fadeIn)
+            }
         }.padding(Space.lg)
     }
 
@@ -699,9 +801,11 @@ struct ChangesView: View {
     }
 
     private func shownChanges(_ repositoryRoot: String) -> [GitChange] {
+        var shown = changes(in: repositoryRoot)
+        if hidesViewed { shown = shown.filter { viewedState($0, in: repositoryRoot) != .viewed } }
         let query = navigation.fileFilter.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return changes(in: repositoryRoot) }
-        return changes(in: repositoryRoot).filter { $0.path.localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return shown }
+        return shown.filter { $0.path.localizedCaseInsensitiveContains(query) }
     }
 
     private var isFilteringFiles: Bool {
@@ -905,7 +1009,9 @@ struct ChangesView: View {
                             if mode == .history { historyProject(repository) } else { changesProject(repository) }
                         }
                         if mode == .changes {
-                            if isFilteringFiles && repositories.allSatisfy({ shownChanges($0.root).isEmpty }) {
+                            if hidesViewed, let tally = viewedTally, tally.isDone {
+                                allViewedMessage(tally)
+                            } else if isFilteringFiles && repositories.allSatisfy({ shownChanges($0.root).isEmpty }) {
                                 Text("No matching files")
                                     .font(Typography.detail).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity).padding(.vertical, Space.xl)
@@ -915,6 +1021,7 @@ struct ChangesView: View {
                     }.padding(Space.md)
                     .smoothlyResizes(when: mode == .history ? collapsedHistories : collapsedRepositories)
                     .smoothlyResizes(when: navigation.foldedNotes)
+                    .smoothlyResizes(when: navigation.hideViewed)
                 }
                 .accessibilityLabel(mode == .history ? "Workspace projects and commits"
                                                      : "Workspace repositories and changed files")
@@ -1025,6 +1132,7 @@ struct ChangesView: View {
                 fileNotes(file, in: repository.root)
                     .modifier(ProjectRule())
             }
+            hiddenViewedNote(repository.root)
         }
     }
 
@@ -1038,12 +1146,15 @@ struct ChangesView: View {
         } label: {
             // Same spacing as the selected project's rows, so picking another project
             // does not shift the list.
+            let viewed = viewedState(file, in: repositoryRoot)
             HStack(spacing: Space.md) {
-                StatusChip(kind: file.kind)
-                fileName(file)
+                StatusChip(kind: file.kind).opacity(viewed == .viewed ? 0.5 : 1)
+                fileName(file, edited: viewed?.isEdited == true).opacity(viewed == .viewed ? 0.5 : 1)
                 notesBadge(file, in: repositoryRoot)
-                counts(file)
+                viewedMark(viewed)
+                counts(file).opacity(viewed == .viewed ? 0.5 : 1)
             }
+            .motion(Motion.control, value: viewed)
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
             .overlay {
@@ -1054,6 +1165,309 @@ struct ChangesView: View {
         }
         .buttonStyle(.plain)
         .hoverFill(cornerRadius: Radius.control)
+        .accessibilityValue(viewedState(file, in: repositoryRoot)?.spoken ?? "")
+        .appContextMenu {
+            viewedMenuEntries([file], in: repositoryRoot)
+        }
+    }
+
+    // MARK: - Viewed files
+
+    // What the file holds now, as read after the last refresh.
+    private func version(_ file: GitChange, in repositoryRoot: String) -> String? {
+        navigation.fileVersions[repositoryRoot]?[file.path]
+    }
+
+    // Files are ticked off only in a session, whose review keeps the ticks. Nil outside
+    // one, and until the file's content has been read.
+    private func viewedState(_ file: GitChange, in repositoryRoot: String) -> ViewedState? {
+        guard let review, let version = version(file, in: repositoryRoot) else { return nil }
+        return review.reviews.viewed.state(notesKey(repositoryRoot, file.path), version: version,
+                                           in: review.sessionID)
+    }
+
+    private var hidesViewed: Bool { review != nil && navigation.hideViewed }
+
+    private var hasViewedMarks: Bool { review.map { $0.reviews.viewed.hasMarks($0.sessionID) } ?? false }
+
+    private var viewedTally: ViewedTally? {
+        guard review != nil else { return nil }
+        var viewed = 0
+        var total = 0
+        for repository in repositories {
+            for file in changes(in: repository.root) {
+                total += 1
+                if viewedState(file, in: repository.root) == .viewed { viewed += 1 }
+            }
+        }
+        return total == 0 ? nil : ViewedTally(viewed: viewed, total: total)
+    }
+
+    // What the turn's footer counts: the changed files, or the open commit's in History.
+    private var footerTally: ViewedTally? { mode == .changes ? viewedTally : historyTally }
+
+    // Reads what each changed file holds, so a file the agent has edited since it was
+    // ticked off is known to be new again.
+    private func refreshVersions(_ repositoryRoot: String) async {
+        guard review != nil else { return }
+        let snapshot = repositoryRoot == root ? self.snapshot : gitStats.snapshot(at: repositoryRoot)
+        guard let snapshot, snapshot.state == .ready else { return }
+        let versions = await FileVersion.onDisk(snapshot.files, root: snapshot.root)
+        guard !Task.isCancelled, navigation.fileVersions[repositoryRoot] != versions else { return }
+        navigation.fileVersions[repositoryRoot] = versions
+    }
+
+    private func toggleViewed(_ file: GitChange, in repositoryRoot: String, advance: Bool = false) {
+        guard let review, let version = version(file, in: repositoryRoot) else { return }
+        let store = review.reviews.viewed
+        let key = notesKey(repositoryRoot, file.path)
+        if store.state(key, version: version, in: review.sessionID) == .viewed {
+            store.unmark(key, version: version, in: review.sessionID)
+            announce("\(file.fileName) marked not viewed")
+            return
+        }
+        store.mark(key, version: version, in: review.sessionID)
+        announce("\(file.fileName) marked viewed")
+        keepViewedText(file, version: version, in: repositoryRoot, store: store)
+        guard advance, repositoryRoot == root, file.id == fileSelection.activeID else { return }
+        advanceTask?.cancel()
+        advanceTask = Task {
+            // The tick lands first, so moving on reads as the result of it.
+            try? await Task.sleep(for: .seconds(Motion.controlDuration))
+            guard !Task.isCancelled, fileSelection.activeID == file.id else { return }
+            openNextNotViewed(after: file)
+        }
+    }
+
+    // The text read is kept beside the tick, so the lines the agent adds later can be
+    // picked out.
+    private func keepViewedText(_ file: GitChange, version: String, in repositoryRoot: String,
+                                store: ViewedFileStore) {
+        guard !file.isBinary, file.kind != .deleted else { return }
+        let gitRoot = gitRoot(repositoryRoot)
+        Task {
+            guard let read = await FileVersion.text(at: file.path, root: gitRoot),
+                  read.version == version else { return }
+            store.keep(read.text, for: version)
+        }
+    }
+
+    private func setViewed(_ targets: [GitChange], _ viewed: Bool, in repositoryRoot: String) {
+        guard let review else { return }
+        let store = review.reviews.viewed
+        for file in targets {
+            guard let version = version(file, in: repositoryRoot) else { continue }
+            let key = notesKey(repositoryRoot, file.path)
+            if viewed {
+                store.mark(key, version: version, in: review.sessionID)
+                keepViewedText(file, version: version, in: repositoryRoot, store: store)
+            } else {
+                store.unmark(key, version: version, in: review.sessionID)
+            }
+        }
+        let what = targets.count == 1 ? targets[0].fileName : counted(targets.count, "file")
+        announce("\(what) marked \(viewed ? "viewed" : "not viewed")")
+    }
+
+    private func viewedMenuEntries(_ targets: [GitChange], in repositoryRoot: String) -> [MenuEntry] {
+        let states = targets.compactMap { viewedState($0, in: repositoryRoot) }
+        guard !states.isEmpty else { return [] }
+        let allViewed = states.allSatisfy { $0 == .viewed }
+        let multiple = targets.count > 1
+        let title = allViewed
+            ? (multiple ? "Mark \(targets.count) Files as Not Viewed" : "Mark as Not Viewed")
+            : (multiple ? "Mark \(targets.count) Files as Viewed" : "Mark as Viewed")
+        return [.item(title, detail: multiple ? nil : keyBindings.label(for: .toggleViewed)) {
+            setViewed(targets, !allViewed, in: repositoryRoot)
+        }]
+    }
+
+    // The next changed file not viewed yet: further down this project, then round from
+    // its top, then in the projects after it.
+    private func openNextNotViewed(after current: GitChange?) {
+        let here = changes(in: root)
+        let start = current.flatMap { file in here.firstIndex { $0.id == file.id } } ?? -1
+        let ordered = Array(here.suffix(from: min(here.count, start + 1))) + Array(here.prefix(max(0, start)))
+        if let next = ordered.first(where: { viewedState($0, in: root) != .viewed }) {
+            open(next)
+            return
+        }
+        for repository in repositories where repository.root != root {
+            if let next = changes(in: repository.root).first(where: { viewedState($0, in: repository.root) != .viewed }) {
+                selectRepository(repository.root, next.id)
+                return
+            }
+        }
+        announce("Every changed file is viewed")
+    }
+
+    // Opens a file as a plain click would, whatever keys happen to be held.
+    private func open(_ file: GitChange) {
+        mode = .changes
+        navigatorCursor = ChangesNavigatorItem(root: root, path: file.id)
+        fileSelection.select(file.id, in: files.map(\.id), extendingRange: false, toggling: false)
+        let root = repoRoot
+        Task { await loadDiff(file, root: root) }
+    }
+
+    private func clearViewed() {
+        guard let review else { return }
+        let store = review.reviews.viewed
+        let session = review.sessionID
+        let cleared = store.marks(in: session)
+        store.clear(session)
+        showToast("Viewed marks cleared", action: "Undo") { store.restore(cleared, in: session) }
+    }
+
+    // Scrolls to the first of the new lines, and washes them all in amber once so the eye
+    // lands on them.
+    private func goToNewLines() {
+        guard let diff, let first = NumberedDiffLine.lines(diff.lines)
+            .first(where: { shownFreshKeys.contains(DiffComments.key($0.anchor)) }) else { return }
+        freshRevealKey = DiffComments.key(first.anchor)
+        freshRevealFlash = shownFreshKeys
+        freshRevealSerial += 1
+    }
+
+    private var freshRequest: FreshRequest? {
+        guard mode == .changes, let review, let file = shownFile, let diff, !diff.lines.isEmpty,
+              let version = version(file, in: root), viewedState(file, in: root)?.isEdited == true,
+              let since = review.reviews.viewed.latest(notesKey(root, file.path), in: review.sessionID)?.version
+        else { return nil }
+        return FreshRequest(fileID: file.id, version: version, since: since, lines: diff.lines.count,
+                            base: snapshot?.diffBase(for: file))
+    }
+
+    private var shownFreshKeys: Set<String> {
+        guard let freshLines, let request = freshRequest, freshLines.fileID == request.fileID else { return [] }
+        return freshLines.keys
+    }
+
+    // Compares the text last viewed with the file now, to find the lines added since, and
+    // with the version the diff compares with, to find the removed lines it still had.
+    private func findFreshLines() async {
+        guard let request = freshRequest, let review, let file = shownFile else {
+            freshLines = nil
+            return
+        }
+        guard let viewed = review.reviews.viewed.text(of: request.since),
+              let current = await FileVersion.text(at: request.fileID, root: repoRoot) else {
+            freshLines = FreshLines(fileID: request.fileID, keys: [])
+            return
+        }
+        // A new file has nothing it was compared with, so nothing of it can be removed.
+        var original: String?
+        if file.kind != .added, !file.isUntracked {
+            original = try? await GitInspector.copyText(for: file, root: repoRoot, version: .before,
+                                                        base: request.base).get()
+        }
+        let base = original
+        let (added, removed) = await GitInspector.offMain(lane: .interactive) {
+            (ViewedLines.added(since: viewed, in: current.text),
+             base.map { ViewedLines.removed(since: viewed, in: current.text, base: $0) } ?? [])
+        }
+        guard !Task.isCancelled, let diff, shownFile?.id == request.fileID else { return }
+        freshLines = FreshLines(fileID: request.fileID,
+                                keys: ViewedLines.freshKeys(added: added, removed: removed, in: diff.lines))
+    }
+
+    // A tick for a file read, or an amber dot for one the agent has edited since.
+    private func viewedMark(_ state: ViewedState?) -> some View {
+        ZStack {
+            if state == .viewed {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+                    .transition(.opacity.combined(with: .offset(y: 2)))
+            } else if state?.isEdited == true {
+                Circle().fill(Theme.attention).frame(width: 6, height: 6)
+                    .transition(.scale(scale: 0.4).combined(with: .opacity).animation(Motion.pop))
+            }
+        }
+        .frame(width: review == nil ? 0 : Space.lg)
+        .accessibilityHidden(true)
+    }
+
+    private func viewedProgress(_ tally: ViewedTally) -> some View {
+        HStack(spacing: Space.sm) {
+            ProgressRing(fraction: Double(tally.viewed) / Double(tally.total))
+            ViewThatFits(in: .horizontal) {
+                Text(tally.label)
+                Text("\(tally.viewed)/\(tally.total)")
+            }
+            .font(Typography.caption.monospacedDigit())
+            .lineLimit(1)
+            .contentTransition(.numericText())
+        }
+        .foregroundStyle(tally.isDone ? Theme.accent : Color.secondary)
+        .padding(.horizontal, Space.sm)
+        .frame(height: ControlHeight.sm)
+        .contentShape(Rectangle())
+        .hoverLift(amount: Motion.smallLift)
+        .motion(Motion.control, value: tally)
+        .appMenu {
+            [.item("Hide viewed files", checked: navigation.hideViewed) { navigation.hideViewed.toggle() },
+             .item("Open the next file not viewed", detail: keyBindings.label(for: .nextNotViewed),
+                   disabled: tally.isDone) { openNextNotViewed(after: shownFile) },
+             .separator,
+             .item("Clear viewed marks", disabled: !hasViewedMarks) { clearViewed() }]
+        }
+        .accessibilityLabel("\(tally.viewed) of \(tally.total) files viewed")
+        .accessibilityHint("Hide viewed files, open the next one, or clear the marks")
+    }
+
+    private func allViewedMessage(_ tally: ViewedTally) -> some View {
+        VStack(spacing: Space.sm) {
+            Text("All \(counted(tally.total, "file")) viewed").font(Typography.label)
+            Text("Viewed files are hidden. A file comes back on its own if the agent edits it again.")
+                .font(Typography.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            InlineLink(title: "Show viewed files", size: Typography.Size.caption) { navigation.hideViewed = false }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, Space.xl).padding(.horizontal, Space.md)
+        .transition(.fadeIn)
+    }
+
+    @ViewBuilder private func hiddenViewedNote(_ repositoryRoot: String) -> some View {
+        if hidesViewed, !collapsedRepositories.contains(repositoryRoot), viewedTally?.isDone != true {
+            let hidden = changes(in: repositoryRoot).filter { viewedState($0, in: repositoryRoot) == .viewed }.count
+            if hidden > 0 {
+                HStack(spacing: Space.sm) {
+                    Text("\(counted(hidden, "viewed file")) hidden")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                    InlineLink(title: "Show", size: Typography.Size.caption) { navigation.hideViewed = false }
+                }
+                .padding(.leading, Space.xxxl + Space.md).padding(.vertical, Space.xs)
+                .modifier(ProjectRule())
+                .transition(.fold)
+            }
+        }
+    }
+
+    // Says a file the person ticked off has changed since, and how much of it is new.
+    private func editedBand(since: Date) -> some View {
+        let count = shownFreshKeys.count
+        let time = Calendar.current.isDateInToday(since)
+            ? since.formatted(date: .omitted, time: .shortened)
+            : since.formatted(date: .abbreviated, time: .shortened)
+        let lines = count > 0 ? " \(counted(count, "new line")) \(count == 1 ? "carries" : "carry") an amber mark." : ""
+        return HStack(spacing: Space.md) {
+            Circle().fill(Theme.attention).frame(width: 6, height: 6).accessibilityHidden(true)
+            Text("\(Text("Edited again since you viewed it at \(time).").fontWeight(.semibold))\(lines)")
+                .font(Typography.detail)
+                .foregroundStyle(Theme.attentionText)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: Space.md)
+            if count > 0 {
+                InlineLink(title: "Go to the new lines", tint: Theme.attentionText) { goToNewLines() }
+            }
+        }
+        .padding(.horizontal, Space.xxl)
+        .padding(.vertical, Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.attention.opacity(0.12))
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - History navigator
@@ -1207,13 +1621,19 @@ struct ChangesView: View {
         navigatorFocused && navigatorCursorVisible && navigatorCursor == item
     }
 
-    private func fileName(_ file: GitChange) -> some View {
+    private func fileName(_ file: GitChange, edited: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs) {
             Text(file.fileName).font(Typography.detail.weight(.medium)).lineLimit(1)
             Text((file.path as NSString).deletingLastPathComponent)
                 .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
             if let original = file.originalPath {
                 Text("was \(original)").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            if edited {
+                Text("Edited since you viewed it")
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
+                    .foregroundStyle(Theme.attentionText).lineLimit(1)
+                    .transition(.fold)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
         .appTooltip(file.path)
@@ -1376,9 +1796,10 @@ struct ChangesView: View {
                     }
                 }
 
-                StatusChip(kind: file.kind)
+                let viewed = viewedState(file, in: root)
+                StatusChip(kind: file.kind).opacity(viewed == .viewed ? 0.5 : 1)
 
-                fileName(file)
+                fileName(file, edited: viewed?.isEdited == true).opacity(viewed == .viewed ? 0.5 : 1)
 
                 if file.isStaged && file.isUnstaged {
                     Text("partly staged").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
@@ -1388,8 +1809,11 @@ struct ChangesView: View {
 
                 notesBadge(file, in: root)
 
-                counts(file)
+                viewedMark(viewed)
+
+                counts(file).opacity(viewed == .viewed ? 0.5 : 1)
             }
+            .motion(Motion.control, value: viewedState(file, in: root))
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
             .surface(isSelected ? Theme.accent.opacity(0.06) : .clear, cornerRadius: Radius.control,
@@ -1403,19 +1827,25 @@ struct ChangesView: View {
         .buttonStyle(.plain)
         .hoverFill(cornerRadius: Radius.control)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(viewedState(file, in: root)?.spoken ?? "")
         .appContextMenu {
+            let chosen = fileSelection.contextMenuFiles(for: file, in: files)
             // A row with only committed work has nothing to commit or discard, and acting
             // on the rest of the selection from it would not touch the row under the pointer.
-            let ids = file.hasLocalChanges ? Set(fileSelection.contextMenuFiles(for: file, in: files).map(\.id)) : []
+            let ids = file.hasLocalChanges ? Set(chosen.map(\.id)) : []
             let targets = localFiles.filter { ids.contains($0.id) }
             let multiple = targets.count > 1
+            // A file only the branch's commits changed can still be ticked off as read.
+            let viewed = viewedMenuEntries(chosen, in: root)
+            let viewedGroup: [MenuEntry] = viewed.isEmpty ? [] : viewed + [.separator]
             let finder: [MenuEntry] = [.item("Reveal in Finder") { reveal(file) },
                                        .item("Copy Path") { Pasteboard.copy(fileURL(file).path) }]
-            guard !targets.isEmpty else { return finder }
+            guard !targets.isEmpty else { return viewedGroup + finder }
             return [.item(multiple ? "Commit \(targets.count) Files…" : "Commit This File…") {
                 beginCommit(with: targets)
              },
              .separator]
+             + viewedGroup
              + finder
              + [.separator,
                 .item(multiple ? "Discard Changes in \(targets.count) Files…" : "Discard Changes",
@@ -1474,6 +1904,14 @@ struct ChangesView: View {
                         askOnFile(repoRoot, file.path)
                     }
                 }
+                if mode == .changes, let file = shownFile, let viewed = viewedState(file, in: root) {
+                    ViewedToggle(isOn: viewed == .viewed, edited: viewed.isEdited) {
+                        toggleViewed(file, in: root, advance: true)
+                    }
+                    .disabled(loadingDiff)
+                    .appTooltip(keyBindings.tooltip(viewed == .viewed ? "Mark not viewed" : "Mark viewed", for: .toggleViewed))
+                    .accessibilityHint("Marks \(file.fileName) viewed for this session")
+                }
                 if mode == .changes, let file = shownFile {
                     Image(systemName: "ellipsis").padding(Space.md).contentShape(Rectangle())
                         .hoverLift(amount: Motion.smallLift)
@@ -1506,6 +1944,14 @@ struct ChangesView: View {
             }
             .padding(.horizontal, Space.xxl)
             .padding(.vertical, Space.md)
+
+            ZStack {
+                if mode == .changes, let file = shownFile, case .edited(let since)? = viewedState(file, in: root) {
+                    editedBand(since: since)
+                        .transition(.asymmetric(insertion: .fold.animation(Motion.reveal),
+                                                removal: .fold.animation(Motion.leave)))
+                }
+            }
 
             if mode == .changes, let file = shownFile, !file.isBinary, diff?.images == nil {
                 if appSettings.changesDiffLayout == .sideBySide {
@@ -1557,7 +2003,7 @@ struct ChangesView: View {
         } else if mode == .changes, appSettings.changesDiffLayout == .sideBySide, let diff {
             if let review {
                 SideBySideDiff(lines: diff.lines, marks: model.diffMarks, expand: expand,
-                               threads: threadViews(review), picked: pickedKeys,
+                               threads: threadViews(review), picked: pickedKeys, fresh: shownFreshKeys,
                                onLine: { pickLine($0, extending: $1) }, onRange: { pickRange($0) },
                                reveal: revealedLine)
             } else {
@@ -1576,6 +2022,7 @@ struct ChangesView: View {
                                  }
                              },
                              picked: pickedKeys,
+                             fresh: shownFreshKeys,
                              threads: threadViews(review),
                              reveal: revealedLine)
             } else {
@@ -1612,7 +2059,8 @@ struct ChangesView: View {
                             detail: "This branch has no history to show.")
             } else {
                 CommitHistoryView(root: repoRoot, selection: historySelection,
-                                  back: narrow ? { historySelection.showingDetail = false } : nil)
+                                  back: narrow ? { historySelection.showingDetail = false } : nil,
+                                  review: review) { historyTally = $0 }
             }
         } else {
             ChangesLoadingPlaceholder(title: "Loading history…").padding(Space.xxxl).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1720,14 +2168,41 @@ struct ChangesView: View {
     }
 
     private func reload(fetchOrigin: Bool = false) async {
+        // A pull request names its base by branch, and the remote branch list is what turns
+        // that into a ref. Read the list first when a pull request is open and the list is
+        // not known yet, so the files are read against its base from the start rather than
+        // against the default branch and then again.
+        if model.remoteBranches == nil, pullRequestBase != nil, let known = snapshot {
+            let branches = await GitInspector.remoteBranches(at: root, branch: known.onBranch ? known.branch : nil)
+            guard !Task.isCancelled else { return }
+            model.remoteBranches = branches
+        }
+        model.remoteRef = preferredRemoteRef
         guard await model.reload(root: root, fetchOrigin: fetchOrigin, gitStats: gitStats,
                                  onError: { error in
             dialogs.show(.notice("Could not refresh origin", message: error))
         }), let fresh = snapshot else { return }
+        // Read after the files, so the list is never held up by it. A pull request's base is
+        // found in it, and a base that differs from the default reads the files again. A
+        // switch of branch reads it again too, since it says where the branch started.
+        let branch = fresh.onBranch ? fresh.branch : nil
+        if fresh.remoteBase != nil, model.remoteBranches == nil || fetchOrigin || model.remoteBranches?.branch != branch {
+            let branches = await GitInspector.remoteBranches(at: root, branch: branch)
+            guard !Task.isCancelled else { return }
+            model.remoteBranches = branches
+        }
+        // A branch picked before can be deleted on the remote and pruned by a fetch. The
+        // list then falls back, and says so once rather than quietly showing another base.
+        if let picked = navigation.compareRefs[root], let base = fresh.remoteBase, base.ref != picked,
+           model.remoteBranches?.refs.contains(picked) == false {
+            navigation.compareRefs[root] = nil
+            showToast("\(picked) is gone from the remote, so the files are compared with \(base.ref)")
+        }
         excluded.formIntersection(Set(fresh.files.map(\.id)))
         // A push can land between refreshes, and amending a pushed commit is exactly
         // what the checkbox exists to prevent.
         if amend && !canAmend { amend = false }
+        await refreshVersions(root)
 
         if mode == .history {
             await loadHistory()
@@ -1739,7 +2214,10 @@ struct ChangesView: View {
         fileSelection.retain(Set(orderedIDs), in: orderedIDs)
         if !appliedInitialSelection.contains(root) {
             appliedInitialSelection.insert(root)
-            if let initial = (requestedPath ?? initiallySelectedPath).flatMap({ path in fresh.files.first { $0.id == path } }) ?? fresh.files.first {
+            if let initial = OpeningFile.pick(in: fresh.files, requested: requestedPath ?? initiallySelectedPath,
+                                              open: fileSelection.activeID,
+                                              isViewed: { viewedState($0, in: root) == .viewed }),
+               initial.id != fileSelection.activeID {
                 fileSelection.select(initial.id, in: orderedIDs,
                                      extendingRange: false, toggling: false)
             }
@@ -1754,7 +2232,7 @@ struct ChangesView: View {
 
     // What was half done in the project before belongs to its files, so it goes.
     private func switchedProject(_ root: String) {
-        if navigation.selections[root] != nil && requestedPath == nil {
+        if navigation.selections[root] != nil && review == nil && requestedPath == nil {
             appliedInitialSelection.insert(root)
         } else {
             appliedInitialSelection.remove(root)
@@ -1795,6 +2273,7 @@ struct ChangesView: View {
                 let fresh = await GitInspector.snapshot(at: repository.root, comparingToLastCommit: true)
                 guard !Task.isCancelled else { return }
                 gitStats.store(fresh, at: repository.root)
+                await refreshVersions(repository.root)
             }
         }
     }
@@ -2036,6 +2515,10 @@ struct ChangesView: View {
         if commentDraft == nil, let anchor = citedAnchor, let citation = navigation.citation, let diff,
            let id = lineID(for: DiffAnchor(side: anchor.side, line: anchor.line), in: diff.lines) {
             return DiffReveal(line: id, serial: citation.serial, key: DiffComments.key(DiffAnchor(side: anchor.side, line: anchor.line)))
+        }
+        if let key = freshRevealKey, let anchor = DiffComments.anchor(key), let diff,
+           let id = lineID(for: anchor, in: diff.lines) {
+            return DiffReveal(line: id, serial: freshRevealSerial, key: key, flash: freshRevealFlash)
         }
         guard let focusedComment,
               let line = placement.below.first(where: { $0.value.contains { $0.id == focusedComment } })?.key
@@ -2310,6 +2793,14 @@ struct ChangesView: View {
             return true
         }
         guard !WindowKeyHandler.isTyping(event.window?.firstResponder), let review, mode == .changes else { return false }
+        if reviewKeys.pressed(.toggleViewed, event), let file = shownFile, viewedState(file, in: root) != nil {
+            if !loadingDiff { toggleViewed(file, in: root, advance: true) }
+            return true
+        }
+        if reviewKeys.pressed(.nextNotViewed, event) {
+            openNextNotViewed(after: shownFile)
+            return true
+        }
         if flags == .option, event.keyCode == 125 || event.keyCode == 126 {
             step(event.keyCode == 125 ? 1 : -1)
             return true
@@ -2971,4 +3462,19 @@ private struct SettledFile: Identifiable {
     let root: String
     let path: String
     var id: String { root + "/" + path }
+}
+
+// The lines of the open file added after it was last viewed, and what they were found for.
+private struct FreshLines: Equatable {
+    var fileID: String
+    var keys: Set<String>
+}
+
+private struct FreshRequest: Equatable {
+    var fileID: String
+    var version: String
+    var since: String
+    var lines: Int
+    // The commit the diff compares with, nil for the last one.
+    var base: String?
 }
