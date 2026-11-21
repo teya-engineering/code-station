@@ -1,10 +1,9 @@
 import AppKit
 import Foundation
 import Observation
-import SwiftTerm
 
-// One shell tab: a pty, the SwiftTerm surface that emulates and draws it, and the
-// little bit of state the tab strip shows. Terminals are owned by TerminalStore and
+// One shell tab: a pty, the surface that emulates and draws it, and the little bit of
+// state the tab strip shows. Terminals are owned by TerminalStore and
 // outlive switching tabs, so a build keeps running while you are reading the chat.
 @MainActor
 @Observable
@@ -25,6 +24,9 @@ final class TerminalSession: Identifiable {
     // It lives with the session rather than the drawer, which is what lets the screen
     // survive tab switches and the drawer being put away.
     @ObservationIgnored let surface: TerminalSurface
+    // The surface is also the emulator for now. Everything the session asks of the
+    // emulator goes through here, so the two can be pulled apart later.
+    private var engine: any TerminalEngine { surface }
     @ObservationIgnored private var pty: PTY?
     @ObservationIgnored private var output: TerminalOutputBuffer?
     @ObservationIgnored private var busyPoll: Task<Void, Never>?
@@ -46,8 +48,13 @@ final class TerminalSession: Identifiable {
         self.registry = registry
         self.onExit = onExit
         surface = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
-        surface.terminalDelegate = self
         surface.onClear = { [weak self] in self?.clear() }
+        surface.onInput = { [weak self] data in self?.pty?.write(data) }
+        // Anything that draws a full line wraps in the wrong place unless the shell
+        // knows the real size.
+        surface.onResize = { [weak self] columns, rows in
+            self?.pty?.resize(columns: columns, rows: rows)
+        }
     }
 
     // MARK: - Lifecycle
@@ -82,11 +89,11 @@ final class TerminalSession: Identifiable {
         environment["LANG"] = environment["LANG"] ?? "en_US.UTF-8"
 
         do {
-            let screen = surface.terminalDimensions
+            let grid = engine.gridSize
             // -i so the shell reads the user's rc files and behaves like their terminal.
             try terminal.start(shell: Self.shell, arguments: ["-i"], directory: directory,
                                environment: environment,
-                               columns: screen.cols, rows: screen.rows)
+                               columns: grid.columns, rows: grid.rows)
             isRunning = true
             failure = nil
             if busyMonitoringEnabled { watchForCommands() }
@@ -159,12 +166,11 @@ final class TerminalSession: Identifiable {
         guard !text.isEmpty, isRunning else { return }
         Task { @MainActor in
             let deadline = Date().addingTimeInterval(2)
-            while surface.terminalInputStateSnapshot()?.bracketedPasteMode != true,
-                  isRunning, Date() < deadline {
+            while !engine.isBracketedPasteOn, isRunning, Date() < deadline {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard isRunning else { return }
-            if surface.terminalInputStateSnapshot()?.bracketedPasteMode == true {
+            if engine.isBracketedPasteOn {
                 send("\u{1b}[200~\(text)\u{1b}[201~")
             } else {
                 // Older line editors use Control-V to insert control characters literally.
@@ -178,14 +184,12 @@ final class TerminalSession: Identifiable {
     }
 
     func clear() {
-        surface.resetToInitialState()
-        surface.setNeedsDisplay(surface.bounds)
+        engine.resetScreen()
     }
 
     // What the screen currently shows; read by tests.
     func screenText() -> String {
-        let data = surface.getBufferAsData()
-        return String(decoding: data, as: UTF8.self)
+        engine.screenText()
     }
 
     // MARK: - Output
@@ -196,7 +200,7 @@ final class TerminalSession: Identifiable {
         guard self.output === output else { return }
         let data = output.drain()
         guard !data.isEmpty else { return }
-        surface.feed(byteArray: ArraySlice([UInt8](data)))
+        engine.feedOutput(data)
     }
 
     private func shellExited(_ output: TerminalOutputBuffer) {
@@ -253,24 +257,6 @@ final class TerminalOutputBuffer: @unchecked Sendable {
         pending = Data()
         condition.broadcast()
     }
-}
-
-// The surface calls back on the main thread, which is where the session lives.
-extension TerminalSession: TerminalViewDelegate {
-    func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        pty?.write(Data(data))
-    }
-
-    // The surface works out its own columns and rows from its frame; the shell just
-    // has to be told, or anything that draws a full line wraps in the wrong place.
-    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        pty?.resize(columns: newCols, rows: newRows)
-    }
-
-    func setTerminalTitle(source: TerminalView, title: String) {}
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-    func scrolled(source: TerminalView, position: Double) {}
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 }
 
 // A terminal belongs to a project overview, a workspace or one chat session. The kind is

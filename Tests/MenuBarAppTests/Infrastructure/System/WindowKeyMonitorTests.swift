@@ -1,7 +1,12 @@
 import AppKit
-import SwiftTerm
 import Testing
 @testable import MenuBarApp
+
+// Stands in for whatever view the shell is typed into. The rule only cares that the
+// first responder says it is one.
+private final class ShellStandIn: NSView, TerminalKeyboardResponder {
+    override var acceptsFirstResponder: Bool { true }
+}
 
 // A local monitor sees every key press in the app, so several controls listening for the
 // same chord all wake on one stroke. This is the rule that decides which of them acts:
@@ -42,11 +47,12 @@ struct WindowKeyMonitorTests {
     @Test func aShellHoldingTheKeyboardKeepsTheStroke() {
         let host = window()
         defer { host.close() }
+        // The app's real terminal view, so this also checks that it says it is a shell.
         let shell = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         host.contentView?.addSubview(shell)
         host.makeFirstResponder(shell)
 
-        #expect(host.firstResponder is TerminalSurface)
+        #expect(host.firstResponder === shell)
         #expect(!WindowKeyMonitor.routes(to: host, frontmost: host))
     }
 
@@ -55,7 +61,7 @@ struct WindowKeyMonitorTests {
     @Test func theWindowRoutesAgainOnceTheShellLetsGo() {
         let host = window()
         defer { host.close() }
-        let shell = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let shell = ShellStandIn(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
         host.contentView?.addSubview(shell)
         host.contentView?.addSubview(field)
