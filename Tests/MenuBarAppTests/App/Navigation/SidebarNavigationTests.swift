@@ -307,6 +307,8 @@ private final class SidebarHarness {
             .environment(AppUpdateChecker(installedVersion: nil, preferences: preferences))
             .environment(WorkingTreeWatch(inspect: { _ in 0 }))
             .environment(OrphanedWorktreeMonitor())
+            .environment(CleanupCoordinator(store: store, runner: runner, settings: settings,
+                                            orphanedWorktrees: OrphanedWorktreeMonitor()))
             .environment(PullRequestReviewStore())
             .environment(MobileAccessController(store: store, runner: runner, gitStats: stats))
             .environment(GlobalCommandPaletteController())

@@ -69,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         transcripts: projects.transcriptsURL,
         loaded: { [projects] in projects.loadedTranscript(of: $0) })
     private let orphanedWorktrees = OrphanedWorktreeMonitor()
+    private lazy var cleanup = CleanupCoordinator(
+        store: projects, runner: runner, settings: appSettings, orphanedWorktrees: orphanedWorktrees)
     private let pullRequestReviews = PullRequestReviewStore()
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()
@@ -130,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         showManager()
         scheduledTasks.start()
+        cleanup.start()
         sunlight.start()
     }
 
@@ -272,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     .environment(sessionTimes)
                     .environment(stats)
                     .environment(orphanedWorktrees)
+                    .environment(cleanup)
                     .environment(pullRequestReviews)
                     .environment(gitStats)
                     .environment(terminals)
@@ -316,6 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // longer shows up as something the app started.
         let leftovers = QuitSweep.snapshot()
         scheduledTasks.stop()
+        cleanup.stop()
         processes.stopAll()
         shortcuts.stopAll()
         runner.stopAll()

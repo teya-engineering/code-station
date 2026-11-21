@@ -6,7 +6,6 @@ import SwiftUI
 struct AppSidebar: View {
     let skills: SkillsManager
     let tools: ToolsMenuActions
-    var cleanup = OldSessionSweep.Status()
     let onReviewOldSessions: () -> Void
     var onReviewCleanup: (CleanupHighlight) -> Void = { _ in }
     // Set while a file open in the detail pane has taken Command-F for its own find.
@@ -21,6 +20,7 @@ struct AppSidebar: View {
     @Environment(AppSettings.self) private var appSettings
     @Environment(WorkingTreeWatch.self) private var workingTrees
     @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
+    @Environment(CleanupCoordinator.self) private var cleanup
     @Environment(MobileAccessController.self) private var mobileAccess
     @Environment(GlobalCommandPaletteController.self) private var commandPalette
 
@@ -29,11 +29,11 @@ struct AppSidebar: View {
     @State private var expansion = Preferences.sidebarExpansion()
     @State private var collapsedGroups = Preferences.collapsedSidebarGroups()
     @State private var renamingID: UUID?
-    @State private var choosingSessionKind: Project?
-    @State private var choosingWorkspaceSession: ProjectWorkspace?
-    @State private var showingCloneProject = false
+    @State private var sheet: SidebarSheet?
+    // These three stay apart from `sheet` because each can be asked for while another
+    // sheet is still up: creating a workspace or a task opens the next sheet as its own
+    // one closes, and an import is offered once a search of the folder ends.
     @State private var newWorkspace: NewWorkspaceRequest?
-    @State private var showingNewTask = false
     @State private var askingTask: Project?
     @State private var importingSessions: SessionImportRequest?
     @State private var sessionVisibility = SidebarSessionVisibility()
@@ -44,17 +44,7 @@ struct AppSidebar: View {
     @State private var oldSessions = OldSessionsWatch()
     // The rows a hovered cleanup line is talking about.
     @State private var cleanupHighlight: CleanupHighlight?
-    // The empty workspaces in their final hour, and when that hour ends.
-    @State private var workspaceRemoval: EmptyWorkspaceSweep.Removal?
-    @State private var drag = SidebarDrag()
-    // A project dropped on a workspace, from its flight into the row until the row puts
-    // its roster away again.
-    @State private var landing: SidebarLanding?
-    @State private var landings = 0
-    @State private var carryFlight: SidebarCarryFlight?
-    // A project dropped on another project, tucked behind it while the New workspace
-    // sheet asks for the rest.
-    @State private var pairing: SidebarPairing?
+    @State private var carry = SidebarCarry()
     @State var picks = SidebarMultiSelection()
     @State private var note = TransientNote()
     @FocusState private var filterFocused: Bool
@@ -123,7 +113,7 @@ struct AppSidebar: View {
         .onChange(of: store.navigation.workspaceAddition) { _, added in
             guard let added else { return }
             store.navigation.workspaceAddition = nil
-            landInPlace(added)
+            carry.landInPlace(added, in: carrySurroundings)
         }
         .onChange(of: store.navigation.projectToReveal) { _, id in
             guard let id else { return }
@@ -131,7 +121,9 @@ struct AppSidebar: View {
             setExpanded(true, for: id)
         }
         .task { await watchWorkingTrees() }
-        .task { await removeEmptyWorkspacesAutomatically() }
+        .onChange(of: cleanup.removedWorkspaces) { _, removed in
+            showNote(EmptyWorkspaceSweep.removedNote(removed), icon: "hourglass")
+        }
         .task(id: store.navigation.sidebarHighlight) { await endHighlight() }
         .task(id: oldSessions.rule(store: store, runner: runner, days: appSettings.oldSessionDays)) {
             await oldSessions.watch(store: store, runner: runner, days: appSettings.oldSessionDays)
@@ -143,35 +135,34 @@ struct AppSidebar: View {
         .onChange(of: commandPalette.newSessionRequest) { _, _ in
             startSessionInSelection()
         }
-        .sheet(item: $choosingSessionKind) { project in
-            NewSessionView(project: project) { choice in
-                startSession(choice, in: project)
+        .sheet(item: $sheet) { sheet in
+            Group {
+                switch sheet {
+                case .newSession(let project):
+                    NewSessionView(project: project) { choice in
+                        startSession(choice, in: project)
+                    }
+                case .workspaceSession(let workspace):
+                    NewWorkspaceSessionView(workspace: workspace) { choice in
+                        startWorkspaceSession(choice, in: workspace)
+                    }
+                case .cloneProject:
+                    CloneProjectView(onCloned: addProjectNow)
+                case .newTask:
+                    NewTaskView(onCreate: createTask)
+                }
             }
             .appOverlays()
-        }
-        .sheet(item: $choosingWorkspaceSession) { workspace in
-            NewWorkspaceSessionView(workspace: workspace) { choice in
-                startWorkspaceSession(choice, in: workspace)
-            }
-            .appOverlays()
-        }
-        .sheet(isPresented: $showingCloneProject) {
-            CloneProjectView(onCloned: addProjectNow)
-                .appOverlays()
         }
         // Closing the sheet either way takes the pile apart: a new workspace now stands
         // for the pair, and a cancel leaves both projects as they were.
-        .sheet(item: $newWorkspace, onDismiss: { pairing = nil }) { request in
+        .sheet(item: $newWorkspace, onDismiss: carry.endPairing) { request in
             NewWorkspaceView(initialProjectIDs: request.projectIDs, initialName: request.name) { workspace in
                 setExpanded(true, for: workspace.id)
                 store.navigation.sidebarHighlight = workspace.id
-                choosingWorkspaceSession = workspace
+                sheet = .workspaceSession(workspace)
             }
             .appOverlays()
-        }
-        .sheet(isPresented: $showingNewTask) {
-            NewTaskView(onCreate: createTask)
-                .appOverlays()
         }
         .sheet(item: $importingSessions) { request in
             ImportSessionsView(request: request, onFinish: landOnProject)
@@ -339,11 +330,11 @@ struct AppSidebar: View {
                         GeometryReader { proxy in
                             SidebarCarryLayer(carried: carriedProject?.name,
                                               caption: carryCaption,
-                                              flight: carryFlight,
+                                              flight: carry.flight,
                                               anchors: anchors,
                                               proxy: proxy,
-                                              onReleased: dragReleased,
-                                              onLanded: flightLanded)
+                                              onReleased: { carry.dragReleased(in: carrySurroundings) },
+                                              onLanded: { carry.flightLanded($0, in: carrySurroundings) })
                         }
                     }
                     .onPreferenceChange(SidebarRenderedSessionsKey.self) { renderedSessionIDs = $0 }
@@ -385,40 +376,20 @@ struct AppSidebar: View {
         store.project(id)?.kind == .project && workspace.projectIDs.contains(id)
     }
 
-    // The add happens at once, so the workspace page and its count already show it. The
-    // row's roster still shows the slot while the tile flies in, and fills it on landing.
-    private func join(_ id: UUID, _ workspace: ProjectWorkspace) {
-        guard let before = WorkspaceAddition.add(id, to: workspace.id, store: store),
-              let project = store.project(id) else { return }
-        landings += 1
-        landing = SidebarLanding(workspaceID: workspace.id, projectID: id, before: before,
-                                 phase: .flying, token: landings)
-        carryFlight = SidebarCarryFlight(name: project.name, from: .chip, to: .slot(workspace.id))
+    private var carrySurroundings: SidebarCarry.Surroundings {
+        SidebarCarry.Surroundings(
+            store: store, dialogs: dialogs, note: note, openWorkspace: openWorkspace,
+            proposeWorkspace: { newWorkspace = NewWorkspaceRequest(projectIDs: $0, name: $1) })
     }
 
-    // An add made away from the sidebar has no flight in: the tile lands in the row at
-    // once, and everything after that is the same as a drop.
-    private func landInPlace(_ added: WorkspaceAddition.Added) {
-        landings += 1
-        let landed = SidebarLanding(workspaceID: added.before.id, projectID: added.projectID,
-                                    before: added.before, phase: .landed, token: landings)
-        landing = landed
-        store.navigation.sidebarHighlight = added.before.id
-        showReceipt(for: landed)
-    }
-
-    private var carriedProject: Project? {
-        guard let id = drag.itemID, let project = store.project(id), project.kind == .project
-        else { return nil }
-        return project
-    }
+    private var carriedProject: Project? { carry.carriedProject(in: store) }
 
     private var carryAnchors: Bool {
-        carriedProject != nil || landing != nil || carryFlight != nil
+        carriedProject != nil || carry.landing != nil || carry.flight != nil
     }
 
     private var carryCaption: SidebarCarryCaption? {
-        guard carriedProject != nil, let slot = drag.slot else { return nil }
+        guard carriedProject != nil, let slot = carry.drag.slot else { return nil }
         if let workspace = store.workspace(slot.targetID) {
             switch slot.place {
             case .into: return SidebarCarryCaption(kind: .add, name: workspace.name)
@@ -434,7 +405,7 @@ struct AppSidebar: View {
         func members(_ ids: [UUID]) -> [SidebarRoster.Member] {
             ids.compactMap(store.project).map { SidebarRoster.Member(id: $0.id, name: $0.name) }
         }
-        if let landing, landing.workspaceID == workspace.id {
+        if let landing = carry.landing, landing.workspaceID == workspace.id {
             let project = store.project(landing.projectID)
                 .map { SidebarRoster.Member(id: $0.id, name: $0.name) }
             switch landing.phase {
@@ -455,108 +426,11 @@ struct AppSidebar: View {
         return SidebarRoster(workspaceID: workspace.id, members: members(workspace.projectIDs),
                              carried: SidebarRoster.Member(id: carried.id, name: carried.name),
                              holdsCarried: holds,
-                             aimed: drag.slot == SidebarDropSlot(targetID: workspace.id, place: .into))
-    }
-
-    // The mouse went up. A drop a row took has already cleared the drag; one still in
-    // hand a moment later was let go on nothing or cancelled, and its tile goes home
-    // rather than vanishing. The moment is there because the button reads as up a
-    // little before the row hears of the drop.
-    private func dragReleased() {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard let project = carriedProject else { return }
-            drag = SidebarDrag()
-            carryFlight = SidebarCarryFlight(name: project.name, from: .chip, to: .tile(project.id),
-                                             duration: Motion.flightHomeDuration)
-        }
-    }
-
-    private func flightLanded(_ flight: SidebarCarryFlight) {
-        if carryFlight?.id == flight.id { carryFlight = nil }
-        if flight.landsBehind, let pair = pairing, !pair.stacked, flight.to == .tile(pair.targetID) {
-            pairLanded(pair)
-            return
-        }
-        guard let current = landing else { return }
-        switch (flight.to, current.phase) {
-        case (.slot(let workspaceID), .flying) where workspaceID == current.workspaceID:
-            landing?.phase = .landed
-            store.navigation.sidebarHighlight = workspaceID
-            showReceipt(for: current)
-        case (.tile(let projectID), .leaving) where projectID == current.projectID:
-            landing = nil
-        default:
-            break
-        }
-    }
-
-    private func showReceipt(for landed: SidebarLanding) {
-        Task { @MainActor in
-            try? await Task.sleep(for: WorkspaceAddition.receiptDelay)
-            guard landing?.token == landed.token,
-                  let workspace = store.workspace(landed.workspaceID) else { return }
-            let isOpen = store.selection == .workspace(workspace.id)
-            guard let receipt = WorkspaceAddition.receipt(
-                for: landed.projectID, before: landed.before, store: store,
-                onUndo: { undoLanding(landed) },
-                onOpen: isOpen ? nil : { openWorkspace(workspace) },
-                onClose: { putRosterAway(landed) }) else {
-                landing = nil
-                return
-            }
-            dialogs.show(receipt)
-        }
-    }
-
-    // The roster stays a moment after the receipt closes, so the person sees the project
-    // in its new place before the row goes back to its count.
-    private func putRosterAway(_ landed: SidebarLanding) {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1_300))
-            if landing?.token == landed.token { landing = nil }
-        }
-    }
-
-    private func undoLanding(_ landed: SidebarLanding) {
-        let name = store.project(landed.projectID)?.name ?? "The project"
-        let workspace = store.workspace(landed.workspaceID)?.name ?? "the workspace"
-        showNote("Removed \(name) from \(workspace)", icon: "arrow.uturn.backward")
-        guard landing?.token == landed.token else { return }
-        landing?.phase = .leaving
-        carryFlight = SidebarCarryFlight(name: name,
-                                         from: .anchor(.roster(landed.workspaceID, landed.projectID)),
-                                         to: .tile(landed.projectID),
-                                         duration: Motion.flightHomeDuration)
+                             aimed: carry.drag.slot == SidebarDropSlot(targetID: workspace.id, place: .into))
     }
 
     private func canPair(_ id: UUID, with project: Project) -> Bool {
         id != project.id && store.project(id)?.kind == .project
-    }
-
-    // The project dropped on leads, since it is the one the person aimed for. The
-    // dropped tile flies in behind it first, so the row shows the two as a pile before
-    // the sheet asks to make that pile a workspace.
-    private func pair(_ id: UUID, with project: Project) {
-        guard let dropped = store.project(id) else { return }
-        pairing = SidebarPairing(targetID: project.id, projectID: id, stacked: false)
-        carryFlight = SidebarCarryFlight(name: dropped.name, from: .chip, to: .tile(project.id),
-                                         landsBehind: true)
-    }
-
-    private func pairLanded(_ pair: SidebarPairing) {
-        pairing?.stacked = true
-        Task { @MainActor in
-            try? await Task.sleep(for: SidebarPairing.sheetDelay)
-            guard pairing == SidebarPairing(targetID: pair.targetID, projectID: pair.projectID, stacked: true),
-                  let target = store.project(pair.targetID),
-                  let dropped = store.project(pair.projectID) else {
-                pairing = nil
-                return
-            }
-            newWorkspace = NewWorkspaceRequest(projectIDs: [target.id, dropped.id],
-                                               name: "\(target.name) + \(dropped.name)")
-        }
     }
 
     // A session only moves among the other sessions under the same row.
@@ -706,6 +580,7 @@ struct AppSidebar: View {
         let visible = visibleSessions(sessions, in: workspace.id)
         let running = sessions.count { runner.isBusy($0.id) }
         let projects = workspace.projectIDs.compactMap(store.project)
+        let removal = cleanup.workspaceRemoval
 
         WorkspaceHeaderRow(
             workspace: workspace,
@@ -723,8 +598,7 @@ struct AppSidebar: View {
             lifeLine: { now in
                 EmptyWorkspaceSweep.lifeLine(
                     for: workspace, holdsSessions: store.holdsSessions(workspace: workspace.id),
-                    removalAt: workspaceRemoval?.goes(workspace.id) == true
-                        ? workspaceRemoval?.at : nil,
+                    removalAt: removal?.goes(workspace.id) == true ? removal?.at : nil,
                     now: now)
             },
             onKeepForGood: { keepForGood(workspace) },
@@ -732,7 +606,7 @@ struct AppSidebar: View {
                 if picks.isActive { picks.click(workspace.id) } else { openWorkspace(workspace) }
             },
             onToggle: { toggleExpanded(workspace.id, expanded: expanded) },
-            onNewSession: { choosingWorkspaceSession = workspace },
+            onNewSession: { sheet = .workspaceSession(workspace) },
             onRename: { name in
                 store.renameWorkspace(workspace.id, to: name)
                 renamingID = nil
@@ -748,7 +622,7 @@ struct AppSidebar: View {
                     store.setPinned(!workspace.isPinned, forWorkspace: workspace.id)
                 },
                 .item("Rename…") { renamingID = workspace.id },
-                .item("New session") { choosingWorkspaceSession = workspace }]
+                .item("New session") { sheet = .workspaceSession(workspace) }]
             if workspace.removeWhenEmptyAfterDays != nil {
                 entries.append(.item("Keep for good", icon: "hourglass",
                                      subtitle: "Stop removing it when it sits empty.") {
@@ -765,12 +639,12 @@ struct AppSidebar: View {
         .sidebarDrag(workspace.id,
                      reorders: canReorder,
                      drags: canReorder,
-                     drag: $drag,
+                     drag: Bindable(carry).drag,
                      takesIn: { canJoin($0, workspace) },
                      wholeRow: true,
                      holds: { holds($0, workspace) },
                      onMove: { dropItem($0, beside: workspace.id, after: $1) },
-                     onDropInto: { join($0, workspace) })
+                     onDropInto: { carry.join($0, workspace, in: carrySurroundings) })
         .id(workspace.id)
 
         if expanded, !visible.isEmpty {
@@ -825,7 +699,7 @@ struct AppSidebar: View {
             isRenaming: renamingID == project.id,
             checked: checked(project.id),
             carryAnchors: carryAnchors,
-            stackedBehind: pairing.flatMap { $0.targetID == project.id && $0.stacked
+            stackedBehind: carry.pairing.flatMap { $0.targetID == project.id && $0.stacked
                 ? store.project($0.projectID)?.name : nil },
             onOpen: {
                 if picks.isActive { picks.click(project.id) } else { openProject(project) }
@@ -847,11 +721,11 @@ struct AppSidebar: View {
         .sidebarDrag(project.id,
                      reorders: canReorder,
                      drags: canReorder || project.kind == .project,
-                     drag: $drag,
+                     drag: Bindable(carry).drag,
                      carriesChip: project.kind == .project,
                      takesIn: project.kind == .project ? { canPair($0, with: project) } : nil,
                      onMove: { dropItem($0, beside: project.id, after: $1) },
-                     onDropInto: { pair($0, with: project) })
+                     onDropInto: { carry.pair($0, with: project, in: carrySurroundings) })
         .id(project.id)
 
         // An expanded project with nothing under it draws no cards at all: an empty rail
@@ -936,7 +810,7 @@ struct AppSidebar: View {
             .sidebarDrag(session.id,
                          reorders: canReorder,
                          drags: canReorder,
-                         drag: $drag,
+                         drag: Bindable(carry).drag,
                          onMove: { dropSession($0, beside: session.id, after: $1, in: sessions) })
             .id(session.id)
             .background {
@@ -1239,7 +1113,7 @@ struct AppSidebar: View {
     // Every session chooses its conversation mode up front. Git repositories also offer
     // an isolated worktree, while plain folders show only their direct folder.
     private func requestNewSession(in project: Project) {
-        choosingSessionKind = project
+        sheet = .newSession(project)
     }
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
@@ -1347,24 +1221,6 @@ struct AppSidebar: View {
         showNote("\(workspace.name) will stay until you delete it", icon: "checkmark")
     }
 
-    // Workspaces made for a short job go once they have sat empty for their days. They
-    // are a rule of their own, so this runs whatever the old session setting says.
-    private func removeEmptyWorkspacesAutomatically() async {
-        var buffer = EmptyWorkspaceSweep.Buffer()
-        while !Task.isCancelled {
-            let removed = EmptyWorkspaceSweep.run(store: store, buffer: &buffer)
-            if workspaceRemoval != buffer.removal { workspaceRemoval = buffer.removal }
-            if !removed.isEmpty {
-                showNote(EmptyWorkspaceSweep.removedNote(removed), icon: "hourglass")
-            }
-            do {
-                try await Task.sleep(for: EmptyWorkspaceSweep.monitorInterval)
-            } catch {
-                return
-            }
-        }
-    }
-
     private func confirmRemoveWorkspace(_ workspace: ProjectWorkspace) {
         WorkspaceRemoval.confirm(workspace, in: store, runner: runner, dialogs: dialogs)
     }
@@ -1460,7 +1316,7 @@ struct AppSidebar: View {
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             if appSettings.oldSessionsDeleteOnTheirOwn {
-                CleanupStrip(status: cleanup, onReview: onReviewCleanup) { highlight in
+                CleanupStrip(status: cleanup.status, onReview: onReviewCleanup) { highlight in
                     cleanupHighlight = highlight
                 }
             } else if oldSessions.summary.sessions > 0 {
@@ -1469,8 +1325,8 @@ struct AppSidebar: View {
                                       onReview: onReviewOldSessions)
                     .transition(.fold)
             }
-            if let workspaceRemoval {
-                EmptyWorkspacesStrip(removal: workspaceRemoval) { id in
+            if let removal = cleanup.workspaceRemoval {
+                EmptyWorkspacesStrip(removal: removal) { id in
                     if let workspace = store.workspace(id) { openWorkspace(workspace) }
                 }
                 .transition(.fold)
@@ -1496,10 +1352,10 @@ struct AppSidebar: View {
         .padding(.horizontal, Space.lg)
         .padding(.top, Space.lg)
         .padding(.bottom, Space.lg)
-        .motion(Motion.reveal, value: cleanup.parked.isEmpty)
-        .motion(Motion.reveal, value: cleanup.deletion == nil)
+        .motion(Motion.reveal, value: cleanup.status.parked.isEmpty)
+        .motion(Motion.reveal, value: cleanup.status.deletion == nil)
         .motion(Motion.reveal, value: oldSessions.summary.sessions > 0)
-        .motion(Motion.reveal, value: workspaceRemoval == nil)
+        .motion(Motion.reveal, value: cleanup.workspaceRemoval == nil)
         .onChange(of: appSettings.oldSessionsDeleteOnTheirOwn) { _, _ in cleanupHighlight = nil }
     }
 
@@ -1513,8 +1369,8 @@ struct AppSidebar: View {
 
     private func cleanupMark(_ sessionID: UUID) -> SidebarCleanupMark.Tone? {
         switch cleanupHighlight {
-        case .goes: cleanup.goes(sessionID) ? .goes : nil
-        case .waits: cleanup.waits(sessionID) ? .waits : nil
+        case .goes: cleanup.status.goes(sessionID) ? .goes : nil
+        case .waits: cleanup.status.waits(sessionID) ? .waits : nil
         case nil: nil
         }
     }
@@ -1527,7 +1383,7 @@ struct AppSidebar: View {
                   subtitle: "Choose an existing folder.", action: addProject),
             .item("Clone repository", icon: "arrow.down.circle",
                   subtitle: "Copy one from a Git URL.") {
-                showingCloneProject = true
+                sheet = .cloneProject
             },
             .item("Create workspace", icon: "square.stack.3d.up.fill",
                   subtitle: "Group two or more projects.") {
@@ -1535,7 +1391,7 @@ struct AppSidebar: View {
             },
             .item("New task", icon: "bolt.fill",
                   subtitle: "A saved prompt you can run any time.") {
-                showingNewTask = true
+                sheet = .newTask
             }
         ]
     }
@@ -1607,7 +1463,7 @@ struct AppSidebar: View {
                 requestNewSession(in: project)
             }
         case .workspace(let workspace):
-            choosingWorkspaceSession = workspace
+            sheet = .workspaceSession(workspace)
         case nil:
             // Nothing is selected, so there is no folder to start in yet.
             addProject()
@@ -1723,38 +1579,13 @@ struct AppSidebar: View {
     }
 }
 
-// MARK: - Rows
+// MARK: - Parts
 
 private struct SidebarRenderedSessionsKey: PreferenceKey {
     static let defaultValue: Set<UUID> = []
 
     static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
         value.formUnion(nextValue())
-    }
-}
-
-private struct SidebarDisclosure: View {
-    static let width: CGFloat = 14
-
-    let name: String
-    let expanded: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .rotationEffect(.degrees(expanded ? 90 : 0))
-                .frame(width: SidebarDisclosure.width, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverLift(amount: Motion.smallLift)
-        .sidebarFocusRing()
-        .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(name) sessions")
-        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-        .appTooltip("\(expanded ? "Collapse" : "Expand") \(name) sessions")
     }
 }
 
@@ -1850,1031 +1681,6 @@ private struct SectionHeading: View {
     }
 }
 
-// One line per workspace. The stacked tile distinguishes it from a single project without
-// introducing another icon language into the sidebar.
-private struct WorkspaceHeaderRow: View {
-    let workspace: ProjectWorkspace
-    let projects: [Project]
-    let selected: Bool
-    let activeSessionTitle: String?
-    let isExpanded: Bool
-    let sessionCount: Int
-    let runningCount: Int
-    let needsYouCount: Int
-    let isRenaming: Bool
-    let checked: Bool?
-    // Shown in place of the session count while a project is carried or landing.
-    var roster: SidebarRoster? = nil
-    var carryAnchors = false
-    // Set while the workspace removes itself once it sits empty.
-    var lifeLine: (Date) -> EmptyWorkspaceSweep.LifeLine? = { _ in nil }
-    var onKeepForGood: () -> Void = {}
-    let onOpen: () -> Void
-    let onToggle: () -> Void
-    let onNewSession: () -> Void
-    let onRename: (String) -> Void
-    let onCancelRename: () -> Void
-
-    @Environment(ProjectStore.self) private var store
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var draft = ""
-    @State private var hovering = false
-    @FocusState private var focused: Bool
-    @FocusState private var rowFocused: Bool
-    @FocusState private var actionFocused: Bool
-
-    private var showsNewSession: Bool {
-        checked == nil && !isRenaming && (hovering || rowFocused || actionFocused)
-    }
-
-    var body: some View {
-        TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering,
-                footer: workspace.removeWhenEmptyAfterDays == nil ? nil : AnyView(
-                    WorkspaceLifeLineRow(lifeLine: lifeLine, onKeepForGood: onKeepForGood,
-                                         name: workspace.name))) {
-            if sessionCount > 0 {
-                SidebarDisclosure(name: workspace.name, expanded: isExpanded, action: onToggle)
-            } else {
-                Color.clear.frame(width: SidebarDisclosure.width)
-            }
-        } content: {
-            if isRenaming {
-                SidebarIdentityTile(
-                    avatar: workspace.sidebarAvatar,
-                    name: workspace.name,
-                    tint: Theme.workspaceTint,
-                    stacked: true,
-                    pinned: workspace.isPinned)
-                TextField("Name", text: $draft)
-                    .textFieldStyle(.plain)
-                    .padding(Space.xs)
-                    .fieldSurface(cornerRadius: Radius.inset)
-                    .font(Typography.body.weight(.semibold))
-                    .focused($focused)
-                    .onSubmit { onRename(draft) }
-                    .onExitCommand(perform: onCancelRename)
-            } else {
-                Button(action: onOpen) {
-                    HStack(spacing: Space.md) {
-                        if let checked { SidebarCheckbox(isOn: checked) }
-                        SidebarIdentityTile(
-                            avatar: workspace.sidebarAvatar,
-                            name: workspace.name,
-                            tint: Theme.workspaceTint,
-                            stacked: true,
-                            pinned: workspace.isPinned)
-                            .threadNod(running: runningCount)
-                        Text(workspace.name)
-                            .font(Typography.body.weight(.semibold))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .sidebarFocusRing($rowFocused)
-                .accessibilityLabel(checked == nil ? "Open \(workspace.name)" : workspace.name)
-                .accessibilityValue(SidebarRowValue.text(
-                    current: selected ? "Current workspace" : nil,
-                    viewing: !isExpanded ? activeSessionTitle : nil,
-                    pinned: workspace.isPinned))
-                .accessibilityAddTraits(selected && activeSessionTitle == nil || checked == true
-                                        ? [.isSelected] : [])
-
-                // The count belongs to the row whether or not it is the current one:
-                // the sidebar is read at a glance, and a row that drops its number
-                // reads as a row with nothing in it. While a project is carried the
-                // roster takes its place, at the same height.
-                if let roster {
-                    SidebarRosterView(roster: roster, anchorsActive: carryAnchors)
-                        .transition(reduceMotion
-                                    ? .opacity
-                                    : .asymmetric(insertion: .opacity.combined(with: .offset(x: 6)),
-                                                  removal: .opacity))
-                } else if sessionCount > 0 || runningCount > 0 {
-                    HStack(spacing: Space.sm) {
-                        if !isExpanded, needsYouCount > 0 { NeedsYouChip(count: needsYouCount) }
-                        if runningCount > 0 { RunningDot() }
-                        if sessionCount > 0 {
-                            Text(counted(sessionCount, "session"))
-                                .font(Font.mono(Typography.Size.micro))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        } trailing: { fill in
-            TrailingRowAction(
-                visible: showsNewSession, icon: "plus", title: "New", tone: .create,
-                width: TrailingRowAction.newWidth, base: fill,
-                accessibilityLabel: "New multi-project session in \(workspace.name)",
-                tooltip: "New multi-project session",
-                focus: $actionFocused, action: onNewSession)
-        }
-        // A workspace that already holds the project in hand steps back, so the ones
-        // that can take it stand out.
-        .opacity(roster?.holdsCarried == true ? 0.55 : 1)
-        .motion(Motion.reveal, value: roster == nil)
-        .motion(Motion.hover, value: roster?.holdsCarried == true)
-        .appTooltip {
-            Tooltip(
-                title: workspace.name,
-                subtitle: projects.map(\.name).joined(separator: " + "),
-                rows: [Tooltip.Row(label: "Sessions", value: "\(sessionCount)"),
-                       Tooltip.Row(label: "Projects", value: "\(projects.count)")])
-        }
-        .onPointerHover {
-            hovering = $0
-            store.pointSidebarItem(workspace.id, $0)
-        }
-        .onChange(of: isRenaming, initial: true) { _, renaming in
-            guard renaming else { return }
-            draft = workspace.name
-            focused = true
-        }
-    }
-}
-
-// The second line of a workspace that removes itself when it sits empty. It turns amber
-// in the final hour and offers to keep the workspace for good. The clock only moves the
-// words once a minute, which is as fine as the line speaks.
-private struct WorkspaceLifeLineRow: View {
-    let lifeLine: (Date) -> EmptyWorkspaceSweep.LifeLine?
-    let onKeepForGood: () -> Void
-    let name: String
-
-    // Lines the words up under the workspace name: the row's inset, the disclosure, and
-    // the tile with the gaps around it.
-    private static let indent: CGFloat = Space.md + SidebarDisclosure.width + Space.xs + 26 + Space.md
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            if let line = lifeLine(context.date) {
-                HStack(spacing: Space.sm) {
-                    Image(systemName: "hourglass")
-                        .font(Typography.micro)
-                        .foregroundStyle(line.isFinalHour ? Theme.attentionText : Theme.workspaceTint.ink)
-                        .accessibilityHidden(true)
-                    Text(line.text)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .contentTransition(.numericText())
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if line.isFinalHour {
-                        KeepForGoodButton(name: name, action: onKeepForGood)
-                            .transition(.fadeIn)
-                    }
-                }
-                .font(Typography.caption)
-                .foregroundStyle(line.isFinalHour ? Theme.attentionText : Color.secondary)
-                .padding(.leading, Self.indent)
-                .padding(.trailing, Space.md)
-                .padding(.bottom, Space.sm)
-                .motion(Motion.control, value: line)
-                .accessibilityElement(children: .contain)
-            }
-        }
-    }
-}
-
-private struct KeepForGoodButton: View {
-    let name: String
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text("Keep for good")
-                .font(Typography.caption.weight(.semibold))
-                .foregroundStyle(Theme.accent)
-                .padding(.horizontal, Space.sm)
-                .padding(.vertical, Space.xxs)
-                .background(Theme.accent.opacity(hovering ? 0.1 : 0),
-                            in: RoundedRectangle(cornerRadius: Radius.inset))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onPointerHover { hovering = $0 }
-        .hoverLift(hovering, amount: Motion.smallLift)
-        .motion(Motion.hover, value: hovering)
-        .accessibilityLabel("Keep \(name) for good")
-    }
-}
-
-// The current container keeps its navigation marker even when its sessions are folded.
-// Open means a block is drawn below, not that the flag is set: a row with nothing under
-// it wears the plain fill, or the tint reads as a state the row does not have.
-// The disclosure leads the row, so nothing sits beside the action that takes over its end.
-private struct TreeRow<Leading: View, Content: View, Trailing: View>: View {
-    let selected: Bool
-    let isExpanded: Bool
-    let hovering: Bool
-    // A second line inside the row's card, under the name, for something the row has to
-    // say that will not fit beside it.
-    var footer: AnyView? = nil
-    @ViewBuilder let leading: Leading
-    @ViewBuilder let content: Content
-    // Handed the row's fill, so what it lays over the row's end can cover what is there.
-    @ViewBuilder let trailing: (Color) -> Trailing
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Space.xs) {
-                leading
-                HStack(spacing: Space.md) { content }
-            }
-            .padding(.horizontal, Space.md)
-            .padding(.vertical, Space.sm)
-            .overlay(alignment: .trailing) { trailing(fill) }
-            if let footer { footer }
-        }
-            .background(RoundedRectangle(cornerRadius: Radius.card).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: Radius.card)
-                .stroke(selected ? Theme.accent.opacity(0.14) : .clear, lineWidth: 1))
-            .overlay(alignment: .leading) {
-                if selected {
-                    Capsule().fill(Theme.accent)
-                        .frame(width: 3)
-                        .padding(.vertical, Space.sm)
-                        .accessibilityHidden(true)
-                }
-            }
-    }
-
-    private var fill: Color {
-        if selected { return Theme.accent.opacity(0.085) }
-        if isExpanded { return Theme.field }
-        return hovering ? Theme.sunken : .clear
-    }
-}
-
-// One line per project: who it is, and the way in. The sessions themselves carry the
-// detail, so the row stays a heading rather than competing with the cards under it, and
-// its numbers live in the hint where they cost the line no room.
-private struct ProjectHeaderRow: View {
-    let project: Project
-    let selected: Bool
-    let activeSessionTitle: String?
-    let isExpanded: Bool
-    let isMissing: Bool
-    let sessionCount: Int
-    let runningCount: Int
-    let unreadCount: Int
-    let needsYouCount: Int
-    let cost: Double
-    let canRunTask: Bool
-    let isRenaming: Bool
-    let checked: Bool?
-    // Set while a project is carried or landing, so the tile can be flown home to.
-    var carryAnchors = false
-    // The project tucked behind this one's tile after a drop, while the New workspace
-    // sheet is open.
-    var stackedBehind: String? = nil
-    let onOpen: () -> Void
-    let onToggle: () -> Void
-    let onNewSession: () -> Void
-    let onRunTask: () -> Void
-    let onRename: (String) -> Void
-    let onCancelRename: () -> Void
-
-    @Environment(ProjectStore.self) private var store
-    @Environment(\.keyBindings) private var keyBindings
-    @State private var draft = ""
-    @State private var hovering = false
-    @FocusState private var focused: Bool
-    @FocusState private var rowFocused: Bool
-    @FocusState private var actionFocused: Bool
-
-    private var isTask: Bool { project.kind == .adHoc }
-    private var showsNeedsYou: Bool { !isExpanded && needsYouCount > 0 }
-    private var showsNewSession: Bool {
-        !isTask && checked == nil && !isRenaming && (hovering || rowFocused || actionFocused)
-    }
-
-    var body: some View {
-        TreeRow(selected: selected, isExpanded: isExpanded, hovering: hovering) {
-            if sessionCount > 0 {
-                SidebarDisclosure(name: project.name, expanded: isExpanded, action: onToggle)
-            } else {
-                Color.clear.frame(width: SidebarDisclosure.width)
-            }
-        } content: {
-            if isRenaming {
-                SidebarIdentityTile(
-                    avatar: project.sidebarAvatar,
-                    name: project.name,
-                    tint: Theme.projectTint(for: project.name),
-                    dashed: project.kind == .adHoc,
-                    pinned: project.isPinned)
-                TextField("Name", text: $draft)
-                    .textFieldStyle(.plain)
-                    .padding(Space.xs)
-                    .fieldSurface(cornerRadius: Radius.inset)
-                    .font(Typography.body.weight(.semibold))
-                    .focused($focused)
-                    .onSubmit { onRename(draft) }
-                    .onExitCommand(perform: onCancelRename)
-            } else {
-                Button(action: onOpen) {
-                    HStack(spacing: Space.md) {
-                        if let checked { SidebarCheckbox(isOn: checked) }
-                        SidebarIdentityTile(
-                            avatar: project.sidebarAvatar,
-                            name: project.name,
-                            tint: Theme.projectTint(for: project.name),
-                            dashed: project.kind == .adHoc,
-                            pinned: project.isPinned)
-                            .background(alignment: .center) {
-                                if let stackedBehind {
-                                    ProjectTileBack(tint: Theme.projectTint(for: stackedBehind))
-                                        .transition(.opacity.animation(Motion.pop))
-                                }
-                            }
-                            .motion(Motion.leave, value: stackedBehind)
-                            .threadNod(running: runningCount)
-                            .sidebarCarryAnchor(.tile(project.id), active: carryAnchors)
-                        HStack(spacing: Space.xs) {
-                            if isMissing {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(Font.system(size: Typography.Size.micro))
-                                    .foregroundStyle(.secondary)
-                            }
-                            Text(project.name)
-                                .font(Typography.body.weight(.semibold))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            // The only mark a snoozed project carries. Its tooltip gives
-                            // the day its sessions come back into the cleanup list.
-                            if let snoozedUntil = project.snoozedUntil,
-                               ProjectSnooze.isActive(snoozedUntil) {
-                                MonoChip(text: ProjectSnooze.badge(until: snoozedUntil), size: Typography.Size.micro)
-                                    .appTooltip("Cleanup snoozed until \(ProjectSnooze.wakeDay(snoozedUntil))")
-                            }
-                            if let schedule = project.task?.schedule, schedule.isActive {
-                                Image(systemName: "clock.fill")
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                    .foregroundStyle(schedule.isWaitingForConfirmation
-                                                     ? Theme.attentionText : Theme.accent)
-                                    .appTooltip(schedule.isWaitingForConfirmation
-                                        ? "Timer waiting for confirmation"
-                                        : schedule.summary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .sidebarFocusRing($rowFocused)
-                .accessibilityLabel(checked == nil ? "Open \(project.name)" : project.name)
-                .accessibilityValue(SidebarRowValue.text(
-                    current: selected ? "Current project" : nil,
-                    viewing: !isExpanded ? activeSessionTitle : nil,
-                    pinned: project.isPinned))
-                .accessibilityAddTraits(selected && activeSessionTitle == nil || checked == true
-                                        ? [.isSelected] : [])
-
-                // On a task the running light gives way under the pointer to Run. The
-                // name gives way while the pointer is here, so the wider label does not
-                // make the row grow. A project's New covers its end instead.
-                if isTask {
-                    if !selected || hovering || runningCount > 0 || showsNeedsYou {
-                        ZStack(alignment: .trailing) {
-                            status
-                                .opacity(hovering ? 0 : 1)
-
-                            // A task is run with its saved prompt rather than opened
-                            // empty. The button waits while a run is still working in
-                            // the task's folder.
-                            if hovering, canRunTask, checked == nil {
-                                RowAction(icon: "play.fill", title: "Run", compact: selected, action: onRunTask)
-                                    .appTooltip("Run the task's saved prompt in a fresh session")
-                                    .fixedSize()
-                            }
-                        }
-                        .frame(minWidth: selected ? 0 : 30, alignment: .trailing)
-                    }
-                } else if runningCount > 0 || showsNeedsYou {
-                    status
-                }
-            }
-        } trailing: { fill in
-            TrailingRowAction(
-                visible: showsNewSession, icon: "plus", title: "New", tone: .create,
-                width: TrailingRowAction.newWidth, base: fill,
-                accessibilityLabel: "New session in \(project.name)",
-                tooltip: "New session" + (keyBindings.keys(for: .newSession).map { " \($0.compactLabel)" } ?? ""),
-                focus: $actionFocused, action: onNewSession)
-        }
-        .appTooltip { tooltip }
-        .onPointerHover {
-            hovering = $0
-            store.pointSidebarItem(project.id, $0)
-        }
-        .onChange(of: isRenaming, initial: true) { _, renaming in
-            guard renaming else { return }
-            draft = project.name
-            focused = true
-        }
-    }
-
-    private var status: some View {
-        HStack(spacing: Space.sm) {
-            if showsNeedsYou { NeedsYouChip(count: needsYouCount) }
-            if runningCount > 0 { RunningDot() }
-        }
-    }
-
-    // The path is the only thing that tells two projects of the same name apart, so it
-    // leads the hint. The counts under it are ones the row has no room to show.
-    private var tooltip: Tooltip {
-        var rows = [Tooltip.Row(label: isTask ? "Runs" : "Sessions", value: "\(sessionCount)")]
-        if runningCount > 0 {
-            rows.append(Tooltip.Row(label: "Running", value: "\(runningCount)"))
-        }
-        if unreadCount > 0 {
-            rows.append(Tooltip.Row(label: "Unread", value: "\(unreadCount)"))
-        }
-        if cost > 0 {
-            rows.append(Tooltip.Row(label: "Spent", value: Money.short(cost)))
-        }
-        if let schedule = project.task?.schedule, schedule.isActive {
-            rows.append(Tooltip.Row(label: "Timer", value: schedule.summary))
-            if schedule.isWaitingForConfirmation {
-                rows.append(Tooltip.Row(label: "Next run", value: "Waiting for confirmation"))
-            } else if let nextRunAt = schedule.nextRunAt {
-                rows.append(Tooltip.Row(label: "Next run",
-                                        value: nextRunAt.formatted(date: .abbreviated,
-                                                                   time: .shortened)))
-            }
-        }
-        return Tooltip(title: project.name,
-                       subtitle: isTask ? nil : project.collapsedPath,
-                       note: isMissing ? "This folder is no longer on disk." : promptNote,
-                       rows: rows)
-    }
-
-    // The saved prompt is what the Run button would send, so it belongs in the hint. One
-    // line of it is enough to recognise the task by.
-    private var promptNote: String? {
-        guard isTask else { return nil }
-        let line = (project.task?.prompt ?? "").trimmed
-            .split(separator: "\n").first.map(String.init) ?? ""
-        guard !line.isEmpty else { return nil }
-        return line.count > 120 ? String(line.prefix(120)) + "…" : line
-    }
-}
-
-// A hover action on a task row: the glyph with its word beside it, so what the button
-// does is read rather than guessed.
-private struct RowAction: View {
-    let icon: String
-    let title: String
-    var compact = false
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: Space.xxs) {
-                Image(systemName: icon)
-                    .font(Typography.micro)
-                if !compact {
-                    Text(title)
-                        .font(Typography.caption.weight(.semibold))
-                }
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, compact ? 4 : 7)
-            .padding(.vertical, Space.xs)
-            .overlay(Capsule().stroke(hovering ? Theme.border : .clear))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .sidebarFocusRing()
-        .hoverLift(hovering)
-        .onPointerHover { hovering = $0 }
-    }
-}
-
-// The end of a row given over to its main action while the row is pointed at or focused.
-// It runs the full height of the row so it is easy to hit, and its word keeps its own
-// colour in every state, so New always reads green and Delete always reads red. It lays
-// the row's own fill over the sidebar to cover the status under it, which comes back when
-// the pointer leaves, and a short fade lets the text it cuts off run out softly.
-private struct TrailingRowAction: View {
-    enum Tone {
-        case create, delete
-
-        var colour: Color { self == .create ? Theme.accent : Theme.deletion }
-
-        func tint(pressed: Bool, dark: Bool) -> Double {
-            switch (self, pressed) {
-            case (.create, false): dark ? 0.13 : 0.10
-            case (.create, true): dark ? 0.21 : 0.17
-            case (.delete, false): dark ? 0.13 : 0.09
-            case (.delete, true): dark ? 0.21 : 0.16
-            }
-        }
-    }
-
-    static let newWidth: CGFloat = 84
-    static let deleteWidth: CGFloat = 82
-    private static let fadeWidth: CGFloat = 18
-
-    let visible: Bool
-    let icon: String
-    let title: String
-    let tone: Tone
-    let width: CGFloat
-    let base: Color
-    var cornerRadius: CGFloat = 9
-    let accessibilityLabel: String
-    let tooltip: String
-    let focus: FocusState<Bool>.Binding
-    let action: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var hovering = false
-
-    var body: some View {
-        ZStack {
-            if visible {
-                zone
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(x: 10)))
-            }
-        }
-        // Still a fade under Reduce Motion, so the action does not cut in over the status.
-        .animation(Motion.hover, value: visible)
-    }
-
-    private var zone: some View {
-        let cover = ZStack { Theme.sidebar; base }
-        return HStack(spacing: 0) {
-            cover
-                .mask(LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing))
-                .frame(width: Self.fadeWidth)
-                .accessibilityHidden(true)
-            Button(action: action) {
-                HStack(spacing: Space.xs) {
-                    Image(systemName: icon)
-                        .font(Typography.caption.weight(.semibold))
-                    Text(title)
-                        .font(Typography.label)
-                }
-                .foregroundStyle(tone.colour)
-            }
-            .buttonStyle(TrailingActionStyle(tone: tone, hovering: hovering, dark: colorScheme == .dark))
-            .frame(width: width)
-            .frame(maxHeight: .infinity)
-            .background(cover)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(Theme.border)
-                    .frame(width: 1)
-                    .padding(.vertical, Space.md)
-                    .opacity(hovering ? 0 : 1)
-                    .accessibilityHidden(true)
-            }
-            .sidebarFocusRing(focus)
-            .accessibilityLabel(accessibilityLabel)
-            .appTooltip(tooltip)
-            .onPointerHover { hovering = $0 }
-        }
-        .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: cornerRadius,
-                                          topTrailingRadius: cornerRadius))
-    }
-}
-
-// The tint answers the pointer and deepens under a press. The press scales the label only,
-// never the button, since the button carries AppKit-backed tooltip views.
-private struct TrailingActionStyle: ButtonStyle {
-    let tone: TrailingRowAction.Tone
-    let hovering: Bool
-    let dark: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        let tinted = hovering || configuration.isPressed
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(tone.colour.opacity(tinted ? tone.tint(pressed: configuration.isPressed, dark: dark) : 0))
-            .contentShape(Rectangle())
-            .motion(Motion.hover, value: configuration.isPressed)
-    }
-}
-
-// The session's folder holds work git does not have. It rides at the top of the card
-// beside the state, because it is not what the session is doing: it is what deleting the
-// session would cost.
-private struct UncommittedMark: View {
-    var body: some View {
-        Image(systemName: "pencil.circle.fill")
-            .font(Typography.caption)
-            .foregroundStyle(Theme.attention)
-    }
-}
-
-private struct MobileConnectionMark: View {
-    var body: some View {
-        Image(systemName: "iphone.radiowaves.left.and.right")
-            .font(Typography.caption.weight(.semibold))
-            .foregroundStyle(Theme.addition)
-            .appTooltip("Phone connected")
-            .accessibilityLabel("Phone connected")
-    }
-}
-
-// What VoiceOver hears after a row's name. The pin on the tile is decoration, so the row
-// says it is pinned here.
-enum SidebarRowValue {
-    static func text(current: String?, viewing: String?, pinned: Bool) -> String {
-        var parts: [String] = []
-        if let current {
-            parts.append(current + (viewing.map { ". Viewing \($0)" } ?? ""))
-        }
-        if pinned { parts.append("Pinned") }
-        return parts.joined(separator: ", ")
-    }
-}
-
-struct PinnedMark: View {
-    var body: some View {
-        Image(systemName: "pin.fill")
-            .font(.system(size: 9.5, weight: .semibold))
-            .foregroundStyle(Theme.accent)
-            .appTooltip("Pinned")
-            .accessibilityLabel("Pinned")
-    }
-}
-
-// A session as a compact card. It carries the same state, title and activity the session
-// shows on its project and on Home, so it reads the same wherever it is met.
-struct SessionCard: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(PullRequestReviewStore.self) private var pullRequestReviews
-    let session: ChatSession
-    let worktrees: WorktreeCoverage
-    let selected: Bool
-    let busy: Bool
-    let failed: Bool
-    let waiting: Bool
-    let waitIsStale: Bool
-    // When the turn stopped working, which is what a wait has to be counted from. The
-    // session's own last activity is the start of the turn still holding it, so on a long
-    // turn it reads as a far longer wait than the one actually being served.
-    let waitingSince: Date?
-    let needsInput: Bool
-    let finished: Bool
-    var completionActivity: SessionCompletionActivity?
-    // Set while the session is put out of the way, so the card can say so.
-    var snoozed: SessionSnooze? = nil
-    // Worked out inside the card rather than handed in, because it reads the tool the
-    // session is running. A tool starts and ends many times a turn, and only this card
-    // has to be redrawn for it, not the whole rail.
-    let activity: () -> String?
-    let branch: String?
-    let uncommitted: Bool
-    let connected: Bool
-    let isRenaming: Bool
-    let checked: Bool?
-    let onOpen: () -> Void
-    let onWake: () -> Void
-    let onDelete: () -> Void
-    let onRename: (String) -> Void
-    let onCancelRename: () -> Void
-
-    @Environment(AppSettings.self) private var appSettings
-
-    @State private var hovering = false
-    @State private var draft = ""
-    @FocusState private var focused: Bool
-    @FocusState private var cardFocused: Bool
-    @FocusState private var deleteFocused: Bool
-    @AccessibilityFocusState private var cardAccessibilityFocused: Bool
-
-    private var tone: SessionTone {
-        SessionTone(busy: busy, needsInput: needsInput, finished: finished,
-                    waiting: waiting, waitIsStale: waitIsStale)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                if isRenaming {
-                    cardContent
-                        .frame(minHeight: snoozed == nil ? 0 : 74, alignment: .top)
-                } else {
-                    Button(action: onOpen) {
-                        // The box floats over the card rather than standing beside it, so
-                        // a state band still runs the full width of the card behind it.
-                        cardContent
-                            .overlay(alignment: .leading) {
-                                if let checked {
-                                    SidebarCheckbox(isOn: checked)
-                                        .padding(.leading, Self.boxInset)
-                                }
-                            }
-                            .frame(minHeight: snoozed == nil ? 0 : 74, alignment: .top)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .sidebarFocusRing($cardFocused)
-                    .accessibilityFocused($cardAccessibilityFocused)
-                    .accessibilityLabel(session.title)
-                    .accessibilityValue(accessibilityStatus)
-                    .accessibilityAddTraits(selected || checked == true ? [.isSelected] : [])
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                SessionSnoozeTag(snoozed: snoozed != nil)
-                    .frame(width: 39, height: 66)
-                    .padding(.leading, Space.md)
-                    .padding(.trailing, Space.lg)
-                    .padding(.top, Space.xs)
-                    .clipped()
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            .overlay(alignment: .trailing) {
-                TrailingRowAction(
-                    visible: checked == nil && !isRenaming && (hovering || cardFocused || deleteFocused),
-                    icon: "trash", title: "Delete", tone: .delete,
-                    width: TrailingRowAction.deleteWidth, base: cardFill, cornerRadius: Radius.control,
-                    accessibilityLabel: "Delete session \(session.title)",
-                    tooltip: "Delete session",
-                    focus: $deleteFocused, action: onDelete)
-                    .padding(1.4)
-            }
-            .appTooltip { tooltip }
-
-            if let snoozed {
-                SessionSnoozePocket(snooze: snoozed) {
-                    cardFocused = true
-                    cardAccessibilityFocused = true
-                    onWake()
-                }
-                .disabled(checked != nil)
-                .transition(reduceMotion ? .opacity.animation(Motion.reveal)
-                    : .asymmetric(insertion: .fadeIn.animation(Motion.reveal),
-                                  removal: .fold.animation(Motion.leave)))
-            }
-        }
-        .background(RoundedRectangle(cornerRadius: Radius.card).fill(cardFill))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card)
-            .stroke(cardStroke, lineWidth: selected ? 1.4 : 1.2))
-        .motion(Motion.control, value: [busy, finished, failed, selected])
-        .motion(snoozed == nil ? Motion.leave : Motion.reveal, value: snoozed)
-        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
-        .onPointerHover { hovering = $0 }
-        .onChange(of: isRenaming, initial: true) { _, renaming in
-            guard renaming else { return }
-            draft = session.title
-            focused = true
-        }
-    }
-
-    // A failed turn needs the user like any other unread end, but says what happened
-    // in its own word and colour, so the colour is never the only sign.
-    private var word: String { failed ? "FAILED" : tone.word(completionActivity: completionActivity) }
-
-    private var band: StateBand? {
-        failed
-            ? StateBand(fill: Theme.warningBackground, stripe: nil, drifts: false,
-                        word: Theme.warningText)
-            : tone.band
-    }
-
-    private var accessibilityStatus: String {
-        var labels = [word.capitalized]
-        if selected { labels.append("Currently viewing") }
-        if session.isPinned { labels.append("Pinned") }
-        if let snoozed { labels.append("Snoozed \(snoozed.phrase())") }
-        if uncommitted { labels.append("Uncommitted changes") }
-        if connected { labels.append("Phone connected") }
-        if worktrees.isComplete { labels.append("In a worktree") }
-        if worktrees.isPartial { labels.append("Partly in a worktree") }
-        return labels.joined(separator: ", ")
-    }
-
-    // A session that is doing something, or wants the user, wears its state line as a band
-    // across the top of the card. The title below stays on the plain card, so it reads as
-    // easily as an idle one.
-    private static let boxInset: CGFloat = 10
-
-    private var cardContent: some View {
-        let band = band
-        let edge: CGFloat = selected ? 9 : 8
-        let leading: CGFloat = checked == nil ? 10 : Self.boxInset + 16 + 10
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Space.sm) {
-                StateLight(tone: tone, colour: failed ? Theme.deletion : nil)
-                Text(word)
-                    .contentTransition(.opacity)
-                    .motion(Motion.control, value: word)
-                    .font(Typography.caps)
-                    .kerning(0.9)
-                    .foregroundStyle(band?.word ?? tone.colour)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                // WT means every checkout is a worktree. A session that is only partly
-                // in worktrees still shares a folder, so it wears MIXED in the amber of
-                // something that needs a look. The tooltip names which projects share.
-                if worktrees.isComplete {
-                    MonoChip(text: "WT", size: Typography.Size.micro)
-                } else if worktrees.isPartial {
-                    MonoChip(text: "MIXED", size: Typography.Size.micro, tint: Theme.attentionText)
-                }
-                if session.isTroubleshooting {
-                    MonoChip(text: "TROUBLESHOOT", size: Typography.Size.micro, tint: Theme.secret)
-                }
-                if uncommitted { UncommittedMark() }
-                if connected { MobileConnectionMark() }
-                // Review threads on this session's pull request still waiting for an answer.
-                if pullRequestReviews.waitingCount(session.id) > 0 {
-                    MonoChip(text: "\(pullRequestReviews.waitingCount(session.id)) REVIEW", size: Typography.Size.micro, tint: Theme.attentionText)
-                }
-                Spacer(minLength: 4)
-                Text(RelativeTime.short(waiting ? waitingSince ?? session.lastActivity
-                                                : session.lastActivity))
-                    .font(Font.mono(Typography.Size.micro))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.leading, leading)
-            .padding(.trailing, Space.md)
-            .padding(.top, band == nil ? edge : 6)
-            .padding(.bottom, band == nil ? 0 : 5)
-            .background {
-                if let band {
-                    ZStack {
-                        band.fill
-                        if let stripe = band.stripe {
-                            StripeFill(colour: stripe, drifts: band.drifts)
-                        }
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: Space.xs) {
-                if isRenaming {
-                    TextField("Name", text: $draft)
-                        .textFieldStyle(.plain)
-                        .padding(Space.xs)
-                        .fieldSurface(cornerRadius: Radius.inset)
-                        .font(Typography.body.weight(.semibold))
-                        .focused($focused)
-                        .onSubmit { onRename(draft) }
-                        .onExitCommand(perform: onCancelRename)
-                } else {
-                    Text(session.title)
-                        .font(Typography.body.weight(.semibold))
-                        .lineLimit(selected ? 2 : 1)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .truncationMode(.tail)
-                        .changingName(session.title)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                ActivityLine(activity: activity())
-            }
-            .padding(.leading, leading)
-            .padding(.trailing, snoozed == nil ? 10 : 60)
-            .padding(.top, band == nil ? 5 : 7)
-            .padding(.bottom, edge)
-        }
-    }
-
-    // The hint carries the branch and full path because the compact card leaves both out.
-    private var tooltip: Tooltip {
-        var rows = [Tooltip.Row(label: "State", value: word.capitalized)]
-        if let snoozed {
-            rows.append(Tooltip.Row(label: "Snoozed", value: snoozed.phrase()))
-        }
-        if let branch {
-            rows.append(Tooltip.Row(label: "Branch", value: branch))
-        }
-        if appSettings.showsCost(for: session.agent),
-           let usage = session.usage, usage.turns > 0 {
-            rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
-        }
-        if let context = session.usage?.contextFraction, context > 0 {
-            rows.append(Tooltip.Row(label: "Context", value: "\(Int(context * 100))%"))
-        }
-        rows.append(Tooltip.Row(label: "Last active",
-                                value: session.lastActivity.formatted(date: .abbreviated,
-                                                                      time: .shortened)))
-        return Tooltip(title: session.title,
-                       subtitle: session.worktreePath?.abbreviatedPath,
-                       note: note,
-                       rows: rows)
-    }
-
-    // What is worth knowing before deleting this session outranks where it runs, and a
-    // worktree session says both at once: the folder that would go is its own. A session
-    // that is only partly in worktrees names the projects it still shares, since the
-    // chip has no room for them.
-    private var note: String? {
-        if uncommitted {
-            return session.worktreePath == nil
-                ? "Uncommitted changes in the project folder."
-                : "Uncommitted changes in this worktree. Deleting the session loses them."
-        }
-        if worktrees.isPartial {
-            return "Runs in a worktree for \(worktrees.isolated.formatted(.list(type: .and))). Shares the project folder of \(worktrees.shared.formatted(.list(type: .and)))."
-        }
-        return worktrees.isComplete ? "Runs in its own git worktree." : nil
-    }
-
-    // Snoozed cards keep a solid surface behind their tag. Selection and run state
-    // still have their own ring, band, light and word.
-    private var cardFill: Color {
-        if selected || snoozed != nil { return Theme.card }
-        return hovering ? Theme.field : Theme.sunken
-    }
-
-    private var cardStroke: Color {
-        if selected { return Theme.accent.opacity(0.64) }
-        if checked == true { return Theme.accent.opacity(0.4) }
-        if failed { return Theme.deletion.opacity(0.45) }
-        if snoozed != nil { return Theme.snoozeEdge }
-        return tone == .idle ? .clear : tone.ring
-    }
-}
-
-// The card at the end of a capped session list. It wears the same shape as the cards
-// above it so the column stays one column, but stays quieter than any of them: it is
-// a control, not a session.
-private struct SeeMoreCard: View {
-    let title: String
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(Typography.label)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Space.sm)
-                .background(RoundedRectangle(cornerRadius: Radius.card)
-                    .fill(hovering ? Theme.field : Theme.sunken))
-                .overlay(RoundedRectangle(cornerRadius: Radius.card)
-                    .stroke(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onPointerHover { hovering = $0 }
-    }
-}
-
-// What the session is doing right now, under its title. Most tool calls finish in a
-// few milliseconds, so the line holds for a moment before it gives way: long enough
-// to read, and only ever replaced by the next call rather than by an empty gap. It is
-// the agent that changes it, so the words are swapped where they stand: a fade on each
-// one would keep the rail flickering while nobody is looking at it.
-private struct ActivityLine: View {
-    let activity: String?
-
-    private static let minimumDwell: TimeInterval = 1
-
-    @State private var shown: String?
-    @State private var shownAt = Date.distantPast
-
-    var body: some View {
-        Group {
-            if let shown {
-                Text(shown)
-                    .font(Font.mono(Typography.Size.micro))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        // A newer value cancels the wait for the older one, which is what keeps the
-        // hold from delaying anything the user would rather see.
-        .task(id: activity) { await settle(on: activity) }
-    }
-
-    private func settle(on next: String?) async {
-        let elapsed = Date().timeIntervalSince(shownAt)
-        if shown != nil, elapsed < Self.minimumDwell {
-            try? await Task.sleep(for: .seconds(Self.minimumDwell - elapsed))
-            guard !Task.isCancelled else { return }
-        }
-        shown = next
-        if next != nil { shownAt = Date() }
-    }
-}
-
 // The rail's way of saying where it landed. A row opened from somewhere else - the
 // command palette, Home, a link in a conversation - is scrolled into view and then blinks
 // green once, which is enough to find it in a long list without moving anything.
@@ -2948,46 +1754,21 @@ private extension View {
     }
 }
 
-// The box a row wears while several rows are being picked. It slides in from the edge the
-// row starts at, so the row reads as making room for it.
-private struct SidebarCheckbox: View {
-    let isOn: Bool
+// The sheets a click in the sidebar opens. Only ever one at a time.
+private enum SidebarSheet: Identifiable {
+    case newSession(Project)
+    case workspaceSession(ProjectWorkspace)
+    case cloneProject
+    case newTask
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        CheckboxMark(isOn: isOn)
-            .motion(Motion.control, value: isOn)
-            .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .leading)))
-            .accessibilityHidden(true)
+    var id: String {
+        switch self {
+        case .newSession(let project): "session-\(project.id)"
+        case .workspaceSession(let workspace): "workspace-session-\(workspace.id)"
+        case .cloneProject: "clone"
+        case .newTask: "task"
+        }
     }
-}
-
-struct SidebarLanding: Equatable {
-    enum Phase: Equatable {
-        case flying
-        case landed
-        // Taken back from the receipt, and flying home.
-        case leaving
-    }
-
-    let workspaceID: UUID
-    let projectID: UUID
-    // The workspace as it stood before the add, which is what an undo puts back.
-    let before: ProjectWorkspace
-    var phase: Phase
-    // Tells one landing from the next, so a late timer from an earlier one leaves a new
-    // one alone.
-    let token: Int
-}
-
-struct SidebarPairing: Equatable {
-    // A beat for the pile to be seen before the sheet covers the sidebar.
-    static let sheetDelay: Duration = .milliseconds(240)
-
-    let targetID: UUID
-    let projectID: UUID
-    var stacked: Bool
 }
 
 private struct NewWorkspaceRequest: Identifiable {
