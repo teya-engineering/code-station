@@ -17,6 +17,7 @@ enum Typography {
         static let caption: CGFloat = 11
         static let detail: CGFloat = 12
         static let body: CGFloat = 13
+        static let wordmark: CGFloat = 15
         static let title: CGFloat = 17
         static let display: CGFloat = 22
     }
@@ -45,6 +46,7 @@ enum Typography {
     // spaces the letters.
     static let caps = Font.mono(Size.micro, .semibold)
     static let capsKerning: CGFloat = 0.6
+    static let wordmarkKerning: CGFloat = -0.55
 }
 
 extension View {
