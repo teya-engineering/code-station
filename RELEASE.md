@@ -7,7 +7,9 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-The `Release` GitHub Actions workflow then builds, signs, and notarizes the app. It creates a draft GitHub Release with generated release notes, the DMG, and its checksum.
+The `Release` GitHub Actions workflow first waits for the `Tests` workflow to pass on the tagged commit. It looks for the run started by that commit's push to `main`. Only then does it build, sign, and notarize the app. It creates a draft GitHub Release with generated release notes, the DMG, and its checksum.
+
+Tag a commit whose `Tests` run passed, or one whose run is still going. The release waits for that run. If a later push to `main` cancelled the commit's run, or it failed for a temporary reason, re-run it from GitHub Actions before tagging. You can also re-run the release afterwards. A commit that was never the head of a push to `main` has no such run and cannot be released.
 
 Review the draft in GitHub Releases, then publish it. If the workflow fails for a temporary reason, run it again from GitHub Actions and select the same tag.
 
