@@ -16,11 +16,12 @@ jobs:
   # without the release environment, so waiting holds neither a Mac nor the
   # signing secrets.
   tested:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
-    # Long enough for a Tests run that has only just started.
-    timeout-minutes: 45
+    # Long enough for a Tests run that has only just started, plus time waiting
+    # for a runner on the Xcode image.
+    timeout-minutes: 75
     steps:
       - name: Wait for the Tests workflow to pass on this commit
         env:
