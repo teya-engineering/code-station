@@ -62,6 +62,7 @@ extension ChangesView {
             ChoicePill(title: "Changes \(navigatorFileCount)", selected: mode == .changes) { mode = .changes }
             ChoicePill(title: "History", selected: mode == .history) { mode = .history }
             Spacer(minLength: 0)
+            if mode == .changes, let tally = viewedTally { viewedProgress(tally).transition(.fadeIn) }
         }.padding(Space.lg)
     }
 
@@ -84,22 +85,22 @@ extension ChangesView {
 
     private func repositoryStatus(_ repository: ChangesRepository) -> String {
         if repository.root == root, model.loading { return "Checking" }
-        let status = repository.root == root ? snapshot : gitStats.snapshot(at: repository.root)
+        let status = repositorySnapshot(repository.root)
         return ChangesRepository.statusLabel(for: status)
     }
 
     // MARK: - Comments under their files
 
     // The repository a project's comments are stored against, which is git's own root.
-    private func gitRoot(_ repositoryRoot: String) -> String {
-        repositoryRoot == root ? repoRoot : gitStats.snapshot(at: repositoryRoot)?.root ?? repositoryRoot
+    func gitRoot(_ repositoryRoot: String) -> String {
+        repositorySnapshot(repositoryRoot)?.root ?? repositoryRoot
     }
 
     func changes(in repositoryRoot: String) -> [GitChange] {
-        repositoryRoot == root ? files : gitStats.snapshot(at: repositoryRoot)?.files ?? []
+        repositorySnapshot(repositoryRoot)?.files ?? []
     }
 
-    private func notesKey(_ repositoryRoot: String, _ path: String) -> String {
+    func notesKey(_ repositoryRoot: String, _ path: String) -> String {
         gitRoot(repositoryRoot) + "/" + path
     }
 
@@ -128,9 +129,11 @@ extension ChangesView {
     }
 
     private func shownChanges(_ repositoryRoot: String) -> [GitChange] {
+        var shown = changes(in: repositoryRoot)
+        if hidesViewed { shown = shown.filter { viewedState($0, in: repositoryRoot) != .viewed } }
         let query = navigation.fileFilter.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return changes(in: repositoryRoot) }
-        return changes(in: repositoryRoot).filter { $0.path.localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return shown }
+        return shown.filter { $0.path.localizedCaseInsensitiveContains(query) }
     }
 
     private var isFilteringFiles: Bool {
@@ -334,7 +337,9 @@ extension ChangesView {
                             if mode == .history { historyProject(repository) } else { changesProject(repository) }
                         }
                         if mode == .changes {
-                            if isFilteringFiles && repositories.allSatisfy({ shownChanges($0.root).isEmpty }) {
+                            if hidesViewed, let tally = viewedTally, tally.isDone {
+                                allViewedMessage(tally)
+                            } else if isFilteringFiles && repositories.allSatisfy({ shownChanges($0.root).isEmpty }) {
                                 Text("No matching files")
                                     .font(Typography.detail).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity).padding(.vertical, Space.xl)
@@ -344,6 +349,7 @@ extension ChangesView {
                     }.padding(Space.md)
                     .smoothlyResizes(when: mode == .history ? navigation.collapsedHistories : navigation.collapsed)
                     .smoothlyResizes(when: navigation.foldedNotes)
+                    .smoothlyResizes(when: navigation.hideViewed)
                 }
                 .accessibilityLabel(mode == .history ? "Workspace projects and commits"
                                                      : "Workspace repositories and changed files")
@@ -454,6 +460,7 @@ extension ChangesView {
                 fileNotes(file, in: repository.root)
                     .modifier(ProjectRule())
             }
+            hiddenViewedNote(repository.root)
         }
     }
 
@@ -467,12 +474,15 @@ extension ChangesView {
         } label: {
             // Same spacing as the selected project's rows, so picking another project
             // does not shift the list.
+            let viewed = viewedState(file, in: repositoryRoot)
             HStack(spacing: Space.md) {
-                StatusChip(kind: file.kind)
-                fileName(file)
+                StatusChip(kind: file.kind).opacity(viewed == .viewed ? 0.5 : 1)
+                fileName(file, edited: viewed?.isEdited == true).opacity(viewed == .viewed ? 0.5 : 1)
                 notesBadge(file, in: repositoryRoot)
-                counts(file)
+                viewedMark(viewed)
+                counts(file).opacity(viewed == .viewed ? 0.5 : 1)
             }
+            .motion(Motion.control, value: viewed)
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
             .overlay {
@@ -483,6 +493,10 @@ extension ChangesView {
         }
         .buttonStyle(.plain)
         .hoverFill(cornerRadius: Radius.control)
+        .accessibilityValue(viewedState(file, in: repositoryRoot)?.spoken ?? "")
+        .appContextMenu {
+            viewedMenuEntries([file], in: repositoryRoot)
+        }
     }
 
     // MARK: - File rows
@@ -506,9 +520,10 @@ extension ChangesView {
                     }
                 }
 
-                StatusChip(kind: file.kind)
+                let viewed = viewedState(file, in: root)
+                StatusChip(kind: file.kind).opacity(viewed == .viewed ? 0.5 : 1)
 
-                fileName(file)
+                fileName(file, edited: viewed?.isEdited == true).opacity(viewed == .viewed ? 0.5 : 1)
 
                 if file.isStaged && file.isUnstaged {
                     Text("partly staged").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary)
@@ -518,8 +533,11 @@ extension ChangesView {
 
                 notesBadge(file, in: root)
 
-                counts(file)
+                viewedMark(viewed)
+
+                counts(file).opacity(viewed == .viewed ? 0.5 : 1)
             }
+            .motion(Motion.control, value: viewedState(file, in: root))
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
             .surface(isSelected ? Theme.accent.opacity(0.06) : .clear, cornerRadius: Radius.control,
@@ -533,19 +551,25 @@ extension ChangesView {
         .buttonStyle(.plain)
         .hoverFill(cornerRadius: Radius.control)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(viewedState(file, in: root)?.spoken ?? "")
         .appContextMenu {
+            let chosen = model.fileSelection.contextMenuFiles(for: file, in: files)
             // A row with only committed work has nothing to commit or discard, and acting
             // on the rest of the selection from it would not touch the row under the pointer.
-            let ids = file.hasLocalChanges ? Set(model.fileSelection.contextMenuFiles(for: file, in: files).map(\.id)) : []
+            let ids = file.hasLocalChanges ? Set(chosen.map(\.id)) : []
             let targets = localFiles.filter { ids.contains($0.id) }
             let multiple = targets.count > 1
+            // A file only the branch's commits changed can still be ticked off as read.
+            let viewed = viewedMenuEntries(chosen, in: root)
+            let viewedGroup: [MenuEntry] = viewed.isEmpty ? [] : viewed + [.separator]
             let finder: [MenuEntry] = [.item("Reveal in Finder") { reveal(file) },
                                        .item("Copy Path") { Pasteboard.copy(fileURL(file).path) }]
-            guard !targets.isEmpty else { return finder }
+            guard !targets.isEmpty else { return viewedGroup + finder }
             return [.item(multiple ? "Commit \(targets.count) Files…" : "Commit This File…") {
                 beginCommit(with: targets)
              },
              .separator]
+             + viewedGroup
              + finder
              + [.separator,
                 .item(multiple ? "Discard Changes in \(targets.count) Files…" : "Discard Changes",
@@ -722,13 +746,19 @@ extension ChangesView {
         navigatorFocused && navigatorCursorVisible && navigatorCursor == item
     }
 
-    func fileName(_ file: GitChange) -> some View {
+    func fileName(_ file: GitChange, edited: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs) {
             Text(file.fileName).font(Typography.detail.weight(.medium)).lineLimit(1)
             Text((file.path as NSString).deletingLastPathComponent)
                 .font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
             if let original = file.originalPath {
                 Text("was \(original)").font(Font.system(size: Typography.Size.micro)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            if edited {
+                Text("Edited since you viewed it")
+                    .font(Font.system(size: Typography.Size.micro, weight: .medium))
+                    .foregroundStyle(Theme.attentionText).lineLimit(1)
+                    .transition(.fold)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
         .appTooltip(file.path)
@@ -737,7 +767,7 @@ extension ChangesView {
 
 // The rule down the side of a project's rows. It runs into the gaps between rows so the
 // line is unbroken.
-private struct ProjectRule: ViewModifier {
+struct ProjectRule: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(.leading, Space.md)

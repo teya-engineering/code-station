@@ -10,6 +10,9 @@ struct ChangesScreen {
     var otherRoots: [String] = []
     // The file to open the first time the project's files are read.
     var firstPath: String?
+    var review: ReviewTarget?
+    var pullRequestBases: [PullRequestBase] = []
+    var models: ChangesModels?
     var textScale: () -> CGFloat = { 1 }
     var comments: (GitChange?, [DiffLine]) -> DiffComments? = { _, _ in nil }
     var fetchFailed: (String) -> Void = { _ in }
@@ -28,6 +31,10 @@ final class ChangesModel {
     // Compare the files to where the branch left the remote's default branch, so work
     // already committed shows next to what is not.
     var comparesToRemote = false
+    // The remote branch to compare with. Nil takes the remote's default branch.
+    var remoteRef: String?
+    // The remotes' branches as last fetched, for the menu that picks one.
+    var remoteBranches: GitRemoteBranches?
     var loading = false
     var working: String?
     var commits: [GitCommitSummary]?
@@ -60,16 +67,26 @@ final class ChangesModel {
     @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private var historyGeneration = 0
 
-    @ObservationIgnored private let readSnapshot: (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot
+    @ObservationIgnored private let readSnapshot: (_ root: String, _ comparingToRemote: Bool, _ remoteRef: String?) async -> GitSnapshot
 
     init(root: String, navigation: ChangesNavigationMemory,
-         readSnapshot: @escaping (_ root: String, _ comparingToRemote: Bool) async -> GitSnapshot = {
+         readSnapshot: @escaping (_ root: String, _ comparingToRemote: Bool, _ remoteRef: String?) async -> GitSnapshot = {
         await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true,
-                                   findingRemoteBase: true, comparingToRemote: $1)
+                                   findingRemoteBase: true, comparingToRemote: $1, remoteRef: $2)
     }) {
         self.root = root
         self.navigation = navigation
         self.readSnapshot = readSnapshot
+    }
+
+    func pullRequest(_ bases: [PullRequestBase], branch: String? = nil) -> PullRequestBase? {
+        guard let remoteBranches, let branch = branch ?? snapshot?.branch else { return nil }
+        return PullRequestBase.matching(bases, branch: branch, remotes: remoteBranches)
+    }
+
+    func pullRequestRef(_ bases: [PullRequestBase], branch: String? = nil) -> String? {
+        guard let request = pullRequest(bases, branch: branch), let remoteBranches else { return nil }
+        return remoteBranches.ref(forBranch: request.baseBranch, owner: request.owner, repository: request.repository)
     }
 
     var busy: Bool { loading || working != nil }
@@ -91,10 +108,10 @@ final class ChangesModel {
     // Reads the project again, then brings what hangs on its files in line with it: the
     // files picked for the commit, the open file and its diff, or the log while the
     // history is showing.
-    func reload(fetchOrigin: Bool = false, for screen: ChangesScreen) async {
+    func reload(fetchOrigin: Bool = false, openingFile: Bool = true, for screen: ChangesScreen) async {
         refreshGeneration += 1
         let generation = refreshGeneration
-        let fresh: GitSnapshot
+        var fresh: GitSnapshot
         // The header is only busy while the project itself is read, not while the diff
         // or the log is read after it.
         do {
@@ -107,18 +124,34 @@ final class ChangesModel {
                 refreshFailed = true
                 screen.fetchFailed(error)
             }
-            fresh = await readSnapshot(root, comparesToRemote)
+            let branch = GitHead.branch(at: root)
+            if remoteBranches == nil || fetchOrigin || remoteBranches?.branch != branch {
+                let branches = await GitInspector.remoteBranches(at: root, branch: branch)
+                guard !Task.isCancelled, generation == refreshGeneration else { return }
+                remoteBranches = branches
+            }
+            if screen.review != nil { comparesToRemote = !navigation.lastCommitCompares.contains(root) }
+            remoteRef = navigation.compareRefs[root] ?? pullRequestRef(screen.pullRequestBases, branch: branch)
+            fresh = await readSnapshot(root, comparesToRemote, remoteRef)
             guard !Task.isCancelled, generation == refreshGeneration else { return }
+            if screen.review != nil { fresh.reviewChanges = await GitInspector.reviewChanges(in: fresh) }
+            guard !Task.isCancelled, generation == refreshGeneration else { return }
+            if let picked = navigation.compareRefs[root], let base = fresh.remoteBase, base.ref != picked,
+               remoteBranches?.refs.contains(picked) == false {
+                navigation.compareRefs[root] = nil
+                screen.fetchFailed("\(picked) is no longer available. Comparing with \(base.ref).")
+            }
             snapshot = fresh
+            navigation.snapshots[root] = fresh
             checkedAt = Date()
             // A remote that went away takes the choice with it, so it does not come back on
             // its own when the remote returns.
             if fresh.state == .ready && fresh.remoteBase == nil { comparesToRemote = false }
             // The cache feeds the uncommitted totals shown elsewhere, which committed work
             // must not inflate.
-            screen.gitStats.store(fresh.againstLastCommit, at: root)
+            screen.gitStats.store(fresh.againstLastCommit, at: root, notifyChanges: false)
             latestCommit = nil
-            if fresh.files.isEmpty && fresh.hasCommits {
+            if openingFile && fresh.files.isEmpty && fresh.hasCommits {
                 let latest = await GitInspector.recentCommits(at: fresh.root, limit: 1).commits.first
                 guard !Task.isCancelled, generation == refreshGeneration else { return }
                 latestCommit = latest
@@ -132,6 +165,7 @@ final class ChangesModel {
             commitDraft.setAmend(false, lastMessage: fresh.lastCommitSubject)
         }
 
+        guard openingFile else { return }
         if navigation.showingHistory {
             await loadHistory(at: fresh.root)
             return
@@ -142,7 +176,12 @@ final class ChangesModel {
         fileSelection.retain(Set(orderedIDs), in: orderedIDs)
         if !pickedInitialFile {
             pickedInitialFile = true
-            if let initial = screen.firstPath.flatMap({ path in fresh.files.first { $0.id == path } }) ?? fresh.files.first {
+            if let initial = OpeningFile.pick(in: fresh.files, requested: screen.firstPath,
+                                              open: fileSelection.activeID, isViewed: { file in
+                guard let review = screen.review else { return false }
+                return review.reviews.viewed.state(ViewedFileStore.key(root: fresh.root, path: file.path),
+                                                   change: fresh.reviewChanges[file.path], in: review.sessionID) == .viewed
+            }) {
                 fileSelection.select(initial.id, in: orderedIDs,
                                      extendingRange: false, toggling: false)
             }
@@ -156,8 +195,7 @@ final class ChangesModel {
     }
 
     // The other projects in the navigator are drawn from what was last read of them.
-    // Reading them again on the background lane, after this project, keeps them current
-    // without holding up the one on screen.
+    // Reading them after this project keeps them current without holding up the open diff.
     func refreshOthers(for screen: ChangesScreen) async {
         for other in screen.otherRoots {
             if navigation.showingHistory {
@@ -165,16 +203,17 @@ final class ChangesModel {
                 guard !Task.isCancelled else { return }
                 navigation.commits[other] = history.commits
             } else {
-                let fresh = await GitInspector.snapshot(at: other, comparingToLastCommit: true)
+                let model = screen.models?.model(for: other, comparingToRemote: screen.review != nil)
+                    ?? ChangesModel(root: other, navigation: navigation)
+                await model.reload(openingFile: false, for: screen)
                 guard !Task.isCancelled else { return }
-                screen.gitStats.store(fresh, at: other)
             }
         }
     }
 
     // The diff on screen belongs to the mode left behind, so it goes at once. Then the
     // mode now showing reads what it draws: the log, or the diff of the file left open.
-    func switchedMode(reopening file: GitChange?, at gitRoot: String, for screen: ChangesScreen) {
+    func switchedMode(at gitRoot: String, for screen: ChangesScreen) {
         clearDiff()
         if navigation.showingHistory {
             Task {
@@ -183,8 +222,11 @@ final class ChangesModel {
                 openLatestCommit = false
                 await refreshOthers(for: screen)
             }
-        } else if let file {
-            Task { await loadDiff(file, at: gitRoot, for: screen) }
+        } else {
+            Task {
+                await reload(for: screen)
+                await refreshOthers(for: screen)
+            }
         }
     }
 
@@ -213,7 +255,7 @@ final class ChangesModel {
         let generation = loadGeneration
         loadingDiff = true
         let loaded = await GitInspector.reviewDiff(for: file, root: gitRoot, base: snapshot?.diffBase(for: file))
-        if generation == loadGeneration { loadingDiff = false }
+        defer { if generation == loadGeneration { loadingDiff = false } }
         guard !Task.isCancelled, generation == loadGeneration,
               !navigation.showingHistory, fileSelection.activeID == file.id else { return }
         // The list can be older than the tree, for example when a session commits just
@@ -257,6 +299,10 @@ final class ChangesModel {
         guard !Task.isCancelled, generation == loadGeneration else { return }
         renderTask?.cancel()
         diff = loaded
+        if let change = loaded.reviewChange {
+            snapshot?.reviewChanges[fileID] = change
+            navigation.snapshots[root] = snapshot
+        }
         diffFileID = fileID
         diffText = built?.text
         diffMarks = built?.marks ?? [:]
@@ -326,9 +372,10 @@ final class ChangesModels {
         self.navigation = navigation
     }
 
-    func model(for root: String) -> ChangesModel {
+    func model(for root: String, comparingToRemote: Bool = false) -> ChangesModel {
         if let model = models[root] { return model }
         let model = ChangesModel(root: root, navigation: navigation)
+        model.comparesToRemote = comparingToRemote && !navigation.lastCommitCompares.contains(root)
         models[root] = model
         return model
     }

@@ -4,10 +4,20 @@ import Testing
 
 @MainActor
 struct ChangesModelTests {
+    @Test func aProjectsModelStartsOnTheComparisonAskedForAndKeepsItsOwn() {
+        let models = ChangesModels(navigation: ChangesNavigationMemory())
+        #expect(models.model(for: "/session", comparingToRemote: true).comparesToRemote)
+        #expect(!models.model(for: "/project").comparesToRemote)
+
+        // Once made, a model keeps what the person picked, whatever a later draw asks for.
+        models.model(for: "/session").comparesToRemote = false
+        #expect(!models.model(for: "/session", comparingToRemote: true).comparesToRemote)
+    }
+
     @Test func aLateRefreshCannotReplaceTheNewerSnapshot() async {
         let reads = SnapshotReads()
         let model = ChangesModel(root: "/repo", navigation: ChangesNavigationMemory(),
-                                 readSnapshot: { root, _ in await reads.read(root) })
+                                 readSnapshot: { root, _, _ in await reads.read(root) })
         let screen = ChangesScreen(gitStats: GitStatsCache())
         let first = Task { await model.reload(for: screen) }
         #expect(await waitUntil { reads.pending.count == 1 })
@@ -24,7 +34,7 @@ struct ChangesModelTests {
     @Test func cancellationClearsLoadingWithoutPublishingTheResult() async {
         let reads = SnapshotReads()
         let model = ChangesModel(root: "/repo", navigation: ChangesNavigationMemory(),
-                                 readSnapshot: { root, _ in await reads.read(root) })
+                                 readSnapshot: { root, _, _ in await reads.read(root) })
         let task = Task { await model.reload(for: ChangesScreen(gitStats: GitStatsCache())) }
         #expect(await waitUntil { reads.pending.count == 1 })
         task.cancel()
@@ -37,7 +47,7 @@ struct ChangesModelTests {
     @Test func comparingToTheRemoteTurnsOffWhenTheRemoteBaseIsGone() async {
         // No commits, so the reload does not go looking for the latest one.
         let model = ChangesModel(root: "/repo", navigation: ChangesNavigationMemory(),
-                                 readSnapshot: { _, _ in GitSnapshot(state: .ready, hasCommits: false) })
+                                 readSnapshot: { _, _, _ in GitSnapshot(state: .ready, hasCommits: false) })
         model.comparesToRemote = true
         await model.reload(for: ChangesScreen(gitStats: GitStatsCache()))
         #expect(!model.comparesToRemote)
@@ -53,7 +63,7 @@ struct ChangesModelTests {
         compared.uncommittedFiles = [uncommitted]
         compared.remoteBase = GitCompareBase(ref: "origin/main", commit: "abc")
         compared.comparedToRemote = true
-        let model = ChangesModel(root: "/repo", navigation: ChangesNavigationMemory(), readSnapshot: { _, _ in compared })
+        let model = ChangesModel(root: "/repo", navigation: ChangesNavigationMemory(), readSnapshot: { _, _, _ in compared })
         let stats = GitStatsCache()
         await model.reload(for: ChangesScreen(gitStats: stats))
         #expect(stats.snapshot(at: "/repo")?.files == [uncommitted])
@@ -144,7 +154,7 @@ struct ChangesModelTests {
         draft.message = "my message"
         draft.setAmend(true, lastMessage: "first")
         let reads = SnapshotQueue()
-        let model = ChangesModel(root: repo.path, navigation: navigation, readSnapshot: { _, _ in reads.next() })
+        let model = ChangesModel(root: repo.path, navigation: navigation, readSnapshot: { _, _, _ in reads.next() })
         let screen = ChangesScreen(gitStats: GitStatsCache())
 
         reads.snapshots = [unpushed]
@@ -168,7 +178,7 @@ struct ChangesModelTests {
         reads.snapshots = [GitSnapshot(state: .ready, root: repo.path, files: [stale]),
                            GitSnapshot(state: .ready, root: repo.path)]
         let model = ChangesModel(root: repo.path, navigation: ChangesNavigationMemory(),
-                                 readSnapshot: { _, _ in reads.next() })
+                                 readSnapshot: { _, _, _ in reads.next() })
         let screen = ChangesScreen(gitStats: GitStatsCache())
 
         // A reload opens the file without the check, so it cannot loop.

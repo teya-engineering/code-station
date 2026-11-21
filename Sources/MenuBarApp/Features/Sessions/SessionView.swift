@@ -225,7 +225,7 @@ struct SessionView: View {
                             if let reviewingEnding,
                                reviewingEnding == runner.lastTurnEnding(sessionID)?.ended,
                                !runner.state(sessionID).isBusy {
-                                TurnReviewFooter(back: returnToHandoff) {
+                                TurnReviewFooter(back: returnToHandoff, viewed: changesNavigation.viewedTally) {
                                     reviewedEnding = reviewingEnding
                                     returnToHandoff()
                                 }

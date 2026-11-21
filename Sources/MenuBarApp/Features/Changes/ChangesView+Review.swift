@@ -150,6 +150,10 @@ extension ChangesView {
            let id = lineID(for: DiffAnchor(side: anchor.side, line: anchor.line), in: diff.lines) {
             return DiffReveal(line: id, serial: citation.serial, key: DiffComments.key(DiffAnchor(side: anchor.side, line: anchor.line)))
         }
+        if let key = freshRevealKey, let anchor = DiffComments.anchor(key), let diff = model.diff,
+           let id = lineID(for: anchor, in: diff.lines) {
+            return DiffReveal(line: id, serial: freshRevealSerial, key: key, flash: freshRevealFlash)
+        }
         guard let focusedComment = navigation.focusedComment,
               let line = placed.comments.below.first(where: { $0.value.contains { $0.id == focusedComment } })?.key
                 ?? placed.sent.below.first(where: { $0.value.contains { $0.id == focusedComment } })?.key
@@ -423,6 +427,14 @@ extension ChangesView {
             return true
         }
         guard !WindowKeyHandler.isTyping(event.window?.firstResponder), let review, mode == .changes else { return false }
+        if reviewKeys.pressed(.toggleViewed, event), let file = shownFile {
+            if !model.loadingDiff { toggleViewed(file, in: root, advance: true) }
+            return true
+        }
+        if reviewKeys.pressed(.nextNotViewed, event) {
+            openNextNotViewed(after: shownFile)
+            return true
+        }
         if flags == .option, event.keyCode == 125 || event.keyCode == 126 {
             step(event.keyCode == 125 ? 1 : -1)
             return true

@@ -19,7 +19,8 @@ enum GitInspector {
 
     static func snapshot(at path: String, commandTimeout: TimeInterval? = nil,
                          lane: Git.Lane = .background, comparingToLastCommit: Bool = false,
-                         findingRemoteBase: Bool = false, comparingToRemote: Bool = false) async -> GitSnapshot {
+                         findingRemoteBase: Bool = false, comparingToRemote: Bool = false,
+                         remoteRef: String? = nil) async -> GitSnapshot {
         guard let tool = Git.tool() else { return .state(.gitMissing) }
         let url = URL(fileURLWithPath: path)
         return await Git.offMain(lane: lane) {
@@ -28,13 +29,14 @@ enum GitInspector {
                      commandTimeout: commandTimeout,
                      comparingToLastCommit: comparingToLastCommit,
                      findingRemoteBase: findingRemoteBase,
-                     comparingToRemote: comparingToRemote)
+                     comparingToRemote: comparingToRemote,
+                     remoteRef: remoteRef)
         }
     }
 
     private static func snapshot(tool: Git.Tool, url: URL, commandTimeout: TimeInterval?,
                                  comparingToLastCommit: Bool, findingRemoteBase: Bool,
-                                 comparingToRemote: Bool) -> GitSnapshot {
+                                 comparingToRemote: Bool, remoteRef: String?) -> GitSnapshot {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         guard exists && isDirectory.boolValue else { return .state(.missingFolder) }
@@ -126,7 +128,7 @@ enum GitInspector {
         snapshot.files = files
 
         if (findingRemoteBase || comparingToRemote) && snapshot.hasCommits {
-            snapshot.remoteBase = remoteBase(tool: tool, url: url, timeout: commandTimeout)
+            snapshot.remoteBase = remoteBase(tool: tool, url: url, timeout: commandTimeout, preferring: remoteRef)
         }
         if comparingToRemote, let base = snapshot.remoteBase {
             let committed = Git.run(tool, ["diff", base.commit, "--name-status", "-z", "--no-ext-diff", "-M"],
@@ -181,19 +183,81 @@ enum GitInspector {
 
     // The usual names are tried after origin/HEAD, which may be missing or still point at
     // a branch the remote has since renamed and pruned.
-    private static func remoteBase(tool: Git.Tool, url: URL, timeout: TimeInterval?) -> GitCompareBase? {
+    private static func remoteBase(tool: Git.Tool, url: URL, timeout: TimeInterval?, preferring preferred: String?) -> GitCompareBase? {
         var candidates = ["origin/main", "origin/master"]
         if let named = originDefaultBranch(tool, in: url, timeout: timeout) {
             candidates.removeAll { $0 == "origin/" + named }
             candidates.insert("origin/" + named, at: 0)
         }
+        // Only a remote branch is taken, so a name typed elsewhere can never become an option
+        // to git.
+        if let preferred, !preferred.hasPrefix("-"), preferred.contains("/") {
+            candidates.insert("refs/remotes/" + preferred, at: 0)
+        }
         for ref in candidates {
             let base = Git.run(tool, ["merge-base", "HEAD", ref], in: url, timeout: timeout)
             if base.ok && !base.trimmedText.isEmpty {
-                return GitCompareBase(ref: ref, commit: base.trimmedText)
+                let name = ref.hasPrefix("refs/remotes/") ? String(ref.dropFirst("refs/remotes/".count)) : ref
+                return GitCompareBase(ref: name, commit: base.trimmedText)
             }
         }
         return nil
+    }
+
+    // Every branch the remotes had at the last fetch, for picking the one to compare with,
+    // and which of them `branch` was made from.
+    static func remoteBranches(at path: String, branch: String? = nil) async -> GitRemoteBranches {
+        guard let tool = Git.tool() else { return GitRemoteBranches() }
+        let url = URL(fileURLWithPath: path)
+        return await Git.offMain(lane: .interactive) {
+            let refs = Git.run(tool, ["for-each-ref", "--format=%(refname)", "refs/remotes"], in: url)
+            let urls = Git.run(tool, ["config", "--get-regexp", "^remote\\..*\\.url$"], in: url)
+            var branches = GitRemoteBranches(refs: refs.ok ? parseRemoteRefs(refs.text) : [],
+                                             urls: urls.ok ? parseRemoteURLs(urls.text) : [:], branch: branch)
+            if let branch, !branch.isEmpty {
+                let log = Git.run(tool, ["reflog", "show", "--format=%gs", "refs/heads/" + branch, "--"], in: url)
+                // A log cut short has lost its oldest entry, which is the one that says.
+                if log.ok, !log.truncated { branches.startedFrom = parseStartedFrom(log.text, refs: branches.refs) }
+            }
+            return branches
+        }
+    }
+
+    // A branch's oldest reflog entry says what it was made from, as "branch: Created from
+    // origin/main". Only a remote branch the list holds counts; a local branch or a commit
+    // is not something to compare with.
+    static func parseStartedFrom(_ reflog: String, refs: [String]) -> String? {
+        let prefix = "branch: Created from "
+        guard let oldest = reflog.split(separator: "\n").last(where: { !$0.isEmpty }),
+              oldest.hasPrefix(prefix) else { return nil }
+        var from = String(oldest.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        if from.hasPrefix("refs/remotes/") { from.removeFirst("refs/remotes/".count) }
+        return refs.contains(from) ? from : nil
+    }
+
+    // `for-each-ref` lines are full ref names. A remote's HEAD only points at one of its
+    // branches, so it is left out.
+    static func parseRemoteRefs(_ text: String) -> [String] {
+        text.split(separator: "\n").compactMap { line in
+            let ref = line.trimmingCharacters(in: .whitespaces)
+            guard ref.hasPrefix("refs/remotes/") else { return nil }
+            let name = String(ref.dropFirst("refs/remotes/".count))
+            guard name.contains("/"), !name.hasSuffix("/HEAD") else { return nil }
+            return name
+        }
+        .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    // `config --get-regexp` lines are "remote.<name>.url <url>".
+    static func parseRemoteURLs(_ text: String) -> [String: String] {
+        var urls: [String: String] = [:]
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2, parts[0].hasPrefix("remote."), parts[0].hasSuffix(".url") else { continue }
+            let name = String(parts[0].dropFirst("remote.".count).dropLast(".url".count))
+            if urls[name] == nil { urls[name] = parts[1] }
+        }
+        return urls
     }
 
     // The working tree's files joined with the ones that differ from the base. A file
@@ -339,6 +403,8 @@ enum GitInspector {
         var parents: [String] = []
         var files: [GitChange] = []
         var note: String?
+        // Both sides of each file's change, so viewed marks apply only to this diff.
+        var versions: [String: ViewedChange] = [:]
     }
 
     static func commitFiles(_ hash: String, parent: String? = nil, root: String) async -> CommitFiles {
@@ -353,6 +419,7 @@ enum GitInspector {
             let options = Git.plainDiff + ["-M"]
             let names = Git.run(tool, command + options + ["--name-status", "-z"], in: url)
             let stats = Git.run(tool, command + options + ["--numstat", "-z"], in: url)
+            let raw = Git.run(tool, command + options + ["--raw", "--no-abbrev", "-z"], in: url)
             guard names.ok, stats.ok, !names.truncated, !stats.truncated else {
                 return CommitFiles(parents: parents, note: "Could not read all changed files. " + (names.ok ? stats.failureMessage : names.failureMessage))
             }
@@ -377,8 +444,35 @@ enum GitInspector {
                                        added: count?.0, removed: count?.1,
                                        isBinary: count != nil && count?.0 == nil))
             }
-            return CommitFiles(parents: parents, files: files)
+            return CommitFiles(parents: parents, files: files,
+                               versions: raw.ok && !raw.truncated ? parseRawVersions(raw.text) : [:])
         }
+    }
+
+    // Both sides of each change, from `--raw -z` output: a ":modes ids
+    // status" record, then the path, or the old path and the new one for a rename or copy.
+    static func parseRawVersions(_ text: String) -> [String: ViewedChange] {
+        let records = text.components(separatedBy: "\0")
+        var versions: [String: ViewedChange] = [:]
+        var i = 0
+        while i < records.count {
+            let record = records[i]; i += 1
+            guard record.hasPrefix(":") else { continue }
+            let fields = record.split(separator: " ")
+            guard fields.count >= 5, i < records.count else { break }
+            let status = fields[4]
+            var path = records[i]; i += 1
+            var originalPath: String?
+            if status.hasPrefix("R") || status.hasPrefix("C") {
+                originalPath = path
+                guard i < records.count else { break }
+                path = records[i]; i += 1
+            }
+            versions[path] = ViewedChange(
+                before: .init(mode: String(fields[0].dropFirst()), blob: String(fields[2])),
+                after: .init(mode: String(fields[1]), blob: String(fields[3])), originalPath: originalPath)
+        }
+        return versions
     }
 
     static func commitFileDiff(_ hash: String, parent: String?, file: GitChange,
@@ -597,6 +691,18 @@ enum GitInspector {
         }
     }
 
+    // The text a blob holds, for keeping beside a file read in a commit. Nil for one too
+    // big to keep or that is not text.
+    static func blobText(_ id: String, root: String) async -> String? {
+        guard id.count == 40, id.allSatisfy(\.isHexDigit), let tool = Git.tool() else { return nil }
+        return await Git.offMain(lane: .interactive) {
+            let output = Git.run(tool, ["cat-file", "blob", id], in: URL(fileURLWithPath: root))
+            guard output.ok, !output.truncated, output.text.utf8.count <= ViewedFileStore.textLimit,
+                  !output.text.contains("\0") else { return nil }
+            return output.text
+        }
+    }
+
     private static func show(_ object: String, tool: Git.Tool, root: URL) -> String? {
         let output = Git.run(tool, ["--no-pager", "show", object], in: root)
         guard output.ok, !output.truncated else { return nil }
@@ -605,7 +711,7 @@ enum GitInspector {
 
     // MARK: - Review and copy
 
-    static func reviewDiff(for change: GitChange, root: String, base: String? = nil) async -> FileDiff {
+    static func readReviewDiff(for change: GitChange, root: String, base: String? = nil) async -> FileDiff {
         if change.isBinary || FileTree.imageKinds.contains((change.path as NSString).pathExtension.lowercased()) {
             return await diff(for: change, root: root, base: base)
         }

@@ -61,6 +61,51 @@ struct GitCompareBase: Sendable, Equatable {
     var commit: String
 }
 
+// The branches the remotes had at the last fetch, and where each remote lives, so the
+// list can be compared with any of them and a pull request's base can be found among them.
+struct GitRemoteBranches: Sendable, Equatable {
+    var refs: [String] = []
+    // Remote name to its fetch URL.
+    var urls: [String: String] = [:]
+    // The checkout's branch when this was read, and the remote branch it was made from, as
+    // git noted when it made it.
+    var branch: String?
+    var startedFrom: String?
+
+    var remotes: [String] {
+        var seen = Set<String>()
+        return refs.compactMap { $0.split(separator: "/", maxSplits: 1).first.map(String.init) }
+            .filter { seen.insert($0).inserted }
+    }
+
+    func refs(on remote: String) -> [String] { refs.filter { $0.hasPrefix(remote + "/") } }
+
+    // The ref a pull request merges into: the branch on the remote that holds the pull
+    // request's repository, then on origin, then on any remote that has it.
+    func ref(forBranch branch: String, owner: String?, repository: String?) -> String? {
+        let named = refs.filter { $0.hasSuffix("/" + branch) && $0.split(separator: "/", maxSplits: 1).last.map(String.init) == branch }
+        guard !named.isEmpty else { return nil }
+        if let owner, let repository {
+            let slug = (owner + "/" + repository).lowercased()
+            if let remote = urls.first(where: { Self.slug(of: $0.value) == slug })?.key,
+               let ref = named.first(where: { $0.hasPrefix(remote + "/") }) {
+                return ref
+            }
+        }
+        return named.first { $0.hasPrefix("origin/") } ?? named.first
+    }
+
+    // "owner/repository" from an HTTPS or SSH remote URL.
+    static func slug(of url: String) -> String? {
+        var text = url.lowercased()
+        if text.hasSuffix(".git") { text.removeLast(4) }
+        while text.hasSuffix("/") { text.removeLast() }
+        let parts = text.split(whereSeparator: { $0 == "/" || $0 == ":" })
+        guard parts.count >= 2 else { return nil }
+        return parts.suffix(2).joined(separator: "/")
+    }
+}
+
 enum GitRepoState: Sendable, Equatable {
     case ready
     case notARepo
@@ -87,6 +132,7 @@ struct GitSnapshot: Sendable, Equatable {
     var lastCommitSubject: String?
     var lastCommitDate: Date?
     var files: [GitChange] = []
+    var reviewChanges: [String: ViewedChange] = [:]
     // Commits on HEAD that no remote has. Only filled in by cleanup, which needs it to
     // know whether deleting a checkout throws away the only copy of some commits.
     var unpushedCommits = 0
@@ -125,6 +171,7 @@ struct GitSnapshot: Sendable, Equatable {
         snapshot.uncommittedFiles = []
         snapshot.pathsChangedFromBase = []
         snapshot.comparedToRemote = false
+        snapshot.reviewChanges = [:]
         return snapshot
     }
 
@@ -230,6 +277,7 @@ struct DiffImages: Sendable, Equatable {
 }
 
 struct FileDiff: Sendable, Equatable {
+    var reviewChange: ViewedChange?
     var lines: [DiffLine] = []
     // True when we stopped rendering early so a huge diff cannot stall the UI.
     var truncated: Bool = false

@@ -14,11 +14,14 @@ struct ChangesView: View {
     // when another project is picked. Each project still gets a model of its own: git work
     // started for one project can only ever land in that project's model.
     @State private var models: ChangesModels
-    var model: ChangesModel { models.model(for: root) }
+    var model: ChangesModel { models.model(for: root, comparingToRemote: review != nil) }
     @State var navigation: ChangesNavigationMemory
     private let isWorkspace: Bool
     let selectRepository: (String, String?) -> Void
     let review: ReviewTarget?
+    // The open pull requests the session works on. The one made from this checkout's branch
+    // names the branch the files are compared with until another is picked.
+    let pullRequestBases: [PullRequestBase]
 
     // The navigator keeps its own cursor instead of focusing each row, since a plain
     // button only takes keyboard focus when Full Keyboard Access is on.
@@ -46,12 +49,19 @@ struct ChangesView: View {
     // Bumped to scroll the diff to the focused comment again, even when it has not moved.
     @State var revealSerial = 0
     @State var reviewKeys = WindowKeyHandler(handlesTyping: true)
-    @Environment(\.keyBindings) private var keyBindings
+    @Environment(\.keyBindings) var keyBindings
     @AppStorage("changes.reviewCoachSeen") var coachSeen = false
 
     @State private var copied: GitInspector.CopyVersion?
     @State private var copiedPath: String?
     @State private var fetches = 0
+    @State var freshLines: FreshLines?
+    @State var freshRevealKey: String?
+    @State var freshRevealFlash: Set<String> = []
+    @State var freshRevealSerial = 0
+    @State var historyTally: ViewedTally?
+    @State var advanceTask: Task<Void, Never>?
+    @State private var foregroundRefresh = 0
     // Until the project is read, it shows the last snapshot taken of its tree, so its
     // files are listed at once instead of after git.
     var snapshot: GitSnapshot? { model.snapshot ?? gitStats.snapshot(at: root) }
@@ -79,10 +89,11 @@ struct ChangesView: View {
     private var repositoryName: String { repositories.first { $0.root == root }?.name ?? root }
 
     // What the model's loads take from this screen.
-    private var screen: ChangesScreen {
+    var screen: ChangesScreen {
         ChangesScreen(gitStats: gitStats,
                       otherRoots: repositories.map(\.root).filter { $0 != root },
                       firstPath: requestedPath ?? initiallySelectedPath,
+                      review: review, pullRequestBases: pullRequestBases, models: models,
                       textScale: { appSettings.textSize.scale },
                       comments: diffComments,
                       fetchFailed: { dialogs.show(.notice("Could not refresh origin", message: $0)) })
@@ -92,6 +103,7 @@ struct ChangesView: View {
          repositories: [ChangesRepository] = [], requestedPath: String? = nil,
          navigation: ChangesNavigationMemory? = nil,
          review: ReviewTarget? = nil,
+         pullRequestBases: [PullRequestBase] = [],
          selectRepository: @escaping (String, String?) -> Void = { _, _ in }) {
         let memory = navigation ?? ChangesNavigationMemory()
         _ = memory.history(for: root)
@@ -101,7 +113,7 @@ struct ChangesView: View {
         let models = ChangesModels(navigation: memory)
         // A project that comes back with the file picked before keeps it, unless a file
         // was asked for.
-        models.model(for: root).pickedInitialFile = navigation?.selections[root] != nil
+        models.model(for: root, comparingToRemote: review != nil).pickedInitialFile = review == nil && navigation?.selections[root] != nil
             && initiallySelectedPath == nil && requestedPath == nil
         _models = State(initialValue: models)
         self.root = root
@@ -111,6 +123,7 @@ struct ChangesView: View {
         self.requestedPath = requestedPath
         self.selectRepository = selectRepository
         self.review = review
+        self.pullRequestBases = pullRequestBases
     }
 
     // In a session the Workspace band sits over the navigator and the actions band over
@@ -118,6 +131,20 @@ struct ChangesView: View {
     // thing that names the project. A single project has no Workspace band, so its
     // header spans the whole pane.
     var body: some View {
+        changesContent
+        .task(id: freshRequest) { await findFreshLines() }
+        .onChange(of: footerTally, initial: true) { _, tally in navigation.viewedTally = tally }
+        .onChange(of: navigation.focusedComment) { _, id in if id != nil { freshRevealKey = nil } }
+        .onChange(of: model.fileSelection.activeID) { _, _ in
+            advanceTask?.cancel()
+            freshRevealKey = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            foregroundRefresh += 1
+        }
+    }
+
+    @ViewBuilder private var changesContent: some View {
         let placed = placements
         VStack(spacing: 0) {
             GeometryReader { geometry in
@@ -196,12 +223,12 @@ struct ChangesView: View {
             reviewKeys.start { handleReviewKey($0) }
             takeSecondOpinionRequest()
         }
-        .onDisappear { reviewKeys.stop() }
+        .onDisappear { reviewKeys.stop(); advanceTask?.cancel() }
         .onChange(of: review.map { $0.reviews.runs($0.sessionID) } ?? []) { old, new in
             reportFinishedRuns(old: old, new: new)
         }
         .onChange(of: navigation.secondOpinionRequest) { _, _ in takeSecondOpinionRequest() }
-        .task(id: root) {
+        .task(id: refreshRequest) {
             if model.snapshot == nil { model.snapshot = gitStats.snapshot(at: root) }
             await reload()
             await model.refreshOthers(for: screen)
@@ -212,7 +239,7 @@ struct ChangesView: View {
             mode = .changes
             select(file)
         }
-        .onChange(of: mode) { _, _ in model.switchedMode(reopening: selected, at: repoRoot, for: screen) }
+        .onChange(of: mode) { _, _ in model.switchedMode(at: repoRoot, for: screen) }
         .onChange(of: syncStatus) { _, status in announce(status) }
         // The open diff is one attributed string built when the file was picked, so its
         // font is baked in and a new reading size only reaches it by building it again.
@@ -229,6 +256,12 @@ struct ChangesView: View {
             if commentDraft?.path != path { commentDraft = nil }
         }
         .onChange(of: model.diff) { _, _ in followDraft() }
+    }
+
+    private var refreshRequest: ChangesRefreshRequest {
+        ChangesRefreshRequest(root: root, roots: repositories.map(\.root),
+                              revisions: repositories.map { gitStats.revision(at: $0.root) },
+                              bases: pullRequestBases, foreground: foregroundRefresh)
     }
 
     private var syncStatus: String {
@@ -404,8 +437,8 @@ struct ChangesView: View {
             .disabled(model.busy)
     }
 
-    // Only offered when the remote's default branch is known. The base is where the
-    // branch left it, which is what a pull request compares against.
+    // Only offered when a remote branch is known. The base is where the branch left it,
+    // which is what a pull request compares against. The branch itself can be picked.
     @ViewBuilder private func compareChoices(_ snapshot: GitSnapshot, compact: Bool) -> some View {
         if mode == .changes, let base = snapshot.remoteBase {
             HStack(spacing: Space.xs) {
@@ -416,22 +449,70 @@ struct ChangesView: View {
                     compare(toRemote: false)
                 }
                 .appTooltip("Uncommitted changes, compared to the last commit")
-                ChoicePill(title: base.ref, selected: model.comparesToRemote, enabled: !model.busy) {
+                MenuChoicePill(title: base.ref, selected: model.comparesToRemote, enabled: !model.busy,
+                               monospaced: true, menuLabel: "Pick the branch to compare with") {
                     compare(toRemote: true)
+                } entries: {
+                    compareMenu(current: base.ref)
                 }
-                .appTooltip("Everything this branch changes since it left \(base.ref), committed or not")
+                .appTooltip(model.comparesToRemote
+                            ? "Comparing with \(base.ref). Click to pick another branch"
+                            : "Everything this branch changes since it left \(base.ref), committed or not")
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Compare to")
         }
     }
 
+    // The pull request's base first, then every remote's branches, with a filter on top
+    // since a busy remote has hundreds.
+    private func compareMenu(current: String) -> [MenuEntry] {
+        let branches = model.remoteBranches ?? GitRemoteBranches()
+        let prRef = pullRequestBaseRef
+        let picked = model.comparesToRemote ? current : nil
+        func item(_ ref: String, detail: String? = nil) -> MenuItem {
+            let detail = detail ?? (ref == branches.startedFrom ? "The branch this one started from" : nil)
+            return MenuItem(label: ref, checked: ref == picked, detail: detail) { compare(with: ref) }
+        }
+        var groups: [MenuItemGroup] = []
+        if let prRef, let pullRequest = pullRequestBase {
+            groups.append(MenuItemGroup(title: "Pull request",
+                                        items: [item(prRef, detail: "PR #\(pullRequest.number) merges here")]))
+        }
+        for remote in branches.remotes {
+            let refs = branches.refs(on: remote).filter { $0 != prRef }
+            if !refs.isEmpty { groups.append(MenuItemGroup(title: remote, items: refs.map { item($0) })) }
+        }
+        return [.searchable(groups: groups, prompt: "Filter remote branches",
+                            noResults: "No remote branch matches. Fetch from origin to see new ones.")]
+    }
+
     private func compare(toRemote: Bool) {
         guard !model.busy, model.comparesToRemote != toRemote else { return }
+        if toRemote { navigation.lastCommitCompares.remove(root) } else { navigation.lastCommitCompares.insert(root) }
         model.comparesToRemote = toRemote
         model.diffScroll = .top
         Task { await reload() }
     }
+
+    private func compare(with ref: String) {
+        navigation.compareRefs[root] = ref
+        navigation.lastCommitCompares.remove(root)
+        guard !(model.comparesToRemote && snapshot?.remoteBase?.ref == ref) else { return }
+        model.comparesToRemote = true
+        model.diffScroll = .top
+        announce("Comparing with \(ref)")
+        Task { await reload() }
+    }
+
+    // The pull request made from this checkout's branch, if the session has one open.
+    private var pullRequestBase: PullRequestBase? { model.pullRequest(pullRequestBases) }
+
+    private var pullRequestBaseRef: String? { model.pullRequestRef(pullRequestBases) }
+
+    // The branch picked for this project, else the pull request's base. Nil leaves git to
+    // the remote's default branch.
+    private var preferredRemoteRef: String? { navigation.compareRefs[root] ?? pullRequestBaseRef }
 
     private func remoteControls(_ snapshot: GitSnapshot, compact: Bool) -> some View {
         HStack(spacing: Space.sm) {
@@ -698,6 +779,14 @@ struct ChangesView: View {
                         askOnFile(repoRoot, file.path)
                     }
                 }
+                if mode == .changes, let file = shownFile, let viewed = viewedState(file, in: root) {
+                    ViewedToggle(isOn: viewed == .viewed, edited: viewed.isEdited) {
+                        toggleViewed(file, in: root, advance: true)
+                    }
+                    .disabled(model.loadingDiff || model.diff?.reviewChange == nil)
+                    .appTooltip(keyBindings.tooltip(viewed == .viewed ? "Mark not viewed" : "Mark viewed", for: .toggleViewed))
+                    .accessibilityHint("Marks \(file.fileName) viewed for this session")
+                }
                 if mode == .changes, let file = shownFile {
                     Image(systemName: "ellipsis").padding(Space.md).contentShape(Rectangle())
                         .hoverLift(amount: Motion.smallLift)
@@ -730,6 +819,13 @@ struct ChangesView: View {
             }
             .padding(.horizontal, Space.xxl)
             .padding(.vertical, Space.md)
+
+            ZStack {
+                if mode == .changes, let file = shownFile, case .edited(let since)? = viewedState(file, in: root) {
+                    editedBand(since: since).transition(.fold)
+                }
+            }
+            .motion(Motion.reveal, value: shownFile.flatMap { viewedState($0, in: root) })
 
             if mode == .changes, let file = shownFile, !file.isBinary, model.diff?.images == nil {
                 if appSettings.changesDiffLayout == .sideBySide {
@@ -780,7 +876,7 @@ struct ChangesView: View {
         } else if mode == .changes, appSettings.changesDiffLayout == .sideBySide, let diff = model.diff {
             if let review {
                 SideBySideDiff(lines: diff.lines, marks: model.diffMarks, expand: expand,
-                               threads: threadViews(review, placed), picked: pickedKeys,
+                               threads: threadViews(review, placed), picked: pickedKeys, fresh: shownFreshKeys,
                                onLine: { pickLine($0, extending: $1) }, onRange: { pickRange($0) },
                                reveal: revealedLine(placed))
             } else {
@@ -799,6 +895,7 @@ struct ChangesView: View {
                                  }
                              },
                              picked: pickedKeys,
+                             fresh: shownFreshKeys,
                              threads: threadViews(review, placed),
                              reveal: revealedLine(placed))
             } else {
@@ -835,7 +932,8 @@ struct ChangesView: View {
                             detail: "This branch has no history to show.")
             } else {
                 CommitHistoryView(root: repoRoot, selection: model.historySelection,
-                                  back: narrow ? { model.historySelection.showingDetail = false } : nil)
+                                  back: narrow ? { model.historySelection.showingDetail = false } : nil,
+                                  review: review) { historyTally = $0 }
             }
         } else {
             ChangesLoadingPlaceholder(title: "Loading history…").padding(Space.xxxl).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -948,7 +1046,10 @@ struct ChangesView: View {
 
     // What was half done in the project before belongs to its files, so it goes.
     private func switchedProject(from old: String) {
-        model.pickedInitialFile = navigation.selections[root] != nil && requestedPath == nil
+        freshRevealKey = nil
+        freshLines = nil
+        advanceTask?.cancel()
+        model.pickedInitialFile = review == nil && navigation.selections[root] != nil && requestedPath == nil
         commentDraft = nil
         reattaching = nil
         copied = nil
@@ -1024,4 +1125,12 @@ struct ChangesView: View {
         // Finder opens outside the window, so the toast is what shows the click landed.
         showToast("Shown in Finder")
     }
+}
+
+private struct ChangesRefreshRequest: Equatable {
+    var root: String
+    var roots: [String]
+    var revisions: [Int]
+    var bases: [PullRequestBase]
+    var foreground: Int
 }

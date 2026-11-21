@@ -299,6 +299,7 @@ struct RootView: View {
         [configs.loadError, configs.saveError,
          store.loadError, store.transcriptLoadErrors.values.first, store.saveError,
          runner.reviews.loadError, runner.reviews.saveError,
+         runner.reviews.viewed.loadError, runner.reviews.viewed.saveError,
          dispatch.loadError, dispatch.saveError,
          dispatchAuth.loadError, dispatchAuth.saveError,
          shortcuts.loadError, shortcuts.saveError]
