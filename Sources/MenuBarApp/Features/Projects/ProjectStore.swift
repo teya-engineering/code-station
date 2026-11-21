@@ -324,7 +324,7 @@ final class ProjectStore {
         switch selection {
         case .session(let id):
             guard let session = sidebarSession(id) else { return nil }
-            return SidebarDestination(containerID: session.workspaceID ?? session.projectID,
+            return SidebarDestination(containerID: session.containerID,
                                       sessionID: session.id)
         case .workspace(let id):
             return workspace(id).map { SidebarDestination(containerID: $0.id) }
@@ -1160,7 +1160,13 @@ final class ProjectStore {
 
     // All roots visible to the agent, with the lead first.
     func workingDirectories(for session: ChatSession) -> [String] {
-        checkoutProjects(for: session).compactMap { $0.worktreePath ?? project($0.projectID)?.path }
+        checkoutProjects(for: session).compactMap(root(of:))
+    }
+
+    // The folder one checkout lives in: its worktree when it has one, otherwise the
+    // project folder itself.
+    func root(of checkout: SessionProject) -> String? {
+        checkout.worktreePath ?? project(checkout.projectID)?.path
     }
 
     // Every checkout the session works in, with the lead first. A single-project session

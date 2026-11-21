@@ -33,8 +33,7 @@ struct RootView: View {
     @State private var dismissedUpdateStage: AppUpdateInstallState.Stage?
     // Raised by the file being read in the detail pane while it holds Command-F.
     @State private var paneOwnsFindShortcut = false
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     var body: some View {
         window
@@ -109,8 +108,8 @@ struct RootView: View {
                                     onDismiss: { withAnimation(Motion.leave) { dismissUpdateBanner() } })
                         .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
                 }
-                if let note {
-                    HeaderNote(icon: "arrow.up.forward.app", text: note)
+                if let text = note.text {
+                    HeaderNote(icon: note.icon, text: text)
                         .transition(.asymmetric(
                             insertion: (reduceMotion ? AnyTransition.opacity : .opacity.combined(with: .offset(y: -6)))
                                 .animation(Motion.reveal),
@@ -340,16 +339,8 @@ struct RootView: View {
         return stage == .idle ? appUpdates.announcedRelease : appUpdates.availableRelease
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "arrow.up.forward.app")
     }
 
     private func dismissUpdateBanner() {
@@ -578,7 +569,7 @@ private struct AppUpdateRestartPrompt: View {
     }
 
     private var message: String {
-        let busy = store.sessions.count { $0.designSourceSessionID == nil && runner.isBusy($0.id, store: store) }
+        let busy = runner.runningSessions(in: store).count
         guard busy > 0 else { return "Restarting the app finishes the update." }
         return "Restarting the app finishes the update and stops "
             + "\(counted(busy, "session")) still running."

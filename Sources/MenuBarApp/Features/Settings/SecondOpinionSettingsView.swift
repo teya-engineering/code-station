@@ -18,7 +18,7 @@ struct SecondOpinionSettingsView: View {
     @State private var seatMotion = Motion.reveal
 
     private var installed: [AgentKind] {
-        AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        runner.catalog.availableAgents
     }
 
     var body: some View {

@@ -121,9 +121,7 @@ struct SessionView: View {
     @State private var designHasContent: Bool?
     // Focus goes back to the button that opened the questions card once it is put away.
     @AccessibilityFocusState private var askButtonFocused: Bool
-    @State private var railNotes = 0
-    @State private var railNote: String?
-    @State private var railNoteIcon = "arrow.up.forward.app"
+    @State private var railNote = TransientNote(duration: .seconds(1.9))
 
     private let bottomAnchor = "transcript-bottom"
     private var terminalScope: TerminalScope { .session(sessionID) }
@@ -296,7 +294,7 @@ struct SessionView: View {
                 askForSecondOpinion(session, origin: .file, file: (root, path))
             })
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
-                installed: AgentKind.allCases.filter { runner.executable(for: $0) != nil }, author: session.agent))
+                installed: runner.catalog.availableAgents, author: session.agent))
             .onChange(of: tab) { closeOpinionPanels() }
             .task(id: opinionAsk?.id) { await readSinceReviewFiles() }
             // Clicks deep in the transcript that act outside the window, such as revealing
@@ -380,8 +378,7 @@ struct SessionView: View {
             .task(id: sessionID) {
                 selectedProjectID = requestedChange.flatMap { change in
                     store.checkoutProjects(for: session).first { checkout in
-                        let root = checkout.worktreePath ?? store.project(checkout.projectID)?.path
-                        return root == change.root
+                        store.root(of: checkout) == change.root
                     }?.projectID
                 } ?? session.projectID
                 explorerShowsDesignFiles = store.hasDesignArtifacts(for: session)
@@ -666,15 +663,15 @@ struct SessionView: View {
         .fixedSize(horizontal: true, vertical: false)
         .motion(Motion.reveal, value: tab)
         .overlay(alignment: .topTrailing) {
-            if let railNote {
-                HeaderNote(icon: railNoteIcon, text: railNote)
+            if let text = railNote.text {
+                HeaderNote(icon: railNote.icon, text: text)
                     .offset(y: Self.destinationDeckHeight + 2)
                     .transition(reduceMotion
                                 ? .opacity
                                 : .opacity.combined(with: .offset(y: -6)))
             }
         }
-        .motion(Motion.reveal, value: railNote)
+        .motion(Motion.reveal, value: railNote.text)
     }
 
     // None of these sends you anywhere: they open something beside the pane and leave
@@ -1276,7 +1273,7 @@ struct SessionView: View {
 
     private func selectWorkspaceRoot(_ root: String, in session: ChatSession) {
         if let checkout = store.checkoutProjects(for: session).first(where: {
-            ($0.worktreePath ?? store.project($0.projectID)?.path) == root
+            store.root(of: $0) == root
         }) {
             selectedProjectID = checkout.projectID
             explorerShowsDesignFiles = false
@@ -1435,17 +1432,9 @@ struct SessionView: View {
     }
 
     // The app a folder opens in comes up over the window, and a copy shows nothing at
-    // all, so the note is all the window itself shows of the click. A second click keeps
-    // the note up rather than letting the first one's timer take it down early.
+    // all, so the note is all the window itself shows of the click.
     private func showRailNote(_ text: String, icon: String = "arrow.up.forward.app") {
-        railNotes += 1
-        let note = railNotes
-        railNoteIcon = icon
-        railNote = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.9))
-            if railNotes == note { railNote = nil }
-        }
+        railNote.show(text, icon: icon)
     }
 
     // The button both opens and shuts it; opening puts the cursor straight in the shell
@@ -1553,7 +1542,7 @@ struct SessionView: View {
     private func directory(for projectID: UUID, in session: ChatSession) -> String? {
         guard let checkout = store.checkoutProjects(for: session)
             .first(where: { $0.projectID == projectID }) else { return nil }
-        return checkout.worktreePath ?? store.project(projectID)?.path
+        return store.root(of: checkout)
     }
 
     // MARK: - Transcript
@@ -1744,7 +1733,7 @@ struct SessionView: View {
                                    loadEarlier: @escaping () -> Void) -> some View {
         let bubble = appSettings.userMessageStyle(for: session, in: store)
         let reviewRounds = sentReviews(in: session)
-        let lineup = SecondOpinionLineup.reviewers(installed: AgentKind.allCases.filter { runner.executable(for: $0) != nil },
+        let lineup = SecondOpinionLineup.reviewers(installed: runner.catalog.availableAgents,
                                                    author: session.agent)
         return VStack(alignment: .leading, spacing: Space.xl) {
             // Only for a session that has nothing to say yet, never for one whose
@@ -1963,7 +1952,7 @@ struct SessionView: View {
 
     private func reviewCard(_ round: ReviewRound, session: ChatSession, working: Bool,
                             projectPath: String) -> some View {
-        let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        let installed = runner.catalog.availableAgents
         let checker = installed.first { $0 != session.agent } ?? installed.first
         let reviews = runner.reviews
         let directories = store.workingDirectories(for: session)
@@ -2089,7 +2078,7 @@ struct SessionView: View {
 
         explorerShowsDesignFiles = target.root == store.designFilesURL(for: session)?.path
         if let checkout = store.checkoutProjects(for: session).first(where: { checkout in
-            (checkout.worktreePath ?? store.project(checkout.projectID)?.path) == target.root
+            store.root(of: checkout) == target.root
         }) {
             selectedProjectID = checkout.projectID
         }
@@ -2236,7 +2225,7 @@ struct SessionView: View {
     // that belongs to the page in view: the design's on the canvas, the changes' anywhere
     // else, since a card under an answer already shows its own.
     private func secondOpinionButton(_ session: ChatSession) -> some View {
-        let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        let installed = runner.catalog.availableAgents
         return Group {
             if let design = shownDesign(session) {
                 let opinion = runner.designOpinions.opinion(design.id)
@@ -2287,7 +2276,7 @@ struct SessionView: View {
     // The sentence the header's tooltip says a click will propose.
     private func headerProposal(_ session: ChatSession) -> String {
         let built = opinionFacts(session, picked: nil, origin: .header, file: nil)
-        let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        let installed = runner.catalog.availableAgents
         var seen = Set<AgentKind>()
         let reviewers = (opinionLineup ?? Preferences.secondOpinionLineup()).map(\.agent)
             .filter { installed.contains($0) && seen.insert($0).inserted }
@@ -2454,7 +2443,7 @@ struct SessionView: View {
     }
 
     private func opinionCard(_ ask: OpinionAsk, session: ChatSession) -> some View {
-        let installed = AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        let installed = runner.catalog.availableAgents
         let author = runner.author(of: session)
         let defaults = Preferences.secondOpinionDefaults()
         return SecondOpinionAskCard(

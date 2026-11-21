@@ -248,7 +248,7 @@ struct HomeView: View {
                                   title: session.title,
                                   subject: RibbonSubject(name: identity.name,
                                                          tint: identity.tint,
-                                                         subjectID: session.workspaceID ?? session.projectID),
+                                                         subjectID: session.containerID),
                                   sources: sources,
                                   isOpen: busy))
                 standing.timeRequests.append(

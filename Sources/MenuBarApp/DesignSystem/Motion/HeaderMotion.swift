@@ -123,3 +123,58 @@ struct HeaderNote: View {
         .accessibilityHidden(true)
     }
 }
+
+// The note a view shows for a moment after such a click. A second note takes the place of
+// the first and gets its full time, so the first one's timer never takes it down early.
+@Observable @MainActor
+final class TransientNote {
+    private(set) var text: String?
+    private(set) var icon = ""
+
+    private let duration: Duration
+    private var timer: Task<Void, Never>?
+
+    init(duration: Duration = .seconds(2.4)) {
+        self.duration = duration
+    }
+
+    func show(_ text: String, icon: String) {
+        timer?.cancel()
+        self.icon = icon
+        self.text = text
+        timer = Task {
+            try? await Task.sleep(for: duration)
+            if !Task.isCancelled { self.text = nil }
+        }
+    }
+}
+
+private struct HeaderNoteOverlay: ViewModifier {
+    let note: TransientNote
+    let alignment: Alignment
+    let top: CGFloat
+    let trailing: CGFloat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: alignment) {
+            ZStack {
+                if let text = note.text {
+                    HeaderNote(icon: note.icon, text: text)
+                        .padding(.top, top).padding(.trailing, trailing)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
+                }
+            }
+            .motion(Motion.reveal, value: note.text)
+        }
+    }
+}
+
+extension View {
+    // Drops the note in over a corner of the view, inset from its top and trailing edges.
+    func headerNote(_ note: TransientNote, alignment: Alignment = .topTrailing,
+                    top: CGFloat, trailing: CGFloat = 0) -> some View {
+        modifier(HeaderNoteOverlay(note: note, alignment: alignment, top: top, trailing: trailing))
+    }
+}

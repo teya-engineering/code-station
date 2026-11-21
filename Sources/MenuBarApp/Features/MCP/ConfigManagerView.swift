@@ -9,7 +9,6 @@ struct ConfigManagerView: View {
     @Environment(CodexCodeManager.self) private var codex
     @Environment(CopilotCodeManager.self) private var copilot
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // Read once when the view opens, so the add button and its menu always agree on
     // which presets there are.
     @State private var presetGroups = SiteDefaults.current.mcpPresetGroups
@@ -20,9 +19,7 @@ struct ConfigManagerView: View {
     // A server two agents hold has a row under each, so the pick names the agent too.
     @State private var selectedAgentConfigured: AgentConfiguredSelection?
     @State private var filter = ""
-    @State private var note: String?
-    @State private var noteIcon = "checkmark"
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,16 +51,7 @@ struct ConfigManagerView: View {
         }
         .frame(width: 940, height: 640)
         .background(Theme.background)
-        .overlay(alignment: .topTrailing) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxl)
         .sheet(item: $addingPresetGroup) { AddServerView(group: $0).appOverlays() }
         .sheet(isPresented: $showingAddJSON) { AddJSONServerView() }
         .onAppear { refreshIntegrations() }
@@ -293,17 +281,8 @@ struct ConfigManagerView: View {
          }]
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String, icon: String) {
-        notes += 1
-        let shown = notes
-        noteIcon = icon
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: icon)
     }
 
     private func matches(_ name: String) -> Bool {

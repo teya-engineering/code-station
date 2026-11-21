@@ -56,9 +56,7 @@ struct AppSidebar: View {
     // sheet asks for the rest.
     @State private var pairing: SidebarPairing?
     @State var picks = SidebarMultiSelection()
-    @State private var note: String?
-    @State private var noteIcon = "checkmark"
-    @State private var notes = 0
+    @State private var note = TransientNote()
     @FocusState private var filterFocused: Bool
 
     private struct SessionRevealTarget: Equatable {
@@ -81,8 +79,8 @@ struct AppSidebar: View {
                 // the only sign in this window that the click landed.
                 .overlay(alignment: .top) {
                     ZStack {
-                        if let note {
-                            HeaderNote(icon: noteIcon, text: note)
+                        if let text = note.text {
+                            HeaderNote(icon: note.icon, text: text)
                                 .transition(.asymmetric(
                                     insertion: (reduceMotion ? AnyTransition.opacity : .opacity.combined(with: .offset(y: 6)))
                                         .animation(Motion.reveal),
@@ -120,7 +118,7 @@ struct AppSidebar: View {
         .onChange(of: store.navigation.sessionToReveal) { _, id in
             guard let id, let session = store.sidebarSession(id) else { return }
             filterBox.clear()
-            setExpanded(true, for: containerID(of: session))
+            setExpanded(true, for: session.containerID)
         }
         .onChange(of: store.navigation.workspaceAddition) { _, added in
             guard let added else { return }
@@ -220,7 +218,7 @@ struct AppSidebar: View {
     }
 
     private func openNoticedSession(_ session: ChatSession) {
-        let containerID = session.workspaceID ?? session.projectID
+        let containerID = session.containerID
         filterBox.clear()
         setExpanded(true, for: containerID)
         sessionVisibility.pin(session.id, in: containerID)
@@ -608,10 +606,6 @@ struct AppSidebar: View {
         }
     }
 
-    private func containerID(of session: ChatSession) -> UUID {
-        session.workspaceID ?? session.projectID
-    }
-
     private var currentItem: SidebarItem? {
         guard let id = store.sidebarDestination?.containerID else { return nil }
         return store.workspace(id).map(SidebarItem.workspace)
@@ -679,7 +673,7 @@ struct AppSidebar: View {
         // a session is only reachable through the row it lives under.
         return ordered.filter { item in
             matchesName(item, filter) || store.sidebarSessions.contains { session in
-                containerID(of: session) == item.id && filter.matches(session)
+                session.containerID == item.id && filter.matches(session)
             }
         }
     }
@@ -1148,7 +1142,7 @@ struct AppSidebar: View {
     private func reveal(with scroller: ScrollViewProxy) async {
         guard let id = store.navigation.sessionToReveal, store.sidebarDestination?.sessionID == id,
               let session = store.sidebarSession(id) else { return }
-        let containerID = containerID(of: session)
+        let containerID = session.containerID
         // The card is created by the same change that asked for this, so the list has to be
         // laid out again before there is anything to scroll to.
         await Task.yield()
@@ -1724,17 +1718,8 @@ struct AppSidebar: View {
 
     // MARK: - Notes
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String, icon: String) {
-        notes += 1
-        let shown = notes
-        noteIcon = icon
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: icon)
     }
 }
 

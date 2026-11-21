@@ -22,9 +22,7 @@ struct SettingsView: View {
     @State private var searchResultID: String?
     @State private var searchedAgent: AgentKind?
     @State private var bots = BotSettingsFlow()
-    @State private var note: String?
-    @State private var noteIcon = "checkmark"
-    @State private var notes = 0
+    @State private var note = TransientNote()
     @State private var appearanceBeforeReset: AppearanceSettings?
     @State private var secondOpinion = Preferences.secondOpinionDefaults()
     @State private var secondOpinionBeforeReset: SecondOpinionDefaults?
@@ -94,29 +92,11 @@ struct SettingsView: View {
                 .appOverlays()
         }
         .sheet(isPresented: $showingLog) { LogView().appOverlays() }
-        .overlay(alignment: .topTrailing) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxl)
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String, icon: String) {
-        notes += 1
-        let shown = notes
-        noteIcon = icon
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: icon)
     }
 
     private var header: some View {

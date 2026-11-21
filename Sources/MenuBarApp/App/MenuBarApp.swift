@@ -139,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stats.keptDays = { [appSettings] in appSettings.statsRemovedSessionDays }
         stats.isRunning = { [runner] id in runner.state(id).isBusy }
         let subject: (UUID) -> UUID? = { [projects] id in
-            projects.session(id).map { $0.workspaceID ?? $0.projectID }
+            projects.session(id)?.containerID
         }
         let afterTurn = runner.onTurnRecorded
         runner.onTurnRecorded = { [stats] sessionID, ending in
@@ -238,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private var runningSessions: Int {
-        projects.sessions.count { $0.designSourceSessionID == nil && runner.isBusy($0.id, store: projects) }
+        runner.runningSessions(in: projects).count
     }
 
     func windowWillClose(_ notification: Notification) {

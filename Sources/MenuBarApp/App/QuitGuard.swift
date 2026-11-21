@@ -51,10 +51,7 @@ struct QuitConfirmation: View {
     }
 
     private func confirm() {
-        // A Design companion's work already counts toward the session it belongs to.
-        let running = store.sessions.filter {
-            $0.designSourceSessionID == nil && runner.isBusy($0.id, store: store)
-        }
+        let running = runner.runningSessions(in: store)
         // A session can finish between the quit and the dialog, which leaves nothing to ask.
         guard !running.isEmpty else { return quitGuard.quit() }
         var dialog = Dialog.confirm(

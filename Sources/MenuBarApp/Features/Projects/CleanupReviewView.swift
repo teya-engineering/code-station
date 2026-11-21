@@ -16,7 +16,6 @@ struct CleanupReviewView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(OrphanedWorktreeMonitor.self) private var orphans
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
 
     @State private var picked: Set<OldSessionSweep.Parked.Item> = []
@@ -29,8 +28,7 @@ struct CleanupReviewView: View {
     @State private var orphanOutcomes: [String: SessionOutcome] = [:]
     @State private var isDeleting = false
     @State private var showsWhy = false
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote(duration: .seconds(3))
 
     // A row in the waiting list: the sweep's reasons, and the session or worktree they
     // belong to.
@@ -86,16 +84,7 @@ struct CleanupReviewView: View {
         .frame(width: 660)
         .background(Theme.background)
         .interactiveDismissDisabled(isDeleting)
-        .overlay(alignment: .top) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: "checkmark", text: note)
-                        .padding(.top, Space.md)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, alignment: .top, top: Space.md)
         .task { await load() }
     }
 
@@ -524,16 +513,8 @@ struct CleanupReviewView: View {
         }
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func show(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task {
-            try? await Task.sleep(for: .seconds(3))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "checkmark")
     }
 }
 

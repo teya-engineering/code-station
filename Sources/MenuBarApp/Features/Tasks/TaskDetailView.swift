@@ -26,8 +26,7 @@ struct TaskDetailView: View {
     @State private var askingTask: Project?
     @State private var runFilter: TaskRunHistory.Filter = .all
     @State private var paneWidth: CGFloat = 1_000
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     private var terminalScope: TerminalScope { .project(projectID) }
 
@@ -52,16 +51,7 @@ struct TaskDetailView: View {
             .background(TerminalShortcut(scope: terminalScope, directory: task.path,
                                          focusTerminal: $terminalFocused)
                             .disabled(store.isMissing(task)))
-            .overlay(alignment: .topTrailing) {
-                ZStack {
-                    if let note {
-                        HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
-                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                    }
-                }
-                .motion(Motion.reveal, value: note)
-            }
+            .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxxl)
             .taskRunSheet($askingTask) { asking, values, note in
                 startRun(asking, values: values, note: note)
             }
@@ -743,16 +733,8 @@ struct TaskDetailView: View {
         store.setTaskSpec(updated, for: task.id)
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "arrow.up.forward.app")
     }
 
     private func run(_ task: Project) {

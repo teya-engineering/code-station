@@ -115,9 +115,7 @@ struct ExplorerView: View {
     @Namespace private var tabUnderline
     // A click whose work happens outside the window, such as opening Finder, moves
     // nothing in it, so a short note is all the window shows of it.
-    @State private var note: String?
-    @State private var noteIcon = "arrow.up.forward.app"
-    @State private var notes = 0
+    @State private var note = TransientNote(duration: .seconds(1.9))
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.keyBindings) private var keyBindings
     @FocusState private var treeFocused: Bool
@@ -229,16 +227,7 @@ struct ExplorerView: View {
             }
         }
         .background(Theme.background)
-        .overlay(alignment: .topTrailing) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, 50).padding(.trailing, Space.lg)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, top: 50, trailing: Space.lg)
         .background(ExplorerSearchShortcut { showFinder(.names) })
         .background(ExplorerFileShortcuts(
             enabled: treeFocused && projectCursor == nil && dialogs.current == nil && !pastingFiles,
@@ -337,17 +326,8 @@ struct ExplorerView: View {
             : .scale(scale: 0.5).combined(with: .opacity).animation(Motion.pop)
     }
 
-    // A second click keeps the note up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String, icon: String = "arrow.up.forward.app") {
-        notes += 1
-        let shown = notes
-        noteIcon = icon
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.9))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: icon)
     }
 
     private func copyPath(_ node: FileNode) {

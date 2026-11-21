@@ -64,6 +64,13 @@ extension SessionRunner {
         return state(companion.id).isBusy
     }
 
+    // The sessions with work under way. A Design companion is left out, since its work
+    // already counts toward the session it belongs to.
+    @MainActor
+    func runningSessions(in store: ProjectStore) -> [ChatSession] {
+        store.sessions.filter { $0.designSourceSessionID == nil && isBusy($0.id, store: store) }
+    }
+
     // A second opinion runs beside the agent rather than as one of its turns, so the
     // session's own state stays idle while a reviewer works. Rows still have to show it
     // as running, or a review that takes minutes looks like nothing is happening.

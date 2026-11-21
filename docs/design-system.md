@@ -314,7 +314,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Say what an action already did, with a way back | `Dialog.receipt` (`Controls/ReceiptDialog.swift`): the impact card with a deck on top showing the group and the new member landing in it, a plus row for what came in, tick rows for what stays, an optional choice, and Undo in the footer. Return, Escape and a click outside all close it, since the action is already done. Use it for a cheap action that is fully undone, instead of asking first. |
 | A right-click menu | `.appContextMenu` |
 | A hint on hover | `.appTooltip` |
-| A click that did its work outside the window | `HeaderNote` |
+| A click that did its work outside the window | `HeaderNote`, shown for a moment by a `TransientNote`. The view holds one in `@State`, calls `show(_:icon:)` on the click and draws it with `.headerNote(_:alignment:top:trailing:)`. A second note takes the place of the first. Pass a `duration` only when the note must stay shorter or longer than usual. |
 | Mark what a floating card is about | `.subjectRail(_:)`: a line drawn down the leading edge of the thing while the card is open |
 
 The system file chooser (`NSOpenPanel`, `NSSavePanel`) is the only native surface allowed. Never use `NSAlert`, `.alert`, `.confirmationDialog`, `.contextMenu`, `Menu`, `Picker`, the built-in button and toggle styles, or `.textFieldStyle(.roundedBorder)`.
