@@ -547,7 +547,7 @@ struct DesignConversation: View {
 
     private func designComposer(_ session: ChatSession) -> some View {
         let blocked = !FileManager.default.fileExists(atPath: store.workingDirectory(for: session) ?? "")
-            || !runner.isAvailable(session.agent)
+            || !runner.catalog.isAvailable(session.agent)
         return Composer(sessionID: sessionID,
                         agent: session.agent,
                         blocked: blocked,
@@ -557,8 +557,8 @@ struct DesignConversation: View {
                         minimumLines: 3,
                         buttonAlignment: .center,
                         onOversizedPaste: attachPastedText,
-                        onRecallUp: { runner.recallEarlier(sessionID, store: store) },
-                        onRecallDown: { runner.recallLater(sessionID, store: store) },
+                        onRecallUp: { runner.recallEarlier(sessionID) },
+                        onRecallDown: { runner.recallLater(sessionID) },
                         onSend: { promptSentAt = .now },
                         dictates: !conversationMinimized,
                         above: {
@@ -607,7 +607,7 @@ struct DesignConversation: View {
                                workingDirectories: store.workingDirectories(for: session),
                                projectPath: projectPath) { answer in
                     runner.answer(request, with: answer,
-                                  sessionID: sessionID, store: store)
+                                  sessionID: sessionID)
                 }
                 .id(request.id)
             }
@@ -634,7 +634,7 @@ struct DesignConversation: View {
 
     private func hasTurnEndAction(_ state: SessionState) -> Bool {
         if case .failed = state { return true }
-        return runner.canContinueAfterStop(sessionID, store: store)
+        return runner.canContinueAfterStop(sessionID)
     }
 }
 

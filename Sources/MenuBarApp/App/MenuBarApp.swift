@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let copilot = CopilotCodeManager()
     private let projects = ProjectStore()
     private lazy var runner: SessionRunner = {
-        let runner = SessionRunner(configs: store)
+        let runner = SessionRunner(store: projects, configs: store)
         // Agents usually commit at the end of a turn, so the sidebar reads the session's
         // folders again then instead of waiting for the file system to report it.
         runner.onTurnEnded = { [projects, workingTrees] sessionID in
@@ -46,8 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             afterTurn(sessionID)
             pullRequestReviews.turnEnded(sessionID)
         }
-        let opinionSettled: (UUID) -> Void = { [weak runner, projects] sessionID in
-            runner?.secondOpinionSettled(sessionID, store: projects)
+        let opinionSettled: (UUID) -> Void = { [weak runner] sessionID in
+            runner?.secondOpinionSettled(sessionID)
         }
         runner.reviews.onSecondOpinionSettled = opinionSettled
         runner.opinions.onSettled = opinionSettled
@@ -238,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private var runningSessions: Int {
-        runner.runningSessions(in: projects).count
+        runner.runningSessions().count
     }
 
     func windowWillClose(_ notification: Notification) {

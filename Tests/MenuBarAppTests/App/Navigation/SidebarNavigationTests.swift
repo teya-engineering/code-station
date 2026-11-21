@@ -272,7 +272,7 @@ private final class SidebarHarness {
     private let testPreferences = TestPreferences()
     let scratch: ScratchDirectory
     let store: ProjectStore
-    lazy var runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+    lazy var runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
     let settings: AppSettings
     let preferences: UserDefaults
     let mouse = TestMouse()

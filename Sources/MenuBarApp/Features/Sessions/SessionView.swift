@@ -385,7 +385,7 @@ struct SessionView: View {
                 collapsedExplorerProjects = Set(workingDirectories.dropFirst())
                 sampleMissingFolders()
                 refreshStats(workingDirectories, reusingRecent: true)
-                runner.refreshContext(sessionID, store: store)
+                runner.refreshContext(sessionID)
                 // Scanning a conversation means having it, and it is still being read in.
                 await store.transcriptReady(sessionID)
                 store.clearFinished(sessionID)
@@ -856,7 +856,7 @@ struct SessionView: View {
                 SessionRecapControl(
                     recap: recap,
                     regenerating: recapping,
-                    canRegenerate: runner.canRecap(visibleConversationID, store: store),
+                    canRegenerate: runner.canRecap(visibleConversationID),
                     isOpen: recapOpen,
                     needsAttention: recapNeedsAttention,
                     toggle: toggleRecap)
@@ -1023,7 +1023,7 @@ struct SessionView: View {
     // A result asking for more sends the agent a follow-up, the same as typing it would.
     private var askAgent: AgentAsk {
         AgentAsk(sessionID: sessionID) { [runner, store, sessionID] text in
-            runner.send(text, sessionID: sessionID, store: store)
+            runner.send(text, sessionID: sessionID)
         }
     }
 
@@ -1124,8 +1124,8 @@ struct SessionView: View {
         let tone = SessionTone(sessionID, store: store, runner: runner)
         let model = session.settings?.model
             ?? session.usage?.model(for: session.agent)
-            ?? runner.defaults(for: session.agent).model
-        let agentLine = [session.agent.title, model.map { runner.modelTitle($0) }]
+            ?? runner.catalog.defaults(for: session.agent).model
+        let agentLine = [session.agent.title, model.map { runner.catalog.modelTitle($0) }]
             .compactMap { $0 }.joined(separator: " · ")
         return TroubleshootDiagnosisStrip(
             session: session,
@@ -1218,7 +1218,7 @@ struct SessionView: View {
             pullRequests: session.pullRequests,
             pullRequestStatuses: Dictionary((pullRequestReviews.loaded[session.id] ?? [])
                 .map { ($0.pullRequest.url, $0.status) }, uniquingKeysWith: { first, _ in first }),
-            model: session.usage?.model(for: session.agent).map { runner.modelTitle($0) },
+            model: session.usage?.model(for: session.agent).map { runner.catalog.modelTitle($0) },
             cost: appSettings.showsCost(for: session.agent) ? cost : nil,
             context: session.usage?.contextFraction(for: session.agent),
             agent: session.agent)
@@ -1467,7 +1467,7 @@ struct SessionView: View {
             } else {
                 WarningStrip("\(name) not found at \(missing.abbreviatedPath). Move it back, or delete this session.")
             }
-        } else if !runner.isAvailable(session.agent) {
+        } else if !runner.catalog.isAvailable(session.agent) {
             WarningStrip("\(session.agent.title) CLI not found on PATH. Sessions cannot run until it is installed.")
         }
     }
@@ -1486,7 +1486,7 @@ struct SessionView: View {
     }
 
     private func generateRecap() {
-        recapRequested = runner.recap(visibleConversationID, store: store)
+        recapRequested = runner.recap(visibleConversationID)
     }
 
     private func toggleRecap() {
@@ -1557,7 +1557,7 @@ struct SessionView: View {
     }
 
     private func conversationContent(session: ChatSession, project: Project) -> some View {
-        let blocked = !missingDirectories.isEmpty || !runner.isAvailable(session.agent)
+        let blocked = !missingDirectories.isEmpty || !runner.catalog.isAvailable(session.agent)
         return VStack(spacing: 0) {
             if transcriptFind.isPresented {
                 FindBar(placeholder: "Find in chat",
@@ -1874,9 +1874,9 @@ struct SessionView: View {
                                      height: ControlHeight.md, size: Typography.Size.detail) {
                             runner.stop(sessionID)
                         }
-                        if runner.canRetryStalled(sessionID, store: store) {
+                        if runner.canRetryStalled(sessionID) {
                             ActionButton(title: "Retry turn", height: ControlHeight.md, size: Typography.Size.detail) {
-                                runner.retryStalled(sessionID, store: store)
+                                runner.retryStalled(sessionID)
                             }
                         }
                     }
@@ -1970,7 +1970,7 @@ struct SessionView: View {
                 Task {
                     guard let prompt = await reviews.reply(text, to: comment.id, round: round.id, in: sessionID,
                                                            projectNames: names) else { return }
-                    runner.send(prompt, sessionID: sessionID, store: store)
+                    runner.send(prompt, sessionID: sessionID)
                 }
             },
             resolve: { reviews.resolve($0.id, round: round.id, in: sessionID) },
@@ -1983,7 +1983,7 @@ struct SessionView: View {
             },
             reviewWhatChanged: openChanges,
             checkFixes: {
-                guard let checker, let executable = runner.executable(for: checker) else { return }
+                guard let checker, let executable = runner.catalog.executable(for: checker) else { return }
                 let repositories = directories.map {
                     ReviewRepository(root: $0, name: ($0 as NSString).lastPathComponent)
                 }
@@ -2139,12 +2139,12 @@ struct SessionView: View {
         let sessionID = sessionID
         return {
             var actions: [MenuEntry] = []
-            if runner.canRewind(to: message.id, sessionID: sessionID, store: store) {
+            if runner.canRewind(to: message.id, sessionID: sessionID) {
                 actions.append(.item(
                     "Rewind to here",
                     icon: "arrow.uturn.backward",
                     subtitle: "Discards this prompt and everything after it. The prompt returns to the composer.") {
-                    runner.rewind(to: message.id, sessionID: sessionID, store: store)
+                    runner.rewind(to: message.id, sessionID: sessionID)
                 })
             }
             if store.canForkSession(sessionID, before: message.id) {
@@ -2181,7 +2181,7 @@ struct SessionView: View {
                                { askForSecondOpinion(session, on: planSubject(request, in: session),
                                                      anchor: session.messages.last(where: { !$0.isEmpty })?.id) }
                            }) { answer in
-                runner.answer(request, with: answer, sessionID: sessionID, store: store)
+                runner.answer(request, with: answer, sessionID: sessionID)
             }
             .subjectRail(opinionAsk?.stop == .answer && opinionAsk?.chatSubject?.id == Self.planID(request))
             .id(request.id)
@@ -2465,7 +2465,7 @@ struct SessionView: View {
     private func startSecondOpinion(_ choice: SecondOpinionAskChoice, ask: OpinionAsk, session: ChatSession,
                                     installed: [AgentKind]) {
         let executables = Dictionary(uniqueKeysWithValues: installed.compactMap { agent in
-            runner.executable(for: agent).map { (agent, $0) }
+            runner.catalog.executable(for: agent).map { (agent, $0) }
         })
         let servers = reviewerServers(session, usesServers: choice.usesServers)
         switch choice.stop {
@@ -2585,21 +2585,21 @@ struct SessionView: View {
                 // A plan still waiting goes back as its answer, so the agent keeps
                 // planning with the points in mind rather than being told no.
                 if let pending {
-                    runner.answer(pending, with: .revise(text), sessionID: sessionID, store: store)
+                    runner.answer(pending, with: .revise(text), sessionID: sessionID)
                 } else {
-                    runner.send(text, sessionID: sessionID, store: store)
+                    runner.send(text, sessionID: sessionID)
                 }
                 opinions.markSent(opinion.id, count: opinion.ticked.count, in: sessionID)
             },
             approve: {
                 guard let pending else { return }
-                runner.answer(pending, with: .allowOnce, sessionID: sessionID, store: store)
+                runner.answer(pending, with: .allowOnce, sessionID: sessionID)
             },
             askAgain: {
                 askForSecondOpinion(session, on: opinion.subject, anchor: opinion.anchor)
             },
             retry: { seat in
-                guard let executable = runner.executable(for: seat.agent) else { return }
+                guard let executable = runner.catalog.executable(for: seat.agent) else { return }
                 opinions.retry(seat, of: opinion.id, executable: executable, in: sessionID)
             },
             stop: { opinions.stop($0, of: opinion.id, in: sessionID) },
@@ -2698,8 +2698,8 @@ struct SessionView: View {
                         isFocused: $composerFocused,
                         placeholder: placeholder(state: state, agent: session.agent),
                         onOversizedPaste: offerTextFile,
-                        onRecallUp: { runner.recallEarlier(sessionID, store: store) },
-                        onRecallDown: { runner.recallLater(sessionID, store: store) },
+                        onRecallUp: { runner.recallEarlier(sessionID) },
+                        onRecallDown: { runner.recallLater(sessionID) },
                         onSend: {
                             promptSentAt = .now
                             transcriptPinnedToBottom = true
@@ -2771,17 +2771,17 @@ struct SessionView: View {
     // agent as a deliberate fresh start, even though Codex makes room automatically.
     private func contextActions() -> [MenuEntry] {
         var entries: [MenuEntry] = []
-        if runner.canCompactContext(sessionID, store: store) {
+        if runner.canCompactContext(sessionID) {
             entries.append(.item("Compact context",
                                  subtitle: "Summarises the conversation so far and carries on from it.") {
                 confirmCompact()
             })
         }
-        if runner.canClearContext(sessionID, store: store) {
+        if runner.canClearContext(sessionID) {
             entries.append(.item("Clear context",
                                  kind: .destructive,
                                  subtitle: "The next turn starts a fresh conversation in the same folder.") {
-                runner.clearContext(sessionID, store: store)
+                runner.clearContext(sessionID)
             })
         }
         return entries
@@ -2794,7 +2794,7 @@ struct SessionView: View {
             "Compact this session's context?",
             message: "The agent reads the conversation so far, replaces it with a summary, and carries on from that. It takes a turn of its own - up to a minute - and counts towards what this session has spent.",
             action: "Compact", kind: .primary) {
-                runner.compact(sessionID, store: store)
+                runner.compact(sessionID)
             })
     }
 
@@ -2852,13 +2852,13 @@ struct SessionView: View {
                     .font(Typography.caption.weight(.semibold))
                     .kerning(1.2)
                 Spacer(minLength: 8)
-                if runner.canCompactContext(sessionID, store: store) {
+                if runner.canCompactContext(sessionID) {
                     ActionButton(title: "Compact", tone: .green, height: ControlHeight.sm, size: Typography.Size.detail,
                                  action: confirmCompact)
                         .appTooltip("Summarises the conversation so far and carries on from it.")
                 }
                 InlineLink(title: "Clear", size: Typography.Size.detail) {
-                    runner.clearContext(sessionID, store: store)
+                    runner.clearContext(sessionID)
                 }
                 .appTooltip("Starts the next turn on a fresh conversation in the same folder.")
                 Button { runner.dismissNudge(sessionID) } label: {
@@ -2931,7 +2931,7 @@ struct SessionView: View {
     private func sendSuggestion() {
         transcriptPinnedToBottom = true
         transcriptScrollRequest += 1
-        runner.sendSuggestion(sessionID, store: store)
+        runner.sendSuggestion(sessionID)
     }
 
     // The keys the strip answers, taken only while it is on screen and the cursor is in

@@ -81,10 +81,9 @@ struct SessionRecapRunnerTests {
         defer { harness.tearDown() }
         harness.store.selection = .session(harness.session.id)
 
-        harness.runner.send("Make the change", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Make the change", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
-        #expect(harness.runner.recap(harness.session.id, store: harness.store))
+        #expect(harness.runner.recap(harness.session.id))
         #expect(await waitUntil {
             FileManager.default.fileExists(atPath: harness.scratch.path("recap-streamed").path)
                 && harness.runner.state(harness.session.id) == .streaming
@@ -126,10 +125,9 @@ struct SessionRecapRunnerTests {
         defer { harness.tearDown() }
         harness.store.selection = .home
 
-        harness.runner.send("Make the change", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Make the change", sessionID: harness.session.id)
         #expect(await waitUntil { harness.store.hasFinished(harness.session.id) })
-        _ = harness.runner.recap(harness.session.id, store: harness.store)
+        _ = harness.runner.recap(harness.session.id)
         #expect(await waitUntil {
             harness.runner.isRecapping(harness.session.id)
                 && harness.runner.state(harness.session.id).isBusy
@@ -163,10 +161,9 @@ struct SessionRecapRunnerTests {
         defer { harness.tearDown() }
         harness.store.selection = .session(harness.session.id)
 
-        harness.runner.send("Improve retries", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Improve retries", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
-        #expect(harness.runner.recap(harness.session.id, store: harness.store))
+        #expect(harness.runner.recap(harness.session.id))
         #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
 
         let recap = try #require(harness.store.recap(for: harness.session.id))
@@ -201,10 +198,9 @@ struct SessionRecapRunnerTests {
         defer { harness.tearDown() }
         harness.store.selection = .session(harness.session.id)
 
-        harness.runner.send("Make the change", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Make the change", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
-        #expect(harness.runner.recap(harness.session.id, store: harness.store))
+        #expect(harness.runner.recap(harness.session.id))
         #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
 
         #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
@@ -235,8 +231,7 @@ struct SessionRecapRunnerTests {
         let other = harness.store.newSession(in: harness.session.projectID)
         harness.store.selection = .session(other.id)
 
-        harness.runner.send("Do the work", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Do the work", sessionID: harness.session.id)
 
         #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
         #expect(harness.store.recap(for: harness.session.id)?.source == .prompt)
@@ -256,8 +251,7 @@ struct SessionRecapRunnerTests {
         defer { harness.tearDown() }
         harness.store.selection = .session(harness.session.id)
 
-        harness.runner.send("Do the work", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Do the work", sessionID: harness.session.id)
 
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(harness.store.recap(for: harness.session.id) == nil)

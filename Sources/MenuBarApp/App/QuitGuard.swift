@@ -51,7 +51,7 @@ struct QuitConfirmation: View {
     }
 
     private func confirm() {
-        let running = runner.runningSessions(in: store)
+        let running = runner.runningSessions()
         // A session can finish between the quit and the dialog, which leaves nothing to ask.
         guard !running.isEmpty else { return quitGuard.quit() }
         var dialog = Dialog.confirm(

@@ -480,11 +480,11 @@ struct CommandRunnerTests {
         """, to: script)
         let existing = [ModelChoice.Option(id: "gpt-5.6-astra", title: "Astra",
                                            detail: "Fast.")]
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: script.path], discoveredModels: [.codex: existing])
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [.codex: script.path], discoveredModels: [.codex: existing])
 
-        await runner.refreshDiscoveredModels()
+        await runner.catalog.refreshDiscoveredModels()
 
-        #expect(runner.discoveredModels[.codex] == existing)
+        #expect(runner.catalog.discoveredModels[.codex] == existing)
     }
 
     // Reading a catalog starts the agent's CLI, which can stop on a system prompt, so a
@@ -500,15 +500,15 @@ struct CommandRunnerTests {
         IFS= read -r models
         printf '%s\\n' '{"id":2,"result":{"data":[{"model":"gpt-5.6-astra","displayName":"Astra"}],"nextCursor":null}}'
         """, to: script)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: script.path])
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [.codex: script.path])
 
-        await runner.discoverModels(for: .codex)
-        await runner.discoverModels(for: .codex)
+        await runner.catalog.discoverModels(for: .codex)
+        await runner.catalog.discoverModels(for: .codex)
 
-        #expect(runner.discoveredModels[.codex]?.compactMap(\.id) == ["gpt-5.6-astra"])
+        #expect(runner.catalog.discoveredModels[.codex]?.compactMap(\.id) == ["gpt-5.6-astra"])
         #expect(try timesRun(runs) == 1)
 
-        await runner.refreshDiscoveredModels()
+        await runner.catalog.refreshDiscoveredModels()
 
         #expect(try timesRun(runs) == 2)
     }

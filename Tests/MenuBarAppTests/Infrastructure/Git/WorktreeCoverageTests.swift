@@ -97,10 +97,9 @@ struct SharedFolderConflictTests {
         let second = try fixture.store.insertSession(in: project.id,
                                                      seed: .init(agent: .claudeCode)).get()
 
-        fixture.runner.send("hold the folder", sessionID: fixture.session.id,
-                            store: fixture.store)
+        fixture.runner.send("hold the folder", sessionID: fixture.session.id)
         #expect(await waitUntil { fixture.runner.state(fixture.session.id).isBusy })
-        fixture.runner.send("also run", sessionID: second.id, store: fixture.store)
+        fixture.runner.send("also run", sessionID: second.id)
 
         guard case .failed(let message) = fixture.runner.state(second.id) else {
             Issue.record("expected the second session to be refused")

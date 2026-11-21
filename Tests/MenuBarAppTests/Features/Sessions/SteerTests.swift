@@ -27,13 +27,13 @@ struct SteerTests {
         let runner = harness.runner
         let store = harness.store
 
-        runner.send("Start the work", sessionID: id, store: store)
+        runner.send("Start the work", sessionID: id)
         #expect(await waitUntil {
             store.transcript(of: id).contains { $0.role == .assistant && $0.text.contains("Working") }
         })
         #expect(runner.canSteer(id))
 
-        runner.send("Also check the tests", sessionID: id, store: store)
+        runner.send("Also check the tests", sessionID: id)
 
         #expect(runner.queued(id).isEmpty)
         let stdin = harness.scratch.path("stdin.txt")
@@ -49,7 +49,7 @@ struct SteerTests {
         #expect(runner.state(id).isBusy)
 
         // Asked to wait, a prompt still queues behind the turn.
-        runner.send("And then stop", delivery: .afterTurn, sessionID: id, store: store)
+        runner.send("And then stop", delivery: .afterTurn, sessionID: id)
         #expect(runner.queued(id).map(\.text) == ["And then stop"])
         #expect(store.transcript(of: id).count == 4)
 
@@ -65,18 +65,18 @@ struct SteerTests {
         let store = harness.store
         Preferences.midTurnPromptDelivery.write(.afterTurn, in: harness.scratch.preferences.store)
 
-        runner.send("Start the work", sessionID: id, store: store)
+        runner.send("Start the work", sessionID: id)
         #expect(await waitUntil {
             store.transcript(of: id).contains { $0.role == .assistant && $0.text.contains("Working") }
         })
         #expect(runner.canSteer(id))
 
-        runner.send("Also check the tests", sessionID: id, store: store)
+        runner.send("Also check the tests", sessionID: id)
         #expect(runner.queued(id).map(\.text) == ["Also check the tests"])
         #expect(store.transcript(of: id).count == 2)
 
         // Asking for it now still steers, whatever the setting says.
-        runner.send("And the docs", delivery: .now, sessionID: id, store: store)
+        runner.send("And the docs", delivery: .now, sessionID: id)
         let stdin = harness.scratch.path("stdin.txt")
         #expect(await waitUntil {
             (try? String(contentsOf: stdin, encoding: .utf8))?.contains("And the docs") == true
@@ -94,15 +94,15 @@ struct SteerTests {
         let runner = harness.runner
         let store = harness.store
 
-        runner.send("Start the work", sessionID: id, store: store)
+        runner.send("Start the work", sessionID: id)
         #expect(await waitUntil {
             store.transcript(of: id).contains { $0.role == .assistant && $0.text.contains("Working") }
         })
-        runner.send("First", delivery: .afterTurn, sessionID: id, store: store)
-        runner.send("Second", delivery: .afterTurn, sessionID: id, store: store)
+        runner.send("First", delivery: .afterTurn, sessionID: id)
+        runner.send("Second", delivery: .afterTurn, sessionID: id)
         let second = try #require(runner.queued(id).last)
 
-        #expect(runner.steer(second.id, sessionID: id, store: store))
+        #expect(runner.steer(second.id, sessionID: id))
 
         #expect(runner.queued(id).map(\.text) == ["First"])
         let stdin = harness.scratch.path("stdin.txt")
@@ -126,15 +126,15 @@ struct SteerTests {
         let runner = harness.runner
         let store = harness.store
 
-        runner.send("Start the work", sessionID: id, store: store)
+        runner.send("Start the work", sessionID: id)
         #expect(await waitUntil {
             store.transcript(of: id).contains { $0.role == .assistant && $0.text.contains("Working") }
         })
-        runner.send("Later", delivery: .afterTurn, sessionID: id, store: store)
+        runner.send("Later", delivery: .afterTurn, sessionID: id)
         let item = try #require(runner.queued(id).first)
         runner.stop(id)
 
-        #expect(!runner.steer(item.id, sessionID: id, store: store))
+        #expect(!runner.steer(item.id, sessionID: id))
         #expect(runner.queued(id).map(\.text) == ["Later"])
         #expect(await waitUntil { !runner.state(id).isBusy })
     }

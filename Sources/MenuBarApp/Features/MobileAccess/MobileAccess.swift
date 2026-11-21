@@ -345,7 +345,7 @@ final class MobileAccessController {
                 }
                 attachments.append(attachment)
             }
-            runner.send(prompt, attachments: attachments, sessionID: sessionID, store: store)
+            runner.send(prompt, attachments: attachments, sessionID: sessionID)
         case .stopTurn:
             guard let sessionID = openSession(of: connectionID, command: command) else { return }
             runner.stop(sessionID)
@@ -436,13 +436,13 @@ final class MobileAccessController {
                          to: connectionID)
             return
         }
-        runner.answer(request, with: answer, sessionID: sessionID, store: store)
+        runner.answer(request, with: answer, sessionID: sessionID)
 
         // Saying no is rarely the whole answer: the reason typed with it goes on as a
         // prompt, so the agent hears why rather than only that it was refused.
         let reason = command.prompt?.trimmed ?? ""
         if answer == .deny, !reason.isEmpty, reason.count <= 100_000 {
-            runner.send(reason, sessionID: sessionID, store: store)
+            runner.send(reason, sessionID: sessionID)
         }
     }
 
@@ -535,8 +535,8 @@ final class MobileAccessController {
 
         // The phone has no room for the choices the desktop sheet offers, so a session
         // made there starts on the app's own defaults.
-        let agent = runner.agent
-        let model = runner.defaults(for: agent).model
+        let agent = runner.catalog.agent
+        let model = runner.catalog.defaults(for: agent).model
         let avatar = Preferences.defaultAgentAvatarName.read()
         let worktree = command.worktree == true && project.isGitRepository
 
@@ -566,7 +566,7 @@ final class MobileAccessController {
             }
             guard readers[connectionID] != nil else { return }
             open(created.id.uuidString, for: connectionID)
-            if !prompt.isEmpty { runner.send(prompt, sessionID: created.id, store: store) }
+            if !prompt.isEmpty { runner.send(prompt, sessionID: created.id) }
         }
     }
 

@@ -284,7 +284,7 @@ struct RootView: View {
         case .cleanupWaiting:
             CleanupReviewView(status: cleanup) { self.sheet = .cleanupGoing }
         case .onboarding:
-            FirstRunWizard(initialAgent: runner.agent,
+            FirstRunWizard(initialAgent: runner.catalog.agent,
                            onSiteConfigurationLoaded: applySiteConfiguration) {
                 settings.completeOnboarding()
                 self.sheet = nil
@@ -569,7 +569,7 @@ private struct AppUpdateRestartPrompt: View {
     }
 
     private var message: String {
-        let busy = runner.runningSessions(in: store).count
+        let busy = runner.runningSessions().count
         guard busy > 0 else { return "Restarting the app finishes the update." }
         return "Restarting the app finishes the update and stops "
             + "\(counted(busy, "session")) still running."

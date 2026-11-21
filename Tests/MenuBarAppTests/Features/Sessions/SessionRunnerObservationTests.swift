@@ -41,7 +41,7 @@ struct SessionRunnerObservationTests {
         let running = fixture.session.id
         let other = try fixture.store.insertSession(
             in: fixture.session.projectID, seed: .init(agent: .claudeCode)).get().id
-        fixture.runner.send("go", sessionID: running, store: fixture.store)
+        fixture.runner.send("go", sessionID: running)
         #expect(await waitUntil { fixture.runner.state(running) == .streaming })
 
         for (marker, toolRunning) in [("start-tool", true), ("end-tool", false)] {

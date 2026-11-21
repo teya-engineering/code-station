@@ -704,7 +704,7 @@ struct AppSidebar: View {
                                   sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(workspace)
         let visible = visibleSessions(sessions, in: workspace.id)
-        let running = sessions.count { runner.isBusy($0.id, store: store) }
+        let running = sessions.count { runner.isBusy($0.id) }
         let projects = workspace.projectIDs.compactMap(store.project)
 
         WorkspaceHeaderRow(
@@ -803,7 +803,7 @@ struct AppSidebar: View {
     private func projectSection(_ project: Project, sessions: [ChatSession]) -> some View {
         let expanded = isExpanded(project)
         let visible = visibleSessions(sessions, in: project.id)
-        let running = sessions.count { runner.isBusy($0.id, store: store) }
+        let running = sessions.count { runner.isBusy($0.id) }
 
         ProjectHeaderRow(
             project: project,
@@ -1334,7 +1334,7 @@ struct AppSidebar: View {
     }
 
     private func idleSessions(in project: Project) -> [ChatSession] {
-        store.standaloneSessions(for: project.id).filter { !runner.isBusy($0.id, store: store) }
+        store.standaloneSessions(for: project.id).filter { !runner.isBusy($0.id) }
     }
 
     private func confirmRemoveProject(_ project: Project) {
@@ -1487,8 +1487,8 @@ struct AppSidebar: View {
                     .toolsMenu(tools, skills: skills, edge: .top)
             }
 
-            if !runner.available {
-                Text("\(runner.agent.title) was not found on PATH.")
+            if !runner.catalog.available {
+                Text("\(runner.catalog.agent.title) was not found on PATH.")
                     .font(Typography.caption)
                     .foregroundStyle(.secondary)
             }

@@ -15,7 +15,7 @@ struct AgentSettingsView: View {
 
     let requestedAgent: AgentKind?
 
-    private var defaults: SessionSettings { runner.defaults(for: selectedAgent) }
+    private var defaults: SessionSettings { runner.catalog.defaults(for: selectedAgent) }
 
     init(selectedAgent: AgentKind,
          requestedAgent: AgentKind? = nil) {
@@ -41,11 +41,11 @@ struct AgentSettingsView: View {
     }
 
     private func refresh() {
-        runner.refreshAvailableAgents()
+        runner.catalog.refreshAvailableAgents()
         claude.refresh()
         codex.refresh()
         copilot.refresh()
-        Task { await runner.refreshDiscoveredModels() }
+        Task { await runner.catalog.refreshDiscoveredModels() }
     }
 
     // MARK: - Agent tabs
@@ -63,12 +63,12 @@ struct AgentSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
-                    OptionMenu(value: runner.agent.title) {
+                    OptionMenu(value: runner.catalog.agent.title) {
                         AgentKind.allCases.map { agent in
                             .item(agent.title,
-                                  checked: runner.agent == agent,
+                                  checked: runner.catalog.agent == agent,
                                   subtitle: agent.blurb) {
-                                runner.agent = agent
+                                runner.catalog.agent = agent
                             }
                         }
                     }
@@ -100,7 +100,7 @@ struct AgentSettingsView: View {
     private func change(_ edit: (inout SessionSettings) -> Void) {
         var updated = defaults
         edit(&updated)
-        runner.setDefaults(updated, for: selectedAgent)
+        runner.catalog.setDefaults(updated, for: selectedAgent)
     }
 
     // MARK: - One agent
@@ -170,7 +170,7 @@ struct AgentSettingsView: View {
                 configFile: ".codex/config.toml",
                 refresh: {
                     codex.refresh()
-                    Task { await runner.refreshDiscoveredModels() }
+                    Task { await runner.catalog.refreshDiscoveredModels() }
                 })
         case .copilot:
             AgentProfile(
@@ -193,7 +193,7 @@ struct AgentSettingsView: View {
                 refresh: {
                     copilot.refresh()
                     Task { await usageMonitor?.refresh(.copilot) }
-                    Task { await runner.refreshDiscoveredModels() }
+                    Task { await runner.catalog.refreshDiscoveredModels() }
                 })
         }
     }
@@ -259,17 +259,17 @@ struct AgentSettingsView: View {
     private func model(for agent: AgentKind) -> some View {
         ChoiceBlock("MODEL", note: "Applies from each session's next turn on.") {
             SettingsCard {
-                let choices = runner.modelOptions(for: agent)
+                let choices = runner.catalog.modelOptions(for: agent)
                 ForEach(choices.indices, id: \.self) { index in
                     let choice = choices[index]
                     OptionRow(
                         title: choice.title,
                         detail: choice.detail,
-                        selected: runner.validModel(defaults.model, for: agent) == choice.id) {
+                        selected: runner.catalog.validModel(defaults.model, for: agent) == choice.id) {
                             change {
                                 $0.model = choice.id
                                 if let effort = $0.effort,
-                                   runner.validEffort(effort, for: agent,
+                                   runner.catalog.validEffort(effort, for: agent,
                                                       model: choice.id) == nil {
                                     $0.effort = nil
                                 }
@@ -279,18 +279,18 @@ struct AgentSettingsView: View {
                 }
             }
         }
-        .task(id: agent) { await runner.discoverModels(for: agent) }
+        .task(id: agent) { await runner.catalog.discoverModels(for: agent) }
     }
 
     private func effort(for agent: AgentKind) -> some View {
         ChoiceBlock("EFFORT", note: "How long the model thinks before it answers. More effort costs more tokens and more time. Default uses \(agent.title)'s own effort settings for the selected model.") {
             SettingsCard {
                 HStack(spacing: Space.xs) {
-                    ForEach(runner.effortOptions(for: agent, model: defaults.model),
+                    ForEach(runner.catalog.effortOptions(for: agent, model: defaults.model),
                             id: \.title) { choice in
                         ChoicePill(
                             title: choice.title,
-                            selected: runner.validEffort(defaults.effort, for: agent,
+                            selected: runner.catalog.validEffort(defaults.effort, for: agent,
                                                          model: defaults.model) == choice.id) {
                                 change { $0.effort = choice.id }
                         }

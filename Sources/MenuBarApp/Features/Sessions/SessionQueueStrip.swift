@@ -63,7 +63,7 @@ struct SessionQueueStrip: View {
             Spacer(minLength: 8)
             if !busy && !blocked {
                 InlineLink(title: "Send now", size: Typography.Size.detail) {
-                    runner.runQueue(sessionID, store: store)
+                    runner.runQueue(sessionID)
                 }
                 .transition(.fadeIn)
             }
@@ -135,7 +135,7 @@ struct SessionQueueStrip: View {
     private func steer(_ id: UUID) {
         steering = id
         Task { @MainActor in
-            if !runner.steer(id, sessionID: sessionID, store: store) { steering = nil }
+            if !runner.steer(id, sessionID: sessionID) { steering = nil }
         }
     }
 }

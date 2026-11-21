@@ -607,7 +607,7 @@ struct CodexTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("finish the work", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("finish the work", sessionID: fixture.session.id)
 
         let sawReconnect = await waitUntil {
             if case .reconnecting = fixture.runner.state(fixture.session.id) { return true }
@@ -627,7 +627,7 @@ struct CodexTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("finish the work", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("finish the work", sessionID: fixture.session.id)
 
         #expect(await waitUntil { !fixture.runner.state(fixture.session.id).isBusy })
         guard case .failed(let message) = fixture.runner.state(fixture.session.id) else {
@@ -660,13 +660,13 @@ struct CodexTests {
         defer { fixture.tearDown() }
 
         let originalPrompt = "change the production setting"
-        fixture.runner.send(originalPrompt, sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send(originalPrompt, sessionID: fixture.session.id)
         #expect(await waitUntil {
             if case .failed = fixture.runner.state(fixture.session.id) { return true }
             return false
         })
 
-        #expect(fixture.runner.continueAfterFailure(fixture.session.id, store: fixture.store))
+        #expect(fixture.runner.continueAfterFailure(fixture.session.id))
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
 
         let recoveryPrompt = try String(contentsOf: fixture.scratch.path("prompt-2.txt"), encoding: .utf8)
@@ -699,8 +699,7 @@ struct CodexTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("improve this menu", sessionID: fixture.session.id,
-                            store: fixture.store)
+        fixture.runner.send("improve this menu", sessionID: fixture.session.id)
         #expect(await waitUntil { fixture.runner.runningTool(fixture.session.id) != nil })
 
         fixture.runner.stop(fixture.session.id)
@@ -709,14 +708,14 @@ struct CodexTests {
         let stopped = try #require(fixture.store.transcript(of: fixture.session.id).last)
         #expect(stopped.role == .system)
         #expect(stopped.text == "Stopped. The turn ended before it finished.")
-        #expect(fixture.runner.canContinueAfterStop(fixture.session.id, store: fixture.store))
+        #expect(fixture.runner.canContinueAfterStop(fixture.session.id))
 
-        #expect(fixture.runner.continueAfterStop(fixture.session.id, store: fixture.store))
+        #expect(fixture.runner.continueAfterStop(fixture.session.id))
         #expect(await waitUntil { fixture.store.transcript(of: fixture.session.id).last?.text == "Finished" })
 
         // The offer goes with the turn it belonged to, and the original prompt is not run
         // a second time.
-        #expect(!fixture.runner.canContinueAfterStop(fixture.session.id, store: fixture.store))
+        #expect(!fixture.runner.canContinueAfterStop(fixture.session.id))
         let recoveryPrompt = try String(contentsOf: fixture.scratch.path("prompt-2.txt"), encoding: .utf8)
         #expect(recoveryPrompt == SessionRunner.recoveryPrompt)
         #expect(fixture.store.transcript(of: fixture.session.id)
@@ -743,13 +742,13 @@ struct CodexTests {
         defer { fixture.tearDown() }
 
         let originalPrompt = "change the production setting"
-        fixture.runner.send(originalPrompt, sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send(originalPrompt, sessionID: fixture.session.id)
 
         #expect(await waitUntil {
             fixture.runner.state(fixture.session.id) == .stalled
-                && fixture.runner.canRetryStalled(fixture.session.id, store: fixture.store)
+                && fixture.runner.canRetryStalled(fixture.session.id)
         })
-        #expect(fixture.runner.retryStalled(fixture.session.id, store: fixture.store))
+        #expect(fixture.runner.retryStalled(fixture.session.id))
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
 
         let recoveryPrompt = try String(contentsOf: fixture.scratch.path("prompt-2.txt"), encoding: .utf8)
@@ -773,7 +772,7 @@ struct CodexTests {
         """, stalledAfter: 0.05, stallCheckInterval: .milliseconds(10))
         defer { fixture.tearDown() }
 
-        fixture.runner.send("run the tests", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("run the tests", sessionID: fixture.session.id)
 
         #expect(await waitUntil { fixture.runner.runningTool(fixture.session.id) != nil })
         try? await Task.sleep(for: .milliseconds(120))
@@ -802,7 +801,7 @@ struct CodexTests {
         defer { fixture.tearDown() }
         try fixture.makeProjectARepository()
 
-        fixture.runner.send("write the notes", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("write the notes", sessionID: fixture.session.id)
 
         // Snapshots run in order on one queue, so waiting on one of our own is waiting for
         // the turn's baseline to have been taken. Only then is the fixture let write, which
@@ -837,7 +836,7 @@ struct CodexTests {
         defer { fixture.tearDown() }
         try fixture.makeProjectARepository()
 
-        fixture.runner.send("write both files", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("write both files", sessionID: fixture.session.id)
         await fixture.waitForBaseline()
         try Data().write(to: fixture.scratch.path("go"))
 

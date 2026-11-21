@@ -116,7 +116,7 @@ struct ScheduledTaskExecutionTests {
         let store = ProjectStore(preferences: testPreferences.store, storeURL: storeURL)
         let task = try store.addTask(named: "Deploy", prompt: "Deploy {{environment}}.",
                                      in: scratch.path("tasks")).get()
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
         var schedule = TaskSchedule()
@@ -171,7 +171,7 @@ struct ScheduledTaskExecutionTests {
         let task = try store.addTask(named: "Notes", prompt: "Write notes.",
                                      in: scratch.path("tasks")).get()
 
-        let session = try TaskRun.run(task, store: store, runner: SessionRunner(preferences: testPreferences.store, paths: [:]),
+        let session = try TaskRun.run(task, store: store, runner: SessionRunner(store: store, preferences: testPreferences.store, paths: [:]),
                                       agentAvatarName: nil).get()
 
         #expect(store.session(session.id)?.isScheduledRun == false)

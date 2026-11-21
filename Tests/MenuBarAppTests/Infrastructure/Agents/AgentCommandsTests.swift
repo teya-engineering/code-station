@@ -329,7 +329,7 @@ struct SlashCommandSendTests {
         try Data("Run the tests and fix what fails.\n".utf8)
             .write(to: prompts.appendingPathComponent("tests.md"))
 
-        fixture.runner.send("/tests quickly", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("/tests quickly", sessionID: fixture.session.id)
 
         #expect(await waitUntil(timeout: .seconds(5)) {
             FileManager.default.fileExists(atPath: fixture.scratch.path("arguments").path)
@@ -353,7 +353,7 @@ struct SlashCommandSendTests {
         try Data("Run the tests.\n".utf8)
             .write(to: commands.appendingPathComponent("tests.md"))
 
-        fixture.runner.send("/tests", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("/tests", sessionID: fixture.session.id)
 
         #expect(await waitUntil(timeout: .seconds(5)) {
             (try? String(contentsOf: fixture.scratch.path("input"), encoding: .utf8))?

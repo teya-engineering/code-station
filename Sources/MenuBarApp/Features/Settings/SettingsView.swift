@@ -333,7 +333,7 @@ struct SettingsView: View {
         case .keyboard:
             KeyboardSettingsView().id(SettingsSearchTarget.keyboardShortcuts.id)
         case .agents:
-            AgentSettingsView(selectedAgent: runner.agent,
+            AgentSettingsView(selectedAgent: runner.catalog.agent,
                               requestedAgent: searchedAgent)
         case .secondOpinion:
             SecondOpinionSettingsView(defaults: $secondOpinion)

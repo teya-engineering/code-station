@@ -18,7 +18,7 @@ struct OldSessionSweepTests {
     init() throws {
         (store, scratch) = TestStore.make()
         project = try TestStore.project(in: store)
-        runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
     }
 
     private func session(daysAgo: Double, worktree: String? = nil) -> ChatSession {

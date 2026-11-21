@@ -315,12 +315,12 @@ struct DesignView: View {
                 let names = Array(NSOrderedSet(array: opinion.lanes.map(\.reviewer.agent.title))) as? [String] ?? []
                 let text = DesignSecondOpinion.feedback(opinion.kept, screens: canvas.manifest.screens,
                                                         names: names.joined(separator: " and "))
-                runner.send(text, sessionID: sessionID, store: store)
+                runner.send(text, sessionID: sessionID)
                 opinions.markSent(count: opinion.kept.count, in: sessionID)
                 promptSentAt = Date()
             },
             retry: { seat in
-                guard let executable = runner.executable(for: seat.agent) else { return }
+                guard let executable = runner.catalog.executable(for: seat.agent) else { return }
                 opinions.retry(seat, executable: executable, in: sessionID)
             },
             stop: { opinions.stop($0, in: sessionID) },
