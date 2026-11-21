@@ -327,26 +327,9 @@ struct FileTreeTests {
                 == "/p/srcs/b.swift")
     }
 
-    @Test func createsUntitledItemsWithoutTakingANameInUse() async throws {
-        try Data("keep".utf8).write(to: root.appendingPathComponent("untitled"))
-
-        let file = await FileTree.create(folder: false, in: root)
-        let folder = await FileTree.create(folder: true, in: root)
-        let second = await FileTree.create(folder: true, in: root)
-
-        #expect(file == .created(root.appendingPathComponent("untitled 2")))
-        #expect(folder == .created(root.appendingPathComponent("untitled folder", isDirectory: true)))
-        #expect(second == .created(root.appendingPathComponent("untitled folder 2", isDirectory: true)))
-        #expect(try String(contentsOf: root.appendingPathComponent("untitled"), encoding: .utf8) == "keep")
-        #expect(await FileTree.preview(of: root.appendingPathComponent("untitled 2")) == .empty)
-        var isDirectory: ObjCBool = false
-        #expect(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent("untitled folder 2").path, isDirectory: &isDirectory))
-        #expect(isDirectory.boolValue)
-    }
-
     @Test func reportsWhenTheFolderIsGone() async {
-        let result = await FileTree.create(folder: false, in: root.appendingPathComponent("missing"))
+        let result = await FileTree.create(name: "notes.txt", folder: false,
+                                           in: root.appendingPathComponent("missing"))
 
         guard case .failed = result else {
             Issue.record("created \(result)")

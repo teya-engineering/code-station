@@ -20,8 +20,15 @@ struct WorkingWords {
         self.order = order.isEmpty ? ["Working"] : order
     }
 
-    init(personality: AgentPersonality) {
-        self.init(order: personality.workingWords.shuffled())
+    // The default bot in a Claude session says what Claude's own spinner would, so the
+    // `spinnerVerbs` set for the CLI carry over. A bot with a personality keeps its own
+    // lines, and the other agents have no such setting.
+    init(personality: AgentPersonality, agent: AgentKind, lead: String?) {
+        var words = personality.workingWords
+        if personality == .standard, agent == .claudeCode {
+            words = ClaudeSpinnerVerbs.applied(to: words, lead: lead)
+        }
+        self.init(order: words.shuffled())
     }
 
     // Walking a shuffled list rather than picking at random each time: random picks

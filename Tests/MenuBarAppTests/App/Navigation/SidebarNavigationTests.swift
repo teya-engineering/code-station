@@ -283,7 +283,7 @@ private final class SidebarHarness {
     init() throws {
         _ = NSApplication.shared
         (store, scratch) = TestStore.make()
-        preferences = try #require(UserDefaults(suiteName: "sidebar-ui-\(UUID().uuidString)"))
+        preferences = scratchDefaults()
         settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"), preferences: preferences)
         settings.sidebarSessionLimit = 2
         settings.projectGrouping = .kind

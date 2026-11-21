@@ -10,12 +10,59 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Being on main is not the same as passing on main: a merge can still break
+  # the build. This waits for the Tests run from the push to main of the commit
+  # being released, and stops the release unless it passed. It runs on Linux,
+  # without the release environment, so waiting holds neither a Mac nor the
+  # signing secrets.
+  tested:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    # Long enough for a Tests run that has only just started, plus time waiting
+    # for a runner on the Xcode image.
+    timeout-minutes: 75
+    steps:
+      - name: Wait for the Tests workflow to pass on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$GITHUB_SHA&event=push&branch=main"
+          started=$SECONDS
+          while :; do
+            found="$(gh api "$runs")"
+            passed="$(jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].html_url // empty' <<<"$found")"
+            if [ -n "$passed" ]; then
+              echo "Tests passed on $GITHUB_SHA: $passed"
+              exit 0
+            fi
+            pending="$(jq -r '[.workflow_runs[] | select(.status != "completed")][0].html_url // empty' <<<"$found")"
+            seen="$(jq -r '[.workflow_runs[].conclusion // empty] | join(", ")' <<<"$found")"
+            if [ -n "$pending" ]; then
+              echo "Waiting for $pending"
+            elif [ -z "$seen" ] && [ $((SECONDS - started)) -lt 180 ]; then
+              # A tag pushed right after the merge can arrive before GitHub
+              # has created the Tests run for it.
+              echo "No Tests run for $GITHUB_SHA yet"
+            else
+              echo "::error::Tests have not passed on $GITHUB_SHA (runs from a push to main: ${seen:-none})." \
+                "Release a commit whose Tests run passed. If its run was cancelled or failed for a" \
+                "temporary reason, re-run that Tests run, then re-run this workflow from the tag."
+              exit 1
+            fi
+            sleep 30
+          done
+
   release:
-    runs-on: macos-26
+    # Same image as the Tests workflow; see the note there.
+    runs-on: xcode-27
     # The signing secrets live in the release environment, so the job has to
     # declare it. Without this the secrets.* are empty and the certificate
     # import fails.
     environment: release
+    # Nothing here starts, and no reviewer is asked to approve the release
+    # environment, until the tested job has seen Tests pass on this commit.
+    needs: tested
     permissions:
       contents: write
     timeout-minutes: 60
@@ -57,13 +104,9 @@ jobs:
                exit 1 ;;
           esac
 
-      # macos-26 ships Xcode 26.x (Swift 6.3) by default - the same toolchain as
-      # local development; on macos-15 (Swift 6.1) strict concurrency rejects
-      # code that 6.3 accepts. If you ever need to pin the version, uncomment
-      # the maxim-lobanov/setup-xcode step.
-      # - uses: maxim-lobanov/setup-xcode@v1
-      #   with:
-      #     xcode-version: '16.4'
+      - name: Select Xcode
+        run: ./Scripts/ci-select-xcode.sh
+
       - name: Toolchain
         run: swift --version && xcodebuild -version
 

@@ -2,8 +2,6 @@ import SwiftUI
 
 // Central palette and small style helpers so the whole UI reads as one system.
 enum Theme {
-    // Text falls through to SwiftUI's adaptive colours, so a surface that stays light in
-    // dark mode leaves white text on a white card. Values are Lemonade's neutral tokens.
     static func isDark(_ appearance: NSAppearance) -> Bool {
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
@@ -18,6 +16,10 @@ enum Theme {
         Color(nsColor: adaptiveNSColor(light: light, dark: dark))
     }
 
+    // Every surface has a light and a dark value. Text falls through to SwiftUI's adaptive
+    // colours, so a surface that stayed light in dark mode would leave white text on a
+    // white card. Values are Lemonade's neutral tokens.
+    //
     // The canvas a pane sits on. The sidebar is a shade under it and a card a shade over
     // it, so the three surfaces separate without a single line between them.
     static let canvasLightNSColor = NSColor(srgbRed: 0.961, green: 0.953, blue: 0.929, alpha: 1)

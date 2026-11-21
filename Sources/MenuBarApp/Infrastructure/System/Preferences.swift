@@ -1,7 +1,8 @@
 import Foundation
 
-// The handful of things that are preferences rather than data: what was open last time.
-// macOS has a place for these, so they do not belong in the file holding the projects.
+// The things that are preferences rather than data: choices made in Settings and small
+// facts the app remembers between launches. macOS has a place for these, so they do not
+// belong in the file holding the projects.
 // A preference takes the store as a parameter where a settings object or a test reads
 // its own UserDefaults; convenience properties keep app-wide callers on the standard one.
 enum Preferences {
@@ -13,21 +14,6 @@ enum Preferences {
 
     static func setHasCompletedOnboarding(_ completed: Bool, in store: UserDefaults = .standard) {
         store.set(completed, forKey: "hasCompletedOnboarding")
-    }
-
-    static var selectedSessionID: UUID? {
-        get { uuid("selectedSessionID") }
-        set { set(newValue, "selectedSessionID") }
-    }
-
-    static var selectedProjectID: UUID? {
-        get { uuid("selectedProjectID") }
-        set { set(newValue, "selectedProjectID") }
-    }
-
-    static var selectedWorkspaceID: UUID? {
-        get { uuid("selectedWorkspaceID") }
-        set { set(newValue, "selectedWorkspaceID") }
     }
 
     // Where the last repository was cloned, since the next one usually goes beside it.
@@ -134,8 +120,6 @@ enum Preferences {
         store.set(name, forKey: "defaultAgentAvatarName")
     }
 
-    // What a session runs with when it has not picked for itself. Defaults belong to the
-    // agent that reads them, so one CLI's model and access choices cannot affect another.
     // What a second opinion starts from. A lineup saved before the Settings tab existed
     // becomes its usual seats, all ticked.
     static func secondOpinionDefaults(in store: UserDefaults = .standard) -> SecondOpinionDefaults {
@@ -166,6 +150,8 @@ enum Preferences {
         setSecondOpinionDefaults(defaults, in: store)
     }
 
+    // What a session runs with when it has not picked for itself. Defaults belong to the
+    // agent that reads them, so one CLI's model and access choices cannot affect another.
     static func sessionDefaults(for agent: AgentKind, in store: UserDefaults = .standard) -> SessionSettings {
         switch agent {
         case .claudeCode:
@@ -690,20 +676,8 @@ enum Preferences {
         "showCost-\(agent.rawValue)"
     }
 
-    private static func text(_ key: String) -> String? {
-        text(key, in: store)
-    }
-
     private static func text(_ key: String, in store: UserDefaults) -> String? {
         store.string(forKey: key).flatMap { $0.isEmpty ? nil : $0 }
-    }
-
-    private static func uuid(_ key: String) -> UUID? {
-        store.string(forKey: key).flatMap(UUID.init(uuidString:))
-    }
-
-    private static func set(_ text: String?, _ key: String) {
-        set(text, key, in: store)
     }
 
     private static func set(_ text: String?, _ key: String, in store: UserDefaults) {
@@ -712,9 +686,5 @@ enum Preferences {
         } else {
             store.removeObject(forKey: key)
         }
-    }
-
-    private static func set(_ id: UUID?, _ key: String) {
-        set(id?.uuidString, key)
     }
 }

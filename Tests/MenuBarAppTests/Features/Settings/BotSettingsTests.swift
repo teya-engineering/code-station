@@ -59,9 +59,7 @@ struct BotSettingsTests {
     }
 
     @Test func photoAndDefaultAreSavedOnlyOnSave() throws {
-        let suite = "bot-draft-default-\(UUID().uuidString)"
-        let preferences = try #require(UserDefaults(suiteName: suite))
-        defer { preferences.removePersistentDomain(forName: suite) }
+        let preferences = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: destination, preferences: preferences)
         let draft = try BotDraft()
         draft.personality = .sarcastic
@@ -141,9 +139,7 @@ struct BotSettingsTests {
     }
 
     @Test func savingAtCapacityFailsWithoutChangingDefaultOrDiscardingDraft() throws {
-        let suite = "bot-capacity-\(UUID().uuidString)"
-        let preferences = try #require(UserDefaults(suiteName: suite))
-        defer { preferences.removePersistentDomain(forName: suite) }
+        let preferences = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: destination, preferences: preferences)
         for _ in 0..<AgentAvatarFile.maxCount { try settings.addStockAgentAvatar(personality: .cat) }
         let draft = try BotDraft()

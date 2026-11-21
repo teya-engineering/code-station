@@ -186,7 +186,6 @@ final class CodexAgentInfo {
     }
 }
 
-// Runs "<cli> --version" and hands back the line it printed.
 // Copilot keeps its sign-in in the system keychain or takes it from the gh CLI, so the
 // only honest way to read it is to ask the CLI. That takes a moment, like its version.
 @MainActor
@@ -302,6 +301,7 @@ enum AgentAccount {
     }
 }
 
+// Runs "<cli> --version" and hands back the line it printed.
 private nonisolated func cliVersion(at path: String, searchPath: String) async -> String? {
     var env = ProcessInfo.processInfo.environment
     env["PATH"] = searchPath
@@ -316,7 +316,7 @@ private nonisolated func cliVersion(at path: String, searchPath: String) async -
     return trimmed.isEmpty ? nil : trimmed
 }
 
-// The Agents tab keeps both CLIs one click apart while their defaults and account
+// The Agents tab keeps the agent CLIs one click apart while their defaults and account
 // details stay with the agent they belong to.
 struct AgentSettingsView: View {
     @Environment(SessionRunner.self) private var runner
@@ -422,7 +422,7 @@ struct AgentSettingsView: View {
     // MARK: - One agent
 
     // What the pane shows about an agent, read off whichever info object owns it, so
-    // the screen itself is drawn once for both.
+    // the screen itself is drawn once for all of them.
     private struct AgentProfile {
         let heading: String
         let path: String?

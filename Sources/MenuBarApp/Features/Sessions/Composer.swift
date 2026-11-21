@@ -46,9 +46,19 @@ struct Composer<Above: View, Accessory: View>: View {
     @State private var dropTargeted = false
     @State private var commands: [AgentCommand] = []
     @State private var commandSelection = 0
-    // The command being typed when the menu was waved away, so it stays away until the
-    // word changes rather than coming back on the next keystroke.
-    @State private var dismissedQuery: String?
+    // Whether the arrows have walked the menu for the word at the caret. Further into a
+    // prompt return only picks a command once they have, since a slash word there is as
+    // likely a path like `/tmp` that ends the sentence.
+    @State private var commandWalked = false
+    // Moves on each time a fresh slash is typed, which is when the command files are read
+    // again, since they can change between prompts.
+    @State private var commandReload = 0
+    // The slash word the menu was waved away from, so it stays away until the word
+    // changes rather than coming back on the next keystroke.
+    @State private var dismissedWord: SlashWord?
+    // Where the caret sits in the field. The menu is about the slash word the caret is in,
+    // wherever that is in the prompt.
+    @State private var caret: ComposerCaret?
     @State private var fieldLink = ComposerFieldLink()
     @State private var dictateShortcut = WindowKeyMonitor(AppCommand.dictate.info.keys)
     @State private var dictationKeys = DictationKeys()
@@ -59,12 +69,17 @@ struct Composer<Above: View, Accessory: View>: View {
 
     private var attachments: [Attachment] { runner.composer.draft(sessionID).attachments }
 
-    // The slash command being typed, if the whole of the prompt is one.
-    private var query: String? { SlashQuery.typed(in: runner.composer.draft(sessionID).text) }
+    // The slash word the caret is in, if any. Nothing until the field has placed its caret
+    // in the draft as it now is.
+    private var word: SlashWord? {
+        let text = runner.composer.draft(sessionID).text
+        guard let caret, caret.text == text else { return nil }
+        return SlashQuery.word(in: text, caret: caret.location)
+    }
 
-    private var matches: [AgentCommand] {
-        guard let query, query != dismissedQuery else { return [] }
-        return SlashQuery.matches(query, in: commands)
+    private func slashOffer(for word: SlashWord?) -> SlashOffer {
+        guard let word, word != dismissedWord else { return SlashOffer() }
+        return SlashQuery.offer(for: word, in: commands, agent: agent)
     }
 
     private var draft: Binding<String> {
@@ -87,11 +102,13 @@ struct Composer<Above: View, Accessory: View>: View {
             && !runner.composer.draft(sessionID).isEmpty
         let roots = store.session(sessionID).map(store.workingDirectories(for:)) ?? []
 
-        let matches = matches
-        let menuShown = !matches.isEmpty && isFocused && !blocked
+        let word = self.word
+        let offer = slashOffer(for: word)
+        let menuShown = !offer.isEmpty && isFocused && !blocked
+        let menuNews: String? = menuShown ? word.flatMap { offerNews(offer, for: $0) } : nil
         let noticeShown = dictationHere?.notice(for: sessionID) != nil
 
-        VStack(alignment: .leading, spacing: Space.md) {
+        let composer = VStack(alignment: .leading, spacing: Space.md) {
             if let dictation = dictationHere, let notice = dictation.notice(for: sessionID) {
                 DictationFeedback(dictation: dictation, sessionID: sessionID,
                                   draft: runner.composer.draftBinding(sessionID), notice: notice)
@@ -101,8 +118,9 @@ struct Composer<Above: View, Accessory: View>: View {
 
             if menuShown {
                 SlashCommandMenu(agent: agent,
-                                 commands: matches,
-                                 selected: min(commandSelection, matches.count - 1),
+                                 commands: offer.usable,
+                                 startOnly: offer.startOnly,
+                                 selected: min(commandSelection, max(offer.usable.count - 1, 0)),
                                  choose: take,
                                  highlight: { commandSelection = $0 })
                     .transition(.fadeIn)
@@ -122,7 +140,8 @@ struct Composer<Above: View, Accessory: View>: View {
                               onRecallUp: onRecallUp,
                               onRecallDown: onRecallDown,
                               highlightsKeyword: agent == .claudeCode,
-                              commandNames: Set(commands.map { $0.name.lowercased() }),
+                              commandNames: SlashCommandNames(commands, agent: agent),
+                              onCaretChange: { caret = $0 },
                               onSuggestionKey: onSuggestionKey,
                               onCommandKey: commandKey,
                               onDropFiles: blocked ? nil : { attach(Attachments.fromDrop($0)) },
@@ -169,7 +188,7 @@ struct Composer<Above: View, Accessory: View>: View {
                     Spacer(minLength: 0)
                     Button {
                         runner.composer.undoInsertion(sessionID)
-                        announceInsertion("Insertion undone")
+                        announce("Insertion undone")
                     } label: {
                         Text("Undo insertion")
                             .foregroundStyle(Theme.accent)
@@ -215,32 +234,8 @@ struct Composer<Above: View, Accessory: View>: View {
         .onDisappear {
             if let flight = runner.composer.flight(sessionID) { runner.composer.land(flight, in: sessionID) }
         }
-        // Saved drafts need the command names too. Refresh as the menu opens or closes,
-        // since command files can change between prompts.
-        .task(id: [agent.rawValue, String(query == nil)] + roots) {
-            let agent = agent
-            let loaded = await Task.detached {
-                AgentCommands.all(for: agent, workingDirectories: roots)
-            }.value
-            guard !Task.isCancelled else { return }
-            commands = loaded
-        }
-        .onChange(of: query) { _, typed in
-            commandSelection = 0
-            // Waving the menu away is about the word that was on screen, so the next one
-            // typed gets its own answer.
-            if typed != dismissedQuery { dismissedQuery = nil }
-        }
-        .onChange(of: runner.composer.focusRequest(sessionID)) { _, request in
-            guard request != nil else { return }
-            dismissedQuery = query
-            isFocused = true
-            fieldLink.placeCaret((runner.composer.draft(sessionID).text as NSString).length)
-            fieldLink.focus()
-            if let insertion = runner.composer.insertion(sessionID) {
-                announceInsertion("\(insertion.name) inserted into your message. Nothing sent.")
-            }
-        }
+
+        watchingCommands(composer, roots: roots, word: word, menuNews: menuNews)
         .background {
             if dictationHere != nil {
                 WindowAnchor(monitor: dictateShortcut).keyMonitor(dictateShortcut, follows: .dictate)
@@ -281,6 +276,48 @@ struct Composer<Above: View, Accessory: View>: View {
         } isTargeted: { dropTargeted = $0 }
     }
 
+    // What keeps the command menu in step with the field: the commands on offer, the word
+    // the caret is in, and what is read out about them.
+    private func watchingCommands(_ content: some View, roots: [String], word: SlashWord?,
+                                  menuNews: String?) -> some View {
+        content
+            // Saved drafts need the command names too, so they are read on arrival as well.
+            .task(id: [agent.rawValue, String(commandReload)] + roots) {
+                let agent = agent
+                let loaded = await Task.detached {
+                    AgentCommands.all(for: agent, workingDirectories: roots)
+                }.value
+                guard !Task.isCancelled else { return }
+                commands = loaded
+            }
+            .onChange(of: word) { _, typed in
+                commandSelection = 0
+                commandWalked = false
+                if typed?.query.isEmpty == true { commandReload += 1 }
+                // Waving the menu away is about the word that was on screen, so the next one
+                // typed gets its own answer.
+                if typed != dismissedWord { dismissedWord = nil }
+            }
+            // Read out each time what the menu holds changes, since the caret stays in the
+            // field and nothing else would say so.
+            .onChange(of: menuNews) { _, news in
+                if let news { announce(news) }
+            }
+            .onChange(of: runner.composer.focusRequest(sessionID)) { _, request in
+                guard request != nil else { return }
+                let text = runner.composer.draft(sessionID).text
+                let end = (text as NSString).length
+                caret = ComposerCaret(text: text, location: end)
+                dismissedWord = SlashQuery.word(in: text, caret: end)
+                isFocused = true
+                fieldLink.placeCaret(end)
+                fieldLink.focus()
+                if let insertion = runner.composer.insertion(sessionID) {
+                    announce("\(insertion.name) inserted into your message. Nothing sent.")
+                }
+            }
+    }
+
     // A prompt chosen from the shortcut list flies to the top of the message box, across
     // easing out and down easing in, and its text is inserted where it lands. Under
     // Reduce Motion the flight lands at once.
@@ -301,7 +338,7 @@ struct Composer<Above: View, Accessory: View>: View {
         }
     }
 
-    private func announceInsertion(_ message: String) {
+    private func announce(_ message: String) {
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                              userInfo: [.announcement: message,
                                         .priority: NSAccessibilityPriorityLevel.medium.rawValue])
@@ -418,32 +455,78 @@ struct Composer<Above: View, Accessory: View>: View {
         }
     }
 
-    // The keys the menu answers, taken only while it is on screen. Return picks the
-    // highlighted command rather than sending, so a half-typed name can never be sent as
-    // a prompt by the key that finishes it; the next return sends what it left behind.
+    // What the menu says to someone who cannot see it, each time what it holds changes.
+    private func offerNews(_ offer: SlashOffer, for word: SlashWord) -> String? {
+        if offer.usable.isEmpty, offer.startOnly.count == 1, let only = offer.startOnly.first {
+            return "\(only.typed) \(SlashCommandMenu.startOnlyNote.lowercased())"
+        }
+        if offer.usable.isEmpty {
+            return "\(offer.startOnly.count) commands matching /\(word.query) only work at the start of a prompt"
+        }
+        let count = offer.usable.count
+        return "\(count) \(count == 1 ? "command matches" : "commands match") /\(word.query)"
+    }
+
+    // The keys the menu answers, taken only while it is on screen. Tab picks the
+    // highlighted command. Return does too for the first word of a prompt, so a half-typed
+    // name is never sent as a prompt by the key that finishes it; the next return sends
+    // what it left behind. Further in, return sends unless the arrows have walked the menu.
+    // The rows that only work at the start of a prompt are passed over: with nothing else
+    // on offer the arrows and return keep their usual meaning.
     private func commandKey(_ key: CommandKey) -> Bool {
-        let matches = matches
-        guard !blocked, !matches.isEmpty else { return false }
-        let selected = min(commandSelection, matches.count - 1)
+        let word = self.word
+        let offer = slashOffer(for: word)
+        guard !blocked, let word, !offer.isEmpty else { return false }
+        if key == .cancel {
+            dismissedWord = word
+            return true
+        }
+        let usable = offer.usable
+        guard !usable.isEmpty else { return false }
+        let selected = min(commandSelection, usable.count - 1)
         switch key {
         case .up:
-            commandSelection = (selected - 1 + matches.count) % matches.count
+            commandSelection = (selected - 1 + usable.count) % usable.count
+            commandWalked = true
+            announceRow(usable[commandSelection])
         case .down:
-            commandSelection = (selected + 1) % matches.count
+            commandSelection = (selected + 1) % usable.count
+            commandWalked = true
+            announceRow(usable[commandSelection])
         case .complete:
-            take(matches[selected])
+            take(usable[selected])
+        case .submit:
+            guard word.atStart || commandWalked else { return false }
+            take(usable[selected])
         case .cancel:
-            dismissedQuery = query
+            break
         }
         return true
     }
 
-    // The name goes in whole, with a space after it, so anything the command takes can be
-    // typed straight on the end. The space also closes the menu, since the word is settled.
+    // The caret stays in the field while the arrows walk the menu, so the row they land
+    // on is read out.
+    private func announceRow(_ command: AgentCommand) {
+        announce("\(command.typed). \(command.summary)")
+    }
+
+    // Only the word at the caret is replaced, so the rest of the prompt stays as written.
     private func take(_ command: AgentCommand) {
-        runner.composer.editDraft(sessionID) { $0.text = command.typed + " " }
+        guard let word, let location = caret?.location else { return }
+        let done = SlashQuery.completing(word, with: command, caret: location,
+                                         in: runner.composer.draft(sessionID).text)
+        runner.composer.editDraft(sessionID) { $0.text = done.text }
+        caret = ComposerCaret(text: done.text, location: done.caret)
+        // The word just put in is settled, so the menu does not offer it again while the
+        // caret is still at its end.
+        dismissedWord = SlashQuery.word(in: done.text, caret: done.caret)
         commandSelection = 0
         isFocused = true
+        fieldLink.placeCaret(done.caret)
+        if !reduceMotion {
+            fieldLink.wash(NSRange(location: word.range.location, length: (command.typed as NSString).length),
+                           holding: command.typed)
+        }
     }
 
     private func attach(_ found: [Attachment]) {

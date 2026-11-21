@@ -211,17 +211,26 @@ final class PTY: @unchecked Sendable {
     // waits for it in the background so the note on disk is only dropped once the shell
     // has really gone. Nothing here waits, so a tab closes at once.
     func stop() {
-        let fd = lock.withLock {
-            readSource?.cancel()
+        let (fd, reading) = lock.withLock {
             exitSource?.cancel()
-            readSource = nil
             exitSource = nil
+            let reading = readSource
+            readSource = nil
             let fd = master
             master = -1
-            return fd
+            return (fd, reading)
         }
         if let shell = takeChild() { registry.retire(shell) }
-        if fd >= 0 { close(fd) }
+        guard fd >= 0 else { return }
+        // A read may be under way on the source's queue. Closing here could hand its
+        // number to a new file while that read is still to come, so the source closes it
+        // once it has really stopped.
+        if let reading {
+            reading.setCancelHandler { close(fd) }
+            reading.cancel()
+        } else {
+            close(fd)
+        }
     }
 
     deinit { stop() }

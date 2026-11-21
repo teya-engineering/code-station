@@ -24,7 +24,7 @@ struct AgentAvatarTests {
         let destination = root.appendingPathComponent("support/agent-avatar.png")
         try pngData().write(to: source)
 
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
         #expect(settings.agentAvatars.isEmpty)
 
         try settings.importAgentAvatars(from: [source])
@@ -38,7 +38,7 @@ struct AgentAvatarTests {
         let width = try #require(properties[kCGImagePropertyPixelWidth] as? Int)
         let height = try #require(properties[kCGImagePropertyPixelHeight] as? Int)
         #expect(max(width, height) <= AgentAvatarFile.maxPixelSize)
-        let restored = AppSettings(agentAvatarURL: destination).agentAvatars
+        let restored = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store).agentAvatars
         #expect(restored.count == 1)
         #expect(restored.first?.personality == .standard)
         #expect(restored.first?.usesStockArtwork == false)
@@ -50,7 +50,7 @@ struct AgentAvatarTests {
         let destination = root.appendingPathComponent("agent-avatar.png")
         try pngData(width: 4, height: 4).write(to: source)
         try Data("not an image".utf8).write(to: invalid)
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
         try settings.importAgentAvatars(from: [source])
         let original = try Data(contentsOf: destination)
 
@@ -65,7 +65,7 @@ struct AgentAvatarTests {
         let source = root.appendingPathComponent("source.png")
         let destination = root.appendingPathComponent("agent-avatar.png")
         try pngData(width: 4, height: 4).write(to: source)
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
         try settings.importAgentAvatars(from: [source])
 
         try settings.removeAgentAvatars()
@@ -81,7 +81,7 @@ struct AgentAvatarTests {
             return url
         }
         let destination = root.appendingPathComponent("support/agent-avatar.png")
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
 
         try settings.importAgentAvatars(from: sources)
 
@@ -90,7 +90,7 @@ struct AgentAvatarTests {
             "agent-avatar-2.png",
             "agent-avatar-3.png",
         ])
-        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.map(\.url.lastPathComponent) == [
+        #expect(AppSettings(agentAvatarURL: destination, preferences: testPreferences.store).agentAvatars.map(\.url.lastPathComponent) == [
             "agent-avatar.png",
             "agent-avatar-2.png",
             "agent-avatar-3.png",
@@ -104,7 +104,7 @@ struct AgentAvatarTests {
             return url
         }
         let destination = root.appendingPathComponent("agent-avatar.png")
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
         try settings.importAgentAvatars(from: Array(sources.dropLast()))
 
         #expect(throws: AgentAvatarError.self) {
@@ -112,7 +112,7 @@ struct AgentAvatarTests {
         }
 
         #expect(settings.agentAvatars.count == AgentAvatarFile.maxCount)
-        #expect(AppSettings(agentAvatarURL: destination)
+        #expect(AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
             .agentAvatars.count == AgentAvatarFile.maxCount)
     }
 
@@ -123,7 +123,7 @@ struct AgentAvatarTests {
             return url
         }
         let destination = root.appendingPathComponent("agent-avatar.png")
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
 
         #expect(throws: AgentAvatarError.self) {
             try settings.importAgentAvatars(from: sources)
@@ -139,7 +139,7 @@ struct AgentAvatarTests {
             return url
         }
         let destination = root.appendingPathComponent("agent-avatar.png")
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
         try settings.importAgentAvatars(from: sources)
         let second = try #require(settings.agentAvatars.dropFirst().first)
 
@@ -153,9 +153,7 @@ struct AgentAvatarTests {
     }
 
     @Test @MainActor func usesTheBuiltInDefaultUntilAnotherBotIsChosen() throws {
-        let suite = "agent-avatar-default-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let sources = try (1...2).map { index in
             let url = root.appendingPathComponent("source-\(index).png")
             try pngData(width: index * 10, height: index * 10).write(to: url)
@@ -184,9 +182,7 @@ struct AgentAvatarTests {
     }
 
     @Test @MainActor func removingTheChosenDefaultUsesTheBuiltInBot() throws {
-        let suite = "agent-avatar-removal-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let sources = try (1...2).map { index in
             let url = root.appendingPathComponent("source-\(index).png")
             try pngData(width: index * 10, height: index * 10).write(to: url)
@@ -209,18 +205,18 @@ struct AgentAvatarTests {
         let source = root.appendingPathComponent("source.png")
         let destination = root.appendingPathComponent("support/agent-avatar.png")
         try pngData(width: 4, height: 4).write(to: source)
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
 
         try settings.importAgentAvatars(from: [source], personality: .sarcastic)
 
         let sarcastic = try #require(settings.agentAvatars.first)
         #expect(sarcastic.personality == .sarcastic)
-        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .sarcastic)
+        #expect(AppSettings(agentAvatarURL: destination, preferences: testPreferences.store).agentAvatars.first?.personality == .sarcastic)
 
         try settings.setPersonality(.cat, for: sarcastic)
 
         #expect(settings.agentAvatars.first?.personality == .cat)
-        #expect(AppSettings(agentAvatarURL: destination).agentAvatars.first?.personality == .cat)
+        #expect(AppSettings(agentAvatarURL: destination, preferences: testPreferences.store).agentAvatars.first?.personality == .cat)
     }
 
     @Test @MainActor func rejectsAnInvalidBatchWithoutImportingItsValidImages() throws {
@@ -229,7 +225,7 @@ struct AgentAvatarTests {
         let destination = root.appendingPathComponent("agent-avatar.png")
         try pngData(width: 4, height: 4).write(to: source)
         try Data("not an image".utf8).write(to: invalid)
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
 
         #expect(throws: AgentAvatarError.self) {
             try settings.importAgentAvatars(from: [source, invalid])
@@ -241,14 +237,14 @@ struct AgentAvatarTests {
 
     @Test @MainActor func addsABotWithoutAPhotoAndGivesItThePersonalitysPicture() throws {
         let destination = root.appendingPathComponent("support/agent-avatar.png")
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
 
         try settings.addStockAgentAvatar(personality: .cat)
 
         #expect(settings.agentAvatars.first?.personality == .cat)
         #expect(settings.agentAvatars.first?.usesStockArtwork == true)
         #expect(try Data(contentsOf: destination) == AgentAvatarArt.pngData(for: .cat))
-        let restored = try #require(AppSettings(agentAvatarURL: destination).agentAvatars.first)
+        let restored = try #require(AppSettings(agentAvatarURL: destination, preferences: testPreferences.store).agentAvatars.first)
         #expect(restored.personality == .cat)
         #expect(restored.usesStockArtwork)
     }
@@ -257,7 +253,7 @@ struct AgentAvatarTests {
         let source = root.appendingPathComponent("source.png")
         let destination = root.appendingPathComponent("agent-avatar.png")
         try pngData(width: 4, height: 4).write(to: source)
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
         try settings.addStockAgentAvatar(personality: .standard)
         try settings.importAgentAvatars(from: [source], personality: .standard)
         let stock = try #require(settings.agentAvatars.first)
@@ -304,7 +300,7 @@ struct AgentAvatarTests {
         let source = root.appendingPathComponent("source.png")
         let destination = root.appendingPathComponent("agent-avatar.png")
         try pngData(width: 4, height: 4).write(to: source)
-        let settings = AppSettings(agentAvatarURL: destination)
+        let settings = AppSettings(agentAvatarURL: destination, preferences: testPreferences.store)
         try settings.addStockAgentAvatar(personality: .cat)
         try settings.importAgentAvatars(from: [source], personality: .cat)
         let photo = try #require(settings.agentAvatars.last)

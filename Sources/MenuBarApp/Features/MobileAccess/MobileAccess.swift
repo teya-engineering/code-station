@@ -369,6 +369,18 @@ final class MobileAccessController {
     }
 
     private func received(_ message: String, from connectionID: UUID) {
+        // A phone that has not proved itself has one short thing to say. Anything else
+        // is turned away unread, so a stranger on the network cannot make the app decode
+        // megabytes on the main actor.
+        if readers[connectionID] == nil {
+            guard pendingConnections.contains(connectionID),
+                  message.utf8.count <= Self.unprovenMessageLimit else {
+                server?.send(Self.error("This QR code is not valid. Scan a fresh code on your Mac.", code: "pairingEnded"), to: connectionID)
+                server?.close(connectionID)
+                return
+            }
+        }
+
         guard let data = message.data(using: .utf8),
               let command = try? JSONDecoder().decode(RemoteCommand.self, from: data) else {
             server?.send(Self.error("The phone sent a message Code Station could not read."),
@@ -992,6 +1004,9 @@ final class MobileAccessController {
         designs[connectionID] = design
         if let text = Self.encode(design) { server?.send(text, to: connectionID) }
     }
+
+    // Room for the version and the secret many times over.
+    private static let unprovenMessageLimit = 4096
 
     private static func error(_ message: String, code: String = "commandFailed") -> String {
         let data = try? JSONEncoder().encode(RemoteError(message: message, code: code))

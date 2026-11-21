@@ -161,9 +161,7 @@ struct MobileAccessTests {
     }
 
     @Test func mobileAccessStaysOffUntilItIsEnabled() throws {
-        let suite = "mobile-access-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(!Preferences.mobileAccessEnabled(in: defaults))
         defaults.set(true, forKey: "mobileAccessEnabled")
@@ -171,9 +169,7 @@ struct MobileAccessTests {
     }
 
     @Test func aCodeLastsThirtyMinutesUntilAnotherLengthIsChosen() throws {
-        let suite = "mobile-access-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(Preferences.mobilePairingLifetime(in: defaults) == .thirtyMinutes)
         #expect(MobilePairingLifetime.thirtyMinutes.duration == .seconds(1_800))

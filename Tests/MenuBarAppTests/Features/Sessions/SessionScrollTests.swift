@@ -199,7 +199,7 @@ struct SessionScrollTests {
                         "A long conversation needs room to read earlier messages. ", count: 8)),
                     to: harness.session.id)
             }
-            let preferences = try #require(UserDefaults(suiteName: "scroll-\(UUID().uuidString)"))
+            let preferences = scratchDefaults()
             let settings = AppSettings(agentAvatarURL: harness.scratch.path("avatar.png"),
                                        preferences: preferences)
             let hosting = NSHostingController(rootView:

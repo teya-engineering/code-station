@@ -45,9 +45,7 @@ struct AppPathsTests {
     }
 
     @Test func savesAndClearsTheSelectedSkillsMarketplace() throws {
-        let suite = "skills-marketplace-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let marketplace = SkillMarketplaceConfiguration(
             source: "/tmp/marketplace.json",
             sourceKind: .localFile,
@@ -100,9 +98,7 @@ struct AppPathsTests {
     }
 
     @Test func restoresEachSidebarItemExpansionState() throws {
-        let suite = "code-station-sidebar-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let collapsedProject = UUID()
         let expandedWorkspace = UUID()
 
@@ -118,9 +114,7 @@ struct AppPathsTests {
     }
 
     @Test func remembersWhichSidebarSectionsAreFoldedAway() throws {
-        let suite = "code-station-sidebar-group-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(Preferences.collapsedSidebarGroups(in: defaults).isEmpty)
 
@@ -132,9 +126,7 @@ struct AppPathsTests {
     }
 
     @Test func defaultsAndClampsOldSessionDays() throws {
-        let suite = "code-station-old-session-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(Preferences.oldSessionDays(in: defaults) == 3)
 
@@ -152,9 +144,7 @@ struct AppPathsTests {
 
     // Only "review" used to mean no, so every other old answer carries over as yes.
     @Test func defaultsAndMigratesTheOldSessionSwitch() throws {
-        let suite = "code-station-old-session-cleanup-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(Preferences.oldSessionsDeleteOnTheirOwn(in: defaults))
 
@@ -175,9 +165,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func appSettingsPersistsTheCleanupRule() throws {
-        let suite = "code-station-app-old-session-cleanup-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -199,9 +187,7 @@ struct AppPathsTests {
     // An older install never stored the two reasons it always asked about, so they come
     // back ticked rather than letting that work go on its own.
     @Test func keepsAskingAboutLostWorkForAnOlderInstall() throws {
-        let suite = "code-station-old-session-ask-list-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         defaults.set(["snoozed"], forKey: "oldSessionAskReasons")
 
         #expect(Preferences.oldSessionAskReasons(in: defaults)
@@ -212,9 +198,7 @@ struct AppPathsTests {
     }
 
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {
-        let suite = "code-station-sidebar-session-limit-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
         #expect(Preferences.sidebarSessionLimit(in: defaults) == 4)
 
@@ -231,9 +215,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func sessionRecapsDefaultOffAndPersist() throws {
-        let suite = "code-station-recap-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -248,9 +230,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func sessionTitlesDefaultOffAndPersist() throws {
-        let suite = "code-station-title-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -265,18 +245,14 @@ struct AppPathsTests {
     }
 
     @Test func sessionRecapsRespectTheOldCatchUpOptOut() throws {
-        let suite = "code-station-recap-migration-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         defaults.set(false, forKey: "sessionResumeBriefsEnabled")
 
         #expect(!Preferences.sessionRecapsEnabled(in: defaults))
     }
 
     @Test @MainActor func appSettingsPersistsTheSidebarSessionLimit() throws {
-        let suite = "code-station-app-sidebar-session-limit-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -372,9 +348,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func appSettingsPersistsSidebarAvatarChoices() throws {
-        let suite = "code-station-sidebar-avatar-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let avatar = root.appendingPathComponent("avatar.png")
 
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
@@ -390,9 +364,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func headerButtonsShowUntilHiddenAndTheChoicePersists() throws {
-        let suite = "code-station-header-buttons-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
@@ -409,18 +381,14 @@ struct AppPathsTests {
     }
 
     @Test func unknownHiddenHeaderButtonsAreIgnored() throws {
-        let suite = "code-station-header-buttons-unknown-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         defaults.set(["preview", "retired"], forKey: "hiddenHeaderButtons")
 
         #expect(Preferences.hiddenHeaderButtons(in: defaults) == [.preview])
     }
 
     @Test func storesAndResetsAnExternalSiteConfigurationPath() throws {
-        let suite = "code-station-site-defaults-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let selected = URL(fileURLWithPath: "/tmp/../tmp/team-defaults.json")
 
         Preferences.setSiteDefaultsURL(selected, in: defaults)
@@ -433,9 +401,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func onboardingIsOnlyCompletedAfterTheWizardFinishes() throws {
-        let suite = "code-station-onboarding-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
                                    preferences: defaults)
 
@@ -455,9 +421,7 @@ struct AppPathsTests {
     }
 
     @Test @MainActor func existingWorkDoesNotTriggerFirstRunOnboarding() throws {
-        let suite = "code-station-onboarding-migration-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
                                    preferences: defaults)
 

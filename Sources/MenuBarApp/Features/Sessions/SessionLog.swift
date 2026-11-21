@@ -58,24 +58,9 @@ enum SessionLog {
         return formatter
     }()
 
-    static let file: URL = {
-        // A running app can roll its log between a test write and the test reading the
-        // path back. Each test process gets the same real writer behavior without
-        // competing with the app or another test process for the rollover files.
-        let process = ProcessInfo.processInfo
-        let isTestProcess = Bundle.main.bundleURL.pathExtension == "xctest"
-            || process.arguments.contains { $0.contains(".xctest/") }
-            || process.processName == "xctest"
-            || process.processName.hasSuffix("PackageTests")
-            || process.environment["XCTestConfigurationFilePath"] != nil
-        guard isTestProcess else {
-            return AppPaths.logs.appendingPathComponent("sessions.log")
-        }
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(AppPaths.bundleID)-session-logs-\(getpid())")
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("sessions.log")
-    }()
+    // A test process has log folders of its own (see AppPaths), so a test that writes and
+    // reads the path back never competes with the running app for the rollover files.
+    static let file = AppPaths.logs.appendingPathComponent("sessions.log")
 
     // One entry. `session` is the app's own session id, short enough at eight characters
     // to scan a file by eye and still tell two live turns apart.
