@@ -23,6 +23,12 @@ extension String {
 
     // For a field that is optional in meaning but arrives as an empty string.
     var nilIfBlank: String? { isBlank ? nil : self }
+
+    // Whether this path is the folder or sits somewhere beneath it. The two are compared
+    // as written, so a link or a ".." in either one is not followed.
+    func isInside(_ folder: String) -> Bool {
+        self == folder || hasPrefix(folder + "/")
+    }
 }
 
 // "1 file", "3 files". A noun with an irregular plural passes it in.

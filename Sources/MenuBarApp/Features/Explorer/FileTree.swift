@@ -338,7 +338,7 @@ enum FileTree {
                     || source.deletingLastPathComponent().standardizedFileURL.path == target {
                     continue
                 }
-                guard !target.hasPrefix(path + "/") else {
+                guard !target.isInside(path) else {
                     result.failures.append(CopyFailure(
                         name: name, message: "A folder cannot be moved into itself."))
                     continue
@@ -446,8 +446,7 @@ enum FileTree {
     // Where a path ends up once the item at `old` is called `new`: the item itself and
     // everything inside it move, anything else stays put.
     static func path(_ path: String, afterMoving old: String, to new: String) -> String {
-        if path == old { return new }
-        guard path.hasPrefix(old + "/") else { return path }
+        guard path.isInside(old) else { return path }
         return new + path.dropFirst(old.count)
     }
 
@@ -537,6 +536,6 @@ private extension URL {
     func isInside(_ directory: URL) -> Bool {
         let parent = directory.resolvingSymlinksInPath().standardizedFileURL.path
         let child = resolvingSymlinksInPath().standardizedFileURL.path
-        return child == parent || child.hasPrefix(parent + "/")
+        return child.isInside(parent)
     }
 }

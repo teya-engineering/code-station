@@ -18,11 +18,11 @@ final class ExplorerMemory {
     }
 
     struct UnsavedEdit {
-        let path: String
-        let preview: FilePreview
-        let draft: String
-        let original: String
-        let loadedAt: Date?
+        var path: String
+        var preview: FilePreview
+        var draft: String
+        var original: String
+        var loadedAt: Date?
     }
 
     private var places: [String: Place] = [:]
@@ -36,7 +36,7 @@ final class ExplorerMemory {
     }
     func unsavedEdit(inside path: String) -> UnsavedEdit? {
         places.values.flatMap { Array($0.documents.edits.values) + [$0.unsaved].compactMap { $0 } }.first {
-            $0.path == path || $0.path.hasPrefix(path + "/")
+            $0.path.isInside(path)
         }
     }
 
@@ -50,10 +50,8 @@ final class ExplorerMemory {
                 node.name = node.url.lastPathComponent
                 place.selected = node
             }
-            if let edit = place.unsaved {
-                place.unsaved = UnsavedEdit(path: FileTree.path(edit.path, afterMoving: old, to: new),
-                                           preview: edit.preview, draft: edit.draft,
-                                           original: edit.original, loadedAt: edit.loadedAt)
+            if let path = place.unsaved?.path {
+                place.unsaved?.path = FileTree.path(path, afterMoving: old, to: new)
             }
             places[root] = place
         }
@@ -63,14 +61,12 @@ final class ExplorerMemory {
         for root in Array(places.keys) {
             guard var place = places[root] else { continue }
             place.documents.removed(path)
-            place.expanded = place.expanded.filter { $0 != path && !$0.hasPrefix(path + "/") }
-            if let selected = place.selected,
-               selected.path == path || selected.path.hasPrefix(path + "/") {
+            place.expanded = place.expanded.filter { !$0.isInside(path) }
+            if let selected = place.selected, selected.path.isInside(path) {
                 place.selected = nil
                 place.unsaved = nil
             }
             places[root] = place
         }
     }
-
 }
