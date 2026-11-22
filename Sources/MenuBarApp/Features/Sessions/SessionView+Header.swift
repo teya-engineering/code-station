@@ -144,6 +144,10 @@ extension SessionView {
                     return usageTooltip(usage, agent: session.agent,
                                         clearable: !contextActions().isEmpty)
                 },
+                attachProject: session.workspaceID != nil
+                    || store.project(session.projectID)?.kind == .project
+                    ? { attachingProject = true } : nil,
+                attachDisabled: runner.state(sessionID).isBusy || runner.isBeingRemoved(sessionID),
                 showNote: { showRailNote($0) })
         }
         .fixedSize(horizontal: false, vertical: true)

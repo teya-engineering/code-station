@@ -207,6 +207,69 @@ enum SessionLifecycle {
         }
     }
 
+    static func attachProject(_ project: Project, to session: ChatSession,
+                              useWorktree: Bool, base: String?, carryChanges: Bool,
+                              store: ProjectStore,
+                              composer: SessionComposerStore? = nil,
+                              worktrees: WorktreeOperations = .live) async
+        -> Result<ChatSession, Failure> {
+        var checkout = SessionProject(projectID: project.id, worktreePath: nil, worktreeBranch: nil)
+        var created: [CreatedWorktree] = []
+        var carried: String?
+        var reservations: [String] = []
+        defer {
+            for path in reservations {
+                store.releaseWorktreeReservation(at: path, for: project.id)
+            }
+        }
+
+        if useWorktree {
+            let branch = store.checkoutProjects(for: session).lazy.compactMap(\.worktreeBranch).first
+            let planned = GitWorktree.plan(projectName: project.name, projectID: project.id,
+                                           sessionID: session.id, branch: branch)
+            reservations.append(planned.path)
+            store.reserveWorktree(at: planned.path, for: project.id)
+            switch await worktrees.addWorkspaceProject(project.path, project.name, project.id,
+                                                       session.id, base, branch) {
+            case .failure(let failure):
+                return .failure(Failure(title: "Could not create a worktree for \(project.name)",
+                                        message: failure.message))
+            case .success(let worktree):
+                if !reservations.contains(worktree.path) {
+                    reservations.append(worktree.path)
+                    store.reserveWorktree(at: worktree.path, for: project.id)
+                }
+                checkout.worktreePath = worktree.path
+                checkout.worktreeBranch = worktree.branch
+                created = [CreatedWorktree(path: worktree.path, projectPath: project.path,
+                                           branch: worktree.branch)]
+                if carryChanges {
+                    carried = await worktrees.carry(project.path, worktree.path)
+                        .agentNote(projectPath: project.path, base: base)
+                }
+            }
+        }
+
+        switch store.attachProject(checkout, toSession: session.id) {
+        case .success(let updated):
+            let path = checkout.worktreePath ?? project.path
+            let note = (["I attached \(project.name) to this session at \(path). Before editing "
+                + "it, read the AGENTS.md or CLAUDE.md files that apply inside it."]
+                + [carried].compactMap { $0 }).joined(separator: "\n\n")
+            let conversationIDs = [session.id] + [store.designSession(for: session.id)?.id].compactMap { $0 }
+            for conversationID in conversationIDs {
+                composer?.editDraft(conversationID) {
+                    $0.text = $0.text.isEmpty ? note : note + "\n\n" + $0.text
+                }
+            }
+
+            return .success(updated)
+        case .failure(let failure):
+            return await creationFailure(failure.message, title: "Could not attach \(project.name)",
+                                         created: created, worktrees: worktrees)
+        }
+    }
+
     static func remove(_ session: ChatSession, from store: ProjectStore,
                        runner: SessionRunner,
                        worktrees: WorktreeOperations = .live) async -> Result<Void, Failure> {
@@ -409,8 +472,8 @@ enum SessionLifecycle {
         let branch: String?
     }
 
-    // A session that could not be made leaves nothing behind: the worktrees made for it
-    // go too, newest first, and a cleanup that fails is said alongside the reason.
+    // A session or checkout that could not be made leaves nothing behind: the worktrees
+    // made for it go too, newest first, and a cleanup that fails is said alongside the reason.
     private static func creationFailure(
         _ message: String,
         title: String = "Could not create the session",

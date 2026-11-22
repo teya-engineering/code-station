@@ -22,6 +22,10 @@ struct ProjectWorkspace: Identifiable, Codable, Equatable, Sendable {
     // went. Only read while it holds no session, since any session keeps it.
     var emptySince: Date?
 
+    static func name(joining lead: String, _ attached: String) -> String {
+        "\(lead) + \(attached)"
+    }
+
     init(id: UUID = UUID(), name: String, projectIDs: [UUID], leadProjectID: UUID,
          isPinned: Bool = false, sidebarAvatarIndex: Int? = nil,
          worktreeProjectIDs: [UUID]? = nil, removeWhenEmptyAfterDays: Int? = nil,

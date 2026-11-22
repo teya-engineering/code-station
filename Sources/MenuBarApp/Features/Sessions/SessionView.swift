@@ -68,6 +68,7 @@ struct SessionView: View {
     @State var opinionCardSize = CGSize.zero
     @State private var explorerShowsDesignFiles = false
     @State var shortcutEditor: ShortcutEditorRequest?
+    @State var attachingProject = false
     @State var composerBarWidth: CGFloat = 340
     @State var exportingDesignMaterials = false
     @State var transcriptWindow = TranscriptWindow()
@@ -293,6 +294,19 @@ struct SessionView: View {
             .sheet(item: $shortcutEditor) { request in
                 ShortcutEditorView(request: request) { shortcut in
                     shortcuts.saveShortcut(shortcut)
+                }
+                .appOverlays()
+            }
+            .sheet(isPresented: $attachingProject) {
+                AttachProjectSheet(sessionID: sessionID) { newWorkspace in
+                    if let newWorkspace {
+                        showRailNote("Moved into the \(newWorkspace) workspace", icon: "checkmark")
+                    }
+                    guard let current = store.session(sessionID) else { return }
+                    let roots = store.workingDirectories(for: current)
+                    if let added = roots.last { collapsedExplorerProjects.insert(added) }
+                    sampleMissingFolders()
+                    refreshStats(roots)
                 }
                 .appOverlays()
             }
@@ -581,7 +595,7 @@ struct SessionView: View {
 
     // A result asking for more sends the agent a follow-up, the same as typing it would.
     var askAgent: AgentAsk {
-        AgentAsk(sessionID: sessionID) { [runner, store, sessionID] text in
+        AgentAsk(sessionID: sessionID) { [runner, sessionID] text in
             runner.send(text, sessionID: sessionID)
         }
     }

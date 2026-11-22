@@ -134,7 +134,7 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 | `lg` | 32 | The standard: a sheet footer, a form, a text field, a button on its own. `ActionButton` uses this. |
 | `xl` | 36 | The one action an empty pane or a whole form is there to offer. |
 
-`FormMetrics` supplies the width, guidance editor height and stacking breakpoint for compact dialog forms. `FormPair` places two fields side by side and stacks them when the dialog is narrow.
+`FormMetrics` supplies `dialogWidth` for compact forms, `sheetWidth` for project sheets, the guidance editor height and stacking breakpoint. `FormPair` places two fields side by side and stacks them when the dialog is narrow.
 
 `FormRow` places a label in a 68-point column beside flexible content. Below 360 points it stacks the label above the content. Give it one child for content that shares the same inset without a label.
 

@@ -244,6 +244,8 @@ struct SessionFactsChip: View {
     let openChanges: () -> Void
     let contextActions: () -> [MenuEntry]
     let usageTooltip: () -> Tooltip
+    var attachProject: (() -> Void)? = nil
+    var attachDisabled = false
     // The PR row opens the browser, which leaves nothing in the window to show the click
     // worked, so the header shows a note instead.
     var showNote: (String) -> Void = { _ in }
@@ -269,7 +271,7 @@ struct SessionFactsChip: View {
     @Environment(MenuPresenter.self) private var menus
     @FocusedValue(\.sessionFactsPreview) private var focusedPreview
     @FocusState private var chipFocused: Bool
-    private enum PreviewControl: Hashable { case pin, close }
+    private enum PreviewControl: Hashable { case attach, pin, close }
     @FocusState private var previewControl: PreviewControl?
     @State private var focusDismissed = false
     @State private var layout = SessionFactsLayout()
@@ -530,6 +532,19 @@ struct SessionFactsChip: View {
                     .lineLimit(1)
             }
             Spacer(minLength: Space.xs)
+            if let attachProject {
+                GlyphButton(icon: "plus.rectangle.on.folder", side: ControlHeight.sm) {
+                    closeCard()
+                    chipFocused = true
+                    attachProject()
+                }
+                .disabled(attachDisabled)
+                .focused($previewControl, equals: .attach)
+                .focusEffectDisabled()
+                .overlay(FocusRingStroke(focused: previewControl == .attach))
+                .appTooltip("Attach project")
+                .accessibilityLabel("Attach a project to this session")
+            }
             GlyphButton(icon: pinned ? "pin.fill" : "pin", side: ControlHeight.sm, active: pinned) {
                 if pinned { closeCard() } else { pinned = true }
             }

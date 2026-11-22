@@ -356,6 +356,45 @@ struct TranscriptStoreTests {
         #expect(store.sessions(in: workspace.id).map(\.id) == [session.id])
     }
 
+    @Test func attachingRefusesAProjectAlreadyAttached() throws {
+        let api = try project()
+        let web = try project()
+        let workspace = try #require(store.addWorkspace(name: "Checkout",
+                                                        projectIDs: [api.id, web.id],
+                                                        leadProjectID: api.id))
+        let checkouts = [SessionProject(projectID: api.id, worktreePath: nil, worktreeBranch: nil),
+                         SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil)]
+        let workspaceSession = try #require(store.newSession(in: workspace.id, projects: checkouts))
+        let extra = SessionProject(projectID: web.id, worktreePath: "/work/web", worktreeBranch: nil)
+
+        #expect(throws: PersistenceFailure.self) {
+            try store.attachProject(extra, toSession: workspaceSession.id).get()
+        }
+        #expect(store.session(workspaceSession.id)?.sessionProjects == checkouts)
+    }
+
+    @Test func attachingToASingleProjectSessionMovesItIntoAWorkspaceOfBoth() throws {
+        let api = try project()
+        let web = try project()
+        let single = store.newSession(in: api.id, worktreePath: "/work/api",
+                                      worktreeBranch: "code-station/1")
+        let extra = SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil)
+
+        let updated = try store.attachProject(extra, toSession: single.id).get()
+
+        let workspace = try #require(updated.workspaceID.flatMap(store.workspace))
+        #expect(workspace.name == "\(api.name) + \(web.name)")
+        #expect(workspace.projectIDs == [api.id, web.id])
+        #expect(workspace.leadProjectID == api.id)
+        #expect(workspace.worktreeProjectIDs == [api.id])
+        #expect(updated.sessionProjects == [
+            SessionProject(projectID: api.id, worktreePath: "/work/api",
+                           worktreeBranch: "code-station/1"),
+            extra,
+        ])
+        #expect(store.sessions(in: workspace.id).map(\.id) == [single.id])
+    }
+
     @Test func workspacesSurviveAnIndexRoundTrip() throws {
         let first = try project()
         let second = try project()

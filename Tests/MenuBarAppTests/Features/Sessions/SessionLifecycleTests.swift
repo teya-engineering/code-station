@@ -226,6 +226,139 @@ struct SessionLifecycleTests {
         #expect(composer.draft(sessionID).text.contains("origin/main"))
     }
 
+    @Test func attachesAProjectInAWorktreeOnTheSessionsBranch() async throws {
+        let session = try workspaceSession(branch: "feature/login")
+        let third = try project(named: "third")
+        let planned = GitWorktree.plan(projectName: third.name, projectID: third.id,
+                                       sessionID: session.id, branch: "feature/login")
+        let composer = SessionComposerStore()
+        composer.editDraft(session.id) { $0.text = "Half a thought" }
+        let sessionID = session.id
+        var worktrees = WorktreeOperations(
+            addProject: { _, _, _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected project operation"))
+            },
+            addWorkspaceProject: { _, _, _, receivedID, _, branch in
+                #expect(receivedID == sessionID)
+                #expect(branch == "feature/login")
+                return .success(planned)
+            },
+            remove: { _, _, _ in .failure(GitWorktree.Failure(message: "Unexpected removal")) })
+        worktrees.carry = { _, _ in GitCarryOver.Outcome(conflicts: ["shared.txt"]) }
+
+        let updated = try await SessionLifecycle.attachProject(
+            third, to: session, useWorktree: true, base: nil, carryChanges: true,
+            store: store, composer: composer, worktrees: worktrees).get()
+
+        #expect(updated.sessionProjects?.last == SessionProject(
+            projectID: third.id, worktreePath: planned.path, worktreeBranch: "feature/login"))
+        #expect(store.workingDirectories(for: updated).last == planned.path)
+        #expect(store.workspace(try #require(session.workspaceID))?.projectIDs.last == third.id)
+        let draft = composer.draft(session.id).text
+        #expect(draft.hasPrefix("I attached third to this session at \(planned.path)."))
+        #expect(draft.contains("- shared.txt"))
+        #expect(draft.hasSuffix("Half a thought"))
+    }
+
+    @Test func attachingNotifiesBothConversationsAndKeepsTheirDrafts() async throws {
+        let lead = try project(named: "lead")
+        let session = store.newSession(in: lead.id)
+        let design = try store.startDesign(for: session.id).get()
+        let other = try project(named: "other")
+        let composer = SessionComposerStore()
+        composer.editDraft(session.id) { $0.text = "Build draft" }
+        composer.editDraft(design.id) { $0.text = "Design draft" }
+
+        let updated = try await SessionLifecycle.attachProject(
+            other, to: session, useWorktree: false, base: nil, carryChanges: false,
+            store: store, composer: composer).get()
+
+        let updatedDesign = try #require(store.session(design.id))
+        #expect(updatedDesign.workspaceID == updated.workspaceID)
+        #expect(updatedDesign.sessionProjects == updated.sessionProjects)
+        for (id, draft) in [(session.id, "Build draft"), (design.id, "Design draft")] {
+            let text = composer.draft(id).text
+            #expect(text.hasPrefix("I attached other to this session at \(other.path)."))
+            #expect(text.contains("AGENTS.md or CLAUDE.md"))
+            #expect(text.hasSuffix(draft))
+        }
+        let loaded = ProjectStore(preferences: testPreferences.store, storeURL: store.storeURL)
+        #expect(loaded.session(design.id)?.sessionProjects == updated.sessionProjects)
+        #expect(loaded.session(session.id)?.workspaceID == updated.workspaceID)
+    }
+
+    @Test func removesTheNewWorktreeWhenTheAttachCannotBeSaved() async throws {
+        let session = try workspaceSession(branch: "feature/login")
+        let third = try project(named: "third")
+        let recorder = RemovalRecorder()
+        let worktrees = WorktreeOperations(
+            addProject: { _, _, _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected project operation"))
+            },
+            addWorkspaceProject: { _, _, _, _, _, _ in
+                .success(GitWorktree.Created(path: "/worktrees/third",
+                                             branch: "feature/login"))
+            },
+            remove: { path, _, _ in
+                await recorder.record(path)
+                return .success(())
+            })
+        // The index cannot be written once its folder has become a plain file.
+        try FileManager.default.removeItem(at: scratch.url)
+        try Data("not a directory".utf8).write(to: scratch.url)
+
+        let workspaceID = try #require(session.workspaceID)
+        let members = store.workspace(workspaceID)?.projectIDs
+
+        let result = await SessionLifecycle.attachProject(
+            third, to: session, useWorktree: true, base: nil, carryChanges: false,
+            store: store, worktrees: worktrees)
+
+        guard case .failure = result else {
+            Issue.record("Expected saving the attach to fail")
+            return
+        }
+        #expect(store.session(session.id)?.sessionProjects == session.sessionProjects)
+        #expect(store.workspace(workspaceID)?.projectIDs == members)
+        #expect(store.creatingWorktreePaths.isEmpty)
+        #expect(await recorder.recordedPaths() == ["/worktrees/third"])
+    }
+
+    @Test func leavesASingleProjectSessionAloneWhenTheAttachCannotBeSaved() async throws {
+        let lead = try project(named: "lead")
+        let session = store.newSession(in: lead.id)
+        let other = try project(named: "other")
+        let recorder = RemovalRecorder()
+        let worktrees = WorktreeOperations(
+            addProject: { _, _, _, _, _ in
+                .failure(GitWorktree.Failure(message: "Unexpected project operation"))
+            },
+            addWorkspaceProject: { _, _, _, _, _, _ in
+                .success(GitWorktree.Created(path: "/worktrees/other", branch: "code-station/test"))
+            },
+            remove: { path, _, _ in
+                await recorder.record(path)
+                return .success(())
+            })
+        let workspaceCount = store.workspaces.count
+        try FileManager.default.removeItem(at: scratch.url)
+        try Data("not a directory".utf8).write(to: scratch.url)
+
+        let result = await SessionLifecycle.attachProject(
+            other, to: session, useWorktree: true, base: nil, carryChanges: false,
+            store: store, worktrees: worktrees)
+
+        guard case .failure(let failure) = result else {
+            Issue.record("Expected saving the attach to fail")
+            return
+        }
+        #expect(failure.message.contains("projects.json could not be saved"))
+        #expect(store.session(session.id)?.workspaceID == nil)
+        #expect(store.session(session.id)?.sessionProjects == nil)
+        #expect(store.workspaces.count == workspaceCount)
+        #expect(await recorder.recordedPaths() == ["/worktrees/other"])
+    }
+
     @Test func keepsDeletionPendingWhenWorktreeRemovalFails() async throws {
         let runner = SessionRunner(store: store, preferences: testPreferences.store)
         let project = try TestStore.project(in: store, named: "project")
@@ -360,6 +493,19 @@ struct SessionLifecycleTests {
             return
         }
         #expect(store.session(session.id) == nil)
+    }
+
+    private func workspaceSession(branch: String) throws -> ChatSession {
+        let first = try project(named: "first")
+        let second = try project(named: "second")
+        let workspace = try #require(store.addWorkspace(name: "Workspace",
+                                                        projectIDs: [first.id, second.id],
+                                                        leadProjectID: first.id))
+        return try store.insertSession(in: workspace.id, projects: [
+            SessionProject(projectID: first.id, worktreePath: "/worktrees/first",
+                           worktreeBranch: branch),
+            SessionProject(projectID: second.id, worktreePath: nil, worktreeBranch: nil)
+        ]).get()
     }
 
     // A project whose name is exactly `name`, for tests that match on it.
