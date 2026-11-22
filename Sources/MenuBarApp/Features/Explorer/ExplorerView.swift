@@ -109,6 +109,8 @@ struct ExplorerView: View {
     @State private var note = TransientNote(duration: .seconds(1.9))
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @Environment(\.keyBindings) var keyBindings
+    @Environment(\.showExternalNote) var showExternalNote
+    @Environment(\.openShell) var openShell
     @FocusState var treeFocused: Bool
     // The row being renamed, by path. The name is edited in place, the way Finder does it.
     @State var renaming: String?
@@ -510,4 +512,3 @@ struct ExplorerView: View {
         narrowNavigator = node.isDirectory
     }
 }
-

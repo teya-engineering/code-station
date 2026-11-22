@@ -130,6 +130,11 @@ final class TerminalStore {
         return "Terminal \(number)"
     }
 
+    func openShell(for scope: TerminalScope, directory: String) {
+        add(to: scope, directory: directory)
+        open.insert(scope)
+    }
+
     func ensureOne(for scope: TerminalScope, directory: String) {
         guard sessions(for: scope).isEmpty else { return }
         add(to: scope, directory: directory)

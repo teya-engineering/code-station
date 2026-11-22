@@ -409,8 +409,8 @@ extension SessionView {
     private func utilities(session: ChatSession, project: Project,
                            recap: SessionRecap?, showsWords: Bool) -> some View {
         HStack(spacing: Space.sm) {
-            if let worktreePath = session.worktreePath, let app = WorktreeOpener.current {
-                openInButton(path: worktreePath, app: app, showsWord: showsWords)
+            if let folder = store.workingDirectory(for: session), let app = WorktreeOpener.current {
+                openInButton(path: folder, app: app, showsWord: showsWords)
             }
             if showsDesignMaterialExport(session) {
                 designMaterialExportButton(session: session, project: project)
@@ -437,9 +437,9 @@ extension SessionView {
             showsWord: showsWord,
             menuLabel: "Choose where to open",
             tooltip: {
-                Tooltip(title: "Open worktree in \(app.name)", subtitle: path.abbreviatedPath)
+                Tooltip(title: "Open folder in \(app.name)", subtitle: path.abbreviatedPath)
             },
-            action: { openWorktree(path, in: app) },
+            action: { FolderActions.open(path, in: app, note: railNoteAction) },
             refresh: { WorktreeOpener.refresh() },
             entries: { openInEntries(path: path, current: app) })
     }
@@ -449,20 +449,21 @@ extension SessionView {
             .item(app.name, image: WorktreeOpener.icon(for: app), imageShape: .tile,
                   checked: app == current) {
                 WorktreeOpener.choose(app)
-                openWorktree(path, in: app)
+                FolderActions.open(path, in: app, note: railNoteAction)
             }
         } + [
             .separator,
-            .item("Copy path", icon: "doc.on.doc") {
-                Pasteboard.copy(path)
-                showRailNote("Copied the worktree path")
+            FolderActions.copyPath(path, note: railNoteAction),
+            .item("Add app…", icon: "plus") {
+                if let app = WorktreeOpener.pickApp(dialogs: dialogs) {
+                    FolderActions.open(path, in: app, note: railNoteAction)
+                }
             },
         ]
     }
 
-    private func openWorktree(_ path: String, in app: WorktreeApp) {
-        WorktreeOpener.open(path, in: app)
-        showRailNote("Opened the worktree in \(app.name)")
+    var railNoteAction: ExternalNote {
+        ExternalNote { text, icon in showRailNote(text, icon: icon) }
     }
 
     // The same actions behind one button, for a window too narrow to hold the rail. The
@@ -479,7 +480,7 @@ extension SessionView {
 
     private func utilityEntries(session: ChatSession, project: Project) -> [MenuEntry] {
         var entries: [MenuEntry] = []
-        if let worktreePath = session.worktreePath, let current = WorktreeOpener.current {
+        if let folder = store.workingDirectory(for: session), let current = WorktreeOpener.current {
             // Finder stays one click away whichever app was picked.
             var apps = [current]
             if current.bundleID != WorktreeOpener.finderID,
@@ -489,7 +490,7 @@ extension SessionView {
             for app in apps {
                 entries.append(.item("Open in \(app.name)", image: WorktreeOpener.icon(for: app),
                                      imageShape: .tile) {
-                    openWorktree(worktreePath, in: app)
+                    FolderActions.open(folder, in: app, note: railNoteAction)
                 })
             }
         }
@@ -506,7 +507,7 @@ extension SessionView {
     }
 
     private func hasUtilities(_ session: ChatSession) -> Bool {
-        (session.worktreePath != nil && WorktreeOpener.current != nil)
+        (store.workingDirectory(for: session) != nil && WorktreeOpener.current != nil)
             || showsDesignMaterialExport(session) || showsRecap
     }
 

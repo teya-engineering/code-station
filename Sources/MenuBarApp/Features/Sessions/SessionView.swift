@@ -286,7 +286,11 @@ struct SessionView: View {
             }
             // Clicks deep in the transcript that act outside the window, such as revealing
             // a file or opening a link, leave their note on the rail like the header's own.
-            .environment(\.showExternalNote, ExternalNote { text, icon in showRailNote(text, icon: icon) })
+            .environment(\.showExternalNote, railNoteAction)
+            .environment(\.openShell, OpenShell { directory in
+                terminals.openShell(for: terminalScope, directory: directory)
+                terminalFocused = true
+            })
             .onAppear {
                 composerFocused = true
                 recapState.appeared(with: recap)

@@ -129,6 +129,9 @@ extension ExplorerView {
             treeFocused = true
             selectRoot(project.root)
         }
+        .appContextMenu {
+            FolderActions.entries(for: project.root, openShell: openShell, note: showExternalNote)
+        }
     }
 
     @ViewBuilder private func treeRow(_ row: Row) -> some View {

@@ -417,6 +417,22 @@ enum Preferences {
         set(id, "openInBundleID", in: store)
     }
 
+    static func openInAddedBundleIDs(in store: UserDefaults = .standard) -> [String] {
+        store.stringArray(forKey: "openInAddedBundleIDs") ?? []
+    }
+
+    static func setOpenInAddedBundleIDs(_ ids: [String], in store: UserDefaults = .standard) {
+        store.set(ids, forKey: "openInAddedBundleIDs")
+    }
+
+    static func openInAddedAppPaths(in store: UserDefaults = .standard) -> [String: String] {
+        store.dictionary(forKey: "openInAddedAppPaths") as? [String: String] ?? [:]
+    }
+
+    static func setOpenInAddedAppPaths(_ paths: [String: String], in store: UserDefaults = .standard) {
+        store.set(paths, forKey: "openInAddedAppPaths")
+    }
+
     // A saved external site file sits ahead of the conventional and bundled locations.
     // Imported first-run configuration uses the conventional Application Support file.
     static func siteDefaultsURL(in store: UserDefaults = .standard) -> URL? {

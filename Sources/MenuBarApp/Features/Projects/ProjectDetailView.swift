@@ -61,7 +61,14 @@ struct ProjectDetailView: View {
                 }
             }
             .background(Theme.background)
-            .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxxl)
+            .motion(terminals.isOpen(terminalScope) ? Motion.reveal : Motion.leave,
+                    value: terminals.isOpen(terminalScope))
+            .headerNote(note, top: Theme.headerHeight + Space.md, trailing: Space.xxxl)
+            .environment(\.showExternalNote, ExternalNote { text, icon in note.show(text, icon: icon) })
+            .environment(\.openShell, OpenShell { directory in
+                terminals.openShell(for: terminalScope, directory: directory)
+                terminalFocused = true
+            })
             .background(TerminalShortcut(scope: terminalScope, directory: project.path,
                                          focusTerminal: $terminalFocused)
                             .disabled(store.isMissing(project)))
@@ -137,7 +144,6 @@ struct ProjectDetailView: View {
                     toggleTerminal(directory: project.path)
                 }
                 .disabled(missing)
-                .environment(\.showExternalNote, ExternalNote { text, _ in showNote(text) })
                 .opacity(missing ? 0.4 : 1)
 
                 if importableCount > 0 {
