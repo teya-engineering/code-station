@@ -102,7 +102,7 @@ enum SettingsSearchIndex {
         result("Header buttons", .appearance, .appearanceHeaderButtons,
                "appearance session toolbar rail dock show hide preview globe running app browser"),
         result("Sidebar icons", .appearance, .appearanceSidebarIcons,
-               "appearance style monogram dicebear motion still animated"),
+               "appearance style monogram dicebear avatar motion breathing"),
         result("Your bots", .appearance, .appearanceDefaultBot,
                "appearance default avatar image personality picture photo add edit remove delete collection crew"),
         result("Keyboard shortcuts", .keyboard, .keyboardShortcuts,

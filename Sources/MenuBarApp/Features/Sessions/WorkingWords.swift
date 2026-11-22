@@ -3,7 +3,7 @@ import SwiftUI
 // The word shown while a turn is running. It changes every few seconds, which is the
 // cheapest way of saying the app is still reading the process: a label that never moves
 // looks the same whether the agent is working or has quietly died.
-struct WorkingWords {
+struct WorkingWords: Equatable {
     // Present participles only. The row reads "<word>…", so every one of these has to
     // sound like something still going on.
     static let all = AgentPersonality.standard.workingWords

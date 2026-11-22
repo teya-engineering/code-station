@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WebKit
 
 struct SidebarAvatar: Equatable, Sendable {
     static let artworkCount = 64
@@ -45,8 +44,8 @@ struct SidebarAvatar: Equatable, Sendable {
         return Self.artworkURL(style: style, index: index, bundle: bundle)
     }
 
-    func motion(sessions: [ChatSession], isBusy: (UUID) -> Bool) -> SidebarIconMotion {
-        let active = sessions.contains { session in
+    func isWorking(sessions: [ChatSession], isBusy: (UUID) -> Bool) -> Bool {
+        sessions.contains { session in
             let belongsToAvatar = switch subject {
             case .project, .task:
                 session.workspaceID == nil && session.projectID == id
@@ -55,7 +54,6 @@ struct SidebarAvatar: Equatable, Sendable {
             }
             return belongsToAvatar && isBusy(session.id)
         }
-        return active ? .animated : .still
     }
 
     @MainActor
@@ -113,37 +111,25 @@ extension ProjectWorkspace {
 struct DiceBearAvatarView<Placeholder: View>: View {
     let avatar: SidebarAvatar
     let style: DiceBearAvatarStyle
-    let motion: SidebarIconMotion
     let side: CGFloat
     @ViewBuilder let placeholder: Placeholder
 
-    init(avatar: SidebarAvatar, style: DiceBearAvatarStyle,
-         motion: SidebarIconMotion, side: CGFloat,
+    init(avatar: SidebarAvatar, style: DiceBearAvatarStyle, side: CGFloat,
          @ViewBuilder placeholder: () -> Placeholder) {
         self.avatar = avatar
         self.style = style
-        self.motion = motion
         self.side = side
         self.placeholder = placeholder()
     }
 
-    // The still artwork stays under the animated one. A web view shows nothing until its
-    // page has painted, which is a frame or more after a tile scrolls into view, and a
-    // blank tile is what that gap looks like. The animated styles all draw a full-bleed
-    // background, so the page hides the still copy completely once it is up.
     var body: some View {
         ZStack {
             placeholder
-            if let artwork = SidebarAvatarArt.artwork(for: avatar, style: style) {
-                if let image = artwork.image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                }
-                if style.usesWebAnimation(for: motion) {
-                    AnimatedDiceBearAvatarImage(key: artwork.key, source: artwork.source)
-                }
+            if let image = SidebarAvatarArt.artwork(for: avatar, style: style)?.image {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
             }
         }
         .frame(width: side, height: side)
@@ -173,6 +159,7 @@ struct SidebarIdentityTile: View {
     // width. It is decoration: the row says "Pinned" to VoiceOver itself.
     var body: some View {
         artwork
+            .modifier(WorkingBreath(active: isWorking))
             .overlay(alignment: .bottomTrailing) {
                 if pinned {
                     TilePinBadge()
@@ -186,26 +173,16 @@ struct SidebarIdentityTile: View {
         switch appSettings.sidebarIconSet {
         case .monograms:
             fallback
-                .modifier(StillArtworkActiveMotion(active: isActive))
         case .diceBear:
-            DiceBearAvatarView(
-                avatar: avatar,
-                style: appSettings.diceBearAvatarStyle,
-                motion: motion,
-                side: side) {
-                    fallback
-                }
-                .modifier(StillArtworkActiveMotion(
-                    active: isActive && !appSettings.diceBearAvatarStyle.supportsAnimation))
+            DiceBearAvatarView(avatar: avatar, style: appSettings.diceBearAvatarStyle,
+                               side: side) {
+                fallback
+            }
         }
     }
 
-    private var motion: SidebarIconMotion {
-        avatar.motion(sessions: store.sidebarSessions) { runner.state($0).isBusy }
-    }
-
-    private var isActive: Bool {
-        motion == .animated
+    private var isWorking: Bool {
+        avatar.isWorking(sessions: store.sidebarSessions) { runner.state($0).isBusy }
     }
 
     private var fallback: some View {
@@ -226,8 +203,11 @@ private struct TilePinBadge: View {
     }
 }
 
-// Artwork that cannot animate itself says a session is working by breathing instead.
-private struct StillArtworkActiveMotion: ViewModifier {
+// A tile says a session is working by breathing. The breath is a layer animation, so it
+// costs the app nothing between frames. Playing the artwork's own animation would need a
+// web view per tile repainting its drawing on every screen refresh for as long as an
+// agent runs, and that keeps the whole window redrawing.
+private struct WorkingBreath: ViewModifier {
     let active: Bool
 
     func body(content: Content) -> some View {
@@ -236,8 +216,6 @@ private struct StillArtworkActiveMotion: ViewModifier {
 }
 
 private struct SidebarAvatarArtwork {
-    let key: String
-    let source: String
     let image: NSImage?
     let primaryColour: Color?
 }
@@ -314,10 +292,6 @@ enum SidebarAvatarMainHue {
 }
 
 extension DiceBearAvatarStyle {
-    func usesWebAnimation(for motion: SidebarIconMotion) -> Bool {
-        motion == .animated && supportsAnimation
-    }
-
     func primaryColour(in svg: String) -> SidebarAvatarPrimaryColour? {
         guard hasPrimaryColourBackground else { return nil }
         // These styles put their identity colour on the full-bleed background. Shapes
@@ -342,8 +316,6 @@ private enum SidebarAvatarArt {
         }
         let image = DiceBearAvatarDocument.stillImage(source: source)
         let artwork = SidebarAvatarArtwork(
-            key: key,
-            source: source,
             image: image,
             primaryColour: style.hasPrimaryColourBackground
                 ? style.primaryColour(in: source)?.colour
@@ -451,159 +423,5 @@ enum DiceBearAvatarDocument {
         }
         replacement.addChild(clone)
         return replacement
-    }
-
-    static func html(source: String, motion: SidebarIconMotion) -> String {
-        let motionStyle = switch motion {
-        case .still:
-            "* { animation: none !important; }"
-        case .animated:
-            """
-            svg {
-              --dbsq-t: 0.3 !important;
-              --dbpa-t: 0.2 !important;
-              --dbsh-t: 0.25 !important;
-              --dbba-t: 0.3 !important;
-              --dbwa-t: 0.25 !important;
-              --dbsp-t: 0.55 !important;
-              --dbla-t: 0.2 !important;
-              --dbcr-t: 0.55 !important;
-              --dbmo-t: 0.55 !important;
-            }
-            """
-        }
-
-        return """
-            <!doctype html>
-            <html>
-            <head>
-              <meta name="viewport" content="width=device-width,initial-scale=1">
-              <meta http-equiv="Content-Security-Policy"
-                    content="default-src 'none'; style-src 'unsafe-inline'">
-              <style>
-                html, body { width: 100%; height: 100%; margin: 0; overflow: hidden;
-                             background: transparent; }
-                svg { display: block; width: 100%; height: 100%; }
-                \(motionStyle)
-              </style>
-            </head>
-            <body>\(source)</body>
-            </html>
-            """
-    }
-}
-
-private struct AnimatedDiceBearAvatarImage: NSViewRepresentable {
-    let key: String
-    let source: String
-
-    func makeNSView(context: Context) -> AnimatedAvatarWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-
-        let webView = AnimatedAvatarWebView(frame: .zero, configuration: configuration)
-        webView.underPageBackgroundColor = .clear
-        // WebKit paints a white base behind every page until told not to. The setter is
-        // not public, so it is only called when this build of WebKit still has it.
-        if webView.responds(to: Selector(("_setDrawsBackground:"))) {
-            webView.setValue(false, forKey: "drawsBackground")
-        }
-        webView.allowsMagnification = false
-        webView.setAccessibilityElement(false)
-        return webView
-    }
-
-    func updateNSView(_ webView: AnimatedAvatarWebView, context: Context) {
-        webView.configure(key: key, source: source)
-    }
-
-    static func dismantleNSView(_ webView: AnimatedAvatarWebView, coordinator: ()) {
-        webView.stop()
-    }
-}
-
-@MainActor
-private final class AnimatedAvatarWebView: WKWebView {
-    private var artworkKey: String?
-    private var source: String?
-    private var animationRunning: Bool?
-
-    override init(frame: CGRect, configuration: WKWebViewConfiguration) {
-        super.init(frame: frame, configuration: configuration)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        observeVisibility()
-        refreshAnimation()
-    }
-
-    func configure(key: String, source: String) {
-        guard artworkKey != key else { return }
-        artworkKey = key
-        self.source = source
-        animationRunning = nil
-        refreshAnimation()
-    }
-
-    func stop() {
-        removeVisibilityObservations()
-        stopLoading()
-    }
-
-    private func observeVisibility() {
-        removeVisibilityObservations()
-        let notifications = NotificationCenter.default
-        if let window {
-            notifications.addObserver(
-                self,
-                selector: #selector(visibilityChanged),
-                name: NSWindow.didChangeOcclusionStateNotification,
-                object: window)
-            notifications.addObserver(
-                self,
-                selector: #selector(visibilityChanged),
-                name: NSWindow.didMiniaturizeNotification,
-                object: window)
-            notifications.addObserver(
-                self,
-                selector: #selector(visibilityChanged),
-                name: NSWindow.didDeminiaturizeNotification,
-                object: window)
-        }
-        for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
-            notifications.addObserver(
-                self,
-                selector: #selector(visibilityChanged),
-                name: name,
-                object: NSApp)
-        }
-    }
-
-    private func removeVisibilityObservations() {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc private func visibilityChanged() {
-        refreshAnimation()
-    }
-
-    private func refreshAnimation() {
-        guard let source, let window else { return }
-        let shouldRun = window.occlusionState.contains(.visible)
-            && !window.isMiniaturized
-            && !NSApp.isHidden
-        guard animationRunning != shouldRun else { return }
-        animationRunning = shouldRun
-        loadHTMLString(
-            DiceBearAvatarDocument.html(
-                source: source,
-                motion: shouldRun ? .animated : .still),
-            baseURL: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }

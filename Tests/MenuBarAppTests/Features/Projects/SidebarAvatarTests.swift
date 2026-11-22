@@ -110,7 +110,7 @@ struct SidebarAvatarTests {
         #expect(singleColourArtwork.colour == artworkColour)
     }
 
-    @Test func derivesMotionFromActiveSessionsInTheSameContainer() {
+    @Test func isWorkingOnlyForBusySessionsInTheSameContainer() {
         let projectID = UUID()
         let workspaceID = UUID()
         let projectSession = ChatSession(projectID: projectID, agent: .codex)
@@ -122,12 +122,12 @@ struct SidebarAvatarTests {
         let task = SidebarAvatar(subject: .task, id: projectID)
         let workspace = SidebarAvatar(subject: .workspace, id: workspaceID)
 
-        #expect(project.motion(sessions: [projectSession], isBusy: busy.contains) == .animated)
-        #expect(task.motion(sessions: [projectSession], isBusy: busy.contains) == .animated)
-        #expect(project.motion(sessions: [workspaceSession], isBusy: busy.contains) == .still)
-        #expect(workspace.motion(sessions: [workspaceSession], isBusy: busy.contains) == .animated)
-        #expect(workspace.motion(sessions: [projectSession], isBusy: busy.contains) == .still)
-        #expect(project.motion(sessions: [projectSession], isBusy: { _ in false }) == .still)
+        #expect(project.isWorking(sessions: [projectSession], isBusy: busy.contains))
+        #expect(task.isWorking(sessions: [projectSession], isBusy: busy.contains))
+        #expect(!project.isWorking(sessions: [workspaceSession], isBusy: busy.contains))
+        #expect(workspace.isWorking(sessions: [workspaceSession], isBusy: busy.contains))
+        #expect(!workspace.isWorking(sessions: [projectSession], isBusy: busy.contains))
+        #expect(!project.isWorking(sessions: [projectSession], isBusy: { _ in false }))
     }
 
     @Test func findsEveryOfflineAvatar() throws {
@@ -159,25 +159,6 @@ struct SidebarAvatarTests {
         #expect(DiceBearAvatarStyle.botttsNeutral.primaryColour(in: widerSVG)?.rgb == 0x7681f5)
     }
 
-    @Test func bundlesAnimationAndReducedMotionInTheSVG() throws {
-        for style in DiceBearAvatarStyle.allCases {
-            for index in 1...SidebarAvatar.artworkCount {
-                let url = try #require(SidebarAvatar.artworkURL(style: style, index: index))
-                let svg = try String(contentsOf: url, encoding: .utf8)
-                #expect(svg.contains("@keyframes") == style.supportsAnimation)
-                #expect(svg.contains("prefers-reduced-motion") == style.supportsAnimation)
-            }
-        }
-    }
-
-    @Test func usesWebKitOnlyForActiveAnimatedArtwork() {
-        #expect(DiceBearAvatarStyle.squircles.usesWebAnimation(for: .animated))
-        #expect(!DiceBearAvatarStyle.squircles.usesWebAnimation(for: .still))
-        #expect(!DiceBearAvatarStyle.stripes.usesWebAnimation(for: .animated))
-        #expect(!DiceBearAvatarStyle.weave.usesWebAnimation(for: .animated))
-        #expect(!DiceBearAvatarStyle.botttsNeutral.usesWebAnimation(for: .animated))
-    }
-
     @Test func rendersEveryStaticAvatarWithItsReferencedLayers() throws {
         for style in DiceBearAvatarStyle.allCases {
             for index in 1...SidebarAvatar.artworkCount {
@@ -187,32 +168,6 @@ struct SidebarAvatarTests {
                 #expect(try renderedColourCount(image) > 1)
             }
         }
-    }
-
-    @Test func rendersReferencedLayersForStillAndAnimatedAvatars() throws {
-        let url = try #require(SidebarAvatar.artworkURL(style: .waves, index: 1))
-        let svg = try String(contentsOf: url, encoding: .utf8)
-        let still = DiceBearAvatarDocument.html(source: svg, motion: .still)
-        let animated = DiceBearAvatarDocument.html(source: svg, motion: .animated)
-
-        #expect(still.contains("<body><svg"))
-        #expect(still.contains("* { animation: none !important; }"))
-        #expect(animated.contains("<body><svg"))
-        for timing in [
-            "--dbsq-t: 0.3 !important;",
-            "--dbpa-t: 0.2 !important;",
-            "--dbsh-t: 0.25 !important;",
-            "--dbba-t: 0.3 !important;",
-            "--dbwa-t: 0.25 !important;",
-            "--dbsp-t: 0.55 !important;",
-            "--dbla-t: 0.2 !important;",
-            "--dbcr-t: 0.55 !important;",
-            "--dbmo-t: 0.55 !important;",
-        ] {
-            #expect(animated.contains(timing))
-        }
-        #expect(!still.contains("data:image/svg+xml"))
-        #expect(!animated.contains("data:image/svg+xml"))
     }
 
     @Test func offersEveryRequestedStyle() {

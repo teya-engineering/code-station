@@ -36,11 +36,6 @@ enum SidebarIconSet: String {
     case diceBear
 }
 
-enum SidebarIconMotion: Equatable {
-    case still
-    case animated
-}
-
 enum DiceBearAvatarStyle: String, CaseIterable, Identifiable {
     case squircles
     case planets
@@ -71,13 +66,6 @@ enum DiceBearAvatarStyle: String, CaseIterable, Identifiable {
         case .critters: "Critters"
         case .moods: "Moods"
         case .botttsNeutral: "Bottts Neutral"
-        }
-    }
-
-    var supportsAnimation: Bool {
-        switch self {
-        case .stripes, .weave, .botttsNeutral: false
-        default: true
         }
     }
 
