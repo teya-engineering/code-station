@@ -170,7 +170,9 @@ jobs:
 
       # A signed record that this workflow, at this commit, built this DMG.
       # Anyone can check a download against it:
-      #   gh attestation verify TeyaCodeStation-<version>.dmg -R teya-engineering/code-station
+      #   gh attestation verify TeyaCodeStation-<version>.dmg \
+      #     -R teya-engineering/code-station \
+      #     --signer-workflow teya-engineering/code-station/.github/workflows/release.yml
       - name: Attest where the DMG was built
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:

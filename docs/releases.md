@@ -13,14 +13,16 @@ Tag a commit whose `Tests` run passed, or one whose run is still going. The rele
 
 Review the draft in GitHub Releases, then publish it. If the workflow fails for a temporary reason, run it again from GitHub Actions and select the same tag. A re-run replaces the files on the draft it made before, but never changes a release that has been published.
 
-The build uses exactly the dependency versions in `Package.resolved`. If that file is out of date with `Package.swift`, the release fails instead of resolving newer versions. Commit an updated `Package.resolved`, then tag that commit.
+The Tests workflow and release build use exactly the dependency versions in `Package.resolved`. If that file is out of date with `Package.swift`, they fail instead of resolving newer versions. Commit an updated `Package.resolved`, then tag that commit.
 
 ## Checking a download
 
 The workflow attests each DMG: GitHub keeps a signed record that this repository's `Release` workflow built that file, at that commit. To check a downloaded copy:
 
 ```bash
-gh attestation verify TeyaCodeStation-1.2.0.dmg -R teya-engineering/code-station
+gh attestation verify TeyaCodeStation-1.2.0.dmg \
+  -R teya-engineering/code-station \
+  --signer-workflow teya-engineering/code-station/.github/workflows/release.yml
 ```
 
 ## Quick builds
