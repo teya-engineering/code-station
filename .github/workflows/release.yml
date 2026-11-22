@@ -65,6 +65,10 @@ jobs:
     needs: tested
     permissions:
       contents: write
+      # Both for the provenance attestation: id-token to get a signing
+      # certificate from Sigstore, attestations to store the result.
+      id-token: write
+      attestations: write
     timeout-minutes: 60
 
     steps:
@@ -111,9 +115,11 @@ jobs:
         run: swift --version && xcodebuild -version
 
       # Resolving here rather than during the build keeps dependency manifests,
-      # which SwiftPM compiles and runs, away from the loaded signing key.
+      # which SwiftPM compiles and runs, away from the loaded signing key. The
+      # release takes exactly the versions in Package.resolved, and fails if it
+      # is out of date rather than picking newer ones.
       - name: Resolve dependencies
-        run: swift package resolve
+        run: swift package resolve --force-resolved-versions
 
       - name: Import the Developer ID certificate
         env:
@@ -162,15 +168,38 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/build.keychain-db"
 
-      - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      # A signed record that this workflow, at this commit, built this DMG.
+      # Anyone can check a download against it:
+      #   gh attestation verify TeyaCodeStation-<version>.dmg \
+      #     -R teya-engineering/code-station \
+      #     --signer-workflow teya-engineering/code-station/.github/workflows/release.yml
+      - name: Attest where the DMG was built
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          # No target_commitish: the tag already exists by now, and GitHub
-          # discards it in that case rather than moving the tag.
-          tag_name: v${{ steps.v.outputs.version }}
-          name: Teya Code Station ${{ steps.v.outputs.version }}
-          draft: true          # review it before making it public
-          generate_release_notes: true
-          files: |
-            build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg
-            build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg.sha256
+          subject-path: build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg
+
+      # The gh CLI on the runner rather than a third-party action, so no code
+      # from outside GitHub runs with the contents: write token.
+      - name: Publish the draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          dmg="build/TeyaCodeStation-$VERSION.dmg"
+          # A re-run after a failed upload finds the draft it made and replaces
+          # its files. A published release is never touched.
+          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$draft" != true ]; then
+              echo "::error::$tag is already published; leaving its files alone"
+              exit 1
+            fi
+            gh release upload "$tag" "$dmg" "$dmg.sha256" --clobber
+          else
+            # --verify-tag: the tag exists by now, and gh must never create or
+            # move one. --draft: review it before making it public.
+            gh release create "$tag" "$dmg" "$dmg.sha256" \
+              --verify-tag --draft --generate-notes \
+              --title "Teya Code Station $VERSION"
+          fi
