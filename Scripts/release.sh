@@ -103,10 +103,10 @@ else
 
     while IFS= read -r -d '' nested; do
         if ! has_macho "$nested"; then
-            echo "    no code, skipping: ${nested#$APP/}"
+            echo "    no code, skipping: ${nested#"$APP"/}"
             continue
         fi
-        echo "    nested: ${nested#$APP/}"
+        echo "    nested: ${nested#"$APP"/}"
         sign "$nested"
     done < <(find "$APP/Contents" \
                   \( -name '*.framework' -o -name '*.bundle' -o -name '*.dylib' -o -name '*.so' \) \

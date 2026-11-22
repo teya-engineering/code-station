@@ -2,9 +2,11 @@
 
 set -euo pipefail
 
-readonly script_dir="$(cd "$(dirname "$0")" && pwd)"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+readonly script_dir
 readonly resource_dir="${script_dir}/../Sources/MenuBarApp/Resources"
-readonly download_dir="$(mktemp -d /private/tmp/code-station-moods.XXXXXX)"
+download_dir="$(mktemp -d /private/tmp/code-station-moods.XXXXXX)"
+readonly download_dir
 readonly avatar_count=64
 
 for ((index = 1; index <= avatar_count; index++)); do

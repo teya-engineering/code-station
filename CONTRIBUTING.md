@@ -93,5 +93,8 @@ Read the ADR for an area before changing an established pattern. When a change a
 2. Run `./Scripts/swiftpm.sh test --disable-sandbox --no-parallel`.
 3. For UI changes, build the app bundle and check the affected flow in the running app.
 4. Review the diff for unrelated generated files or local configuration.
+5. Run `./Scripts/check-design-rules.sh`. It fails on the native controls ruled out above, and on `.animation(_:value:)` outside `DesignSystem`. Uses that predate a rule are counted in `Scripts/design-rules-baseline.txt`. A line that really needs an exception carries `// design-rules: allow, <the reason>`.
+
+The `Lint` workflow runs that script and its fixture tests on every pull request, along with `actionlint` and `zizmor` on the workflows and `shellcheck` on the scripts. Run `./Scripts/test-design-rules.sh` when changing the checker. These checks run on Linux and need no build, so they report long before `Tests` does.
 
 Keep commits focused and use a short imperative message such as `Improve session cleanup`.

@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-readonly script_dir="$(cd "$(dirname "$0")" && pwd)"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+readonly script_dir
 readonly resource_dir="${script_dir}/../Sources/MenuBarApp/Resources/SidebarAvatars"
 readonly avatar_count=64
 
