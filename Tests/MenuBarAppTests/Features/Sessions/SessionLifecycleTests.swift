@@ -19,15 +19,16 @@ struct SessionLifecycleTests {
         let projectPath = project.path
         let projectName = project.name
         let worktrees = WorktreeOperations(
-            addProject: { path, name, receivedID, base in
+            addProject: { path, name, receivedID, base, branch in
                 #expect(path == projectPath)
                 #expect(name == projectName)
                 #expect(receivedID == sessionID)
                 #expect(base == "origin/main")
+                #expect(branch == "feature/login")
                 return .success(GitWorktree.Created(path: "/worktrees/project",
-                                                    branch: "code-station/test"))
+                                                    branch: "feature/login"))
             },
-            addWorkspaceProject: { _, _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
             },
             remove: { _, _, _ in
@@ -35,7 +36,7 @@ struct SessionLifecycleTests {
             })
 
         let result = await SessionLifecycle.createWorktreeSession(
-            in: project, id: sessionID, base: "origin/main",
+            in: project, id: sessionID, base: "origin/main", branch: "feature/login",
             agent: .codex, model: "gpt-5.6-terra",
             agentAvatarName: "agent-avatar-2.png", mode: .design, store: store,
             worktrees: worktrees)
@@ -47,7 +48,7 @@ struct SessionLifecycleTests {
         #expect(session.settings?.model == "gpt-5.6-terra")
         #expect(session.agentAvatarName == "agent-avatar-2.png")
         #expect(session.mode == .design)
-        #expect(store.session(sessionID)?.worktreeBranch == "code-station/test")
+        #expect(store.session(sessionID)?.worktreeBranch == "feature/login")
     }
 
     @Test func protectsAWorktreeWhileItsSessionIsBeingCreated() async throws {
@@ -55,14 +56,14 @@ struct SessionLifecycleTests {
         let sessionID = UUID()
         let planned = GitWorktree.plan(projectName: project.name, sessionID: sessionID)
         let worktrees = WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 let isProtected = await MainActor.run {
                     store.protectsWorktree(at: planned.path)
                 }
                 #expect(isProtected)
                 return .success(planned)
             },
-            addWorkspaceProject: { _, _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
             },
             remove: { _, _, _ in
@@ -93,10 +94,10 @@ struct SessionLifecycleTests {
             ],
             agent: .codex)
         let worktrees = WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected project operation"))
             },
-            addWorkspaceProject: { _, name, _, _, _ in
+            addWorkspaceProject: { _, name, _, _, _, _ in
                 guard name == "first" else {
                     let firstIsProtected = await MainActor.run {
                         store.protectsWorktree(at: "/worktrees/first")
@@ -141,12 +142,14 @@ struct SessionLifecycleTests {
                 WorkspaceProjectChoice(projectID: second.id, useWorktree: true)
             ],
             agent: .claudeCode,
-            mode: .design)
+            mode: .design,
+            branch: "feature/login")
         let worktrees = WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected project operation"))
             },
-            addWorkspaceProject: { _, name, _, _, base in
+            addWorkspaceProject: { _, name, _, _, base, branch in
+                #expect(branch == "feature/login")
                 await recorder.record(name: name, base: base)
                 return .success(GitWorktree.Created(path: "/worktrees/\(name)",
                                                     branch: "code-station/test"))
@@ -167,11 +170,11 @@ struct SessionLifecycleTests {
         let project = try TestStore.project(in: store)
         let recorder = RemovalRecorder()
         let worktrees = WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 .success(GitWorktree.Created(path: "/worktrees/project",
                                              branch: "code-station/test"))
             },
-            addWorkspaceProject: { _, _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
             },
             remove: { path, _, _ in
@@ -202,11 +205,11 @@ struct SessionLifecycleTests {
         let composer = SessionComposerStore()
         let sessionID = UUID()
         var worktrees = WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 .success(GitWorktree.Created(path: "/worktrees/project",
                                              branch: "code-station/test"))
             },
-            addWorkspaceProject: { _, _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected workspace operation"))
             },
             remove: { _, _, _ in .success(()) })
@@ -370,10 +373,10 @@ struct SessionLifecycleTests {
         _ remove: @escaping @Sendable () async -> Result<Void, GitWorktree.Failure>
     ) -> WorktreeOperations {
         WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
-            addWorkspaceProject: { _, _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
             remove: { _, _, _ in await remove() })

@@ -159,8 +159,6 @@ final class ChangesModel {
         }
 
         commitDraft.excluded.formIntersection(Set(fresh.files.map(\.id)))
-        // A push can land between refreshes, and amending a pushed commit is exactly
-        // what the checkbox exists to prevent.
         if commitDraft.amend && !fresh.canAmend {
             commitDraft.setAmend(false, lastMessage: fresh.lastCommitSubject)
         }

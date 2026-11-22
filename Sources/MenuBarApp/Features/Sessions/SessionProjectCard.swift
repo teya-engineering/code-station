@@ -131,6 +131,54 @@ struct SessionCheckoutPaths: View {
     }
 }
 
+// `accepted` stays false until every project has checked the typed name.
+struct SessionBranchField: View {
+    private static let typingPause: Duration = .milliseconds(250)
+
+    let placeholder: String
+    @Binding var name: String
+    let projects: [Project]
+    @Binding var accepted: Bool
+
+    @State private var problem: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        LabeledField("Branch") {
+            TextField(placeholder, text: $name).appTextField()
+            if let problem {
+                Text(problem)
+                    .font(Typography.detail)
+                    .foregroundStyle(Theme.warningText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
+            }
+        }
+        .motion(Motion.reveal, value: problem)
+        .task(id: [name.trimmed] + projects.map(\.path)) { await check(name.trimmed) }
+    }
+
+    private func check(_ branch: String) async {
+        accepted = false
+        guard !branch.isEmpty else {
+            problem = nil
+            accepted = true
+            return
+        }
+        guard (try? await Task.sleep(for: Self.typingPause)) != nil else { return }
+        var found: String?
+        for project in projects {
+            if let message = await GitBranches.nameProblem(branch, at: project.path) {
+                found = projects.count > 1 ? "\(project.name): \(message)" : message
+                break
+            }
+        }
+        guard !Task.isCancelled else { return }
+        problem = found
+        accepted = found == nil
+    }
+}
+
 struct SessionCreationImpact {
     let updates: Int
     let worktrees: Int

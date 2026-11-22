@@ -356,10 +356,10 @@ struct ProjectRemovalTests {
         _ remove: @escaping @Sendable () async -> Result<Void, GitWorktree.Failure>
     ) -> WorktreeOperations {
         WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
-            addWorkspaceProject: { _, _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
             remove: { _, _, _ in await remove() })

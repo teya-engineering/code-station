@@ -143,12 +143,12 @@ struct ChangesModelTests {
         #expect(navigation.commitDraft(for: repo.path).excluded == ["a.swift"])
     }
 
-    @Test func amendTurnsOffOnceTheLastCommitIsPushed() async throws {
+    @Test func amendSurvivesAPushAndTurnsOffWhenThereAreNoCommits() async throws {
         let repo = try GitRepo()
         try repo.write("a.swift", "one\n")
         let file = GitChange(path: "a.swift", kind: .untracked, isStaged: false, isUnstaged: true, isBinary: false)
-        var unpushed = GitSnapshot(state: .ready, root: repo.path, upstream: "origin/main", ahead: 1,
-                                   lastCommitSubject: "first", files: [file])
+        var snapshot = GitSnapshot(state: .ready, root: repo.path, upstream: "origin/main", ahead: 1,
+                                    lastCommitSubject: "first", files: [file])
         let navigation = ChangesNavigationMemory()
         let draft = navigation.commitDraft(for: repo.path)
         draft.message = "my message"
@@ -157,12 +157,17 @@ struct ChangesModelTests {
         let model = ChangesModel(root: repo.path, navigation: navigation, readSnapshot: { _, _, _ in reads.next() })
         let screen = ChangesScreen(gitStats: GitStatsCache())
 
-        reads.snapshots = [unpushed]
+        reads.snapshots = [snapshot]
         await model.reload(for: screen)
         #expect(draft.amend)
 
-        unpushed.ahead = 0
-        reads.snapshots = [unpushed]
+        snapshot.ahead = 0
+        reads.snapshots = [snapshot]
+        await model.reload(for: screen)
+        #expect(draft.amend)
+        #expect(draft.message == "first")
+
+        reads.snapshots = [GitSnapshot(state: .ready, root: repo.path, hasCommits: false, files: [file])]
         await model.reload(for: screen)
         #expect(!draft.amend)
         #expect(draft.message == "my message")

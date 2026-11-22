@@ -430,6 +430,12 @@ enum GitBranches {
         }
     }
 
+    static func nameProblem(_ name: String, at root: String) async -> String? {
+        guard let tool = Git.tool() else { return Git.unavailableMessage }
+
+        return await Git.offMain { nameProblem(name, tool, URL(fileURLWithPath: root)) }
+    }
+
     static func errorMessage(_ error: Error) -> String {
         (error as? GitFailure)?.message ?? error.localizedDescription
     }
@@ -509,11 +515,17 @@ enum GitBranches {
     }
 
     private static func validateName(_ name: String, _ tool: Git.Tool, _ url: URL) throws {
+        if let message = nameProblem(name, tool, url) { throw GitFailure(message: message) }
+    }
+
+    private static func nameProblem(_ name: String, _ tool: Git.Tool, _ url: URL) -> String? {
         guard !name.hasPrefix("-"), !name.isEmpty, name == name.trimmed,
               name != "HEAD", Git.run(tool, ["check-ref-format", "refs/heads/" + name], in: url).ok,
               !Git.run(tool, ["show-ref", "--verify", "--quiet", "refs/heads/" + name], in: url).ok else {
-            throw GitFailure(message: "Choose a valid, unique branch name without spaces or Git special characters.")
+            return "Choose a valid, unique branch name without spaces or Git special characters."
         }
+
+        return nil
     }
 
     private static func fingerprint(_ tool: Git.Tool, _ url: URL) throws -> String {

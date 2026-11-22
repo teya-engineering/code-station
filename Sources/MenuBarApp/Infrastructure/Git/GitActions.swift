@@ -29,6 +29,9 @@ enum GitPushPreview: Sendable, Equatable {
     // origin refuses the push. The only way through is to replace origin's copy at `tip`,
     // which drops the `unrelated` commits from origin.
     case nameOnOrigin(outgoing: [GitRemoteCommit], unrelated: [GitRemoteCommit], tip: String)
+    // Origin's tip is an old version of this branch, left by an amend or a rebase. Pushing
+    // replaces the `replaced` commits on origin, and refuses if origin no longer points at `tip`.
+    case rewroteUpstream(outgoing: [GitRemoteCommit], replaced: [GitRemoteCommit], tip: String)
     case failed(String)
 }
 
@@ -54,6 +57,9 @@ enum GitActions {
     // Long enough for a fetch over a normal connection, short enough that an unreachable
     // origin cannot hold a button down for minutes.
     private static let networkTimeout: TimeInterval = 30
+
+    private static let upstreamAdvancedAfterRewrite =
+        "You rewrote commits that origin still has, and origin has newer work. Reconcile the changes in a terminal before pulling or pushing."
 
     static func fetchOrigin(at root: String) async -> String? {
         guard let tool = Git.tool() else {
@@ -161,7 +167,7 @@ enum GitActions {
         }
         let url = URL(fileURLWithPath: root)
         return await Git.offMain {
-            reconcile(tool, in: url, with: "@{u}")
+            reconcile(tool, in: url, with: "@{u}", refusingRewrittenCommits: true)
         }
     }
 
@@ -228,12 +234,33 @@ enum GitActions {
     // and nothing they pushed is lost.
     static func push(hasUpstream: Bool, replacing tip: String? = nil, at root: String) async -> String? {
         await perform(at: root) { tool, url in
-            if hasUpstream { return Git.run(tool, ["push"], in: url) }
-            guard let tip else { return Git.run(tool, ["push", "-u", "origin", "HEAD"], in: url) }
+            let publish = hasUpstream ? [] : ["-u", "origin", "HEAD"]
+            guard let tip else { return Git.run(tool, ["push"] + publish, in: url) }
             let branch = Git.currentBranch(tool, in: url)
             guard branch.ok else { return branch }
-            return Git.run(tool, ["push", "--force-with-lease=refs/heads/\(branch.trimmedText):\(tip)",
-                                           "-u", "origin", "HEAD"], in: url)
+
+            if hasUpstream {
+                let upstream = Git.run(
+                    tool, ["for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)",
+                           "refs/heads/\(branch.trimmedText)"], in: url)
+                guard upstream.ok else { return upstream }
+                let destination = upstream.trimmedText.components(separatedBy: "\0")
+                guard destination.count == 2, !destination[0].isEmpty,
+                      destination[1].hasPrefix("refs/heads/") else {
+                    return Git.Output(
+                        errorText: "Could not resolve the upstream branch. Refresh the push review before trying again.")
+                }
+                let remote = destination[0]
+                let ref = destination[1]
+
+                // The review shows the upstream, so Git's push settings must not send
+                // its replacement to a different branch or remote.
+                return Git.run(
+                    tool, ["push", "--force-with-lease=\(ref):\(tip)", "--", remote, "HEAD:\(ref)"], in: url)
+            }
+
+            return Git.run(tool, ["push", "--force-with-lease=refs/heads/\(branch.trimmedText):\(tip)"]
+                           + publish, in: url)
         }
     }
 
@@ -267,9 +294,30 @@ enum GitActions {
             guard hasUpstream else { return .commits(commits) }
 
             let behind = Git.run(tool, ["log", "--no-color", GitRemoteCommit.logFormat, "HEAD..@{u}"], in: url)
-            let incoming = behind.ok ? GitRemoteCommit.parse(log: behind.text) : []
-            return incoming.isEmpty ? .commits(commits) : .behindUpstream(incoming: incoming, outgoing: commits)
+            guard behind.ok else { return .failed(behind.failureMessage) }
+            let incoming = GitRemoteCommit.parse(log: behind.text)
+            guard let upstream = incoming.first else { return .commits(commits) }
+            guard !commits.isEmpty, let rewritten = rewrittenCommit(in: incoming, tool, at: url) else {
+                return .behindUpstream(incoming: incoming, outgoing: commits)
+            }
+            guard rewritten == upstream.id else { return .failed(upstreamAdvancedAfterRewrite) }
+
+            return .rewroteUpstream(outgoing: commits, replaced: incoming, tip: upstream.id)
         }
+    }
+
+    // A rewritten commit can sit below newer work on origin. Check every incoming
+    // commit against the branch's old tips so pulling cannot undo that rewrite.
+    private static func rewrittenCommit(in commits: [GitRemoteCommit],
+                                        _ tool: Git.Tool, at url: URL) -> String? {
+        let branch = Git.currentBranch(tool, in: url)
+        guard branch.ok else { return nil }
+        let reflog = Git.run(tool, ["reflog", "show", "--format=%H", "refs/heads/\(branch.trimmedText)", "--"],
+                             in: url)
+        guard reflog.ok else { return nil }
+        let previousTips = Set(reflog.text.split(whereSeparator: \.isNewline).map(String.init))
+
+        return commits.first { previousTips.contains($0.id) }?.id
     }
 
     // Where origin's branch of the same name points, or nil when origin has none. A branch
@@ -357,8 +405,8 @@ enum GitActions {
         }
     }
 
-    private static func reconcile(_ tool: Git.Tool, in url: URL,
-                                  with target: String) -> GitPullOutcome {
+    private static func reconcile(_ tool: Git.Tool, in url: URL, with target: String,
+                                  refusingRewrittenCommits: Bool = false) -> GitPullOutcome {
         guard !GitBranches.blocksOtherActions(tool, url) else {
             return .failed("Finish or abort the current operation in Branches before pulling.")
         }
@@ -373,11 +421,15 @@ enum GitActions {
             return .failed("Could not read how far this branch is from \(target).")
         }
         guard behind > 0 else { return .upToDate }
-
         let incoming = Git.run(
             tool, ["log", "--no-color", GitRemoteCommit.logFormat, "HEAD..\(target)"], in: url)
         guard incoming.ok else { return .failed(incoming.failureMessage) }
         let commits = GitRemoteCommit.parse(log: incoming.text)
+        if refusingRewrittenCommits, ahead > 0,
+           let rewritten = rewrittenCommit(in: commits, tool, at: url) {
+            guard rewritten == commits.first?.id else { return .failed(upstreamAdvancedAfterRewrite) }
+            return .failed("You rewrote these commits, so pulling would bring the old versions back. Push to replace them on origin instead.")
+        }
 
         // With no commits of its own to replay, the branch only has to move forward,
         // and moving forward cannot conflict with anything. --ff-only holds it to that:

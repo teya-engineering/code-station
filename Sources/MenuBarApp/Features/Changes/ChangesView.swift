@@ -88,6 +88,12 @@ struct ChangesView: View {
     var repoRoot: String { snapshot?.root ?? root }
     private var repositoryName: String { repositories.first { $0.root == root }?.name ?? root }
 
+    private var lastCommitPublished: Bool {
+        guard let snapshot else { return false }
+
+        return snapshot.upstream != nil && snapshot.ahead == 0
+    }
+
     // What the model's loads take from this screen.
     var screen: ChangesScreen {
         ChangesScreen(gitStats: gitStats,
@@ -656,6 +662,7 @@ struct ChangesView: View {
         mode = .changes
         let operationRoot = repoRoot
         let dialog = CommitDialogModel(draft: model.commitDraft, files: chosen, canAmend: snapshot.canAmend,
+                                       lastCommitPublished: lastCommitPublished,
                                        lastSubject: snapshot.lastCommitSubject) { message, files, amend in
             model.working = amend ? "Amending…" : "Committing…"
             announce(model.working ?? "Committing…")

@@ -158,9 +158,7 @@ struct GitSnapshot: Sendable, Equatable {
         return remoteBase?.commit
     }
 
-    // Amending rewrites the last commit, which is only safe while nothing else has it:
-    // an unpublished branch, or one that is ahead of its upstream.
-    var canAmend: Bool { hasCommits && (upstream == nil || ahead > 0) }
+    var canAmend: Bool { hasCommits }
 
     // The same snapshot as it looks against the last commit, for anything that counts
     // uncommitted work.

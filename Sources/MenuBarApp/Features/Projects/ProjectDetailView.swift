@@ -610,9 +610,9 @@ struct ProjectDetailView: View {
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
         switch choice {
-        case .worktree(let sessionID, let base, let carryChanges, let agent, let model,
-                       let agentAvatarName, let mode):
-            createWorktreeSession(in: project, id: sessionID, base: base,
+        case .worktree(let sessionID, let base, let branch, let carryChanges, let agent,
+                       let model, let agentAvatarName, let mode):
+            createWorktreeSession(in: project, id: sessionID, base: base, branch: branch,
                                   carryChanges: carryChanges, agent: agent, model: model,
                                   agentAvatarName: agentAvatarName, mode: mode)
         case .folder(let sessionID, let agent, let model, let agentAvatarName, let mode):
@@ -629,11 +629,12 @@ struct ProjectDetailView: View {
     }
 
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
-                                       carryChanges: Bool, agent: AgentKind, model: String?,
-                                       agentAvatarName: String?, mode: SessionMode) {
+                                       branch: String?, carryChanges: Bool, agent: AgentKind,
+                                       model: String?, agentAvatarName: String?,
+                                       mode: SessionMode) {
         Task {
             switch await SessionLifecycle.createWorktreeSession(
-                in: project, id: sessionID, base: base,
+                in: project, id: sessionID, base: base, branch: branch,
                 agent: agent, model: model,
                 agentAvatarName: agentAvatarName, mode: mode, carryChanges: carryChanges,
                 store: store, composer: runner.composer) {
