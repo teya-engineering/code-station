@@ -46,6 +46,9 @@ enum GitActions {
     // origin cannot hold a button down for minutes.
     private static let networkTimeout: TimeInterval = 30
 
+    private static let upstreamAdvancedAfterRewrite =
+        "You rewrote commits that origin still has, and origin has newer work. Reconcile the changes in a terminal before pulling or pushing."
+
     static func fetchOrigin(at root: String) async -> String? {
         guard let tool = await GitInspector.tool() else {
             return "Could not find git on PATH."
@@ -152,7 +155,7 @@ enum GitActions {
         }
         let url = URL(fileURLWithPath: root)
         return await GitInspector.offMain {
-            reconcile(tool, in: url, with: "@{u}", refusingRewrittenTip: true)
+            reconcile(tool, in: url, with: "@{u}", refusingRewrittenCommits: true)
         }
     }
 
@@ -226,6 +229,26 @@ enum GitActions {
             let branch = GitInspector.run(tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
             guard branch.ok else { return branch }
 
+            if hasUpstream {
+                let upstream = GitInspector.run(
+                    tool, ["for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)",
+                           "refs/heads/\(branch.trimmedText)"], in: url)
+                guard upstream.ok else { return upstream }
+                let destination = upstream.trimmedText.components(separatedBy: "\0")
+                guard destination.count == 2, !destination[0].isEmpty,
+                      destination[1].hasPrefix("refs/heads/") else {
+                    return GitInspector.CommandOutput(
+                        errorText: "Could not resolve the upstream branch. Refresh the push review before trying again.")
+                }
+                let remote = destination[0]
+                let ref = destination[1]
+
+                // The review shows the upstream, so Git's push settings must not send
+                // its replacement to a different branch or remote.
+                return GitInspector.run(
+                    tool, ["push", "--force-with-lease=\(ref):\(tip)", "--", remote, "HEAD:\(ref)"], in: url)
+            }
+
             return GitInspector.run(tool, ["push", "--force-with-lease=refs/heads/\(branch.trimmedText):\(tip)"]
                                     + publish, in: url)
         }
@@ -261,27 +284,30 @@ enum GitActions {
             guard hasUpstream else { return .commits(commits) }
 
             let behind = GitInspector.run(tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..@{u}"], in: url)
-            let incoming = behind.ok ? parseRemoteCommits(behind.text) : []
-            guard !incoming.isEmpty else { return .commits(commits) }
-            guard !commits.isEmpty, let upstream = rewrittenTip("@{u}", tool, in: url) else {
+            guard behind.ok else { return .failed(behind.failureMessage) }
+            let incoming = parseRemoteCommits(behind.text)
+            guard let upstream = incoming.first else { return .commits(commits) }
+            guard !commits.isEmpty, let rewritten = rewrittenCommit(in: incoming, tool, at: url) else {
                 return .behindUpstream(incoming: incoming, outgoing: commits)
             }
+            guard rewritten == upstream.id else { return .failed(upstreamAdvancedAfterRewrite) }
 
-            return .rewroteUpstream(outgoing: commits, replaced: incoming, tip: upstream)
+            return .rewroteUpstream(outgoing: commits, replaced: incoming, tip: upstream.id)
         }
     }
 
-    // After an amend or rebase the old tip survives only in this branch's reflog, so a hit means the ref was rewritten here.
-    private static func rewrittenTip(_ ref: String, _ tool: GitInspector.GitTool, in url: URL) -> String? {
+    // A rewritten commit can sit below newer work on origin. Check every incoming
+    // commit against the branch's old tips so pulling cannot undo that rewrite.
+    private static func rewrittenCommit(in commits: [GitRemoteCommit],
+                                        _ tool: GitInspector.GitTool, at url: URL) -> String? {
         let branch = GitInspector.run(tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
-        let tip = GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: url)
-        guard branch.ok, tip.ok else { return nil }
+        guard branch.ok else { return nil }
         let reflog = GitInspector.run(tool, ["reflog", "show", "--format=%H", "refs/heads/\(branch.trimmedText)", "--"],
                                       in: url)
-        guard reflog.ok, reflog.text.split(whereSeparator: \.isNewline).contains(where: { $0 == tip.trimmedText })
-        else { return nil }
+        guard reflog.ok else { return nil }
+        let previousTips = Set(reflog.text.split(whereSeparator: \.isNewline).map(String.init))
 
-        return tip.trimmedText
+        return commits.first { previousTips.contains($0.id) }?.id
     }
 
     // Where origin's branch of the same name points, or nil when origin has none. A branch
@@ -370,7 +396,7 @@ enum GitActions {
     }
 
     private static func reconcile(_ tool: GitInspector.GitTool, in url: URL, with target: String,
-                                  refusingRewrittenTip: Bool = false) -> GitPullOutcome {
+                                  refusingRewrittenCommits: Bool = false) -> GitPullOutcome {
         guard !GitBranches.blocksOtherActions(tool, url) else {
             return .failed("Finish or abort the current operation in Branches before pulling.")
         }
@@ -385,14 +411,15 @@ enum GitActions {
             return .failed("Could not read how far this branch is from \(target).")
         }
         guard behind > 0 else { return .upToDate }
-        if refusingRewrittenTip, ahead > 0, rewrittenTip(target, tool, in: url) != nil {
-            return .failed("You rewrote these commits, so pulling would bring the old versions back. Push to replace them on origin instead.")
-        }
-
         let incoming = GitInspector.run(
             tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..\(target)"], in: url)
         guard incoming.ok else { return .failed(incoming.failureMessage) }
         let commits = parseRemoteCommits(incoming.text)
+        if refusingRewrittenCommits, ahead > 0,
+           let rewritten = rewrittenCommit(in: commits, tool, at: url) {
+            guard rewritten == commits.first?.id else { return .failed(upstreamAdvancedAfterRewrite) }
+            return .failed("You rewrote these commits, so pulling would bring the old versions back. Push to replace them on origin instead.")
+        }
 
         // With no commits of its own to replay, the branch only has to move forward,
         // and moving forward cannot conflict with anything. --ff-only holds it to that:

@@ -570,6 +570,88 @@ struct GitActionsTests {
         #expect(try remote.git("rev-parse", "main") == other.head)
     }
 
+    @Test(arguments: ["upstream", "current"])
+    func replacingUsesTheReviewedUpstreamWhenTheLocalBranchWasRenamed(pushDefault: String) async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+        try repo.git("branch", "-m", "local-name")
+        try repo.git("config", "push.default", pushDefault)
+
+        let preview = await GitActions.commitsToPush(hasUpstream: true, at: repo.path)
+        guard case .rewroteUpstream(_, _, let tip) = preview else {
+            Issue.record("Expected a rewrite of the upstream branch")
+            return
+        }
+        #expect(tip == oldTip)
+        #expect(await GitActions.push(hasUpstream: true, replacing: tip, at: repo.path) == nil)
+        #expect(try remote.git("rev-parse", "main") == repo.head)
+        #expect(try remote.git("for-each-ref", "--format=%(refname)", "refs/heads") == "refs/heads/main")
+    }
+
+    @Test func replacingARenamedBranchStillRefusesWhenItsUpstreamMoved() async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+        try repo.git("branch", "-m", "local-name")
+        try repo.git("config", "push.default", "upstream")
+        let other = try remote.clone()
+        try other.write("later.txt", "pushed after the review")
+        try other.commit("later work")
+        try other.git("push", "-q")
+
+        #expect(await GitActions.push(hasUpstream: true, replacing: oldTip, at: repo.path) != nil)
+        #expect(try remote.git("rev-parse", "main") == other.head)
+    }
+
+    private func amendedBeforeOriginAdvanced() throws -> (repo: GitRepo, remote: GitRepo, remoteTip: String) {
+        let remote = try GitRepo.bare()
+        let repo = try GitRepo()
+        try repo.addRemote(remote)
+        try repo.write("keep.txt", "wanted work")
+        try repo.write("remove.txt", "remove in amendment")
+        try repo.commit("work")
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        try repo.git("rm", "remove.txt")
+        try repo.git("commit", "-q", "--amend", "--no-edit")
+
+        let other = try remote.clone()
+        try other.write("later.txt", "new remote work")
+        try other.commit("later work")
+        try other.git("push", "-q")
+
+        return (repo, remote, other.head)
+    }
+
+    @Test func pullRefusesRewrittenAncestorsWhenOriginHasNewerWork() async throws {
+        let (repo, remote, remoteTip) = try amendedBeforeOriginAdvanced()
+        let amended = repo.head
+        try repo.write("README.md", "uncommitted work")
+
+        guard case .failed(let message) = await GitActions.pull(at: repo.path) else {
+            Issue.record("Pull must refuse to undo an amendment")
+            return
+        }
+        #expect(message.contains("newer work"))
+        #expect(repo.head == amended)
+        #expect(repo.read("remove.txt") == nil)
+        #expect(repo.read("README.md") == "uncommitted work")
+        #expect(try repo.git("stash", "list").isEmpty)
+        #expect(try remote.git("rev-parse", "main") == remoteTip)
+    }
+
+    @MainActor
+    @Test func pushReviewBlocksRewrittenAncestorsWhenOriginHasNewerWork() async throws {
+        let (repo, remote, remoteTip) = try amendedBeforeOriginAdvanced()
+        let amended = repo.head
+        let model = PushReviewModel(root: repo.path, hasUpstream: true)
+
+        await model.load()
+
+        #expect(model.phase == .failed)
+        #expect(model.error.contains("newer work"))
+        #expect(await model.send() == false)
+        #expect(repo.head == amended)
+        #expect(repo.read("remove.txt") == nil)
+        #expect(try remote.git("rev-parse", "main") == remoteTip)
+    }
+
     @Test func pullRefusesToBringBackCommitsThatWereRewritten() async throws {
         let (repo, _, _) = try amendedAfterPush()
         let before = repo.head
