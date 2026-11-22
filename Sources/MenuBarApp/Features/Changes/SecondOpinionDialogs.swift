@@ -11,41 +11,6 @@ enum SecondOpinionScopeChoice: Hashable {
     case all, file, sinceReview
 }
 
-// Where the second opinion stands, which is what the header's control says and opens.
-enum SecondOpinionStatus: Equatable {
-    case ask
-    case reviewing(agents: [AgentKind], started: Date, pending: Int)
-    case failed(AgentKind)
-    case ready(agents: [AgentKind], pending: Int)
-    case settled(kept: Int, dismissed: Int)
-
-    @MainActor
-    init(reviews: ReviewCommentStore, sessionID: UUID) {
-        self.init(runs: reviews.runs(sessionID),
-                  findings: reviews.comments(sessionID).filter { $0.reviewer != nil },
-                  dismissed: reviews.dismissedFindings(sessionID).count)
-    }
-
-    init(runs: [SecondOpinionRun], findings: [ReviewComment], dismissed: Int) {
-        let pending = findings.filter(\.isPending)
-        let running = runs.filter(\.isRunning)
-        if !running.isEmpty {
-            self = .reviewing(agents: unique(running.map(\.agent)), started: running.map(\.started).min() ?? Date(),
-                              pending: pending.count)
-        } else if let failed = runs.first(where: { if case .failed = $0.state { true } else { false } }),
-                  pending.isEmpty {
-            self = .failed(failed.agent)
-        } else if !pending.isEmpty {
-            let voices = Set(pending.flatMap(\.reviewers))
-            self = .ready(agents: AgentKind.allCases.filter(voices.contains), pending: pending.count)
-        } else if !runs.isEmpty {
-            self = .settled(kept: findings.count { !$0.isPending }, dismissed: dismissed)
-        } else {
-            self = .ask
-        }
-    }
-}
-
 enum SecondOpinionFindings {
     // Findings by file, the file with the most serious one first, and inside a file the
     // most serious first, then by line.
@@ -77,12 +42,6 @@ enum SecondOpinionFindings {
         let rotated = list[(start + 1)...] + list[..<max(0, start + 1)]
         return rotated.first(where: undecided)?.id
     }
-}
-
-// Each agent once, in the order given. Two seats can run the same agent on two models.
-private func unique(_ agents: [AgentKind]) -> [AgentKind] {
-    var seen = Set<AgentKind>()
-    return agents.filter { seen.insert($0).inserted }
 }
 
 private func names(_ agents: [AgentKind]) -> String {

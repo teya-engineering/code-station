@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 // Copilot answers questions about the account and its models through a headless server
 // built into the CLI: the same JSON-RPC exchange its own SDK uses. A read starts one,
@@ -97,8 +98,9 @@ enum CopilotServer {
     // the answer is read off the raw output rather than line by line.
     private static func request(_ method: String, at path: String,
                                 searchPath: String) async -> [String: Any]? {
-        guard let message = framed(["jsonrpc": "2.0", "id": 1, "method": method,
-                                    "params": [String: Any]()]) else { return nil }
+        guard let message = AgentMessageFramer(format: .contentLength)
+            .frame(["jsonrpc": "2.0", "id": 1, "method": method, "params": [String: Any]()])
+        else { return nil }
         let exchange = Exchange(id: 1)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = searchPath
@@ -115,63 +117,41 @@ enum CopilotServer {
         return exchange.result
     }
 
-    private static func framed(_ object: [String: Any]) -> Data? {
-        guard let body = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        var data = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
-        data.append(body)
-        return data
-    }
-
     // Collects the framed replies until the one with the awaited id arrives, then asks
     // for the server to be stopped. Chunks land on a background queue, hence the lock.
-    private final class Exchange: @unchecked Sendable {
-        private let lock = NSLock()
+    private final class Exchange: Sendable {
+        private struct State {
+            var framer = AgentMessageFramer(format: .contentLength)
+            // The awaited reply as it arrived. It is read as JSON on the way out, since
+            // a JSON object cannot be handed from one thread to another.
+            var reply: Data?
+        }
+
         private let id: Int
-        private var pending = Data()
-        private(set) var result: [String: Any]?
+        private let state = Mutex(State())
 
         init(id: Int) { self.id = id }
 
+        var result: [String: Any]? {
+            guard let reply = state.withLock({ $0.reply }) else { return nil }
+            let message = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
+            return message?["result"] as? [String: Any] ?? [:]
+        }
+
+        // A header the framer cannot make sense of drops what is buffered, so one bad
+        // frame does not hold the read up until the timeout.
         func receive(_ chunk: Data) -> CommandRunner.OutputLineAction {
-            lock.withLock {
-                guard result == nil else { return .none }
-                pending.append(chunk)
-                while let message = nextMessage() {
-                    guard (message["id"] as? NSNumber)?.intValue == id else { continue }
-                    result = message["result"] as? [String: Any] ?? [:]
+            state.withLock { state in
+                guard state.reply == nil else { return .none }
+                state.framer.append(chunk)
+                while let body = try? state.framer.next() {
+                    let message = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+                    guard (message?["id"] as? NSNumber)?.intValue == id else { continue }
+                    state.reply = body
                     return .finishProcess
                 }
                 return .none
             }
-        }
-
-        // The next whole message in the buffer, or nil while one is still arriving. A
-        // header the buffer cannot make sense of drops what is there, so one bad frame
-        // does not hold the read up until the timeout.
-        private func nextMessage() -> [String: Any]? {
-            let separator = Data("\r\n\r\n".utf8)
-            guard let headerEnd = pending.range(of: separator) else { return nil }
-            let header = String(decoding: pending[pending.startIndex..<headerEnd.lowerBound],
-                                as: UTF8.self)
-            guard let length = header.split(separator: "\r\n")
-                .lazy
-                .compactMap({ line -> Int? in
-                    let parts = line.split(separator: ":", maxSplits: 1)
-                    guard parts.count == 2,
-                          parts[0].trimmingCharacters(in: .whitespaces)
-                            .caseInsensitiveCompare("Content-Length") == .orderedSame
-                    else { return nil }
-                    return Int(parts[1].trimmingCharacters(in: .whitespaces))
-                })
-                .first else {
-                pending = Data()
-                return nil
-            }
-            let bodyStart = headerEnd.upperBound
-            guard pending.count - (bodyStart - pending.startIndex) >= length else { return nil }
-            let body = pending[bodyStart..<(bodyStart + length)]
-            pending = Data(pending[(bodyStart + length)...])
-            return (try? JSONSerialization.jsonObject(with: Data(body))) as? [String: Any] ?? [:]
         }
     }
 }

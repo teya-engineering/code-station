@@ -14,7 +14,7 @@ struct ClearContextTests {
 
     init() {
         (store, scratch) = TestStore.make()
-        runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
     }
 
     private func startedSession(agent: AgentKind = .claudeCode) throws -> ChatSession {
@@ -32,8 +32,8 @@ struct ClearContextTests {
     @Test func droppingTheResumeIDIsTheWholeOfClearing() throws {
         let session = try startedSession()
 
-        #expect(runner.canClearContext(session.id, store: store))
-        #expect(runner.clearContext(session.id, store: store) == .cleared)
+        #expect(runner.canClearContext(session.id))
+        #expect(runner.clearContext(session.id) == .cleared)
 
         let cleared = try #require(store.session(session.id))
         #expect(cleared.claudeSessionID == nil)
@@ -49,7 +49,7 @@ struct ClearContextTests {
     @Test func theMeterEmptiesButTheBillDoesNot() throws {
         let session = try startedSession()
 
-        runner.clearContext(session.id, store: store)
+        runner.clearContext(session.id)
 
         let usage = try #require(store.session(session.id)?.usage)
         #expect(usage.contextTokens == 0)
@@ -65,7 +65,7 @@ struct ClearContextTests {
     @Test func theTranscriptSurvivesWithASeam() throws {
         let session = try startedSession()
 
-        runner.clearContext(session.id, store: store)
+        runner.clearContext(session.id)
 
         let transcript = store.transcript(of: session.id)
         #expect(transcript.count == 2)
@@ -78,8 +78,8 @@ struct ClearContextTests {
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
 
-        #expect(!runner.canClearContext(session.id, store: store))
-        #expect(runner.clearContext(session.id, store: store) == .nothingToClear)
+        #expect(!runner.canClearContext(session.id))
+        #expect(runner.clearContext(session.id) == .nothingToClear)
         #expect(store.transcript(of: session.id).isEmpty)
     }
 
@@ -88,7 +88,7 @@ struct ClearContextTests {
     @Test func codexClearsTheSameWay() throws {
         let session = try startedSession(agent: .codex)
 
-        #expect(runner.clearContext(session.id, store: store) == .cleared)
+        #expect(runner.clearContext(session.id) == .cleared)
         #expect(try #require(store.session(session.id)).codexSessionID == nil)
     }
 
@@ -108,7 +108,7 @@ struct ClearContextTests {
     @Test func typingItClearsInsteadOfQueueingAPrompt() throws {
         let session = try startedSession()
 
-        runner.send("/clear", sessionID: session.id, store: store)
+        runner.send("/clear", sessionID: session.id)
 
         #expect(runner.queued(session.id).isEmpty)
         #expect(store.session(session.id)?.claudeSessionID == nil)
@@ -121,7 +121,7 @@ struct ClearContextTests {
         let session = try startedSession()
         let attachment = Attachment(url: URL(fileURLWithPath: "/tmp/shot.png"))
 
-        runner.send("/clear", attachments: [attachment], sessionID: session.id, store: store)
+        runner.send("/clear", attachments: [attachment], sessionID: session.id)
 
         #expect(store.session(session.id)?.claudeSessionID == "conversation-1")
     }
@@ -203,14 +203,14 @@ struct ClearContextTests {
 
     // Codex compacts automatically, so it is never offered a manual action.
     @Test func onlyClaudeCodeCanCompact() throws {
-        #expect(runner.canCompactContext(try startedSession().id, store: store))
-        #expect(!runner.canCompactContext(try startedSession(agent: .codex).id, store: store))
+        #expect(runner.canCompactContext(try startedSession().id))
+        #expect(!runner.canCompactContext(try startedSession(agent: .codex).id))
     }
 
     @Test func typingCompactOnCodexExplainsAutomaticCompaction() throws {
         let session = try startedSession(agent: .codex)
 
-        runner.send("/compact", sessionID: session.id, store: store)
+        runner.send("/compact", sessionID: session.id)
 
         #expect(runner.queued(session.id).isEmpty)
         #expect(store.transcript(of: session.id).last?.text
@@ -243,7 +243,7 @@ struct ClearContextTests {
     @Test func typingPlanSwitchesTheSessionToPlanMode() throws {
         let session = try startedSession()
 
-        runner.send("/plan", sessionID: session.id, store: store)
+        runner.send("/plan", sessionID: session.id)
 
         #expect(runner.queued(session.id).isEmpty)
         #expect(store.session(session.id)?.settings?.permissionMode == .plan)
@@ -254,7 +254,7 @@ struct ClearContextTests {
     @Test func planIsLeftToAgentsOtherThanClaude() throws {
         let session = try startedSession(agent: .codex)
 
-        runner.send("/plan", sessionID: session.id, store: store)
+        runner.send("/plan", sessionID: session.id)
 
         #expect(store.session(session.id)?.settings?.permissionMode == nil)
     }
@@ -287,7 +287,7 @@ struct ClearContextTests {
         runner.dismissNudge(session.id)
         #expect(runner.isNudgeDismissed(session.id))
 
-        runner.clearContext(session.id, store: store)
+        runner.clearContext(session.id)
         #expect(!runner.isNudgeDismissed(session.id))
     }
 
@@ -295,7 +295,7 @@ struct ClearContextTests {
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id)
 
-        runner.send("/clear", sessionID: session.id, store: store)
+        runner.send("/clear", sessionID: session.id)
 
         let transcript = store.transcript(of: session.id)
         #expect(transcript.count == 1)

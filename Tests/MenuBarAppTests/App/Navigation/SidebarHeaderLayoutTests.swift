@@ -9,7 +9,7 @@ struct SidebarHeaderLayoutTests {
     @Test(arguments: [0, 2, 120], [CGFloat(1), 1.3])
     func headerFitsTheSidebar(running: Int, scale: CGFloat) {
         let (store, _) = TestStore.make()
-        let mobile = MobileAccessController(store: store, runner: SessionRunner(preferences: testPreferences.store, paths: [:]),
+        let mobile = MobileAccessController(store: store, runner: SessionRunner(store: store, preferences: testPreferences.store, paths: [:]),
                                             gitStats: GitStatsCache())
         let host = NSHostingController(rootView: SidebarHeaderProbe(running: running)
             .environment(mobile)
@@ -31,7 +31,7 @@ struct SidebarHeaderLayoutTests {
         let destination = URL(fileURLWithPath: folder, isDirectory: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let (store, _) = TestStore.make()
-        let mobile = MobileAccessController(store: store, runner: SessionRunner(preferences: testPreferences.store, paths: [:]),
+        let mobile = MobileAccessController(store: store, runner: SessionRunner(store: store, preferences: testPreferences.store, paths: [:]),
                                             gitStats: GitStatsCache())
         for dark in [false, true] {
             for state in ["default", "idle", "large", "filter", "name"] {

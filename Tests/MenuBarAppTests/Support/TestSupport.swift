@@ -223,7 +223,7 @@ final class RunnerHarness {
         store = ProjectStore(preferences: scratch.preferences.store, storeURL: scratch.path("projects.json"))
         let project = try #require(store.addProject(at: scratch.path("project")))
         session = try store.insertSession(in: project.id, seed: .init(agent: agent)).get()
-        runner = SessionRunner(preferences: scratch.preferences.store, persistentAgentSessions: persistentAgentSessions, paths: [agent: executable.path],
+        runner = SessionRunner(store: store, preferences: scratch.preferences.store, persistentAgentSessions: persistentAgentSessions, paths: [agent: executable.path],
                                stalledAfter: stalledAfter,
                                stallCheckInterval: stallCheckInterval,
                                waitingStaleAfter: waitingStaleAfter,

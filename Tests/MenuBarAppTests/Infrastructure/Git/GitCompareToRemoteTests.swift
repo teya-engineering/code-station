@@ -62,6 +62,94 @@ struct GitCompareToRemoteTests {
         #expect(compared.files.map(\.path) == ["mine.txt"])
     }
 
+    @Test func comparesWithTheRemoteBranchPicked() async throws {
+        let (repo, remote) = try branchedFromOrigin()
+        defer { withExtendedLifetime(remote) {} }
+        // A branch the feature was stacked on: its commit is shared, so comparing with it
+        // leaves that commit's file out.
+        try repo.write("shared.txt", "from the stack below\n")
+        try repo.git("add", "shared.txt")
+        try repo.git("commit", "-qm", "Work the stack below holds")
+        try repo.git("push", "-q", "origin", "HEAD:stack-below")
+        try repo.git("fetch", "-q", "origin")
+        try repo.write("mine.txt", "mine\n")
+
+        let againstMain = await GitInspector.snapshot(at: repo.path, comparingToLastCommit: true, comparingToRemote: true)
+        #expect(againstMain.remoteBase?.ref == "origin/main")
+        #expect(againstMain.files.map(\.path) == ["mine.txt", "shared.txt"])
+
+        let againstStack = await GitInspector.snapshot(at: repo.path, comparingToLastCommit: true,
+                                                       comparingToRemote: true, remoteRef: "origin/stack-below")
+        #expect(againstStack.remoteBase?.ref == "origin/stack-below")
+        #expect(againstStack.files.map(\.path) == ["mine.txt"])
+
+        let branches = await GitInspector.remoteBranches(at: repo.path)
+        #expect(branches.refs == ["origin/main", "origin/stack-below"])
+        #expect(branches.remotes == ["origin"])
+    }
+
+    @Test func aBranchThatIsGoneFallsBackToTheDefault() async throws {
+        let (repo, remote) = try branchedFromOrigin()
+        defer { withExtendedLifetime(remote) {} }
+        try repo.write("mine.txt", "mine\n")
+
+        let snapshot = await GitInspector.snapshot(at: repo.path, comparingToLastCommit: true,
+                                                   comparingToRemote: true, remoteRef: "origin/deleted")
+        #expect(snapshot.remoteBase?.ref == "origin/main")
+        // Only a remote branch is ever handed to git.
+        let option = await GitInspector.snapshot(at: repo.path, comparingToLastCommit: true,
+                                                 comparingToRemote: true, remoteRef: "--output=/tmp/x")
+        #expect(option.remoteBase?.ref == "origin/main")
+    }
+
+    @Test func readsTheRemoteBranchesAndWhereEachRemoteLives() {
+        let refs = GitInspector.parseRemoteRefs(
+            "refs/remotes/origin/HEAD\nrefs/remotes/origin/main\nrefs/remotes/fork/feat/x\nrefs/remotes/origin/feat/a\n")
+        #expect(refs == ["fork/feat/x", "origin/feat/a", "origin/main"])
+
+        let urls = GitInspector.parseRemoteURLs(
+            "remote.origin.url git@github.com:teya-engineering/code-station.git\nremote.fork.url https://github.com/someone/code-station\n")
+        #expect(urls == ["origin": "git@github.com:teya-engineering/code-station.git",
+                         "fork": "https://github.com/someone/code-station"])
+    }
+
+    @Test func theRemoteBranchABranchWasMadeFromIsReadFromItsOldestReflogEntry() {
+        let refs = ["origin/feat/a", "origin/main"]
+        let reflog = "commit: second\ncommit: first\nbranch: Created from origin/feat/a\n"
+
+        #expect(GitInspector.parseStartedFrom(reflog, refs: refs) == "origin/feat/a")
+        #expect(GitInspector.parseStartedFrom("branch: Created from refs/remotes/origin/main", refs: refs) == "origin/main")
+        // A local branch, a commit, or a remote branch since deleted is nothing to compare with.
+        #expect(GitInspector.parseStartedFrom("branch: Created from main", refs: refs) == nil)
+        #expect(GitInspector.parseStartedFrom("branch: Created from HEAD", refs: refs) == nil)
+        #expect(GitInspector.parseStartedFrom("branch: Created from origin/gone", refs: refs) == nil)
+        #expect(GitInspector.parseStartedFrom("commit: first", refs: refs) == nil)
+    }
+
+    @Test func aBranchMadeFromARemoteBranchSaysWhichOne() async throws {
+        let repo = try GitRepo()
+        try repo.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        try repo.git("checkout", "-q", "-b", "feature", "origin/main")
+
+        let branches = await GitInspector.remoteBranches(at: repo.path, branch: "feature")
+        #expect(branches.startedFrom == "origin/main")
+    }
+
+    @Test func aPullRequestsBaseIsFoundOnTheRemoteThatHoldsItsRepository() {
+        let branches = GitRemoteBranches(
+            refs: ["fork/main", "origin/feat/a", "origin/main", "upstream/main"],
+            urls: ["origin": "https://github.com/someone/app.git",
+                   "upstream": "git@github.com:Team/App.git",
+                   "fork": "https://github.com/other/app"])
+
+        #expect(branches.ref(forBranch: "main", owner: "team", repository: "app") == "upstream/main")
+        // Not on any remote that matches, origin wins over the rest.
+        #expect(branches.ref(forBranch: "main", owner: "nobody", repository: "app") == "origin/main")
+        #expect(branches.ref(forBranch: "feat/a", owner: nil, repository: nil) == "origin/feat/a")
+        #expect(branches.ref(forBranch: "a", owner: nil, repository: nil) == nil)
+        #expect(branches.ref(forBranch: "gone", owner: "team", repository: "app") == nil)
+    }
+
     @Test func withoutARemoteTheLastCommitStaysTheBase() async throws {
         let repo = try GitRepo()
         try repo.write("README.md", "changed")

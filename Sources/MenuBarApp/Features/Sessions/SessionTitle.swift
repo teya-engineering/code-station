@@ -38,11 +38,11 @@ enum SessionTitle {
     @MainActor
     static func menuEntry(for sessionID: UUID, runner: SessionRunner,
                           store: ProjectStore) -> MenuEntry {
-        let generating = runner.isGeneratingTitle(sessionID, store: store)
-        let canGenerate = runner.canRegenerateTitle(sessionID, store: store)
+        let generating = runner.isGeneratingTitle(sessionID)
+        let canGenerate = runner.canRegenerateTitle(sessionID)
         return .item(MenuItem(
             label: generating ? "Generating session title…" : "Regenerate session title",
             icon: "sparkles",
-            handler: canGenerate ? { _ = runner.regenerateTitle(sessionID, store: store) } : nil))
+            handler: canGenerate ? { _ = runner.regenerateTitle(sessionID) } : nil))
     }
 }

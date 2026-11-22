@@ -188,7 +188,7 @@ struct OldSessionsSheetTests {
             agentAvatarURL: store.storeURL.deletingLastPathComponent()
                 .appendingPathComponent("avatar.png"),
             preferences: scratchDefaults())
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let view = OldSessionsView(sessions: OldSessions.reviewable(
             days: settings.oldSessionDays, store: store, runner: runner))
             .environment(store)
@@ -287,7 +287,7 @@ struct OldSessionsSheetSizeTests {
             agentAvatarURL: store.storeURL.deletingLastPathComponent()
                 .appendingPathComponent("avatar.png"),
             preferences: scratchDefaults())
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let view = OldSessionsView(sessions: OldSessions.reviewable(
             days: settings.oldSessionDays, store: store, runner: runner))
             .environment(store)

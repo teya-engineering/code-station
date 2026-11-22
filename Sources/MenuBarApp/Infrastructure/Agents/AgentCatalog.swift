@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class AgentCatalog {
     var agent: AgentKind {
-        didSet { Preferences.setAgent(agent, in: preferences) }
+        didSet { Preferences.agent.write(agent, in: preferences) }
     }
     private var defaultsByAgent: [AgentKind: SessionSettings]
     private(set) var discoveredModels: [AgentKind: [ModelChoice.Option]]
@@ -19,7 +19,7 @@ final class AgentCatalog {
          discoveredModels: [AgentKind: [ModelChoice.Option]] = [:],
          preferences: UserDefaults = .standard) {
         self.preferences = preferences
-        agent = Preferences.agent(in: preferences)
+        agent = Preferences.agent.read(in: preferences)
         self.discoveredModels = discoveredModels
         defaultsByAgent = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.sessionDefaults(for: $0, in: preferences))
@@ -29,7 +29,7 @@ final class AgentCatalog {
         refreshAvailableAgents()
     }
 
-    var designAmbition: DesignAmbition { Preferences.designAmbition(in: preferences) }
+    var designAmbition: DesignAmbition { Preferences.designAmbition.read(in: preferences) }
 
     var defaults: SessionSettings {
         get { defaults(for: agent) }

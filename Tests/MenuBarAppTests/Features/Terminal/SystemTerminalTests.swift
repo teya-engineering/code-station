@@ -55,19 +55,19 @@ struct SystemTerminalTests {
     // An app that is not installed leaves the choice unresolved, so the click falls back to
     // the system's terminal rather than doing nothing.
     @Test func fallsBackWhenTheChosenAppIsGone() {
-        let saved = Preferences.terminalBundleID
-        defer { Preferences.terminalBundleID = saved }
+        let saved = Preferences.terminalBundleID()
+        defer { Preferences.setTerminalBundleID(saved) }
 
-        Preferences.terminalBundleID = "com.example.terminal.that.is.not.installed"
+        Preferences.setTerminalBundleID("com.example.terminal.that.is.not.installed")
         #expect(SystemTerminal.chosen == nil)
         #expect(SystemTerminal.appURL == SystemTerminal.systemDefault)
     }
 
     @Test func followsTheSystemWithoutAChoice() {
-        let saved = Preferences.terminalBundleID
-        defer { Preferences.terminalBundleID = saved }
+        let saved = Preferences.terminalBundleID()
+        defer { Preferences.setTerminalBundleID(saved) }
 
-        Preferences.terminalBundleID = nil
+        Preferences.setTerminalBundleID(nil)
         #expect(SystemTerminal.appURL == SystemTerminal.systemDefault)
     }
 
@@ -116,15 +116,15 @@ struct TerminalDestinationTests {
     // The menu leads with what pressing the button already does, so the row that repeats
     // the press comes first and the other way out sits under it.
     @Test func leadsTheMenuWithWhatThePressDoes() {
-        let saved = Preferences.terminalBundleID
-        defer { Preferences.terminalBundleID = saved }
+        let saved = Preferences.terminalBundleID()
+        defer { Preferences.setTerminalBundleID(saved) }
 
-        Preferences.terminalBundleID = nil
+        Preferences.setTerminalBundleID(nil)
         let drawerFirst = labels(terminalEntries(isOpen: false, toggle: {}, directory: "/tmp"))
         #expect(drawerFirst.first == "Open terminal here")
         #expect(drawerFirst.count == 2)
 
-        Preferences.terminalBundleID = "com.apple.Terminal"
+        Preferences.setTerminalBundleID("com.apple.Terminal")
         let appFirst = labels(terminalEntries(isOpen: false, toggle: {}, directory: "/tmp"))
         #expect(appFirst.first == "Open in \(SystemTerminal.appName)")
         #expect(appFirst.last == "Open terminal here")
@@ -133,10 +133,10 @@ struct TerminalDestinationTests {
     // The drawer row says whether the press will put it away, so the words match the state
     // rather than always offering to open one.
     @Test func namesTheDrawerRowForWhatItWillDo() {
-        let saved = Preferences.terminalBundleID
-        defer { Preferences.terminalBundleID = saved }
+        let saved = Preferences.terminalBundleID()
+        defer { Preferences.setTerminalBundleID(saved) }
 
-        Preferences.terminalBundleID = nil
+        Preferences.setTerminalBundleID(nil)
         #expect(labels(terminalEntries(isOpen: true, toggle: {}, directory: "/tmp")).first
                 == "Hide terminal here")
     }

@@ -357,7 +357,7 @@ struct TroubleshootTabView: View {
         if dictation?.isListening(dictationID) == true || dictation?.isPreparing(dictationID) == true {
             return Readiness(mood: .blocked, lead: "Stop dictating before starting the diagnosis.", rest: "")
         }
-        if !runner.isAvailable(session.agent) {
+        if !runner.catalog.isAvailable(session.agent) {
             return Readiness(mood: .blocked, lead: "\(agent) CLI was not found on PATH.",
                              rest: "Sessions cannot run until it is installed.")
         }
@@ -429,7 +429,7 @@ struct TroubleshootTabView: View {
             && dictation?.isPreparing(dictationID) != true
             && mcpConfigurationState(session) != .checking
             && (!brief.problem.isBlank || !brief.attachments.isEmpty)
-            && runner.isAvailable(session.agent)
+            && runner.catalog.isAvailable(session.agent)
     }
 
     private func mcpConfigurationState(_ session: ChatSession) -> TroubleshootMCPState {
@@ -516,7 +516,7 @@ struct TroubleshootTabView: View {
                         attachments: sent.attachments,
                         customInstructions: request.customInstructions,
                         dictated: sent.dictated,
-                        sessionID: sessionID, store: store)
+                        sessionID: sessionID)
             // The form is left behind rather than kept: what it said is now in the
             // transcript, and a second brief is a new question about the same session.
             runner.composer.clearBrief(sessionID)

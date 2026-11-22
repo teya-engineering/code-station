@@ -135,6 +135,8 @@ struct TurnSeal: View {
 
 struct TurnReviewFooter: View {
     let back: () -> Void
+    // How many of the changed files are ticked off as read, said beside Mark reviewed.
+    var viewed: ViewedTally? = nil
     let markReviewed: () -> Void
     @FocusState private var focused: Int?
 
@@ -149,6 +151,15 @@ struct TurnReviewFooter: View {
                     .stroke(focused == 0 ? Theme.accent : .clear, lineWidth: 2).padding(-3))
                 .onKeyPress(keys: [.space, .return]) { _ in back(); return .handled }
             Spacer(minLength: 0)
+            if let viewed {
+                Text(viewed.footnote)
+                    .font(Typography.caption)
+                    .foregroundStyle(viewed.left == 0 ? Theme.accent : Color.secondary)
+                    .lineLimit(1)
+                    .contentTransition(.numericText())
+                    .motion(Motion.control, value: viewed)
+                    .transition(.fadeIn)
+            }
             ActionButton(title: "Mark reviewed", tone: .green, height: ControlHeight.md, size: Typography.Size.caption,
                          icon: "checkmark", action: markReviewed)
                 .focusable()

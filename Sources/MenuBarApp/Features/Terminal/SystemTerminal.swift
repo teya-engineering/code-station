@@ -27,7 +27,7 @@ enum SystemTerminal {
     // A bundle ID that no longer resolves means the app was removed, and the fallback takes
     // over rather than the click doing nothing.
     static var chosen: URL? {
-        guard let id = Preferences.terminalBundleID else { return nil }
+        guard let id = Preferences.terminalBundleID() else { return nil }
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
     }
 

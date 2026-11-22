@@ -32,7 +32,8 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
     var collapsedPath: String { path.abbreviatedPath }
 
     // Only a git checkout can back a worktree session. `.git` is a directory in a normal
-    // clone and a file in a worktree or submodule, so test for either.
+    // clone and a file in a worktree or submodule, so test for either. Reads the disk on
+    // every call.
     var isGitRepository: Bool {
         FileManager.default.fileExists(atPath: path + "/.git")
     }

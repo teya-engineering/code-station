@@ -57,8 +57,7 @@ struct SessionTitleRunnerTests {
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
         harness.store.selection = .session(harness.session.id)
-        harness.runner.send("Please fix the login retry logic", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Please fix the login retry logic", sessionID: harness.session.id)
         #expect(await waitUntil { harness.store.session(harness.session.id)?.title == "Fix login retries" })
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
             == ["Please fix the login retry logic", "Work complete"])
@@ -67,8 +66,7 @@ struct SessionTitleRunnerTests {
         #expect(ProjectStore(preferences: testPreferences.store, storeURL: harness.store.storeURL).session(harness.session.id)?.title
             == "Fix login retries")
 
-        harness.runner.send("Add a regression test", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Add a regression test", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(try starts(harness) == "work\ntitle\nwork\n")
     }
@@ -77,16 +75,15 @@ struct SessionTitleRunnerTests {
     func manualGenerationWorksWithAutomaticTitlesOff(agent: AgentKind) async throws {
         let harness = try RunnerHarness(agent: agent, script: script(agent))
         defer { harness.tearDown() }
-        #expect(!harness.runner.canRegenerateTitle(harness.session.id, store: harness.store))
-        harness.runner.send("Please fix the login retry logic", sessionID: harness.session.id,
-                            store: harness.store)
-        #expect(!harness.runner.canRegenerateTitle(harness.session.id, store: harness.store))
+        #expect(!harness.runner.canRegenerateTitle(harness.session.id))
+        harness.runner.send("Please fix the login retry logic", sessionID: harness.session.id)
+        #expect(!harness.runner.canRegenerateTitle(harness.session.id))
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(harness.store.session(harness.session.id)?.title == "Please fix the login retry logic")
         #expect(try starts(harness) == "work\n")
         harness.store.renameSession(harness.session.id, to: "My old title")
-        #expect(harness.runner.regenerateTitle(harness.session.id, store: harness.store))
-        #expect(!harness.runner.regenerateTitle(harness.session.id, store: harness.store))
+        #expect(harness.runner.regenerateTitle(harness.session.id))
+        #expect(!harness.runner.regenerateTitle(harness.session.id))
         #expect(await waitUntil { harness.store.session(harness.session.id)?.title == "Fix login retries" })
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
             == ["Please fix the login retry logic", "Work complete"])
@@ -96,8 +93,8 @@ struct SessionTitleRunnerTests {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex),
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
-        harness.runner.send("Add a regression test", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
+        harness.runner.send("Add a regression test", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(try starts(harness) == "work\ntitle\nwork\n")
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
@@ -110,7 +107,7 @@ struct SessionTitleRunnerTests {
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
         harness.store.selection = .session(harness.store.newSession(in: harness.session.projectID).id)
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.store.recap(for: harness.session.id) != nil })
         #expect(harness.store.session(harness.session.id)?.title == "Fix login retries")
         #expect(harness.store.hasFinished(harness.session.id))
@@ -126,7 +123,7 @@ struct SessionTitleRunnerTests {
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
         harness.store.selection = .home
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil {
             FileManager.default.fileExists(atPath: harness.scratch.path("title-streamed").path)
         })
@@ -145,8 +142,8 @@ struct SessionTitleRunnerTests {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex, holdsTitle: true),
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
-        harness.runner.send("Add a regression test", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
+        harness.runner.send("Add a regression test", sessionID: harness.session.id)
         #expect(await waitUntil {
             FileManager.default.fileExists(atPath: harness.scratch.path("title-streamed").path)
         })
@@ -166,7 +163,7 @@ struct SessionTitleRunnerTests {
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
         harness.store.renameSession(harness.session.id, to: "My title")
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(harness.store.session(harness.session.id)?.title == "My title")
         #expect(try starts(harness) == "work\n")
@@ -175,9 +172,9 @@ struct SessionTitleRunnerTests {
     @Test func aRenameDuringGenerationWinsEvenWhenTheNameIsReused() async throws {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex, holdsTitle: true))
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
-        #expect(harness.runner.regenerateTitle(harness.session.id, store: harness.store))
+        #expect(harness.runner.regenerateTitle(harness.session.id))
         #expect(await waitUntil {
             FileManager.default.fileExists(atPath: harness.scratch.path("title-streamed").path)
         })
@@ -195,7 +192,7 @@ struct SessionTitleRunnerTests {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex, titleOutcome: outcome),
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(harness.store.session(harness.session.id)?.title == "Fix the login retry")
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
@@ -211,9 +208,9 @@ struct SessionTitleRunnerTests {
     func anAskedForTitleThatFailsSaysWhy(outcome: String, reason: String) async throws {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex, titleOutcome: outcome))
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
-        #expect(harness.runner.regenerateTitle(harness.session.id, store: harness.store))
+        #expect(harness.runner.regenerateTitle(harness.session.id))
         #expect(await waitUntil { harness.runner.titleFailure != nil })
         #expect(harness.runner.titleFailure?.reason.contains(reason) == true)
         #expect(harness.runner.titleFailure?.sessionTitle == "Fix the login retry")
@@ -233,10 +230,10 @@ struct SessionTitleRunnerTests {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex),
                                         automaticTitlesEnabled: { enabled })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         enabled = true
-        harness.runner.send("Add a regression test", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Add a regression test", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(harness.store.session(harness.session.id)?.title == "Fix the login retry")
         #expect(try starts(harness) == "work\nwork\n")
@@ -245,13 +242,13 @@ struct SessionTitleRunnerTests {
     @Test func aStoppedGenerationKeepsTheTitleAndQueuedPrompt() async throws {
         let harness = try RunnerHarness(agent: .codex, script: script(.codex, holdsTitle: true))
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
-        #expect(harness.runner.regenerateTitle(harness.session.id, store: harness.store))
+        #expect(harness.runner.regenerateTitle(harness.session.id))
         #expect(await waitUntil {
             FileManager.default.fileExists(atPath: harness.scratch.path("title-streamed").path)
         })
-        harness.runner.send("Add a regression test", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Add a regression test", sessionID: harness.session.id)
         harness.runner.stop(harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(harness.store.session(harness.session.id)?.title == "Fix the login retry")
@@ -267,12 +264,12 @@ struct SessionTitleRunnerTests {
         exit 1
         """, automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil {
             if case .failed = harness.runner.state(harness.session.id) { return true }
             return false
         })
-        #expect(!harness.runner.isGeneratingTitle(harness.session.id, store: harness.store))
+        #expect(!harness.runner.isGeneratingTitle(harness.session.id))
         #expect(harness.store.session(harness.session.id)?.title == "Fix the login retry")
     }
 
@@ -281,10 +278,10 @@ struct SessionTitleRunnerTests {
                                         automaticTitlesEnabled: { true })
         defer { harness.tearDown() }
         let design = try harness.store.startDesign(for: harness.session.id).get()
-        harness.runner.send("Design a login form", sessionID: design.id, store: harness.store)
+        harness.runner.send("Design a login form", sessionID: design.id)
         #expect(await waitUntil { harness.store.session(harness.session.id)?.title == "Fix login retries" })
         #expect(harness.store.session(design.id)?.title == "Design")
-        #expect(harness.runner.regenerateTitle(harness.session.id, store: harness.store))
+        #expect(harness.runner.regenerateTitle(harness.session.id))
         #expect(await waitUntil { harness.runner.state(design.id) == .idle })
         #expect(try starts(harness) == "work\ntitle\ntitle\n")
         #expect(harness.store.transcript(of: design.id).map(\.text)

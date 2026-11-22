@@ -154,7 +154,7 @@ struct SecondOpinionAskCardLayoutTests {
                         defaults: SecondOpinionDefaults(), startsTuning: true,
                         ask: { _ in }, close: {})
                         .environment(DialogPresenter())
-                        .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+                        .environment(SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [:]))
                         .environment(TooltipPresenter())
                         .environment(MenuPresenter())
                         .environment(\.colorScheme, dark ? .dark : .light)
@@ -245,7 +245,7 @@ struct SecondOpinionAskCardLayoutTests {
             }
             .frame(width: 1400, height: 1200)
             .environment(DialogPresenter())
-            .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+            .environment(SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [:]))
             .environment(TooltipPresenter())
             .environment(MenuPresenter())
 

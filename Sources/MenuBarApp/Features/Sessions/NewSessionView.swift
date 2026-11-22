@@ -169,7 +169,7 @@ struct NewSessionView: View {
     }
 
     private var chosenAgent: AgentKind? {
-        runner.agentForNewSession(selected: selectedAgent)
+        runner.catalog.agentForNewSession(selected: selectedAgent)
     }
 
     private func selectWorktree() {
@@ -245,7 +245,7 @@ struct NewSessionView: View {
     private func finish() {
         guard let agent = chosenAgent else { return }
         let base = startPoint == .remote ? freshness?.remoteRef : nil
-        let model = runner.defaults(for: agent).model
+        let model = runner.catalog.defaults(for: agent).model
         onCreate(useWorktree
                  ? .worktree(sessionID, base: base, branch: chosenBranch,
                              carryChanges: carryChanges && freshness?.dirty == true,

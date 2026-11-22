@@ -1,26 +1,99 @@
 import Foundation
 
+// One simple preference: the key it is saved under and the value a missing or unreadable
+// entry reads as. Declaring it once keeps the key and the fallback from being repeated
+// by every reader and writer.
+struct Preference<Value: Sendable>: Sendable {
+    let key: String
+    let fallback: Value
+    // Only a whole number carries a range. A value outside it moves to the nearer end,
+    // so a number written by hand cannot ask for more than the app can show.
+    let range: ClosedRange<Int>?
+
+    init(_ key: String, fallback: Value) {
+        self.key = key
+        self.fallback = fallback
+        range = nil
+    }
+}
+
+extension Preference where Value: RawRepresentable, Value.RawValue == String {
+    func read(in store: UserDefaults = .standard) -> Value {
+        store.string(forKey: key).flatMap(Value.init(rawValue:)) ?? fallback
+    }
+
+    func write(_ value: Value, in store: UserDefaults = .standard) {
+        store.set(value.rawValue, forKey: key)
+    }
+}
+
+extension Preference where Value: RawRepresentable, Value.RawValue == Int {
+    // The store reads a missing number as zero, which can be a real choice, so the
+    // entry is looked for first.
+    func read(in store: UserDefaults = .standard) -> Value {
+        guard store.object(forKey: key) != nil else { return fallback }
+        return Value(rawValue: store.integer(forKey: key)) ?? fallback
+    }
+
+    func write(_ value: Value, in store: UserDefaults = .standard) {
+        store.set(value.rawValue, forKey: key)
+    }
+}
+
+extension Preference where Value == Bool {
+    func read(in store: UserDefaults = .standard) -> Bool {
+        guard store.object(forKey: key) != nil else { return fallback }
+        return store.bool(forKey: key)
+    }
+
+    func write(_ value: Bool, in store: UserDefaults = .standard) {
+        store.set(value, forKey: key)
+    }
+}
+
+extension Preference where Value == Int {
+    init(_ key: String, fallback: Int, range: ClosedRange<Int>) {
+        self.key = key
+        self.fallback = fallback
+        self.range = range
+    }
+
+    func read(in store: UserDefaults = .standard) -> Int {
+        guard store.object(forKey: key) != nil else { return fallback }
+        return clamped(store.integer(forKey: key))
+    }
+
+    func write(_ value: Int, in store: UserDefaults = .standard) {
+        store.set(clamped(value), forKey: key)
+    }
+
+    private func clamped(_ value: Int) -> Int {
+        guard let range else { return value }
+        return min(max(value, range.lowerBound), range.upperBound)
+    }
+}
+
+extension Preference where Value == String? {
+    func read(in store: UserDefaults = .standard) -> String? {
+        store.string(forKey: key) ?? fallback
+    }
+
+    func write(_ value: String?, in store: UserDefaults = .standard) {
+        store.set(value, forKey: key)
+    }
+}
+
 // The things that are preferences rather than data: choices made in Settings and small
 // facts the app remembers between launches. macOS has a place for these, so they do not
 // belong in the file holding the projects.
-// A preference takes the store as a parameter where a settings object or a test reads
-// its own UserDefaults; convenience properties keep app-wide callers on the standard one.
+// A simple preference is declared once as a value and read and written through it. One
+// with rules of its own, such as an older key it still honours, is a pair of functions.
+// Both take the store, so a settings object or a test can use its own UserDefaults.
 enum Preferences {
-    private static var store: UserDefaults { .standard }
-
-    static func hasCompletedOnboarding(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "hasCompletedOnboarding")
-    }
-
-    static func setHasCompletedOnboarding(_ completed: Bool, in store: UserDefaults = .standard) {
-        store.set(completed, forKey: "hasCompletedOnboarding")
-    }
+    static let hasCompletedOnboarding = Preference("hasCompletedOnboarding", fallback: false)
 
     // Where the last repository was cloned, since the next one usually goes beside it.
-    static var cloneFolder: String? {
-        get { store.string(forKey: "cloneFolder") }
-        set { store.set(newValue, forKey: "cloneFolder") }
-    }
+    static let cloneFolder = Preference<String?>("cloneFolder", fallback: nil)
 
     // The hidden folders of clones that have not ended, so the next launch can remove any
     // that a quit or a crash left behind.
@@ -70,18 +143,9 @@ enum Preferences {
         store.set(groups.map(\.rawValue), forKey: "collapsedSidebarGroups")
     }
 
-    static func sidebarSessionLimit(in store: UserDefaults = .standard) -> Int {
-        guard store.object(forKey: "sidebarSessionLimit") != nil else {
-            return SidebarSessionVisibility.defaultLimit
-        }
-        return SidebarSessionVisibility.resolvedLimit(
-            store.integer(forKey: "sidebarSessionLimit"))
-    }
-
-    static func setSidebarSessionLimit(_ limit: Int, in store: UserDefaults = .standard) {
-        store.set(SidebarSessionVisibility.resolvedLimit(limit),
-                  forKey: "sidebarSessionLimit")
-    }
+    static let sidebarSessionLimit = Preference(
+        "sidebarSessionLimit", fallback: SidebarSessionVisibility.defaultLimit,
+        range: SidebarSessionVisibility.limitRange)
 
     // The hidden buttons are saved rather than the shown ones, so a button added in a
     // later release appears until the person turns it off.
@@ -97,28 +161,11 @@ enum Preferences {
 
     // Which agent runs the sessions. Everything else about an agent lives in its own
     // config; this is only the app's choice between them.
-    static var agent: AgentKind {
-        get { agent(in: store) }
-        set { setAgent(newValue, in: store) }
-    }
-
-    static func agent(in store: UserDefaults) -> AgentKind {
-        store.string(forKey: "agent").flatMap(AgentKind.init(rawValue:)) ?? .claudeCode
-    }
-
-    static func setAgent(_ agent: AgentKind, in store: UserDefaults) {
-        store.set(agent.rawValue, forKey: "agent")
-    }
+    static let agent = Preference("agent", fallback: AgentKind.claudeCode)
 
     // The bot choice preselected for new sessions. The built-in Default bot has a stable
     // name so sessions do not depend on a custom image file.
-    static func defaultAgentAvatarName(in store: UserDefaults = .standard) -> String? {
-        store.string(forKey: "defaultAgentAvatarName")
-    }
-
-    static func setDefaultAgentAvatarName(_ name: String, in store: UserDefaults = .standard) {
-        store.set(name, forKey: "defaultAgentAvatarName")
-    }
+    static let defaultAgentAvatarName = Preference<String?>("defaultAgentAvatarName", fallback: nil)
 
     // What a second opinion starts from. A lineup saved before the Settings tab existed
     // becomes its usual seats, all ticked.
@@ -192,16 +239,8 @@ enum Preferences {
     }
 
     // How long a session has to sit untouched before the app offers to clear it.
-    static func oldSessionDays(in store: UserDefaults = .standard) -> Int {
-        guard store.object(forKey: "oldSessionDays") != nil else {
-            return OldSessions.defaultDays
-        }
-        return OldSessions.resolvedDays(store.integer(forKey: "oldSessionDays"))
-    }
-
-    static func setOldSessionDays(_ days: Int, in store: UserDefaults = .standard) {
-        store.set(OldSessions.resolvedDays(days), forKey: "oldSessionDays")
-    }
+    static let oldSessionDays = Preference(
+        "oldSessionDays", fallback: OldSessions.defaultDays, range: OldSessions.dayRange)
 
     // Whether old sessions go on their own after the warning hour. An older install kept
     // a four-way policy, or before that a single Boolean. Only "review" meant no, so
@@ -258,65 +297,24 @@ enum Preferences {
 
     // How much memory a single turn may hold before the app stops it to keep the Mac
     // usable. Stored as whole gigabytes, with zero meaning the automatic share.
-    static func sessionMemoryLimit(in store: UserDefaults = .standard) -> SessionMemoryLimit {
-        guard store.object(forKey: "sessionMemoryLimit") != nil else {
-            return SessionMemoryLimit.fallback
-        }
-        return SessionMemoryLimit.resolved(store.integer(forKey: "sessionMemoryLimit"))
-    }
-
-    static func setSessionMemoryLimit(_ limit: SessionMemoryLimit,
-                                      in store: UserDefaults = .standard) {
-        store.set(limit.rawValue, forKey: "sessionMemoryLimit")
-    }
+    static let sessionMemoryLimit = Preference("sessionMemoryLimit", fallback: SessionMemoryLimit.fallback)
 
     // Stats are off until the person turns them on, so nothing about how they work is
     // counted without their asking.
-    static func statsEnabled(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "statsEnabled")
-    }
-
-    static func setStatsEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
-        store.set(enabled, forKey: "statsEnabled")
-    }
+    static let statsEnabled = Preference("statsEnabled", fallback: false)
 
     // How many days a removed session's stats stay behind, counted from its last turn.
     // Zero means they go with the session.
-    static func statsRemovedSessionDays(in store: UserDefaults = .standard) -> Int {
-        guard store.object(forKey: "statsRemovedSessionDays") != nil else {
-            return StatsStore.defaultKeptDays
-        }
-        return StatsStore.resolvedKeptDays(store.integer(forKey: "statsRemovedSessionDays"))
-    }
-
-    static func setStatsRemovedSessionDays(_ days: Int, in store: UserDefaults = .standard) {
-        store.set(StatsStore.resolvedKeptDays(days), forKey: "statsRemovedSessionDays")
-    }
+    static let statsRemovedSessionDays = Preference(
+        "statsRemovedSessionDays", fallback: StatsStore.defaultKeptDays,
+        range: StatsStore.keptDayRange)
 
     // Whether orphaned worktrees are cleaned up by the same rule as old sessions. The key
-    // is older than the rule: it used to prune every orphan, changes and all.
-    static func sweepsOrphanedWorktrees(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "autoPruneOrphanedWorktrees")
-    }
+    // keeps the name it was first saved under, so a choice made under it still counts.
+    static let sweepsOrphanedWorktrees = Preference("autoPruneOrphanedWorktrees", fallback: false)
 
-    static func setSweepsOrphanedWorktrees(_ enabled: Bool,
-                                           in store: UserDefaults = .standard) {
-        store.set(enabled, forKey: "autoPruneOrphanedWorktrees")
-    }
-
-    static func skillsRefreshInterval(in store: UserDefaults = .standard)
-        -> SkillsRefreshInterval {
-        guard store.object(forKey: "skillsRefreshInterval") != nil else { return .fiveDays }
-        return SkillsRefreshInterval(rawValue: store.integer(forKey: "skillsRefreshInterval"))
-            ?? .fiveDays
-    }
-
-    static func setSkillsRefreshInterval(
-        _ interval: SkillsRefreshInterval,
-        in store: UserDefaults = .standard
-    ) {
-        store.set(interval.rawValue, forKey: "skillsRefreshInterval")
-    }
+    static let skillsRefreshInterval = Preference(
+        "skillsRefreshInterval", fallback: SkillsRefreshInterval.fiveDays)
 
     static func appUpdateLastCheck(in store: UserDefaults = .standard) -> Date? {
         store.object(forKey: "appUpdateLastCheck") as? Date
@@ -344,16 +342,8 @@ enum Preferences {
         store.set(data, forKey: "cachedAppUpdateRelease")
     }
 
-    static func dismissedAppUpdateVersion(in store: UserDefaults = .standard) -> String? {
-        store.string(forKey: "dismissedAppUpdateVersion")
-    }
-
-    static func setDismissedAppUpdateVersion(
-        _ version: String?,
-        in store: UserDefaults = .standard
-    ) {
-        store.set(version, forKey: "dismissedAppUpdateVersion")
-    }
+    static let dismissedAppUpdateVersion = Preference<String?>(
+        "dismissedAppUpdateVersion", fallback: nil)
 
     // The skills a diagnosis is told to use. The choice belongs to the person rather than
     // to any one problem, so the next Troubleshoot opens with the last one already made.
@@ -401,35 +391,14 @@ enum Preferences {
 
     // How the sidebar orders projects. An unset key reads as the alphabetical order,
     // which is the one the list has always been in.
-    static func projectSort(in store: UserDefaults = .standard) -> ProjectSort {
-        store.string(forKey: "projectSort").flatMap(ProjectSort.init(rawValue:)) ?? .name
-    }
-
-    static func setProjectSort(_ sort: ProjectSort, in store: UserDefaults = .standard) {
-        store.set(sort.rawValue, forKey: "projectSort")
-    }
+    static let projectSort = Preference("projectSort", fallback: ProjectSort.name)
 
     // Whether the sidebar splits into sections by kind. An unset key reads as the flat
     // list the rail has always shown.
-    static func projectGrouping(in store: UserDefaults = .standard) -> ProjectGrouping {
-        store.string(forKey: "projectGrouping")
-            .flatMap(ProjectGrouping.init(rawValue:)) ?? .flat
-    }
-
-    static func setProjectGrouping(
-        _ grouping: ProjectGrouping,
-        in store: UserDefaults = .standard
-    ) {
-        store.set(grouping.rawValue, forKey: "projectGrouping")
-    }
+    static let projectGrouping = Preference("projectGrouping", fallback: ProjectGrouping.flat)
 
     // Which terminal opens a shell in a window of its own. Held as a bundle ID so the
     // choice survives the app being moved or renamed. Unset follows the system.
-    static var terminalBundleID: String? {
-        get { terminalBundleID(in: store) }
-        set { setTerminalBundleID(newValue, in: store) }
-    }
-
     static func terminalBundleID(in store: UserDefaults = .standard) -> String? {
         text("terminalBundleID", in: store)
     }
@@ -440,9 +409,12 @@ enum Preferences {
 
     // The app the header's "Open in" button sends a session's folder to. With none
     // saved, it is Finder.
-    static var openInBundleID: String? {
-        get { text("openInBundleID", in: store) }
-        set { set(newValue, "openInBundleID", in: store) }
+    static func openInBundleID(in store: UserDefaults = .standard) -> String? {
+        text("openInBundleID", in: store)
+    }
+
+    static func setOpenInBundleID(_ id: String?, in store: UserDefaults = .standard) {
+        set(id, "openInBundleID", in: store)
     }
 
     // A saved external site file sits ahead of the conventional and bundled locations.
@@ -461,29 +433,11 @@ enum Preferences {
         store.set(url.standardizedFileURL.path, forKey: "siteDefaultsPath")
     }
 
-    static func appearance(in store: UserDefaults = .standard) -> Appearance {
-        store.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system
-    }
+    static let appearance = Preference("appearance", fallback: Appearance.system)
 
-    static func setAppearance(_ appearance: Appearance, in store: UserDefaults = .standard) {
-        store.set(appearance.rawValue, forKey: "appearance")
-    }
+    static let sunlightEnabled = Preference("sunlightEnabled", fallback: false)
 
-    static func sunlightEnabled(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "sunlightEnabled")
-    }
-
-    static func setSunlightEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
-        store.set(enabled, forKey: "sunlightEnabled")
-    }
-
-    static func sunlightMode(in store: UserDefaults = .standard) -> SunlightMode {
-        store.string(forKey: "sunlightMode").flatMap(SunlightMode.init(rawValue:)) ?? .followsSun
-    }
-
-    static func setSunlightMode(_ mode: SunlightMode, in store: UserDefaults = .standard) {
-        store.set(mode.rawValue, forKey: "sunlightMode")
-    }
+    static let sunlightMode = Preference("sunlightMode", fallback: SunlightMode.followsSun)
 
     // Kept inside the slider's range, so a value written by hand cannot ask for a colour
     // the window has no way to show.
@@ -497,71 +451,25 @@ enum Preferences {
         store.set(kelvin, forKey: "sunlightNightKelvin")
     }
 
-    static func sidebarIconSet(in store: UserDefaults = .standard) -> SidebarIconSet {
-        store.string(forKey: "sidebarIconSet").flatMap(SidebarIconSet.init(rawValue:))
-            ?? .diceBear
-    }
+    static let sidebarIconSet = Preference("sidebarIconSet", fallback: SidebarIconSet.diceBear)
 
-    static func setSidebarIconSet(_ iconSet: SidebarIconSet, in store: UserDefaults = .standard) {
-        store.set(iconSet.rawValue, forKey: "sidebarIconSet")
-    }
-
-    static func diceBearAvatarStyle(in store: UserDefaults = .standard) -> DiceBearAvatarStyle {
-        store.string(forKey: "diceBearAvatarStyle")
-            .flatMap(DiceBearAvatarStyle.init(rawValue:)) ?? .waves
-    }
-
-    static func setDiceBearAvatarStyle(_ style: DiceBearAvatarStyle,
-                                       in store: UserDefaults = .standard) {
-        store.set(style.rawValue, forKey: "diceBearAvatarStyle")
-    }
+    static let diceBearAvatarStyle = Preference(
+        "diceBearAvatarStyle", fallback: DiceBearAvatarStyle.waves)
 
     // How large a session's own text is drawn. A reading size belongs to the person at the
     // machine rather than to any one session, so there is a single answer for the app.
-    static func textSize(in store: UserDefaults = .standard) -> TextSize {
-        store.string(forKey: "textSize").flatMap(TextSize.init(rawValue:)) ?? .standard
-    }
+    static let textSize = Preference("textSize", fallback: TextSize.standard)
 
-    static func setTextSize(_ textSize: TextSize, in store: UserDefaults = .standard) {
-        store.set(textSize.rawValue, forKey: "textSize")
-    }
+    static let messageColour = Preference("messageColour", fallback: MessageColour.projectIcon)
 
-    static func messageColour(in store: UserDefaults = .standard) -> MessageColour {
-        store.string(forKey: "messageColour").flatMap(MessageColour.init(rawValue:))
-            ?? .projectIcon
-    }
+    // How a transcript writes the time of each entry.
+    static let timestampFormat = Preference("timestampFormat", fallback: TimestampFormat.off)
 
-    static func setMessageColour(_ colour: MessageColour, in store: UserDefaults = .standard) {
-        store.set(colour.rawValue, forKey: "messageColour")
-    }
+    // Which entries carry a time.
+    static let timestampScope = Preference(
+        "timestampScope", fallback: TimestampScope.messagesAndSteps)
 
-    // How a transcript writes the time of each entry, and which entries carry one.
-    static func timestampFormat(in store: UserDefaults = .standard) -> TimestampFormat {
-        store.string(forKey: "timestampFormat").flatMap(TimestampFormat.init(rawValue:))
-            ?? .off
-    }
-
-    static func setTimestampFormat(_ format: TimestampFormat,
-                                   in store: UserDefaults = .standard) {
-        store.set(format.rawValue, forKey: "timestampFormat")
-    }
-
-    static func timestampScope(in store: UserDefaults = .standard) -> TimestampScope {
-        store.string(forKey: "timestampScope").flatMap(TimestampScope.init(rawValue:))
-            ?? .messagesAndSteps
-    }
-
-    static func setTimestampScope(_ scope: TimestampScope, in store: UserDefaults = .standard) {
-        store.set(scope.rawValue, forKey: "timestampScope")
-    }
-
-    static func designAmbition(in store: UserDefaults = .standard) -> DesignAmbition {
-        DesignAmbition.valid(store.string(forKey: "designAmbition")) ?? .fallback
-    }
-
-    static func setDesignAmbition(_ ambition: DesignAmbition, in store: UserDefaults = .standard) {
-        store.set(ambition.rawValue, forKey: "designAmbition")
-    }
+    static let designAmbition = Preference("designAmbition", fallback: DesignAmbition.fallback)
 
     // The old catch-up preference maps directly to automatic recaps, so an existing opt-out
     // remains respected after the feature changes shape.
@@ -583,76 +491,27 @@ enum Preferences {
 
     // Off unless asked for: a suggestion is work the agent does on top of the turn, and
     // on the CLIs that cannot predict one themselves it is a whole extra run.
-    static func promptSuggestionsEnabled(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "promptSuggestionsEnabled")
-    }
-
-    static func setPromptSuggestionsEnabled(
-        _ enabled: Bool, in store: UserDefaults = .standard
-    ) {
-        store.set(enabled, forKey: "promptSuggestionsEnabled")
-    }
+    static let promptSuggestionsEnabled = Preference("promptSuggestionsEnabled", fallback: false)
 
     // Steering is the default: an agent that can take a prompt mid-turn uses it at its
     // next step, which is what someone typing while it works usually wants.
-    static func midTurnPromptDelivery(
-        in store: UserDefaults = .standard
-    ) -> SessionRunner.PromptDelivery {
-        store.string(forKey: "midTurnPromptDelivery")
-            .flatMap(SessionRunner.PromptDelivery.init(rawValue:)) ?? .now
-    }
+    static let midTurnPromptDelivery = Preference(
+        "midTurnPromptDelivery", fallback: SessionRunner.PromptDelivery.now)
 
-    static func setMidTurnPromptDelivery(
-        _ delivery: SessionRunner.PromptDelivery, in store: UserDefaults = .standard
-    ) {
-        store.set(delivery.rawValue, forKey: "midTurnPromptDelivery")
-    }
-
-    static func sessionTitlesEnabled(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "sessionTitlesEnabled")
-    }
-
-    static func setSessionTitlesEnabled(
-        _ enabled: Bool, in store: UserDefaults = .standard
-    ) {
-        store.set(enabled, forKey: "sessionTitlesEnabled")
-    }
+    static let sessionTitlesEnabled = Preference("sessionTitlesEnabled", fallback: false)
 
     // What a finished session plays. An unset key reads as the standard sound: a turn
     // ending while the person is elsewhere is the moment they most want to hear about,
     // so it is on until they say otherwise.
-    static func sessionFinishedSound(in store: UserDefaults = .standard) -> SessionSound {
-        guard let raw = store.string(forKey: "sessionFinishedSound") else {
-            return .standard
-        }
-        return SessionSound(rawValue: raw) ?? .standard
-    }
-
-    static func setSessionFinishedSound(_ sound: SessionSound,
-                                        in store: UserDefaults = .standard) {
-        store.set(sound.rawValue, forKey: "sessionFinishedSound")
-    }
+    static let sessionFinishedSound = Preference(
+        "sessionFinishedSound", fallback: SessionSound.standard)
 
     // Mobile access exposes live session control to another device, so it stays off until
     // someone deliberately turns it on.
-    static func mobileAccessEnabled(in store: UserDefaults = .standard) -> Bool {
-        store.bool(forKey: "mobileAccessEnabled")
-    }
+    static let mobileAccessEnabled = Preference("mobileAccessEnabled", fallback: false)
 
-    static func setMobileAccessEnabled(_ enabled: Bool, in store: UserDefaults = .standard) {
-        store.set(enabled, forKey: "mobileAccessEnabled")
-    }
-
-    static func mobilePairingLifetime(in store: UserDefaults = .standard) -> MobilePairingLifetime {
-        guard store.object(forKey: "mobilePairingLifetime") != nil else { return .standard }
-        return MobilePairingLifetime(rawValue: store.integer(forKey: "mobilePairingLifetime"))
-            ?? .standard
-    }
-
-    static func setMobilePairingLifetime(_ lifetime: MobilePairingLifetime,
-                                         in store: UserDefaults = .standard) {
-        store.set(lifetime.rawValue, forKey: "mobilePairingLifetime")
-    }
+    static let mobilePairingLifetime = Preference(
+        "mobilePairingLifetime", fallback: MobilePairingLifetime.standard)
 
     // Whether what a session has spent is shown. Kept per agent, like the session
     // defaults are, because what a CLI reports about cost is its own business. On unless

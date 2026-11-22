@@ -99,6 +99,6 @@ struct AgentHistoryReaderTests {
                                                     candidate: candidate(.copilot))
         _ = exchange.firstMessage
         _ = try reply(exchange, id: 1, result: ["sessionId": sourceID], agent: .copilot)
-        #expect(throws: AgentHistoryReader.Failure.self) { try exchange.result.get() }
+        #expect(throws: AgentFailure.self) { try exchange.result.get() }
     }
 }

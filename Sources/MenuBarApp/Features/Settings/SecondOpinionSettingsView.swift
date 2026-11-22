@@ -18,7 +18,7 @@ struct SecondOpinionSettingsView: View {
     @State private var seatMotion = Motion.reveal
 
     private var installed: [AgentKind] {
-        AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        runner.catalog.availableAgents
     }
 
     var body: some View {
@@ -34,7 +34,7 @@ struct SecondOpinionSettingsView: View {
         }
         // A reset empties the lineup, and the rows to tick come straight back.
         .onChange(of: defaults.seats.isEmpty) { seatInstalledAgents() }
-        .task { for agent in installed { await runner.discoverModels(for: agent) } }
+        .task { for agent in installed { await runner.catalog.discoverModels(for: agent) } }
     }
 
     // Every installed agent gets a row to tick, unticked until the person picks it. A
@@ -52,7 +52,7 @@ struct SecondOpinionSettingsView: View {
         ChoiceBlock("USUAL REVIEWERS", note: "The ask opens with these seats ticked. Change them for one ask under Tune.") {
             SettingsCard {
                 if defaults.seats.isEmpty {
-                    Text(SecondOpinionLineup.installHint(author: runner.agent))
+                    Text(SecondOpinionLineup.installHint(author: runner.catalog.agent))
                         .font(Typography.detail).foregroundStyle(.secondary)
                         .padding(Space.lg)
                 }
@@ -129,7 +129,7 @@ struct SecondOpinionSettingsView: View {
                     installed.map { agent in
                         MenuEntry.item(agent.title, subtitle: "Starts on a model no seat of it uses yet") {
                             seatMotion = Motion.reveal
-                            defaults.addSeat(agent, models: runner.modelOptions(for: agent).map(\.id), effort: nil)
+                            defaults.addSeat(agent, models: runner.catalog.modelOptions(for: agent).map(\.id), effort: nil)
                             settingsNote("Added a \(agent.title) seat", "plus")
                         }
                     }
@@ -148,14 +148,14 @@ struct SecondOpinionSettingsView: View {
     }
 
     private func modelMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let title = seat.model.map { runner.modelTitle($0) } ?? "Default"
+        let title = seat.model.map { runner.catalog.modelTitle($0) } ?? "Default"
         return SeatPill { Text(title) }
             .appMenu {
-                runner.modelOptions(for: seat.agent).map { option in
+                runner.catalog.modelOptions(for: seat.agent).map { option in
                     MenuEntry.item(option.title, checked: seat.model == option.id, subtitle: option.detail) {
                         guard defaults.seats.indices.contains(index) else { return }
                         defaults.seats[index].reviewer.model = option.id
-                        defaults.seats[index].reviewer.effort = runner.validEffort(seat.effort, for: seat.agent,
+                        defaults.seats[index].reviewer.effort = runner.catalog.validEffort(seat.effort, for: seat.agent,
                                                                                    model: option.id)
                     }
                 }
@@ -165,8 +165,8 @@ struct SecondOpinionSettingsView: View {
     }
 
     private func effortMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let levels = runner.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
-        let title = seat.effort.map { runner.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
+        let levels = runner.catalog.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
+        let title = seat.effort.map { runner.catalog.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
         func pick(_ effort: String?) {
             guard defaults.seats.indices.contains(index) else { return }
             defaults.seats[index].reviewer.effort = effort
@@ -180,7 +180,7 @@ struct SecondOpinionSettingsView: View {
                             subtitle: "Whatever \(seat.agent.title) is set to use",
                             detail: "about \(SecondOpinion.minutes(for: nil)) min") { pick(nil) },
              .separator] + levels.map { level in
-                MenuEntry.item(runner.effortTitle(level, for: seat.agent, model: seat.model),
+                MenuEntry.item(runner.catalog.effortTitle(level, for: seat.agent, model: seat.model),
                                meter: EffortMeter.lit(for: level, among: levels),
                                checked: seat.effort == level,
                                detail: "about \(SecondOpinion.minutes(for: level)) min") { pick(level) }

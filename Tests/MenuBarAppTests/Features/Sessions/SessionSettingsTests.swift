@@ -9,47 +9,47 @@ struct SessionSettingsTests {
 
     @MainActor
     @Test func newSessionsOnlyOfferInstalledAgents() {
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [
             .claudeCode: "/usr/local/bin/claude",
             .codex: "/usr/local/bin/codex",
         ])
 
-        #expect(runner.availableAgents == [.claudeCode, .codex])
-        #expect(runner.agentForNewSession(selected: nil) == runner.agent)
-        #expect(runner.agentForNewSession(selected: .codex) == .codex)
+        #expect(runner.catalog.availableAgents == [.claudeCode, .codex])
+        #expect(runner.catalog.agentForNewSession(selected: nil) == runner.catalog.agent)
+        #expect(runner.catalog.agentForNewSession(selected: .codex) == .codex)
     }
 
     @MainActor
     @Test func newSessionsUseTheOnlyInstalledAgent() {
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: "/usr/local/bin/codex"])
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [.codex: "/usr/local/bin/codex"])
 
-        #expect(runner.availableAgents == [.codex])
-        #expect(runner.agentForNewSession(selected: nil) == .codex)
-        #expect(runner.agentForNewSession(selected: .claudeCode) == .codex)
+        #expect(runner.catalog.availableAgents == [.codex])
+        #expect(runner.catalog.agentForNewSession(selected: nil) == .codex)
+        #expect(runner.catalog.agentForNewSession(selected: .claudeCode) == .codex)
     }
 
     @MainActor
     @Test func newSessionsNeedAnInstalledAgent() {
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [:])
 
-        #expect(runner.availableAgents.isEmpty)
-        #expect(runner.agentForNewSession(selected: nil) == nil)
+        #expect(runner.catalog.availableAgents.isEmpty)
+        #expect(runner.catalog.agentForNewSession(selected: nil) == nil)
     }
 
     @MainActor
     @Test func updatesAnAgentsDefaultsWithoutChangingTheDefaultAgent() {
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
-        runner.agent = .claudeCode
-        let claudeDefaults = runner.defaults(for: .claudeCode)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [:])
+        runner.catalog.agent = .claudeCode
+        let claudeDefaults = runner.catalog.defaults(for: .claudeCode)
         let codexDefaults = SessionSettings(model: "gpt-5.6-sol",
                                             effort: "high",
                                             codexSandboxMode: .workspaceWrite)
 
-        runner.setDefaults(codexDefaults, for: .codex)
+        runner.catalog.setDefaults(codexDefaults, for: .codex)
 
-        #expect(runner.agent == .claudeCode)
-        #expect(runner.defaults(for: .claudeCode) == claudeDefaults)
-        #expect(runner.defaults(for: .codex) == codexDefaults)
+        #expect(runner.catalog.agent == .claudeCode)
+        #expect(runner.catalog.defaults(for: .claudeCode) == claudeDefaults)
+        #expect(runner.catalog.defaults(for: .codex) == codexDefaults)
     }
 
     // MARK: - Arguments

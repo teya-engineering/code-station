@@ -72,7 +72,7 @@ struct NewSessionSheetSizeTests {
         let measured = MeasuredHeight()
         let host = NSHostingView(rootView: HeightProbe(report: { height in MainActor.assumeIsolated { measured.value = height } }) {
             NewSessionView(project: Project(name: "probe", path: NSTemporaryDirectory())) { _ in }
-                .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+                .environment(SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [:]))
                 .environment(DialogPresenter())
                 .environment(MenuPresenter())
                 .environment(TooltipPresenter())

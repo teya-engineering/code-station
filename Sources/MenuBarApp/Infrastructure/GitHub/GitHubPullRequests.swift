@@ -142,19 +142,37 @@ enum GitHubPullRequests {
     }
 
     // The full search path a Finder-launched app lacks, and never waiting on a prompt.
-    private static func run(_ arguments: [String], in directory: URL? = nil) async throws -> CommandRunner.Output {
-        guard let gh = ProcessManager.resolve("gh") else { throw Failure.noGH }
+    private static var environment: [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = ProcessManager.searchPath
         environment["GH_PROMPT_DISABLED"] = "1"
         environment["GH_NO_UPDATE_NOTIFIER"] = "1"
+        return environment
+    }
+
+    private static let outputByteLimit = 8 * 1_048_576
+
+    private static func run(_ arguments: [String], in directory: URL? = nil) async throws -> CommandRunner.Output {
+        guard let gh = ProcessManager.resolve("gh") else { throw Failure.noGH }
         do {
             return try await CommandRunner.run(executable: gh, arguments: arguments, currentDirectory: directory,
                                                environment: environment, timeout: .seconds(45),
-                                               outputByteLimit: 8 * 1_048_576)
+                                               outputByteLimit: outputByteLimit)
         } catch {
             throw Failure.command(error.localizedDescription)
         }
+    }
+
+    // The same gh for a caller that is already on a git queue and cannot wait on a task.
+    // Nil when gh is missing, fails, or answers with more than can be read.
+    static func runBlocking(_ arguments: [String], in directory: URL, timeout: TimeInterval) -> String? {
+        guard let gh = ProcessManager.resolve("gh"),
+              let output = try? CommandRunner.runBlocking(
+                executable: gh, arguments: arguments, currentDirectory: directory,
+                environment: environment, timeout: .seconds(timeout), outputByteLimit: outputByteLimit),
+              output.succeeded, !output.outputTruncated, !output.errorOutputTruncated
+        else { return nil }
+        return output.output
     }
 
     private static func joinPages(_ data: Data) -> Data {

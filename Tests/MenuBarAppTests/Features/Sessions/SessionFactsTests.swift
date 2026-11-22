@@ -203,6 +203,61 @@ struct SessionFactsTests {
         #expect(facts.orderedPullRequests.map(\.number) == [12, 9, 4])
     }
 
+    private func snapshot(branch: String, files: [(added: Int, removed: Int)] = []) -> GitSnapshot {
+        var snapshot = GitSnapshot(state: .ready, branch: branch)
+        snapshot.files = files.enumerated().map { index, counts in
+            GitChange(path: "file-\(index).swift", kind: .modified, isStaged: false, isUnstaged: true,
+                      added: counts.added, removed: counts.removed, isBinary: false)
+        }
+        return snapshot
+    }
+
+    // The transcript's running total stands in only until git has answered.
+    @Test func countsTheTreeOnceGitHasAnswered() {
+        var summary = SessionSummary()
+        #expect(SessionFacts.Changes(snapshots: [], summary: summary) == nil)
+
+        summary.added = 7
+        summary.removed = 2
+        #expect(SessionFacts.Changes(snapshots: [], summary: summary)
+            == .init(files: 0, added: 7, removed: 2))
+
+        #expect(SessionFacts.Changes(snapshots: [snapshot(branch: "main")], summary: summary) == nil)
+        let trees = [snapshot(branch: "main", files: [(3, 1), (4, 0)]),
+                     snapshot(branch: "other", files: [(1, 5)])]
+        #expect(SessionFacts.Changes(snapshots: trees, summary: summary)
+            == .init(files: 3, added: 8, removed: 6))
+    }
+
+    @Test func readsASessionsFactsFromItsLeadCheckout() {
+        var session = ChatSession(projectID: UUID(), agent: .codex)
+        session.worktreeBranch = "made/at-creation"
+        let request = PullRequest(number: 7, url: "https://github.com/a/b/pull/7")
+        session.pullRequests = [request]
+        let status = PullRequestStatus(state: .open, title: "Seven", headBranch: "made/at-creation")
+        let reviews = [PullRequestReviewStore.Loaded(pullRequest: request, status: status, reviews: [])]
+
+        // Git has answered for neither folder: the branch the session was made on stands in.
+        let waiting = SessionFacts(session: session, snapshots: [nil, nil], reviews: reviews,
+                                   modelTitle: { $0 }, showsCost: true)
+        #expect(waiting.branch == "made/at-creation")
+        #expect(waiting.changes == nil)
+        #expect(waiting.pullRequestStatuses == [request.url: status])
+        #expect(waiting.agent == .codex)
+
+        // A clean tree is known to be clean only once every folder has answered.
+        let partial = SessionFacts(session: session, snapshots: [snapshot(branch: "lead"), nil],
+                                   reviews: [], modelTitle: { $0 }, showsCost: true)
+        #expect(partial.branch == "lead")
+        #expect(partial.changes == nil)
+        let clean = SessionFacts(session: session,
+                                 snapshots: [snapshot(branch: "lead"), snapshot(branch: "second")],
+                                 reviews: [], modelTitle: { $0 }, showsCost: true)
+        #expect(clean.changes == .init(files: 0, added: 0, removed: 0))
+        #expect(SessionFacts(session: session, snapshots: [], reviews: [], modelTitle: { $0 },
+                             showsCost: true).changes == nil)
+    }
+
     @Test func distinguishesNewSessionsFromFinishedAndRunningOnes() {
         #expect(SessionStateReading(tone: .idle, isNew: true).spokenWord == "New session")
         #expect(SessionStateReading(tone: .running, isNew: true).spokenWord == "Running")

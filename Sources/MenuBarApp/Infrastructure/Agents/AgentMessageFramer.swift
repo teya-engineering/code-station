@@ -9,6 +9,16 @@ struct AgentMessageFramer {
 
     init(format: Format) { self.format = format }
 
+    // One message as the bytes the server reads: the body, with a new line after it or a
+    // byte count ahead of it. Nil when the message cannot be written as JSON.
+    func frame(_ message: [String: Any]) -> Data? {
+        guard let body = try? JSONSerialization.data(withJSONObject: message) else { return nil }
+        return switch format {
+        case .jsonLines: body + Data([0x0A])
+        case .contentLength: Data("Content-Length: \(body.count)\r\n\r\n".utf8) + body
+        }
+    }
+
     mutating func append(_ data: Data) { buffer.append(data) }
 
     mutating func next() throws -> Data? {

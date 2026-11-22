@@ -203,11 +203,11 @@ struct SessionMemoryLimitRunnerTests {
                                         memoryLimit: 24 * 1_024 * 1_024,
                                         automaticRecapsEnabled: { recapChecks += 1; return true })
         defer { fixture.tearDown() }
-        fixture.runner.send("Run the tests", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("Run the tests", sessionID: fixture.session.id)
         let child = try await child(in: fixture)
         defer { if child.isAlive { kill(child.pid, SIGKILL) } }
         #expect(getpgid(child.pid) == child.pid)
-        fixture.runner.send("Next task", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("Next task", sessionID: fixture.session.id)
         try Data().write(to: fixture.scratch.path("allocate"))
 
         #expect(await waitUntil(timeout: .seconds(5)) {
@@ -237,13 +237,13 @@ struct SessionMemoryLimitRunnerTests {
         defer { fixture.tearDown() }
         fixture.store.setAgentSessionID("existing-session", agent: agent, for: fixture.session.id)
         if title {
-            #expect(fixture.runner.regenerateTitle(fixture.session.id, store: fixture.store))
+            #expect(fixture.runner.regenerateTitle(fixture.session.id))
         } else {
-            #expect(fixture.runner.recap(fixture.session.id, store: fixture.store))
+            #expect(fixture.runner.recap(fixture.session.id))
         }
         let child = try await child(in: fixture)
         defer { if child.isAlive { kill(child.pid, SIGKILL) } }
-        fixture.runner.send("Continue the work", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("Continue the work", sessionID: fixture.session.id)
         try Data().write(to: fixture.scratch.path("allocate"))
 
         #expect(await waitUntil(timeout: .seconds(5)) {
@@ -252,7 +252,7 @@ struct SessionMemoryLimitRunnerTests {
         })
         #expect(await waitUntil(timeout: .seconds(5)) { !child.isAlive })
         #expect(!fixture.runner.isRecapping(fixture.session.id))
-        #expect(!fixture.runner.isGeneratingTitle(fixture.session.id, store: fixture.store))
+        #expect(!fixture.runner.isGeneratingTitle(fixture.session.id))
         #expect(fixture.store.recap(for: fixture.session.id) == nil)
         #expect(fixture.runner.queued(fixture.session.id).map(\.text) == ["Continue the work"])
         #expect(fixture.store.transcript(of: fixture.session.id).last?.text

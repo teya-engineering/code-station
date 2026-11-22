@@ -18,8 +18,7 @@ struct MCPPresetsEditorView: View {
     @State private var selection: UUID?
     @State private var query = ""
     @State private var failure: String?
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
     @State private var fileActOuts = 0
     @State private var showsWhy = false
     @FocusState private var focus: PresetFocus?
@@ -58,16 +57,7 @@ struct MCPPresetsEditorView: View {
         }
         .frame(width: 940, height: 660)
         .background(Theme.background)
-        .overlay(alignment: .topTrailing) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: "folder", text: note)
-                        .padding(.top, Theme.headerHeight + Space.xxs).padding(.trailing, Space.pane)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, top: Theme.headerHeight + Space.xxs, trailing: Space.pane)
     }
 
     // MARK: - Header
@@ -132,13 +122,7 @@ struct MCPPresetsEditorView: View {
         } else {
             NSWorkspace.shared.open(file.deletingLastPathComponent())
         }
-        notes += 1
-        let shown = notes
-        note = "Shown in Finder"
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show("Shown in Finder", icon: "folder")
     }
 
     // MARK: - List
