@@ -285,6 +285,31 @@ enum Preferences {
         store.removeObject(forKey: "oldSessionAskReasons")
     }
 
+    // The stored ages also mark the migration. A disabled master switch must become
+    // six review-only choices once, without overriding later independent edits.
+    static func migrateOldSessionRules(in store: UserDefaults) {
+        guard store.dictionary(forKey: "oldSessionConditionDays") == nil else { return }
+        if !oldSessionsDeleteOnTheirOwn(in: store) {
+            setOldSessionAskReasons(Set(CleanupReason.allCases), in: store)
+        }
+        let days = oldSessionDays.read(in: store)
+        setOldSessionConditionDays(Dictionary(uniqueKeysWithValues:
+            CleanupReason.allCases.map { ($0, days) }), in: store)
+    }
+
+    static func oldSessionConditionDays(in store: UserDefaults) -> [CleanupReason: Int] {
+        let values = store.dictionary(forKey: "oldSessionConditionDays") ?? [:]
+        return Dictionary(uniqueKeysWithValues: CleanupReason.allCases.map { reason in
+            (reason, OldSessions.resolvedDays(values[reason.rawValue] as? Int ?? OldSessions.defaultDays))
+        })
+    }
+
+    static func setOldSessionConditionDays(_ values: [CleanupReason: Int], in store: UserDefaults) {
+        store.set(Dictionary(uniqueKeysWithValues: values.map {
+            ($0.key.rawValue, OldSessions.resolvedDays($0.value))
+        }), forKey: "oldSessionConditionDays")
+    }
+
     // Orphaned worktrees the person asked to hear about later, by path.
     static func orphanCleanupDeferrals(in store: UserDefaults = .standard) -> [String: Date] {
         store.dictionary(forKey: "orphanCleanupDeferrals") as? [String: Date] ?? [:]

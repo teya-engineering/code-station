@@ -140,6 +140,8 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
+`SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
+
 ### Scroll cap
 
 A block that scrolls inside a taller page, such as tool output, log lines or a trace in the transcript, grows with its content up to a cap from `ScrollCap` (`Tokens.swift`) and then scrolls.
@@ -254,7 +256,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Tick off a changed file as read | `ViewedToggle` (`Controls/ViewedToggle.swift`): an outlined pill with a `CheckboxMark` and "Viewed". `ControlHeight.md` in a pane's header, `.sm` in a card's own header. Pass `edited: true` for a file changed since it was ticked, which gives the pill an amber edge. Kept apart from a row's commit checkbox so the two never read as one. |
 | A number in a range | `AppSlider` |
 | Text | `.appTextField()`, `AppTextEditor` |
-| A date | `DayField` |
+| A count of days | `DayField`. Use `validatesEntry: true` to keep invalid text visible with a correction; Return or leaving the field saves a valid whole number, and Escape restores the saved value. |
 | A file or folder | `FilePicker` |
 | A label over a field | `LabeledField` |
 | A key beside its value | `LabeledRow` |

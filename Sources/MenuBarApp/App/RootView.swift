@@ -268,7 +268,7 @@ struct RootView: View {
         case .dispatch: DispatchView()
         case .shortcuts: ShortcutsView()
         case .oldSessions:
-            OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
+            OldSessionsView(sessions: OldSessions.reviewable(rule: settings.cleanupRule,
                                                              store: store, runner: runner))
         // Each list links to the other, so splitting them hides nothing. Swapping the
         // item lets the old sheet go before the new one arrives.

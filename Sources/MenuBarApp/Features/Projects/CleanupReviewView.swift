@@ -63,8 +63,8 @@ struct CleanupReviewView: View {
                     } else {
                         family(.losesWork, title: "Would lose work", dot: Theme.deletion,
                                detail: "Deleting throws away something that exists nowhere else.")
-                        family(.notLookedAt, title: "Not looked at yet", dot: Theme.attention,
-                               detail: "Nothing on disk is lost, but you have not been back to these.")
+                        family(.notLookedAt, title: "Review first", dot: Theme.attention,
+                               detail: "Your rules keep these until you decide.")
                     }
                 }
                 .padding(Space.pane)
@@ -103,7 +103,7 @@ struct CleanupReviewView: View {
         SheetTitle(name: "Waiting for your OK", icon: "hourglass",
                    tint: Theme.attention, ink: Theme.attentionText, count: items.count) {
             WhyButton(label: "Why these wait", isOpen: $showsWhy) {
-                Text("These are older than \(counted(appSettings.oldSessionDays, "day")), but deleting them would cost you something. They stay until you decide, however old they get.")
+                Text("These have reached the age set by their matching rules, and at least one rule asks for review. They stay until you decide, however old they get.")
                     .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -120,7 +120,7 @@ struct CleanupReviewView: View {
             if items.isEmpty {
                 StatusCaps(text: "NOTHING IS WAITING")
             } else {
-                StatusCaps(text: "OLDER THAN \(counted(appSettings.oldSessionDays, "day"))".uppercased())
+                StatusCaps(text: "OLD UNDER YOUR RULES")
                 StatusRule()
                 if stake.isEmpty {
                     StatusCaps(text: "NOTHING AT STAKE")
@@ -193,7 +193,7 @@ struct CleanupReviewView: View {
                 .foregroundStyle(Theme.dotOnText)
             Text("Nothing is waiting for you")
                 .font(Typography.title)
-            Text("Sessions older than \(counted(appSettings.oldSessionDays, "day")) that hold work or that you have not looked at will show up here. Read sessions with nothing to lose are cleared after a one-hour warning.")
+            Text("Sessions whose matching rules ask for review wait here until you decide. Rules that allow auto-delete start a one-hour countdown instead.")
                 .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

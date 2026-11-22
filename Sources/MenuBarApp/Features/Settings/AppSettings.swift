@@ -58,6 +58,10 @@ final class AppSettings {
         didSet { Preferences.oldSessionDays.write(oldSessionDays, in: preferences) }
     }
 
+    var oldSessionConditionDays: [CleanupReason: Int] {
+        didSet { Preferences.setOldSessionConditionDays(oldSessionConditionDays, in: preferences) }
+    }
+
     var oldSessionsDeleteOnTheirOwn: Bool {
         didSet {
             Preferences.setOldSessionsDeleteOnTheirOwn(oldSessionsDeleteOnTheirOwn,
@@ -92,7 +96,8 @@ final class AppSettings {
     var cleanupRule: CleanupRule {
         CleanupRule(deletesOnItsOwn: oldSessionsDeleteOnTheirOwn,
                     asked: oldSessionAskReasons,
-                    includesOrphans: sweepsOrphanedWorktrees)
+                    includesOrphans: sweepsOrphanedWorktrees,
+                    days: oldSessionDays, conditionDays: oldSessionConditionDays)
     }
 
     var skillsRefreshInterval: SkillsRefreshInterval {
@@ -254,6 +259,8 @@ final class AppSettings {
          preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
+        Preferences.migrateOldSessionRules(in: preferences)
+        oldSessionConditionDays = Preferences.oldSessionConditionDays(in: preferences)
         oldSessionDays = Preferences.oldSessionDays.read(in: preferences)
         oldSessionsDeleteOnTheirOwn = Preferences.oldSessionsDeleteOnTheirOwn(in: preferences)
         oldSessionAskReasons = Preferences.oldSessionAskReasons(in: preferences)

@@ -125,8 +125,8 @@ struct AppSidebar: View {
             showNote(EmptyWorkspaceSweep.removedNote(removed), icon: "hourglass")
         }
         .task(id: store.navigation.sidebarHighlight) { await endHighlight() }
-        .task(id: oldSessions.rule(store: store, runner: runner, days: appSettings.oldSessionDays)) {
-            await oldSessions.watch(store: store, runner: runner, days: appSettings.oldSessionDays)
+        .task(id: oldSessions.rule(store: store, runner: runner, cleanupRule: appSettings.cleanupRule)) {
+            await oldSessions.watch(store: store, runner: runner, cleanupRule: appSettings.cleanupRule)
         }
         .onChange(of: rowCount) { _, _ in
             picks.keep { store.project($0) != nil || store.workspace($0) != nil
@@ -1315,13 +1315,12 @@ struct AppSidebar: View {
 
     private var bottomBar: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            if appSettings.oldSessionsDeleteOnTheirOwn {
+            if appSettings.cleanupRule.hasAutomaticDeletion {
                 CleanupStrip(status: cleanup.status, onReview: onReviewCleanup) { highlight in
                     cleanupHighlight = highlight
                 }
             } else if oldSessions.summary.sessions > 0 {
                 OldSessionsOfferStrip(summary: oldSessions.summary,
-                                      days: appSettings.oldSessionDays,
                                       onReview: onReviewOldSessions)
                     .transition(.fold)
             }
@@ -1356,7 +1355,7 @@ struct AppSidebar: View {
         .motion(Motion.reveal, value: cleanup.status.deletion == nil)
         .motion(Motion.reveal, value: oldSessions.summary.sessions > 0)
         .motion(Motion.reveal, value: cleanup.workspaceRemoval == nil)
-        .onChange(of: appSettings.oldSessionsDeleteOnTheirOwn) { _, _ in cleanupHighlight = nil }
+        .onChange(of: appSettings.cleanupRule) { _, _ in cleanupHighlight = nil }
     }
 
     // When cleanup looks after orphans they are counted in its card. Otherwise this is

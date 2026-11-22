@@ -171,7 +171,8 @@ struct AppPathsTests {
 
         #expect(settings.cleanupRule == CleanupRule(deletesOnItsOwn: true,
                                                     asked: CleanupRule.askedByDefault,
-                                                    includesOrphans: false))
+                                                    includesOrphans: false,
+                                                    conditionDays: settings.oldSessionConditionDays))
 
         settings.oldSessionsDeleteOnTheirOwn = false
         settings.oldSessionAskReasons = [.snoozed]
@@ -179,7 +180,8 @@ struct AppPathsTests {
 
         let reloaded = AppSettings(agentAvatarURL: avatar, preferences: defaults)
         #expect(reloaded.cleanupRule == CleanupRule(deletesOnItsOwn: false, asked: [.snoozed],
-                                                    includesOrphans: true))
+                                                    includesOrphans: true,
+                                                    conditionDays: settings.oldSessionConditionDays))
         #expect(!reloaded.cleanupRule.asks(.uncommittedChanges))
         #expect(!reloaded.cleanupRule.asks(.unread))
     }

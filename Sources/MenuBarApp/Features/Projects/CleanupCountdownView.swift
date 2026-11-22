@@ -1,10 +1,8 @@
 import AppKit
 import SwiftUI
 
-// What the countdown on the sidebar card will take when it ends. Everything here is old,
-// read, and loses nothing on disk, so the sweep needs no yes. The only real answer is to
-// keep something out of it. Deleting now is offered, but quietly, since waiting does the
-// same thing.
+// What the sidebar countdown will take under the person's rules. Keep removes an item
+// from this sweep. Deleting now is offered quietly, since waiting does the same thing.
 struct CleanupCountdownView: View {
     let status: OldSessionSweep.Status
     // Swaps this sheet for the waiting list.
@@ -88,7 +86,7 @@ struct CleanupCountdownView: View {
     private var header: some View {
         SheetTitle(name: "Deleted at the countdown", icon: "timer", count: items.count) {
             WhyButton(label: "Why these go", isOpen: $showsWhy) {
-                Text("These are older than \(counted(appSettings.oldSessionDays, "day")), you have read them, and nothing on disk would be lost, so they go without asking. Keep any you still want and it is left out of this sweep. Kept sessions are asked about again in a week.")
+                Text("These have reached the age set by their matching rules, and every matching rule allows auto-delete. Keep any you still want and it is left out of this sweep. Kept sessions are asked about again in a week.")
                     .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -104,11 +102,9 @@ struct CleanupCountdownView: View {
             if items.isEmpty {
                 StatusCaps(text: "NOTHING IN THIS COUNTDOWN")
             } else {
-                StatusCaps(text: "OLDER THAN \(counted(appSettings.oldSessionDays, "day"))".uppercased())
+                StatusCaps(text: "OLD UNDER YOUR RULES")
                 StatusRule()
-                StatusCaps(text: "READ")
-                StatusDot()
-                StatusCaps(text: "NOTHING ON DISK LOST")
+                StatusCaps(text: "AUTO-DELETE ON")
             }
             Spacer(minLength: Space.md)
             if let deadline = status.deletion?.at, !items.isEmpty {
@@ -158,7 +154,7 @@ struct CleanupCountdownView: View {
                 .font(Typography.title)
             Text(kept > 0
                  ? "Nothing goes at the end of this countdown. Kept sessions come back on \(day) if they are still old by then."
-                 : "Read sessions older than \(counted(appSettings.oldSessionDays, "day")) with nothing to lose show up here an hour before they go.")
+                 : "Sessions whose matching rules allow auto-delete show up here an hour before they go.")
                 .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -190,7 +186,7 @@ struct CleanupCountdownView: View {
         return item.session?.title ?? ""
     }
 
-    // "code-station · Conversation and a clean worktree · Last turn 7 days ago"
+    // "code-station · Conversation and a worktree · Last turn 7 days ago"
     private func detail(_ item: Item) -> String {
         if let orphan = item.orphan { return "\(orphan.projectName) · No changes" }
         guard let session = item.session else { return "" }
@@ -200,8 +196,16 @@ struct CleanupCountdownView: View {
 
     private func goes(_ session: ChatSession) -> String {
         let hasWorktree = worktreePaths(session).contains { FileManager.default.fileExists(atPath: $0) }
-        var what = hasWorktree ? "Conversation and a clean worktree" : "Conversation only"
-        if store.designCost(for: session) == .implemented { what += ", built design files" }
+        var what = hasWorktree ? "Conversation and a worktree" : "Conversation only"
+        switch store.designCost(for: session) {
+        case .implemented: what += ", built design files"
+        case .unimplemented: what += ", unbuilt design files"
+        case .absent: break
+        }
+        if status.costs[session.id]?.worktree.losesWork == true { what += ", uncommitted changes" }
+        if let commits = status.costs[session.id]?.unpushedCommits, commits > 0 {
+            what += ", \(counted(commits, "unpushed commit"))"
+        }
         return what
     }
 
@@ -247,13 +251,22 @@ struct CleanupCountdownView: View {
             item.orphan != nil || item.session.map { !worktreePaths($0).isEmpty } == true
         }) {
             rows.append(.init(title: "Branches with commits",
-                              detail: "Only the clean worktrees go. Branches stay in each repository.",
+                              detail: "Branches with commits that are not safely merged stay in each repository.",
                               kept: true))
         }
+        let losesChanges = chosen.contains { item in
+            item.session.flatMap { status.costs[$0.id] }?.worktree.losesWork == true
+        }
+        let losesDesigns = chosen.contains { item in
+            item.session.map { store.designCost(for: $0) == .unimplemented } == true
+        }
+        let warning = [losesChanges ? "Uncommitted changes cannot be restored." : nil,
+                       losesDesigns ? "Unbuilt design files cannot be restored." : nil]
+            .compactMap { $0 }.joined(separator: " ")
         let action = "Delete \(counted(chosen.count, "item"))"
         dialogs.show(.impact("\(action) now?",
-                             message: "These go at the end of the countdown anyway. Only history goes. Nothing on disk is lost.",
-                             rows: rows, action: action) {
+                             message: "These items are scheduled for auto-delete under your rules.",
+                             rows: rows, warning: warning.isEmpty ? nil : warning, action: action) {
             delete(chosen)
         })
     }

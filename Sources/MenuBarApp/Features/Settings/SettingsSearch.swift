@@ -70,7 +70,7 @@ enum SettingsSearchIndex {
         result("Skills refresh", .general, .generalSkills,
                "skills marketplace refresh versions interval daily"),
         result("Old sessions", .general, .generalOldSessions,
-               "count old after days delete automatically on their own review clear stale design saved work uncommitted unpushed commits ask me first confirm unread snoozed park"),
+               "count old after days age rule condition auto-delete automatically on their own review clear stale design saved work uncommitted unpushed commits ask me first confirm unread snoozed park"),
         result("Orphaned worktrees", .general, .generalOrphanedWorktrees,
                "git checkout prune automatically treat like old sessions no session disk cleanup uncommitted branch"),
         result("Stats", .general, .generalStats,

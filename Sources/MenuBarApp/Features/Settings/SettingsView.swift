@@ -88,7 +88,7 @@ struct SettingsView: View {
         }
         .onChange(of: secondOpinion) { _, defaults in Preferences.setSecondOpinionDefaults(defaults) }
         .sheet(isPresented: $reviewingOldSessions) {
-            OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
+            OldSessionsView(sessions: OldSessions.reviewable(rule: settings.cleanupRule,
                                                             store: store, runner: runner))
                 .appOverlays()
         }

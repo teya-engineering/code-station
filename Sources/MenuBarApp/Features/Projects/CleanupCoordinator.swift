@@ -17,16 +17,11 @@ final class CleanupCoordinator {
     private(set) var sessionCleanupError: String?
     private(set) var orphanCleanupError: String?
 
-    private struct SweepRule: Equatable {
-        let rule: CleanupRule
-        let days: Int
-    }
-
     private let store: ProjectStore
     private let runner: SessionRunner
     private let settings: AppSettings
     private let orphanedWorktrees: OrphanedWorktreeMonitor
-    @ObservationIgnored private var sweepRule: SweepRule?
+    @ObservationIgnored private var sweepRule: CleanupRule?
     @ObservationIgnored private var sweep: Task<Void, Never>?
     @ObservationIgnored private var loops: [Task<Void, Never>] = []
 
@@ -67,7 +62,7 @@ final class CleanupCoordinator {
     // under one rule never ends under another.
     private func followSweepRule() {
         let rule = withObservationTracking {
-            SweepRule(rule: settings.cleanupRule, days: settings.oldSessionDays)
+            settings.cleanupRule
         } onChange: { [weak self] in
             // Told before the setting changes, so the new value is read a turn later.
             Task { @MainActor in
@@ -83,16 +78,16 @@ final class CleanupCoordinator {
 
     // Age is the only thing that makes a session sweepable, and age only moves with the
     // clock, so this runs on a timer rather than off a change in the store.
-    private func deleteOldSessions(under sweep: SweepRule) async {
+    private func deleteOldSessions(under rule: CleanupRule) async {
         status = OldSessionSweep.Status()
-        guard sweep.rule.deletesOnItsOwn else { return }
+        guard rule.hasAutomaticDeletion else { return }
         var buffer = OldSessionSweep.EligibilityBuffer()
         var swept = 0
 
         while !Task.isCancelled {
             let now = Date()
             let deleted = await OldSessionSweep.run(
-                days: sweep.days, rule: sweep.rule, store: store, runner: runner,
+                rule: rule, store: store, runner: runner,
                 buffer: &buffer, now: now,
                 orphans: orphanedWorktrees.cleanupCandidates(now: now),
                 pruneOrphans: pruneOrphanedWorktrees)

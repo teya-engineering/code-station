@@ -45,10 +45,26 @@ struct CleanupCoordinatorTests {
         #expect(cleanup.status == OldSessionSweep.Status())
 
         settings.oldSessionsDeleteOnTheirOwn = true
-        #expect(await waitUntil(timeout: .seconds(10)) { cleanup.status != OldSessionSweep.Status() })
+        #expect(await waitUntil(timeout: .seconds(10)) { cleanup.status.deletion != nil })
 
         settings.oldSessionsDeleteOnTheirOwn = false
-        #expect(await waitUntil(timeout: .seconds(10)) { cleanup.status == OldSessionSweep.Status() })
+        #expect(await waitUntil(timeout: .seconds(10)) {
+            cleanup.status == OldSessionSweep.Status()
+        })
         #expect(store.session(old.id) != nil)
     }
+    @Test func aConditionStaysAutomaticWhenTheDefaultRuleIsOff() async throws {
+        let old = agedSession()
+        store.setMarkedUnread(true, for: old.id)
+        settings.oldSessionsDeleteOnTheirOwn = false
+        settings.oldSessionAskReasons.remove(.unread)
+        cleanup.start()
+        defer { cleanup.stop() }
+        #expect(await waitUntil(timeout: .seconds(10)) { cleanup.status.goes(old.id) })
+
+        settings.oldSessionConditionDays[.unread] = 30
+        #expect(await waitUntil(timeout: .seconds(10)) { cleanup.status.deletion == nil })
+        #expect(store.session(old.id) != nil)
+    }
+
 }

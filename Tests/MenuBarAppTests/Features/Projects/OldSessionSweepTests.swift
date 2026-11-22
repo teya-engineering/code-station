@@ -50,10 +50,10 @@ struct OldSessionSweepTests {
 
     // The rule as it ships: on, asking about everything, orphans left alone.
     private let rule = CleanupRule(deletesOnItsOwn: true, asked: CleanupRule.askedByDefault,
-                                   includesOrphans: false)
+                                   includesOrphans: false, days: 7)
 
     private func rule(asking asked: Set<CleanupReason>, orphans: Bool = false) -> CleanupRule {
-        CleanupRule(deletesOnItsOwn: true, asked: asked, includesOrphans: orphans)
+        CleanupRule(deletesOnItsOwn: true, asked: asked, includesOrphans: orphans, days: 7)
     }
 
     private func orphan(at path: String) -> OrphanedWorktree {
@@ -174,10 +174,10 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         let duringWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen)
         let afterWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(duringWarning == 0)
@@ -194,14 +194,14 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen)
         #expect(buffer.deletion?.sessions == 1)
 
         let second = agedSession()
         let deadline = firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)
         let atDeadline = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: deadline)
 
         #expect(atDeadline == 1)
@@ -209,7 +209,7 @@ struct OldSessionSweepTests {
         #expect(store.session(second.id) != nil)
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: deadline)
 
         #expect(buffer.deletion == OldSessionSweep.Deletion(
@@ -222,7 +222,7 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: Date())
 
         #expect(buffer.deletion?.sessions == OldSessionSweep.batchLimit)
@@ -237,7 +237,7 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         let afterWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(afterWarning == 0)
@@ -254,13 +254,13 @@ struct OldSessionSweepTests {
         let awake = firstSeen.addingTimeInterval(ProjectSnooze.step + 1)
 
         let whileSnoozed = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: awake)
         let afterWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: awake.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(whileSnoozed == 0)
@@ -278,10 +278,10 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         let duringWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen)
         let afterWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(duringWarning == 0)
@@ -300,10 +300,10 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule(asking: []), store: store, runner: runner,
+            rule: rule(asking: []), store: store, runner: runner,
             buffer: &buffer, now: firstSeen)
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule(asking: []), store: store, runner: runner, buffer: &buffer,
+            rule: rule(asking: []), store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(deleted == 1)
@@ -317,10 +317,11 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule(asking: []), store: store, runner: runner,
+            rule: rule(asking: []), store: store, runner: runner,
             buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 1) }
+        #expect(buffer.status(swept: 0).costs[old.id]?.worktree.losesWork == true)
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule(asking: []), store: store, runner: runner, buffer: &buffer,
+            rule: rule(asking: []), store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
                 self.snapshot(changedFiles: 1)
             }
@@ -330,16 +331,16 @@ struct OldSessionSweepTests {
         #expect(buffer.parked.isEmpty)
     }
 
-    @Test func takesNothingWhenTheSwitchIsOff() async throws {
-        _ = agedSession()
-        let off = CleanupRule(deletesOnItsOwn: false, asked: [], includesOrphans: true)
+    @Test func parksOtherSessionsWhenTheirSwitchIsOff() async throws {
+        let old = agedSession()
+        let off = CleanupRule(deletesOnItsOwn: false, asked: [], includesOrphans: true, days: 7)
         var buffer = OldSessionSweep.EligibilityBuffer()
 
-        _ = await OldSessionSweep.run(days: 7, rule: off, store: store, runner: runner,
+        _ = await OldSessionSweep.run(rule: off, store: store, runner: runner,
                                       buffer: &buffer, now: Date())
 
         #expect(buffer.deletion == nil)
-        #expect(buffer.parked.isEmpty)
+        #expect(buffer.parked.map(\.sessionID) == [old.id])
     }
 
     // Git inspection yields to the app. Opening the session while that answer is on its
@@ -351,11 +352,11 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         let duringWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 0) }
 
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
                 await MainActor.run { store.selectSession(old.id) }
@@ -375,11 +376,11 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 0) }
 
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
                 await MainActor.run { store.setPinned(true, forSession: old.id) }
@@ -399,14 +400,14 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen)
         #expect(buffer.parked == [OldSessionSweep.Parked(item: .session(old.id),
                                                          reasons: [.unread])])
         #expect(buffer.deletion == nil)
 
         let afterWarning = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
         #expect(afterWarning == 0)
         #expect(store.session(old.id) != nil)
@@ -416,13 +417,13 @@ struct OldSessionSweepTests {
         store.markRead(old.id)
         let readAt = firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: readAt)
         #expect(buffer.parked.isEmpty)
         #expect(buffer.deletion?.sessions == 1)
 
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: readAt.addingTimeInterval(OldSessionSweep.gracePeriod))
         #expect(deleted == 1)
         #expect(store.session(old.id) == nil)
@@ -436,11 +437,11 @@ struct OldSessionSweepTests {
         let rule = rule(asking: [.unpushedCommits, .snoozed])
         var buffer = OldSessionSweep.EligibilityBuffer()
 
-        _ = await OldSessionSweep.run(days: 7, rule: rule, store: store, runner: runner,
+        _ = await OldSessionSweep.run(rule: rule, store: store, runner: runner,
                                       buffer: &buffer, now: firstSeen)
         #expect(buffer.parked.isEmpty)
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(deleted == 1)
@@ -454,10 +455,10 @@ struct OldSessionSweepTests {
         let firstSeen = Date()
         var buffer = OldSessionSweep.EligibilityBuffer()
 
-        _ = await OldSessionSweep.run(days: 7, rule: rule, store: store, runner: runner,
+        _ = await OldSessionSweep.run(rule: rule, store: store, runner: runner,
                                       buffer: &buffer, now: firstSeen)
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(deleted == 0)
@@ -471,14 +472,14 @@ struct OldSessionSweepTests {
         let inspect: SessionCost.Inspect = { _ in self.snapshot(changedFiles: 0, unpushed: 2) }
         var asking = OldSessionSweep.EligibilityBuffer()
 
-        _ = await OldSessionSweep.run(days: 7, rule: rule, store: store, runner: runner,
+        _ = await OldSessionSweep.run(rule: rule, store: store, runner: runner,
                                       buffer: &asking, now: firstSeen, inspect: inspect)
         #expect(asking.parked == [OldSessionSweep.Parked(item: .session(old.id),
                                                          reasons: [.unpushedCommits])])
         #expect(asking.deletion == nil)
 
         var notAsking = OldSessionSweep.EligibilityBuffer()
-        _ = await OldSessionSweep.run(days: 7, rule: rule(asking: []), store: store,
+        _ = await OldSessionSweep.run(rule: rule(asking: []), store: store,
                                       runner: runner, buffer: &notAsking, now: firstSeen,
                                       inspect: inspect)
         #expect(notAsking.parked.isEmpty)
@@ -496,14 +497,14 @@ struct OldSessionSweepTests {
         }
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen, inspect: inspect)
         #expect(buffer.parked == [OldSessionSweep.Parked(item: .session(dirty.id),
                                                          reasons: [.uncommittedChanges])])
         #expect(buffer.deletion?.sessions == 1)
 
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod),
             inspect: inspect)
 
@@ -520,12 +521,12 @@ struct OldSessionSweepTests {
         var buffer = OldSessionSweep.EligibilityBuffer()
 
         _ = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 0) }
         #expect(buffer.deletion?.sessions == 1)
 
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner,
+            rule: rule, store: store, runner: runner,
             buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
                 self.snapshot(changedFiles: 1)
@@ -543,13 +544,13 @@ struct OldSessionSweepTests {
         let kept = agedSession()
         let firstSeen = Date()
         var buffer = OldSessionSweep.EligibilityBuffer()
-        _ = await OldSessionSweep.run(days: 7, rule: rule, store: store, runner: runner,
+        _ = await OldSessionSweep.run(rule: rule, store: store, runner: runner,
                                       buffer: &buffer, now: firstSeen)
         #expect(buffer.cohort == [kept.id])
 
         store.deferCleanup(of: kept.id, until: firstSeen.addingTimeInterval(OldSessions.deferral))
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
 
         #expect(deleted == 0)
@@ -570,7 +571,7 @@ struct OldSessionSweepTests {
         var pruned: [String] = []
         var buffer = OldSessionSweep.EligibilityBuffer()
 
-        _ = await OldSessionSweep.run(days: 7, rule: rule, store: store, runner: runner,
+        _ = await OldSessionSweep.run(rule: rule, store: store, runner: runner,
                                       buffer: &buffer, now: firstSeen,
                                       orphans: [clean, dirty], inspect: inspect)
         #expect(buffer.deletion?.worktrees == 1)
@@ -579,7 +580,7 @@ struct OldSessionSweepTests {
                                                          reasons: [.uncommittedChanges])])
 
         let deleted = await OldSessionSweep.run(
-            days: 7, rule: rule, store: store, runner: runner, buffer: &buffer,
+            rule: rule, store: store, runner: runner, buffer: &buffer,
             now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod),
             orphans: [clean, dirty],
             inspect: inspect,
@@ -597,7 +598,7 @@ struct OldSessionSweepTests {
         let clean = orphan(at: try folderOnDisk())
         var buffer = OldSessionSweep.EligibilityBuffer()
 
-        _ = await OldSessionSweep.run(days: 7, rule: rule, store: store, runner: runner,
+        _ = await OldSessionSweep.run(rule: rule, store: store, runner: runner,
                                       buffer: &buffer, now: Date(), orphans: [clean]) { _ in
             Issue.record("An orphan should not be read when orphans are left alone")
             return self.snapshot(changedFiles: 0)
@@ -714,4 +715,59 @@ struct OldSessionSweepTests {
         }
         #expect(outcome == .wouldLoseWork(added: 3, removed: 1))
     }
+    @Test func waitsForTheLongestConditionBeforeOfferingOrCountingDown() async throws {
+        let old = agedSession(worktreePath: try folderOnDisk())
+        store.setMarkedUnread(true, for: old.id)
+        var rule = rule(asking: [.unread])
+        rule.conditionDays = [.uncommittedChanges: 12, .unread: 4]
+        var buffer = OldSessionSweep.EligibilityBuffer()
+        let firstSeen = Date()
+        let inspect: SessionCost.Inspect = { _ in self.snapshot(changedFiles: 1) }
+
+        await OldSessionSweep.run(rule: rule, store: store, runner: runner,
+                                 buffer: &buffer, now: firstSeen, inspect: inspect)
+        #expect(buffer.parked.isEmpty)
+        #expect(buffer.deletion == nil)
+
+        await OldSessionSweep.run(rule: rule, store: store, runner: runner,
+                                 buffer: &buffer, now: firstSeen.addingTimeInterval(5 * 86_400), inspect: inspect)
+        #expect(buffer.parked.map(\.sessionID) == [old.id])
+        #expect(buffer.deletion == nil)
+    }
+
+    @Test func aConditionCanCountDownWhileOtherSessionsRequireReview() async throws {
+        let old = agedSession()
+        store.setMarkedUnread(true, for: old.id)
+        var rule = rule(asking: [])
+        rule.deletesOnItsOwn = false
+        rule.days = 30
+        rule.conditionDays = [.unread: 2]
+        var buffer = OldSessionSweep.EligibilityBuffer()
+        let firstSeen = Date()
+        await OldSessionSweep.run(rule: rule, store: store, runner: runner,
+                                 buffer: &buffer, now: firstSeen)
+        #expect(buffer.cohort == [old.id])
+        #expect(buffer.deletion?.at == firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod))
+    }
+
+    @Test func freshWorktreeConditionsCanExtendTheAgeAtTheEndOfTheCountdown() async throws {
+        let old = agedSession(worktreePath: try folderOnDisk())
+        var rule = rule(asking: [])
+        rule.conditionDays = [.uncommittedChanges: 20]
+        var buffer = OldSessionSweep.EligibilityBuffer()
+        let firstSeen = Date()
+        await OldSessionSweep.run(rule: rule, store: store, runner: runner,
+                                 buffer: &buffer, now: firstSeen) { _ in self.snapshot(changedFiles: 0) }
+        #expect(buffer.cohort == [old.id])
+        let deleted = await OldSessionSweep.run(
+            rule: rule, store: store, runner: runner, buffer: &buffer,
+            now: firstSeen.addingTimeInterval(OldSessionSweep.gracePeriod)) { _ in
+                self.snapshot(changedFiles: 1)
+            }
+        #expect(deleted == 0)
+        #expect(store.session(old.id) != nil)
+        #expect(buffer.deletion == nil)
+        #expect(buffer.parked.isEmpty)
+    }
+
 }

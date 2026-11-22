@@ -43,14 +43,13 @@ enum OldSessions {
     // How long "ask again later" keeps a session or a worktree out of cleanup.
     static let deferral: TimeInterval = 7 * 86_400
 
-    // What the review sheet lists: old enough to offer, minus the ones in the middle of a
-    // turn, which are busy right now rather than quiet. A snoozed project stays in, since
-    // the sheet is where its snooze is shown and taken back.
+    // Candidates for the review sheet. The sheet checks worktrees before applying each
+    // session's full age rule. A snoozed project stays in so its snooze can be taken back.
     @MainActor
-    static func reviewable(days: Int, store: ProjectStore, runner: SessionRunner)
+    static func reviewable(rule: CleanupRule, store: ProjectStore, runner: SessionRunner)
         -> [ChatSession] {
-        olderThan(days, in: store.userSessions)
-            .filter { !runner.state($0.id).isBusy }
+        olderThan(rule.minimumDays, in: store.userSessions)
+            .filter { !runner.state($0.id).isBusy && store.selection != .session($0.id) }
     }
 
     // When the list changes next: either a session goes quiet for long enough, or a
@@ -107,8 +106,8 @@ enum CleanupReason: String, CaseIterable, Codable, Sendable, Identifiable {
         case .uncommittedChanges: "Deleting would throw the changes away."
         case .unpushedCommits: "The branch has commits that exist nowhere else."
         case .unbuiltDesign: "The design files are the only copy of that work."
-        case .unread: "A turn ended while you were away and you have not looked at it."
-        case .snoozed: "You put it aside for later. It is shown, not deleted, once it is old."
+        case .unread: "A reply is waiting for you to look at it."
+        case .snoozed: "Sessions you put aside for later."
         }
     }
 
@@ -118,25 +117,48 @@ enum CleanupReason: String, CaseIterable, Codable, Sendable, Identifiable {
     }
 }
 
-// What the person allows cleanup to do on its own. One switch turns the countdown on;
-// the ask list names what still needs a yes.
+// The default applies only when no conditions match. Matching conditions keep the
+// longest age and each must allow deletion before a countdown can start.
 struct CleanupRule: Equatable, Sendable {
+    // Applies only to sessions without conditions and to opted-in clean orphans.
     var deletesOnItsOwn: Bool
     var asked: Set<CleanupReason>
-    // Orphaned worktrees follow the same rule: a clean one goes with the countdown, one
-    // with changes waits.
     var includesOrphans: Bool
+    var days = OldSessions.defaultDays
+    var conditionDays: [CleanupReason: Int] = [:]
 
     static let askedByDefault = Set(CleanupReason.allCases)
+
+    var minimumDays: Int {
+        ([age(for: nil)] + CleanupReason.allCases.map { age(for: $0) }).min() ?? days
+    }
+
+    var hasAutomaticDeletion: Bool {
+        deletesOnItsOwn || CleanupReason.allCases.contains { !asks($0) }
+    }
+
+    func age(for reason: CleanupReason?) -> Int {
+        OldSessions.resolvedDays(reason.flatMap { conditionDays[$0] } ?? days)
+    }
+
+    func age(matching reasons: [CleanupReason]) -> Int {
+        reasons.map { age(for: $0) }.max() ?? age(for: nil)
+    }
+
+    func isOld(_ session: ChatSession, reasons: [CleanupReason], now: Date = Date()) -> Bool {
+        session.lastActivity < now.addingTimeInterval(-Double(age(matching: reasons)) * 86_400)
+    }
 
     func asks(_ reason: CleanupReason) -> Bool {
         asked.contains(reason)
     }
 
-    // The reasons that hold a session back under this rule. An empty answer means it
-    // goes on its own.
     func held(_ reasons: [CleanupReason]) -> [CleanupReason] {
         reasons.filter(asks)
+    }
+
+    func automaticallyDeletes(_ reasons: [CleanupReason]) -> Bool {
+        reasons.isEmpty ? deletesOnItsOwn : held(reasons).isEmpty
     }
 }
 
