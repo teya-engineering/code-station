@@ -97,7 +97,7 @@ struct DockerServiceTests {
         let second = try #require(DockerContainer(line:
             #"{"ID":"container-2","Labels":"com.docker.compose.project=app","Names":"app-db"}"#))
 
-        let failure = await service.stop([first, second])
+        let failure = await service.perform(.stop, on: [first, second])
 
         #expect(failure == nil)
         #expect(service.containers.busy.isEmpty)

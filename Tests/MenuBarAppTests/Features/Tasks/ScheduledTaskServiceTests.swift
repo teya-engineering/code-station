@@ -6,7 +6,7 @@ import Testing
 struct ScheduledTaskServiceTests {
     @Test func overdueConfirmationIsOfferedOnceAndSkippingAdvancesTheSchedule() throws {
         let (store, scratch) = TestStore.make()
-        let runner = SessionRunner(preferences: scratch.preferences.store,
+        let runner = SessionRunner(store: store, preferences: scratch.preferences.store,
                                    persistentAgentSessions: false, paths: [:])
         let service = ScheduledTaskService(store: store, runner: runner, agentAvatarName: { nil })
         let task = try store.addTask(named: "Check", prompt: "Check the repository",

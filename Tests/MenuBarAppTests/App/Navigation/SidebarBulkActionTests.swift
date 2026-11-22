@@ -186,7 +186,7 @@ struct SidebarBulkActionTests {
 
         let targets = SidebarBulkAction.targets([api.id, workspace.id, loose.id], in: store)
         let result = await SidebarBulkAction.run(
-            targets, in: store, runner: SessionRunner(preferences: testPreferences.store),
+            targets, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
             shortcuts: shortcuts)
 
         guard case .success = result else {

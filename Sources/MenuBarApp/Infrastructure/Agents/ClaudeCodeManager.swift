@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import SwiftUI
 
 // Registers servers with the Claude Code CLI so it actually connects to them.
 // Detection reads ~/.claude.json directly (fast, no health checks); changes go

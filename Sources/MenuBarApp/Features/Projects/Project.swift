@@ -1,6 +1,6 @@
 import Foundation
 
-// A project is just a folder on disk. A session runs Claude Code either directly in
+// A project is just a folder on disk. A session runs its agent either directly in
 // this directory or in a worktree of its own - see ChatSession.worktreePath.
 struct Project: Identifiable, Codable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable {
@@ -28,11 +28,12 @@ struct Project: Identifiable, Codable, Equatable, Sendable {
 
     var url: URL { URL(fileURLWithPath: path) }
 
-    // Shown in the sidebar under the project name.
+    // The path as it is shown beside the project's name.
     var collapsedPath: String { path.abbreviatedPath }
 
     // Only a git checkout can back a worktree session. `.git` is a directory in a normal
-    // clone and a file in a worktree or submodule, so test for either.
+    // clone and a file in a worktree or submodule, so test for either. Reads the disk on
+    // every call.
     var isGitRepository: Bool {
         FileManager.default.fileExists(atPath: path + "/.git")
     }

@@ -340,7 +340,8 @@ struct TroubleshootTabView: View {
     // MARK: - Readiness
 
     // The one place the tab says whether the brief can go, and what will happen when it
-    // does. Everything that used to be its own notice ends up as this line's text.
+    // does. Every reason the brief cannot go yet is said as this line's text, not as a
+    // notice of its own.
     private struct Readiness: Equatable {
         enum Mood { case ready, waiting, checking, blocked }
 
@@ -356,7 +357,7 @@ struct TroubleshootTabView: View {
         if dictation?.isListening(dictationID) == true || dictation?.isPreparing(dictationID) == true {
             return Readiness(mood: .blocked, lead: "Stop dictating before starting the diagnosis.", rest: "")
         }
-        if !runner.isAvailable(session.agent) {
+        if !runner.catalog.isAvailable(session.agent) {
             return Readiness(mood: .blocked, lead: "\(agent) CLI was not found on PATH.",
                              rest: "Sessions cannot run until it is installed.")
         }
@@ -428,7 +429,7 @@ struct TroubleshootTabView: View {
             && dictation?.isPreparing(dictationID) != true
             && mcpConfigurationState(session) != .checking
             && (!brief.problem.isBlank || !brief.attachments.isEmpty)
-            && runner.isAvailable(session.agent)
+            && runner.catalog.isAvailable(session.agent)
     }
 
     private func mcpConfigurationState(_ session: ChatSession) -> TroubleshootMCPState {
@@ -515,7 +516,7 @@ struct TroubleshootTabView: View {
                         attachments: sent.attachments,
                         customInstructions: request.customInstructions,
                         dictated: sent.dictated,
-                        sessionID: sessionID, store: store)
+                        sessionID: sessionID)
             // The form is left behind rather than kept: what it said is now in the
             // transcript, and a second brief is a new question about the same session.
             runner.composer.clearBrief(sessionID)

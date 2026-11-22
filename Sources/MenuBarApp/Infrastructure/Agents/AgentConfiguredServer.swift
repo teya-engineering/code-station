@@ -4,50 +4,6 @@ import Foundation
 // Keeping it separate from Server prevents agent-owned servers from entering save,
 // process, environment and bulk-sync paths that only apply to app-managed servers.
 struct AgentConfiguredServer: Identifiable, Equatable {
-    enum Source: String, CaseIterable, Identifiable {
-        case claudeCode
-        case codex
-        case copilot
-
-        var id: Self { self }
-
-        var title: String {
-            switch self {
-            case .claudeCode: "Claude Code"
-            case .codex: "Codex"
-            case .copilot: "Copilot"
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .claudeCode: AgentKind.claudeCode.symbol
-            case .codex: AgentKind.codex.symbol
-            case .copilot: AgentKind.copilot.symbol
-            }
-        }
-
-        // Claude Code keeps on and off per project, with no command to change it, so
-        // only Codex and Copilot get a switch.
-        var canSwitch: Bool { self != .claudeCode }
-
-        var reloadNote: String {
-            switch self {
-            case .claudeCode: "Restart your Claude Code session to load the change."
-            case .codex: "The next Codex turn loads the change."
-            case .copilot: "The next Copilot turn loads the change."
-            }
-        }
-
-        var command: String {
-            switch self {
-            case .claudeCode: "claude"
-            case .codex: "codex"
-            case .copilot: "copilot"
-            }
-        }
-    }
-
     // What an agent last said about reaching the server. Only Claude Code checks.
     enum Health: Equatable {
         case connected
@@ -120,7 +76,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
     }
 
     struct Registration: Identifiable, Equatable {
-        let source: Source
+        let source: AgentKind
         var command: String?
         var args: [String]
         var env: [String: String]
@@ -132,7 +88,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
         var health: Health?
         var work: Work?
 
-        var id: Source { source }
+        var id: AgentKind { source }
 
         var transport: String {
             if command != nil { return "stdio" }
@@ -211,7 +167,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
         return registrations.dropFirst().contains { $0.connection != first }
     }
 
-    func registration(from source: Source) -> Registration? {
+    func registration(from source: AgentKind) -> Registration? {
         registrations.first { $0.source == source }
     }
 
@@ -223,7 +179,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
         codexEntries: [String: CodexCodeManager.Entry],
         copilotEntries: [String: CopilotCodeManager.Entry] = [:],
         claudeHealth: [String: Health] = [:],
-        work: (Source, String) -> Work? = { _, _ in nil }
+        work: (AgentKind, String) -> Work? = { _, _ in nil }
     ) -> [Self] {
         let managedNames = Set(managedServers.map(\.name))
         let discoveredNames = Set(claudeEntries.keys)
@@ -263,6 +219,20 @@ struct AgentConfiguredServer: Identifiable, Equatable {
                     work: work(.copilot, name)))
             }
             return Self(name: name, registrations: registrations)
+        }
+    }
+}
+
+extension AgentKind {
+    // Claude Code keeps on and off per project, with no command to change it, so
+    // only Codex and Copilot get a switch.
+    var canSwitch: Bool { self != .claudeCode }
+
+    var reloadNote: String {
+        switch self {
+        case .claudeCode: "Restart your Claude Code session to load the change."
+        case .codex: "The next Codex turn loads the change."
+        case .copilot: "The next Copilot turn loads the change."
         }
     }
 }

@@ -187,8 +187,8 @@ struct OldSessionsSheetTests {
         let settings = AppSettings(
             agentAvatarURL: store.storeURL.deletingLastPathComponent()
                 .appendingPathComponent("avatar.png"),
-            preferences: UserDefaults(suiteName: "snooze-\(UUID().uuidString)") ?? .standard)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+            preferences: scratchDefaults())
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let view = OldSessionsView(sessions: OldSessions.reviewable(
             days: settings.oldSessionDays, store: store, runner: runner))
             .environment(store)
@@ -286,8 +286,8 @@ struct OldSessionsSheetSizeTests {
         let settings = AppSettings(
             agentAvatarURL: store.storeURL.deletingLastPathComponent()
                 .appendingPathComponent("avatar.png"),
-            preferences: UserDefaults(suiteName: "size-\(UUID().uuidString)") ?? .standard)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+            preferences: scratchDefaults())
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let view = OldSessionsView(sessions: OldSessions.reviewable(
             days: settings.oldSessionDays, store: store, runner: runner))
             .environment(store)

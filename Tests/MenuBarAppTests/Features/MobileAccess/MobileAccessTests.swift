@@ -161,29 +161,25 @@ struct MobileAccessTests {
     }
 
     @Test func mobileAccessStaysOffUntilItIsEnabled() throws {
-        let suite = "mobile-access-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
-        #expect(!Preferences.mobileAccessEnabled(in: defaults))
+        #expect(!Preferences.mobileAccessEnabled.read(in: defaults))
         defaults.set(true, forKey: "mobileAccessEnabled")
-        #expect(Preferences.mobileAccessEnabled(in: defaults))
+        #expect(Preferences.mobileAccessEnabled.read(in: defaults))
     }
 
     @Test func aCodeLastsThirtyMinutesUntilAnotherLengthIsChosen() throws {
-        let suite = "mobile-access-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
-        #expect(Preferences.mobilePairingLifetime(in: defaults) == .thirtyMinutes)
+        #expect(Preferences.mobilePairingLifetime.read(in: defaults) == .thirtyMinutes)
         #expect(MobilePairingLifetime.thirtyMinutes.duration == .seconds(1_800))
 
-        Preferences.setMobilePairingLifetime(.untilStopped, in: defaults)
-        #expect(Preferences.mobilePairingLifetime(in: defaults) == .untilStopped)
+        Preferences.mobilePairingLifetime.write(.untilStopped, in: defaults)
+        #expect(Preferences.mobilePairingLifetime.read(in: defaults) == .untilStopped)
         #expect(MobilePairingLifetime.untilStopped.duration == nil)
 
         defaults.set(42, forKey: "mobilePairingLifetime")
-        #expect(Preferences.mobilePairingLifetime(in: defaults) == .thirtyMinutes)
+        #expect(Preferences.mobilePairingLifetime.read(in: defaults) == .thirtyMinutes)
     }
 
     @Test func everyCodeLengthIsOfferedOnce() {

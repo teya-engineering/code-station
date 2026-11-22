@@ -141,9 +141,7 @@ struct SidebarBrandBar: View {
                 Text("Teya")
                     .font(.logo(9 * max(1, textScale), weight: 500))
                     .foregroundStyle(.secondary)
-                Text("Code Station")
-                    .font(.logo(15 * max(1, textScale)))
-                    .kerning(-0.55)
+                BrandWordmark()
             }
         }
         .fixedSize()

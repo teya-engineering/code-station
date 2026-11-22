@@ -390,3 +390,209 @@ struct SidebarCarryLayer: View {
         onLanded(request)
     }
 }
+
+// MARK: - Sequence
+
+struct SidebarLanding: Equatable {
+    enum Phase: Equatable {
+        case flying
+        case landed
+        // Taken back from the receipt, and flying home.
+        case leaving
+    }
+
+    let workspaceID: UUID
+    let projectID: UUID
+    // The workspace as it stood before the add, which is what an undo puts back.
+    let before: ProjectWorkspace
+    var phase: Phase
+    // Tells one landing from the next, so a late timer from an earlier one leaves a new
+    // one alone.
+    let token: Int
+}
+
+struct SidebarPairing: Equatable {
+    // A beat for the pile to be seen before the sheet covers the sidebar.
+    static let sheetDelay: Duration = .milliseconds(240)
+
+    let targetID: UUID
+    let projectID: UUID
+    var stacked: Bool
+}
+
+// A project carried in the sidebar, from the drag to the row settling again.
+//
+// Dropped on a workspace: `join` adds it and sends its tile flying to the row, the
+// landing makes the row blink, a beat later the receipt says what changed, and a moment
+// after the receipt closes the row puts its roster away. Undo in the receipt flies the
+// tile home instead.
+//
+// Dropped on another project: `pair` tucks its tile behind the target, and a beat after
+// it lands the sidebar is asked for a workspace of the two.
+//
+// A landing and a pairing can be under way at the same time, and there is one flight
+// between them: a drop made during a flight takes the flight over.
+@MainActor
+@Observable
+final class SidebarCarry {
+    // What the carry reaches outside itself: the data it changes, and the parts of the
+    // sidebar that answer it.
+    struct Surroundings {
+        let store: ProjectStore
+        let dialogs: DialogPresenter
+        let note: TransientNote
+        let openWorkspace: (ProjectWorkspace) -> Void
+        // The projects to start the New workspace sheet with, and a name for the pair.
+        let proposeWorkspace: ([UUID], String) -> Void
+    }
+
+    var drag = SidebarDrag()
+    // A project dropped on a workspace, from its flight into the row until the row puts
+    // its roster away again.
+    private(set) var landing: SidebarLanding?
+    private(set) var flight: SidebarCarryFlight?
+    // A project dropped on another project, tucked behind it while the New workspace
+    // sheet asks for the rest.
+    private(set) var pairing: SidebarPairing?
+
+    @ObservationIgnored private var landings = 0
+    @ObservationIgnored private let sleep: (Duration) async -> Void
+
+    init(sleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+        self.sleep = sleep
+    }
+
+    func carriedProject(in store: ProjectStore) -> Project? {
+        guard let id = drag.itemID, let project = store.project(id), project.kind == .project
+        else { return nil }
+        return project
+    }
+
+    // The mouse went up. A drop a row took has already cleared the drag; one still in
+    // hand a moment later was let go on nothing or cancelled, and its tile goes home
+    // rather than vanishing. The moment is there because the button reads as up a
+    // little before the row hears of the drop.
+    func dragReleased(in around: Surroundings) {
+        Task { @MainActor in
+            await sleep(.milliseconds(150))
+            guard let project = carriedProject(in: around.store) else { return }
+            drag = SidebarDrag()
+            flight = SidebarCarryFlight(name: project.name, from: .chip, to: .tile(project.id),
+                                        duration: Motion.flightHomeDuration)
+        }
+    }
+
+    func flightLanded(_ landed: SidebarCarryFlight, in around: Surroundings) {
+        if flight?.id == landed.id { flight = nil }
+        if landed.landsBehind, let pair = pairing, !pair.stacked, landed.to == .tile(pair.targetID) {
+            pairLanded(pair, in: around)
+            return
+        }
+        guard let current = landing else { return }
+        switch (landed.to, current.phase) {
+        case (.slot(let workspaceID), .flying) where workspaceID == current.workspaceID:
+            landing?.phase = .landed
+            around.store.navigation.sidebarHighlight = workspaceID
+            showReceipt(for: current, in: around)
+        case (.tile(let projectID), .leaving) where projectID == current.projectID:
+            landing = nil
+        default:
+            break
+        }
+    }
+
+    // MARK: Onto a workspace
+
+    // The add happens at once, so the workspace page and its count already show it. The
+    // row's roster still shows the slot while the tile flies in, and fills it on landing.
+    func join(_ id: UUID, _ workspace: ProjectWorkspace, in around: Surroundings) {
+        guard let before = WorkspaceAddition.add(id, to: workspace.id, store: around.store),
+              let project = around.store.project(id) else { return }
+        landings += 1
+        landing = SidebarLanding(workspaceID: workspace.id, projectID: id, before: before,
+                                 phase: .flying, token: landings)
+        flight = SidebarCarryFlight(name: project.name, from: .chip, to: .slot(workspace.id))
+    }
+
+    // An add made away from the sidebar has no flight in: the tile lands in the row at
+    // once, and everything after that is the same as a drop.
+    func landInPlace(_ added: WorkspaceAddition.Added, in around: Surroundings) {
+        landings += 1
+        let landed = SidebarLanding(workspaceID: added.before.id, projectID: added.projectID,
+                                    before: added.before, phase: .landed, token: landings)
+        landing = landed
+        around.store.navigation.sidebarHighlight = added.before.id
+        showReceipt(for: landed, in: around)
+    }
+
+    private func showReceipt(for landed: SidebarLanding, in around: Surroundings) {
+        Task { @MainActor in
+            await sleep(WorkspaceAddition.receiptDelay)
+            guard landing?.token == landed.token,
+                  let workspace = around.store.workspace(landed.workspaceID) else { return }
+            let isOpen = around.store.selection == .workspace(workspace.id)
+            guard let receipt = WorkspaceAddition.receipt(
+                for: landed.projectID, before: landed.before, store: around.store,
+                onUndo: { self.undoLanding(landed, in: around) },
+                onOpen: isOpen ? nil : { around.openWorkspace(workspace) },
+                onClose: { self.putRosterAway(landed) }) else {
+                landing = nil
+                return
+            }
+            around.dialogs.show(receipt)
+        }
+    }
+
+    // The roster stays a moment after the receipt closes, so the person sees the project
+    // in its new place before the row goes back to its count.
+    private func putRosterAway(_ landed: SidebarLanding) {
+        Task { @MainActor in
+            await sleep(.milliseconds(1_300))
+            if landing?.token == landed.token { landing = nil }
+        }
+    }
+
+    private func undoLanding(_ landed: SidebarLanding, in around: Surroundings) {
+        let name = around.store.project(landed.projectID)?.name ?? "The project"
+        let workspace = around.store.workspace(landed.workspaceID)?.name ?? "the workspace"
+        around.note.show("Removed \(name) from \(workspace)", icon: "arrow.uturn.backward")
+        guard landing?.token == landed.token else { return }
+        landing?.phase = .leaving
+        flight = SidebarCarryFlight(name: name,
+                                    from: .anchor(.roster(landed.workspaceID, landed.projectID)),
+                                    to: .tile(landed.projectID),
+                                    duration: Motion.flightHomeDuration)
+    }
+
+    // MARK: Onto another project
+
+    // The project dropped on leads, since it is the one the person aimed for. The
+    // dropped tile flies in behind it first, so the row shows the two as a pile before
+    // the sheet asks to make that pile a workspace.
+    func pair(_ id: UUID, with project: Project, in around: Surroundings) {
+        guard let dropped = around.store.project(id) else { return }
+        pairing = SidebarPairing(targetID: project.id, projectID: id, stacked: false)
+        flight = SidebarCarryFlight(name: dropped.name, from: .chip, to: .tile(project.id),
+                                    landsBehind: true)
+    }
+
+    private func pairLanded(_ pair: SidebarPairing, in around: Surroundings) {
+        pairing?.stacked = true
+        Task { @MainActor in
+            await sleep(SidebarPairing.sheetDelay)
+            guard pairing == SidebarPairing(targetID: pair.targetID, projectID: pair.projectID, stacked: true),
+                  let target = around.store.project(pair.targetID),
+                  let dropped = around.store.project(pair.projectID) else {
+                pairing = nil
+                return
+            }
+            around.proposeWorkspace([target.id, dropped.id], "\(target.name) + \(dropped.name)")
+        }
+    }
+
+    // The New workspace sheet closed, with a workspace made or not. Either way the pile
+    // comes apart.
+    func endPairing() {
+        pairing = nil
+    }
+}

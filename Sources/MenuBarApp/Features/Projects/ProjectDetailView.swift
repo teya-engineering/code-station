@@ -32,8 +32,7 @@ struct ProjectDetailView: View {
     // How many sessions the agents ran in this folder that the app does not hold yet. The
     // button that brings them in only shows when there is something to bring.
     @State private var importableCount = 0
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     private var terminalScope: TerminalScope { .project(projectID) }
     private var shortcutScope: ShortcutScope { .project(projectID) }
@@ -62,16 +61,14 @@ struct ProjectDetailView: View {
                 }
             }
             .background(Theme.background)
-            .overlay(alignment: .topTrailing) {
-                ZStack {
-                    if let note {
-                        HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
-                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                    }
-                }
-                .motion(Motion.reveal, value: note)
-            }
+            .motion(terminals.isOpen(terminalScope) ? Motion.reveal : Motion.leave,
+                    value: terminals.isOpen(terminalScope))
+            .headerNote(note, top: Theme.headerHeight + Space.md, trailing: Space.xxxl)
+            .environment(\.showExternalNote, ExternalNote { text, icon in note.show(text, icon: icon) })
+            .environment(\.openShell, OpenShell { directory in
+                terminals.openShell(for: terminalScope, directory: directory)
+                terminalFocused = true
+            })
             .background(TerminalShortcut(scope: terminalScope, directory: project.path,
                                          focusTerminal: $terminalFocused)
                             .disabled(store.isMissing(project)))
@@ -147,7 +144,6 @@ struct ProjectDetailView: View {
                     toggleTerminal(directory: project.path)
                 }
                 .disabled(missing)
-                .environment(\.showExternalNote, ExternalNote { text, _ in showNote(text) })
                 .opacity(missing ? 0.4 : 1)
 
                 if importableCount > 0 {
@@ -620,9 +616,9 @@ struct ProjectDetailView: View {
 
     private func startSession(_ choice: NewSessionChoice, in project: Project) {
         switch choice {
-        case .worktree(let sessionID, let base, let carryChanges, let agent, let model,
-                       let agentAvatarName, let mode):
-            createWorktreeSession(in: project, id: sessionID, base: base,
+        case .worktree(let sessionID, let base, let branch, let carryChanges, let agent,
+                       let model, let agentAvatarName, let mode):
+            createWorktreeSession(in: project, id: sessionID, base: base, branch: branch,
                                   carryChanges: carryChanges, agent: agent, model: model,
                                   agentAvatarName: agentAvatarName, mode: mode)
         case .folder(let sessionID, let agent, let model, let agentAvatarName, let mode):
@@ -639,11 +635,12 @@ struct ProjectDetailView: View {
     }
 
     private func createWorktreeSession(in project: Project, id sessionID: UUID, base: String?,
-                                       carryChanges: Bool, agent: AgentKind, model: String?,
-                                       agentAvatarName: String?, mode: SessionMode) {
+                                       branch: String?, carryChanges: Bool, agent: AgentKind,
+                                       model: String?, agentAvatarName: String?,
+                                       mode: SessionMode) {
         Task {
             switch await SessionLifecycle.createWorktreeSession(
-                in: project, id: sessionID, base: base,
+                in: project, id: sessionID, base: base, branch: branch,
                 agent: agent, model: model,
                 agentAvatarName: agentAvatarName, mode: mode, carryChanges: carryChanges,
                 store: store, composer: runner.composer) {
@@ -695,16 +692,8 @@ struct ProjectDetailView: View {
         showNote("Showed \(project.name) in Finder")
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "arrow.up.forward.app")
     }
 }
 

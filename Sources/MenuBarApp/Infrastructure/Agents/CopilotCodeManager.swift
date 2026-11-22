@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import SwiftUI
 
 // Keeps the app's MCP definitions registered with the Copilot CLI. The CLI owns
 // ~/.copilot/mcp-config.json, so this manager only reads or changes it through
@@ -16,11 +15,6 @@ final class CopilotCodeManager {
         var type: String?
         var headers: [String: String] = [:]
         var enabled = true
-    }
-
-    private struct DiscoveryFailure: LocalizedError, Sendable {
-        let message: String
-        var errorDescription: String? { message }
     }
 
     private let registrar = CLIRegistrar(command: "copilot",
@@ -159,7 +153,7 @@ final class CopilotCodeManager {
     // workspace's own servers are counted too.
     func enabledServers(in directory: String) async throws -> [DisabledMCPServer] {
         guard let copilotPath = ProcessManager.resolve("copilot") else {
-            throw DiscoveryFailure(message: "Copilot CLI not found on PATH.")
+            throw AgentFailure(message: "Copilot CLI not found on PATH.")
         }
         let result: CommandRunner.Output
         do {
@@ -169,16 +163,16 @@ final class CopilotCodeManager {
                                                  environment: CLIRegistrar.environment,
                                                  timeout: CopilotServer.replyTimeout)
         } catch {
-            throw DiscoveryFailure(message: "Could not run Copilot: \(error.localizedDescription)")
+            throw AgentFailure(message: "Could not run Copilot: \(error.localizedDescription)")
         }
         guard result.succeeded else {
             let message = result.errorOutput.trimmed
-            throw DiscoveryFailure(message: message.isEmpty
+            throw AgentFailure(message: message.isEmpty
                 ? "Copilot could not list its MCP servers."
                 : message)
         }
         guard let entries = Self.entries(in: Data(result.output.utf8)) else {
-            throw DiscoveryFailure(message: "Copilot returned an MCP server list the app could not read.")
+            throw AgentFailure(message: "Copilot returned an MCP server list the app could not read.")
         }
         return entries.filter { $0.value.enabled }.map { name, entry in
             DisabledMCPServer(name: name,

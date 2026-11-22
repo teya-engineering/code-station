@@ -9,6 +9,10 @@ import SwiftUI
 @MainActor
 @Observable
 final class GitStatsCache {
+    private var revisions: [String: Int] = [:]
+
+    func revision(at path: String) -> Int { revisions[Self.normalized(path), default: 0] }
+
     private var snapshots: [String: GitSnapshot] = [:]
     // When each answer landed. Not observed: freshness decides whether to ask git again,
     // and nothing on screen is drawn from it.
@@ -28,8 +32,9 @@ final class GitStatsCache {
     // Only a successful inspection is worth keeping. A failed one carries no numbers,
     // and it also means the tree can no longer be trusted - the folder or repository
     // may be gone - so whatever was remembered for it is dropped rather than shown stale.
-    func store(_ snapshot: GitSnapshot, at path: String) {
+    func store(_ snapshot: GitSnapshot, at path: String, notifyChanges: Bool = true) {
         let key = Self.normalized(path)
+        if notifyChanges { revisions[key, default: 0] += 1 }
         if snapshot.state == .ready {
             snapshots[key] = snapshot
             takenAt[key] = ContinuousClock.now

@@ -22,7 +22,7 @@ struct AgentSessionLiveTests {
             settings.model = model
             store.setSettings(settings, for: session.id)
         }
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [agent: executable], discoveredModels: models.map { [agent: $0] } ?? [:],
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [agent: executable], discoveredModels: models.map { [agent: $0] } ?? [:],
                                    automaticRecapsEnabled: { false },
                                    automaticTitlesEnabled: { false }, promptSuggestionsEnabled: { false })
         defer { runner.stopAll() }
@@ -33,7 +33,7 @@ struct AgentSessionLiveTests {
         Reply "Timer started" immediately after the tool yields. Do not poll or wait for it.
         Do not read, write, or inspect any files.
         """
-        runner.send(prompt, sessionID: session.id, store: store)
+        runner.send(prompt, sessionID: session.id)
         let waiting = await waitUntil(timeout: .seconds(120)) {
             runner.state(session.id) == .waiting || !runner.state(session.id).isBusy
         }
@@ -43,7 +43,7 @@ struct AgentSessionLiveTests {
         #expect(runner.backgroundTasks(session.id).contains { $0.command?.contains("sleep 600") == true })
         let conversation = try #require(store.session(session.id)?.agentSessionID(for: agent))
         runner.send("Reply only 'Still here'. Leave the timer running. Do not call any tools.",
-                    sessionID: session.id, store: store)
+                    sessionID: session.id)
         #expect(await waitUntil(timeout: .seconds(120)) {
             runner.state(session.id) == .waiting || !runner.state(session.id).isBusy
         })

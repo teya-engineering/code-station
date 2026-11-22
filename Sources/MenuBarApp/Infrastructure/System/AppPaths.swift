@@ -14,8 +14,24 @@ enum AppPaths {
     // fresh install. Keychain.swift reads it for the same reason.
     static let previousBundleID = "com.teya.conductor"
 
+    // Tests run this same code in a process that has no bundle, so left alone they would
+    // file under the app's own identifier and work in the folders of the app the developer
+    // is using. A test process gets a root of its own instead, and adopts nothing.
+    static let isTestProcess: Bool = {
+        let process = ProcessInfo.processInfo
+        return Bundle.main.bundleURL.pathExtension == "xctest"
+            || process.arguments.contains { $0.contains(".xctest/") }
+            || process.processName == "xctest"
+            || process.processName.hasSuffix("PackageTests")
+            || process.environment["XCTestConfigurationFilePath"] != nil
+    }()
+
+    private static let testRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("\(bundleID)-tests-\(getpid())")
+
     private static var supportBase: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if isTestProcess { return testRoot.appendingPathComponent("Application Support") }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support")
     }
@@ -29,7 +45,7 @@ enum AppPaths {
     // per launch and before any path below is handed out, so nothing has been created
     // under the new name yet and the moves below still see an empty destination.
     private static let adoptedPreviousBundle: Void = {
-        guard bundleID != previousBundleID else { return }
+        guard bundleID != previousBundleID, !isTestProcess else { return }
         move(supportBase.appendingPathComponent(previousBundleID),
              to: supportBase.appendingPathComponent(bundleID))
         move(logsBase.appendingPathComponent(previousBundleID),
@@ -93,7 +109,8 @@ enum AppPaths {
     }
 
     private static var logsBase: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
+        if isTestProcess { return testRoot.appendingPathComponent("Logs") }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
     }
 
     // Creates an app-owned folder and optionally keeps reproducible or short-lived data

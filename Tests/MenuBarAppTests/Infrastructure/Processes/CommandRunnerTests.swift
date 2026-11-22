@@ -366,9 +366,9 @@ struct CommandRunnerTests {
     }
 
     @Test func gitRunnerBoundsAndDrainsBothStreams() async {
-        let tool = GitInspector.GitTool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
-        let output = await GitInspector.offMain {
-            GitInspector.run(
+        let tool = Git.Tool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
+        let output = await Git.offMain {
+            Git.run(
                 tool,
                 ["-c", "yes output | head -c 100000; yes error | head -c 100000 >&2"],
                 timeout: 2,
@@ -384,12 +384,12 @@ struct CommandRunnerTests {
 
     @Test func gitRunnerTimeoutKillsADescendantThatInheritedThePipes() async throws {
         let pidFile = scratch.path("child.pid")
-        let tool = GitInspector.GitTool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
+        let tool = Git.Tool(path: "/bin/sh", searchPath: "/usr/bin:/bin")
         let arguments = backgroundChildArguments(pidFile: pidFile,
                                                   keepLeaderRunning: true)
         let started = ContinuousClock.now
-        let output = await GitInspector.offMain {
-            GitInspector.run(tool, arguments, timeout: 0.2)
+        let output = await Git.offMain {
+            Git.run(tool, arguments, timeout: 0.2)
         }
 
         #expect(output.status == -1)
@@ -405,7 +405,7 @@ struct CommandRunnerTests {
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<20 {
                 group.addTask {
-                    await GitInspector.offMain {
+                    await Git.offMain {
                         probe.enter()
                         usleep(10_000)
                         probe.leave()
@@ -480,11 +480,11 @@ struct CommandRunnerTests {
         """, to: script)
         let existing = [ModelChoice.Option(id: "gpt-5.6-astra", title: "Astra",
                                            detail: "Fast.")]
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: script.path], discoveredModels: [.codex: existing])
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [.codex: script.path], discoveredModels: [.codex: existing])
 
-        await runner.refreshDiscoveredModels()
+        await runner.catalog.refreshDiscoveredModels()
 
-        #expect(runner.discoveredModels[.codex] == existing)
+        #expect(runner.catalog.discoveredModels[.codex] == existing)
     }
 
     // Reading a catalog starts the agent's CLI, which can stop on a system prompt, so a
@@ -500,15 +500,15 @@ struct CommandRunnerTests {
         IFS= read -r models
         printf '%s\\n' '{"id":2,"result":{"data":[{"model":"gpt-5.6-astra","displayName":"Astra"}],"nextCursor":null}}'
         """, to: script)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [.codex: script.path])
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [.codex: script.path])
 
-        await runner.discoverModels(for: .codex)
-        await runner.discoverModels(for: .codex)
+        await runner.catalog.discoverModels(for: .codex)
+        await runner.catalog.discoverModels(for: .codex)
 
-        #expect(runner.discoveredModels[.codex]?.compactMap(\.id) == ["gpt-5.6-astra"])
+        #expect(runner.catalog.discoveredModels[.codex]?.compactMap(\.id) == ["gpt-5.6-astra"])
         #expect(try timesRun(runs) == 1)
 
-        await runner.refreshDiscoveredModels()
+        await runner.catalog.refreshDiscoveredModels()
 
         #expect(try timesRun(runs) == 2)
     }
@@ -555,33 +555,22 @@ struct CommandRunnerTests {
 
 struct ProcessPipeTests {
     // Foundation's Pipe answers descriptor exhaustion with two handles on descriptor 0,
-    // which is stdin. A pipe that cannot be made has to fail instead.
-    @Test func failsRatherThanHandingOutStdinWhenNoDescriptorIsFree() throws {
-        var limit = rlimit()
-        try #require(getrlimit(RLIMIT_NOFILE, &limit) == 0)
-        let original = limit
-        defer { setrlimit(RLIMIT_NOFILE, &limit) }
-        var highest: Int32 = 0
-        for descriptor in Int32(0)..<Int32(limit.rlim_cur) where fcntl(descriptor, F_GETFD) >= 0 {
-            highest = descriptor
-        }
-        limit.rlim_cur = rlim_t(highest + 1)
-        try #require(setrlimit(RLIMIT_NOFILE, &limit) == 0)
-        // Numbers below the highest one may be free, so they are taken first.
-        var fillers: [Int32] = []
-        while true {
-            let filler = open("/dev/null", O_RDONLY)
-            guard filler >= 0 else { break }
-            fillers.append(filler)
+    // which is stdin. A pipe that cannot be made has to fail instead. The pipe call fails
+    // the way it does when the process is out of descriptors, rather than this test using
+    // them all up: the limit is shared by the whole process, so every test running beside
+    // this one would fail to open a file too.
+    @Test func failsRatherThanHandingOutStdinWhenNoDescriptorIsFree() {
+        var asked = 0
+        let error = #expect(throws: CommandRunner.RunError.self) {
+            try ProcessPipe(opening: { _ in
+                asked += 1
+                errno = EMFILE
+                return -1
+            })
         }
 
-        let error = #expect(throws: CommandRunner.RunError.self) { try ProcessPipe() }
-        for filler in fillers { close(filler) }
-        limit = original
-        setrlimit(RLIMIT_NOFILE, &limit)
-
+        #expect(asked == 1)
         #expect(error?.errorDescription?.contains("Too many open files") == true)
-        #expect(fcntl(STDIN_FILENO, F_GETFD) >= 0)
     }
 
     @Test func opensTwoDistinctEnds() throws {

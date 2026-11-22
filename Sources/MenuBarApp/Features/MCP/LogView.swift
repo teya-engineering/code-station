@@ -11,8 +11,7 @@ struct LogView: View {
     @State private var lastWritten: Date?
     @State private var follow = true
     @State private var showsWhy = false
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     // How often the file is checked while the screen is open. The log is written from a
     // read handler on every chunk of CLI output, so anything faster would be a poll for
@@ -33,29 +32,12 @@ struct LogView: View {
         }
         .frame(width: 760, height: 560)
         .background(Theme.background)
-        .overlay(alignment: .topTrailing) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: "folder", text: note)
-                        .padding(.top, Theme.headerHeight + Space.md).padding(.trailing, Space.pane)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, top: Theme.headerHeight + Space.md, trailing: Space.pane)
         .task { await watch() }
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "folder")
     }
 
     private var header: some View {

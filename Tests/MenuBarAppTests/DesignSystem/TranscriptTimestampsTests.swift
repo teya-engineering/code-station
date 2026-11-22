@@ -8,20 +8,18 @@ struct TranscriptTimestampsTests {
     private let moment = Date()
 
     @Test func offAndMessagesAndStepsAreTheDefaultAndThePickIsKept() throws {
-        let suite = "TranscriptTimestampsTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
-        #expect(Preferences.timestampFormat(in: defaults) == .off)
-        #expect(Preferences.timestampScope(in: defaults) == .messagesAndSteps)
-        Preferences.setTimestampFormat(.smart, in: defaults)
-        Preferences.setTimestampScope(.messages, in: defaults)
-        #expect(Preferences.timestampFormat(in: defaults) == .smart)
-        #expect(Preferences.timestampScope(in: defaults) == .messages)
+        #expect(Preferences.timestampFormat.read(in: defaults) == .off)
+        #expect(Preferences.timestampScope.read(in: defaults) == .messagesAndSteps)
+        Preferences.timestampFormat.write(.smart, in: defaults)
+        Preferences.timestampScope.write(.messages, in: defaults)
+        #expect(Preferences.timestampFormat.read(in: defaults) == .smart)
+        #expect(Preferences.timestampScope.read(in: defaults) == .messages)
         defaults.set("not-a-format", forKey: "timestampFormat")
         defaults.set("not-a-scope", forKey: "timestampScope")
-        #expect(Preferences.timestampFormat(in: defaults) == .off)
-        #expect(Preferences.timestampScope(in: defaults) == .messagesAndSteps)
+        #expect(Preferences.timestampFormat.read(in: defaults) == .off)
+        #expect(Preferences.timestampScope.read(in: defaults) == .messagesAndSteps)
     }
 
     @Test func offWritesNoTime() {

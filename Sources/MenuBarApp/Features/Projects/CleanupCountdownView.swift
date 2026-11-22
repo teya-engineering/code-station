@@ -15,7 +15,6 @@ struct CleanupCountdownView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
     @Environment(OrphanedWorktreeMonitor.self) private var orphans
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
 
     // Rows kept or deleted here. They fold out at once rather than waiting for the
@@ -24,8 +23,7 @@ struct CleanupCountdownView: View {
     @State private var kept = 0
     @State private var isDeleting = false
     @State private var showsWhy = false
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote(duration: .seconds(3))
 
     struct Item: Identifiable {
         let id: OldSessionSweep.Parked.Item
@@ -73,16 +71,7 @@ struct CleanupCountdownView: View {
         .frame(width: 660)
         .background(Theme.background)
         .interactiveDismissDisabled(isDeleting)
-        .overlay(alignment: .top) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: "checkmark", text: note)
-                        .padding(.top, Space.md)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, alignment: .top, top: Space.md)
     }
 
     // Escape puts the explanation away before it closes the sheet.
@@ -302,16 +291,8 @@ struct CleanupCountdownView: View {
         }
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func show(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task {
-            try? await Task.sleep(for: .seconds(3))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "checkmark")
     }
 }
 

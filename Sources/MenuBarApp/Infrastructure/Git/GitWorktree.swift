@@ -9,9 +9,7 @@ enum GitWorktree {
         let branch: String
     }
 
-    struct Failure: Error, Sendable {
-        let message: String
-    }
+    typealias Failure = GitFailure
 
     struct Orphaned: Identifiable, Sendable, Equatable {
         let path: String
@@ -52,23 +50,25 @@ enum GitWorktree {
     // choice shows this, so it has to be the same answer `add` acts on rather than a
     // description of it.
     //
-    // The session id makes the folder and branch unique; the project name keeps them
-    // recognisable when browsing the worktrees directory by hand.
-    static func plan(projectName: String, sessionID: UUID) -> Created {
+    // The project name keeps folders recognisable when browsing the worktrees directory by hand.
+    static func plan(projectName: String, sessionID: UUID, branch: String? = nil) -> Created {
         let suffix = String(sessionID.uuidString.prefix(8)).lowercased()
         let name = safeName(projectName)
+
         return Created(path: baseDirectory.appendingPathComponent("\(name)-\(suffix)").path,
-                       branch: "code-station/\(suffix)")
+                       branch: branch ?? "code-station/\(suffix)")
     }
 
     // Workspace checkouts share a session folder. The project id suffix prevents two
     // repositories with the same display name from choosing the same path.
-    static func plan(projectName: String, projectID: UUID, sessionID: UUID) -> Created {
+    static func plan(projectName: String, projectID: UUID, sessionID: UUID,
+                     branch: String? = nil) -> Created {
         let sessionSuffix = String(sessionID.uuidString.prefix(8)).lowercased()
         let projectSuffix = String(projectID.uuidString.prefix(8)).lowercased()
         let folder = baseDirectory.appendingPathComponent(sessionSuffix, isDirectory: true)
+
         return Created(path: folder.appendingPathComponent("\(safeName(projectName))-\(projectSuffix)").path,
-                       branch: "code-station/\(sessionSuffix)")
+                       branch: branch ?? "code-station/\(sessionSuffix)")
     }
 
     private static func safeName(_ projectName: String) -> String {
@@ -79,17 +79,18 @@ enum GitWorktree {
     // whatever the project folder has checked out. Naming a ref is what lets a session
     // start from the remote tip while the user's own checkout stays as it is.
     static func add(projectPath: String, projectName: String, sessionID: UUID,
-                    from base: String? = nil) async -> Result<Created, Failure> {
+                    from base: String? = nil, branch: String? = nil) async -> Result<Created, Failure> {
         await add(projectPath: projectPath,
-                  planned: plan(projectName: projectName, sessionID: sessionID),
+                  planned: plan(projectName: projectName, sessionID: sessionID, branch: branch),
                   from: base)
     }
 
     static func add(projectPath: String, projectName: String, projectID: UUID,
-                    sessionID: UUID, from base: String? = nil) async -> Result<Created, Failure> {
+                    sessionID: UUID, from base: String? = nil,
+                    branch: String? = nil) async -> Result<Created, Failure> {
         await add(projectPath: projectPath,
                   planned: plan(projectName: projectName, projectID: projectID,
-                                sessionID: sessionID),
+                                sessionID: sessionID, branch: branch),
                   from: base)
     }
 
@@ -98,13 +99,13 @@ enum GitWorktree {
     // ever appearing as app cleanup, even when no session knows about it.
     static func orphaned(projectPath: String, excluding activePaths: Set<String>) async
         -> [Orphaned] {
-        guard let tool = await GitInspector.tool() else { return [] }
+        guard let tool = Git.tool() else { return [] }
         let active = Set(activePaths.map {
             URL(fileURLWithPath: $0).standardizedFileURL.path
         })
 
-        return await GitInspector.offMain {
-            let output = GitInspector.run(
+        return await Git.offMain {
+            let output = Git.run(
                 tool, ["-C", projectPath, "worktree", "list", "--porcelain", "-z"])
             guard output.ok else { return [] }
 
@@ -168,15 +169,15 @@ enum GitWorktree {
 
     private static func add(projectPath: String, planned: Created,
                             from base: String?) async -> Result<Created, Failure> {
-        guard let tool = await GitInspector.tool() else {
-            return .failure(Failure(message: "Could not find git on PATH."))
+        guard let tool = Git.tool() else {
+            return .failure(Failure(message: Git.notFoundMessage))
         }
 
-        return await GitInspector.offMain {
+        return await Git.offMain {
             prepareContainingFolder(for: planned.path)
             var arguments = ["-C", projectPath, "worktree", "add", planned.path, "-b", planned.branch]
             if let base { arguments.append(base) }
-            return worktreeAdd(tool, arguments).map { _ in planned }
+            return Result { () throws(GitFailure) in try Git.check(tool, arguments) }.map { _ in planned }
         }
     }
 
@@ -199,12 +200,6 @@ enum GitWorktree {
         }
     }
 
-    private static func worktreeAdd(_ tool: GitInspector.GitTool,
-                                    _ arguments: [String]) -> Result<Void, Failure> {
-        let result = GitInspector.run(tool, arguments)
-        return result.ok ? .success(()) : .failure(Failure(message: result.failureMessage))
-    }
-
     // Where a rebuilt checkout would get its commits. Read before anything is changed so a
     // confirmation can state the outcome, and handed back to `restore` so what runs is what
     // was promised rather than a second lookup that could answer differently.
@@ -221,21 +216,21 @@ enum GitWorktree {
     // Nil where the question cannot be asked at all - no git, no project folder. That is
     // not the same answer as "the branch is gone" and must not be shown as one.
     static func restoreSource(of branch: String, projectPath: String) async -> RestoreSource? {
-        guard let tool = await GitInspector.tool(),
+        guard let tool = Git.tool(),
               FileManager.default.fileExists(atPath: projectPath) else { return nil }
-        return await GitInspector.offMain { source(of: branch, in: projectPath, tool: tool) }
+        return await Git.offMain { source(of: branch, in: projectPath, tool: tool) }
     }
 
     private static func source(of branch: String, in projectPath: String,
-                               tool: GitInspector.GitTool) -> RestoreSource {
+                               tool: Git.Tool) -> RestoreSource {
         // Spelled out with its refs/heads prefix, since a bare name matches a tag just as
         // readily: checking a tag out would leave a detached head on a checkout whose
         // session records a branch.
-        if GitInspector.run(tool, ["-C", projectPath, "rev-parse", "--verify", "--quiet",
+        if Git.run(tool, ["-C", projectPath, "rev-parse", "--verify", "--quiet",
                                    "refs/heads/" + branch]).ok {
             return .localBranch
         }
-        let listed = GitInspector.run(tool, ["-C", projectPath, "for-each-ref",
+        let listed = Git.run(tool, ["-C", projectPath, "for-each-ref",
                                              "--format=%(refname)", "refs/remotes/*/" + branch])
         let refs = listed.text
             .components(separatedBy: "\n")
@@ -259,8 +254,8 @@ enum GitWorktree {
     // project while the work sits on a remote.
     static func restore(worktreePath: String, branch: String, projectPath: String,
                         from source: RestoreSource) async -> Result<Void, Failure> {
-        guard let tool = await GitInspector.tool() else {
-            return .failure(Failure(message: "Could not find git on PATH."))
+        guard let tool = Git.tool() else {
+            return .failure(Failure(message: Git.notFoundMessage))
         }
         guard FileManager.default.fileExists(atPath: projectPath) else {
             return .failure(Failure(
@@ -268,7 +263,7 @@ enum GitWorktree {
                     + "so there is nothing to build the checkout from."))
         }
 
-        return await GitInspector.offMain {
+        return await Git.offMain {
             // `--force` is what clears the registration git keeps when only the folder was
             // deleted, but it also waives the rule that a branch is checked out in one place
             // at a time. That one is not ours to waive - commits in either of two checkouts
@@ -294,15 +289,15 @@ enum GitWorktree {
             case .projectHead:
                 arguments.append(contentsOf: ["-b", branch])
             }
-            return worktreeAdd(tool, arguments)
+            return Result { () throws(GitFailure) in try Git.check(tool, arguments) }.map { _ in }
         }
     }
 
     // The folder a branch is checked out in, when one is still there. A registration whose
     // folder has gone does not count: that is the one being rebuilt.
     private static func liveCheckout(of branch: String, in projectPath: String,
-                                     tool: GitInspector.GitTool) -> String? {
-        let listed = GitInspector.run(
+                                     tool: Git.Tool) -> String? {
+        let listed = Git.run(
             tool, ["-C", projectPath, "worktree", "list", "--porcelain", "-z"])
         guard listed.ok else { return nil }
         return parseWorktreeList(listed.text)
@@ -316,8 +311,8 @@ enum GitWorktree {
     // is deliberately kept.
     static func remove(worktreePath: String, projectPath: String?, branch: String?) async
         -> Result<Void, Failure> {
-        let tool = await GitInspector.tool()
-        return await GitInspector.offMain {
+        let tool = Git.tool()
+        return await Git.offMain {
             // The folder goes first and is moved rather than deleted, so the caller waits
             // for a rename instead of for however many files the session left behind. What
             // git is told afterwards is the same either way: a checkout whose folder has
@@ -334,11 +329,11 @@ enum GitWorktree {
             if let tool, let projectPath {
                 // Before the branch, not after: git refuses to delete a branch it still
                 // believes a checkout has out.
-                _ = GitInspector.run(
+                _ = Git.run(
                     tool, ["-C", projectPath, "worktree", "prune"],
                     timeout: cleanupCommandTimeout)
                 if let branch {
-                    _ = GitInspector.run(
+                    _ = Git.run(
                         tool, ["-C", projectPath, "branch", "-d", branch],
                         timeout: cleanupCommandTimeout)
                 }
@@ -354,42 +349,5 @@ enum GitWorktree {
             WorktreeTrash.empty()
             return .success(())
         }
-    }
-}
-
-// The branch a folder has checked out, read straight from .git/HEAD instead of by running
-// git: sidebar rows redraw often and none of them are worth a process. The answer is held
-// for a moment so a burst of redraws costs a single read.
-@MainActor
-enum GitHead {
-    private static var cache: [String: (branch: String?, readAt: Date)] = [:]
-    private static let ttl: TimeInterval = 5
-
-    static func branch(at path: String) -> String? {
-        if let hit = cache[path], Date().timeIntervalSince(hit.readAt) < ttl { return hit.branch }
-        let branch = read(path)
-        cache[path] = (branch, Date())
-        return branch
-    }
-
-    // A detached head holds a sha rather than a ref, which is nothing a row can use.
-    private static func read(_ path: String) -> String? {
-        guard let head = try? String(contentsOfFile: gitDirectory(of: path) + "/HEAD", encoding: .utf8) else { return nil }
-        let reference = "ref: refs/heads/"
-        let line = head.trimmed
-        guard line.hasPrefix(reference) else { return nil }
-        return String(line.dropFirst(reference.count))
-    }
-
-    // In a linked worktree or a submodule, .git is a file that points at the real git
-    // directory, and a submodule's pointer is relative to the checkout.
-    private static func gitDirectory(of path: String) -> String {
-        let dotGit = path + "/.git"
-        guard let pointer = try? String(contentsOfFile: dotGit, encoding: .utf8) else { return dotGit }
-        let prefix = "gitdir:"
-        let line = pointer.trimmed
-        guard line.hasPrefix(prefix) else { return dotGit }
-        let target = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
-        return target.hasPrefix("/") ? target : path + "/" + target
     }
 }

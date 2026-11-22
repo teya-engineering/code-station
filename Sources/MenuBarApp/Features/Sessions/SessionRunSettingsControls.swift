@@ -34,7 +34,7 @@ struct SessionRunSettingsControls: View {
                 }
                 if showsDesignAmbition { ambitionControl }
             }
-            .task(id: agent) { await runner.discoverModels(for: agent) }
+            .task(id: agent) { await runner.catalog.discoverModels(for: agent) }
         }
     }
 
@@ -52,9 +52,9 @@ struct SessionRunSettingsControls: View {
 
     private func modelControl(_ session: ChatSession, lastRan: String?) -> some View {
         let agent = session.agent
-        let model = runner.validModel(sessionSettings.model, for: agent)
+        let model = runner.catalog.validModel(sessionSettings.model, for: agent)
         let choose = { (id: String?) in chooseModel(id, for: session, lastRan: lastRan) }
-        let title = model.map { runner.modelTitle($0) }
+        let title = model.map { runner.catalog.modelTitle($0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "Default"
         let help = "The model this session will use for its next turn."
@@ -65,7 +65,7 @@ struct SessionRunSettingsControls: View {
                     .item("Use \(agent.title) default", checked: model == nil) { choose(nil) },
                     .separator,
                 ]
-                entries += runner.modelOptions(for: agent).compactMap { option in
+                entries += runner.catalog.modelOptions(for: agent).compactMap { option in
                     option.id.map { id in
                         MenuEntry.item(option.title, checked: model == id,
                                        subtitle: option.detail) { choose(id) }
@@ -78,17 +78,17 @@ struct SessionRunSettingsControls: View {
     }
 
     private func chooseModel(_ model: String?, for session: ChatSession, lastRan: String?) {
-        let current = runner.validModel(sessionSettings.model, for: session.agent)
+        let current = runner.catalog.validModel(sessionSettings.model, for: session.agent)
         guard model != current else { return }
         guard session.hasAgentConversation else {
             setModel(model, for: session.agent)
             return
         }
 
-        let currentTitle = current.map { runner.modelTitle($0) }
+        let currentTitle = current.map { runner.catalog.modelTitle($0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "the \(session.agent.title) default"
-        let nextTitle = model.map { runner.modelTitle($0) }
+        let nextTitle = model.map { runner.catalog.modelTitle($0) }
             ?? "the \(session.agent.title) default"
         dialogs.show(.confirm(
             "Change from \(currentTitle) to \(nextTitle)?",
@@ -105,7 +105,7 @@ struct SessionRunSettingsControls: View {
         changeSettings {
             $0.model = model
             if let effort = $0.effort,
-               runner.validEffort(effort, for: agent, model: model) == nil {
+               runner.catalog.validEffort(effort, for: agent, model: model) == nil {
                 $0.effort = nil
             }
         }
@@ -115,14 +115,14 @@ struct SessionRunSettingsControls: View {
 
     private func effortControl(agent: AgentKind) -> some View {
         let settings = sessionSettings
-        let model = runner.validModel(settings.model, for: agent)
-        let override = runner.validEffort(settings.effort, for: agent, model: model)
-        let appDefault = runner.validEffort(runner.defaults(for: agent).effort,
+        let model = runner.catalog.validModel(settings.model, for: agent)
+        let override = runner.catalog.validEffort(settings.effort, for: agent, model: model)
+        let appDefault = runner.catalog.validEffort(runner.catalog.defaults(for: agent).effort,
                                             for: agent, model: model)
         let chosen = override ?? appDefault
-        let levels = runner.effortOptions(for: agent, model: model).compactMap(\.id)
-        let title = chosen.map { runner.effortTitle($0, for: agent, model: model) } ?? "Default"
-        let inheritedEffort = appDefault.map { runner.effortTitle($0, for: agent, model: model) }
+        let levels = runner.catalog.effortOptions(for: agent, model: model).compactMap(\.id)
+        let title = chosen.map { runner.catalog.effortTitle($0, for: agent, model: model) } ?? "Default"
+        let inheritedEffort = appDefault.map { runner.catalog.effortTitle($0, for: agent, model: model) }
             ?? "\(agent.title) settings"
         let help = "How long the model thinks before it answers. Inherit Code Station's default, or choose a level for this run."
 
@@ -137,7 +137,7 @@ struct SessionRunSettingsControls: View {
                     .separator,
                 ]
                 entries += levels.map { level in
-                    MenuEntry.item(runner.effortTitle(level, for: agent, model: model),
+                    MenuEntry.item(runner.catalog.effortTitle(level, for: agent, model: model),
                                    meter: EffortMeter.lit(for: level, among: levels),
                                    checked: override == level) {
                         changeSettings { $0.effort = level }
@@ -185,7 +185,7 @@ struct SessionRunSettingsControls: View {
 
     private func permissionsControl(agent: AgentKind) -> some View {
         let settings = sessionSettings
-        let defaults = runner.defaults(for: agent)
+        let defaults = runner.catalog.defaults(for: agent)
         let selected = (settings.permissionMode ?? defaults.permissionMode ?? .fallback)
         let appDefault = (defaults.permissionMode ?? .fallback)
         return shieldControl(
@@ -205,7 +205,7 @@ struct SessionRunSettingsControls: View {
     private func codexAccessControl(agent: AgentKind) -> some View {
         let settings = sessionSettings
         let override = settings.codexSandboxMode
-        let appDefault = (runner.defaults(for: agent).codexSandboxMode ?? .workspaceWrite)
+        let appDefault = (runner.catalog.defaults(for: agent).codexSandboxMode ?? .workspaceWrite)
         let selected = override ?? appDefault
         return shieldControl(
             tone: TrustTone(selected),
@@ -225,7 +225,7 @@ struct SessionRunSettingsControls: View {
     private func copilotAccessControl(agent: AgentKind) -> some View {
         let settings = sessionSettings
         let override = settings.copilotAccessMode
-        let appDefault = (runner.defaults(for: agent).copilotAccessMode ?? .workspace)
+        let appDefault = (runner.catalog.defaults(for: agent).copilotAccessMode ?? .workspace)
         let selected = override ?? appDefault
         return shieldControl(
             tone: TrustTone(selected),

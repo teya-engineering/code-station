@@ -370,7 +370,7 @@ struct LocalServerPreviewPageTests {
         private let store: ProjectStore
         private let scratch: ScratchDirectory
         private let session: ChatSession
-        private let runner = SessionRunner(paths: [.codex: "/usr/bin/true"])
+        private let runner: SessionRunner
         private let settings: AppSettings
         private let shortcuts: ShortcutStore
         private let palette = GlobalCommandPaletteController()
@@ -378,9 +378,10 @@ struct LocalServerPreviewPageTests {
         init(app: String = "<p>Start</p>",
              at address: URL = URL(string: "http://localhost:3000/settings")!) async throws {
             (store, scratch) = TestStore.make()
+            runner = SessionRunner(store: store, paths: [.codex: "/usr/bin/true"])
             let project = try TestStore.project(in: store)
             session = store.newSession(in: project.id, seed: .init(agent: .codex))
-            let preferences = try #require(UserDefaults(suiteName: "preview-page-\(UUID().uuidString)"))
+            let preferences = scratchDefaults()
             settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"), preferences: preferences)
             shortcuts = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
             previews.open(address)

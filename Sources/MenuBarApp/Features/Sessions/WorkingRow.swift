@@ -11,6 +11,8 @@ struct WorkingRow: View {
     let sessionID: UUID
     let avatarName: String?
     let agentTitle: String
+    // The words Claude's own spinner would show, for a Claude session that sets any.
+    var spinnerVerbs: ClaudeSpinnerVerbs?
     var completionActivity: SessionCompletionActivity?
     // The tasks holding the turn open, if that is why it is still here. Naming one is the
     // whole point of the row in that state: silence is expected, and what decides whether
@@ -96,10 +98,13 @@ struct WorkingRow: View {
                 return Tooltip(title: "\(agentTitle) has sent nothing for a while.",
                                note: "The log in Settings says what it last did.")
             }
-            .onAppear { words = WorkingWords(personality: personality) }
+            .onAppear { words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs) }
             .onChange(of: personality) { _, personality in
-                words = WorkingWords(personality: personality)
+                words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs)
                 started = .now
+            }
+            .onChange(of: spinnerVerbs) { _, spinnerVerbs in
+                words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs)
             }
         }
     }

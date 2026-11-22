@@ -72,3 +72,40 @@ final class OwnHostView: NSView {
     // Clicks and hover belong to whatever the reading sits in, such as a button.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
+
+// Counts up while something runs. The reading has to keep ticking when nothing arrives to
+// redraw it, which is the case a live clock exists for. Sidebar type stays a fixed size;
+// transcript type follows the size the user picked, which is what `scaled` asks for.
+struct ElapsedTime: View {
+    let since: Date
+    var size: CGFloat = 8.5
+    var scaled = false
+
+    @Environment(\.textScale) private var textScale
+
+    var body: some View {
+        TickingReading(since: since, reading: { since, now in
+            Self.reading(now.timeIntervalSince(since))
+        }) { text in
+            Text(text)
+                .font(.mono(size * (scaled ? textScale : 1)))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+        }
+    }
+
+    // A clock still going: whole seconds, since the tenths would only flicker.
+    static func reading(_ seconds: TimeInterval) -> String {
+        let whole = Int(max(0, seconds))
+        guard whole >= 60 else { return "\(whole)s" }
+        return "\(whole / 60)m \(whole % 60)s"
+    }
+
+    // A span that is over. Most tool calls are done in well under a second, and "0s" would
+    // make every one of them read as the same instant, so short spans keep their tenths.
+    static func duration(_ seconds: TimeInterval) -> String {
+        let span = max(0, seconds)
+        guard span >= 10 else { return String(format: "%.1fs", span) }
+        return reading(span)
+    }
+}

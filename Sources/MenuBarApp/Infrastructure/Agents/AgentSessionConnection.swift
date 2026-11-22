@@ -134,15 +134,10 @@ final class AgentSessionConnection: @unchecked Sendable {
     }
 
     private func emit(_ message: [String: Any]) {
-        guard let body = try? JSONSerialization.data(withJSONObject: message) else {
+        guard let bytes = framer.frame(message), write(bytes) else {
             writeFailed = true
             return
         }
-        var bytes = launch.agent == .codex ? Data()
-            : Data("Content-Length: \(body.count)\r\n\r\n".utf8)
-        bytes.append(body)
-        if launch.agent == .codex { bytes.append(0x0A) }
-        if !write(bytes) { writeFailed = true }
     }
 
     private func request(_ method: String, _ params: [String: Any], as kind: Request) {

@@ -16,7 +16,7 @@ struct SessionAsideTests {
     }
 
     private func runner() -> SessionRunner {
-        let runner = SessionRunner(preferences: testPreferences.store,
+        let runner = SessionRunner(store: store, preferences: testPreferences.store,
                                    paths: [.claudeCode: "/usr/bin/true", .codex: "/usr/bin/true"])
         runner.asides.answer = { _, _ in .success("unused") }
         return runner
@@ -43,7 +43,7 @@ struct SessionAsideTests {
         let session = try startedSession()
         let before = store.transcript(of: session.id)
 
-        runner.send("/btw which file holds the parser?", sessionID: session.id, store: store)
+        runner.send("/btw which file holds the parser?", sessionID: session.id)
 
         #expect(runner.queued(session.id).isEmpty)
         #expect(store.transcript(of: session.id) == before)
@@ -60,8 +60,8 @@ struct SessionAsideTests {
         let claude = try startedSession()
         let codex = try startedSession(agent: .codex)
 
-        runner.send("/btw why?", sessionID: claude.id, store: store)
-        runner.send("/btw why?", sessionID: codex.id, store: store)
+        runner.send("/btw why?", sessionID: claude.id)
+        runner.send("/btw why?", sessionID: codex.id)
         while await asked.requests.count < 2 { await Task.yield() }
 
         let requests = await asked.requests
@@ -74,7 +74,7 @@ struct SessionAsideTests {
         let runner = runner()
         let session = try startedSession()
 
-        runner.send("/btw", sessionID: session.id, store: store)
+        runner.send("/btw", sessionID: session.id)
 
         #expect(runner.asides.aside(session.id) == nil)
         #expect(runner.queued(session.id).isEmpty)

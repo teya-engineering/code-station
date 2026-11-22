@@ -52,23 +52,6 @@ struct TraceTests {
         #expect(trace.rows.first { $0.id == "z" }?.span.durationNanos == 10)
     }
 
-    @Test func foldingASpanHidesEverythingBeneathIt() {
-        #expect(Self.tree.visibleRows(collapsed: ["a"]).map(\.id) == ["r", "a", "b", "o"])
-        #expect(Self.tree.visibleRows(collapsed: ["r"]).map(\.id) == ["r", "o"])
-        #expect(Self.tree.visibleRows(collapsed: []).count == 5)
-    }
-
-    @Test func placesBarsOnTheTracesOwnTimeAxis() {
-        let root = Self.tree.bar(for: Self.tree.rows[0].span)
-        #expect(root.offset == 0)
-        #expect(root.width == 1)
-        let b = Self.tree.bar(for: Self.tree.rows[3].span)
-        #expect(b.offset == 0.5)
-        #expect(b.width == 0.5)
-        let instant = Self.tree.bar(for: Self.span("i", start: 40, duration: 0))
-        #expect(instant.width >= 0.002)
-    }
-
     @Test func writesDurationsWithAsFewDigitsAsTellSpansApart() {
         #expect(Trace.durationText(850_000) == "850µs")
         #expect(Trace.durationText(4_200_000) == "4.2ms")

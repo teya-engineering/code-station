@@ -45,13 +45,23 @@ struct WorkingWordsTests {
 
     @Test func everyPersonalityCyclesOnlyThroughItsOwnPhrases() {
         for personality in AgentPersonality.allCases {
-            let words = WorkingWords(personality: personality)
+            let words = WorkingWords(personality: personality, spinnerVerbs: nil)
             let seen = (0..<personality.workingWords.count).map {
                 words.word(after: Double($0) * WorkingWords.interval)
             }
 
             #expect(Set(seen) == Set(personality.workingWords))
         }
+    }
+
+    // Only the default bot speaks with Claude's spinner words. A bot with a personality
+    // keeps its own lines whatever the CLI is set to.
+    @Test func onlyTheDefaultBotTakesClaudesSpinnerVerbs() {
+        let verbs = ClaudeSpinnerVerbs(mode: .replace, verbs: ["Box box box"])
+
+        #expect(WorkingWords(personality: .standard, spinnerVerbs: verbs).word(after: 0) == "Box box box")
+        #expect(AgentPersonality.cat.workingWords.contains(
+            WorkingWords(personality: .cat, spinnerVerbs: verbs).word(after: 0)))
     }
 
     // The bot preview in Appearance shows a line in the chosen bot's voice. It is drawn

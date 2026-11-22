@@ -105,6 +105,19 @@ struct PushReviewTests {
         #expect(sent == ["0ld71p", nil])
     }
 
+    @Test func replacingARewrittenUpstreamPinsThePushAndDoesNotPull() async {
+        var sent: [String?] = []
+        let model = PushReviewModel(read: {
+            .rewroteUpstream(outgoing: [commit], replaced: [incomingCommit], tip: "0ld71p")
+        }, pull: { Issue.record("Replacing must not pull"); return .upToDate }, push: { sent.append($0); return nil })
+        await model.load()
+        #expect(model.rewrote)
+        #expect(model.replaced == [incomingCommit])
+        #expect(model.behind == 0)
+        #expect(await model.send())
+        #expect(sent == ["0ld71p"])
+    }
+
     @Test func pullFailureStopsPushAndRetryRequiresFreshReview() async {
         var attempts = 0
         var pushes = 0

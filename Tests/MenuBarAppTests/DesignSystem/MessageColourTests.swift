@@ -7,15 +7,13 @@ import Testing
 @MainActor
 struct MessageColourTests {
     @Test func projectIconIsTheDefaultAndThePickIsKept() throws {
-        let suite = "MessageColourTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
-        #expect(Preferences.messageColour(in: defaults) == .projectIcon)
-        Preferences.setMessageColour(.ink, in: defaults)
-        #expect(Preferences.messageColour(in: defaults) == .ink)
+        #expect(Preferences.messageColour.read(in: defaults) == .projectIcon)
+        Preferences.messageColour.write(.ink, in: defaults)
+        #expect(Preferences.messageColour.read(in: defaults) == .ink)
         defaults.set("not-a-colour", forKey: "messageColour")
-        #expect(Preferences.messageColour(in: defaults) == .projectIcon)
+        #expect(Preferences.messageColour.read(in: defaults) == .projectIcon)
     }
 
     // Leaf is the colour the bubble always had, kept for anyone who liked it.

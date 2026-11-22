@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - Motion
 
 // The pace everything interactive moves at. A switch, a pill, a menu and a pane all move
-// on one of these three curves, so the window reads as a single surface reacting rather
+// on one of these curves, so the window reads as a single surface reacting rather
 // than a set of parts each keeping its own time.
 enum Motion {
     static let hoverDuration: TimeInterval = 0.12
@@ -52,6 +52,8 @@ enum Motion {
     // A wash fading off words that have just been put into a field. It runs on the curve
     // a line draws on, held long enough for the eye to find where the words went.
     static let washDuration: TimeInterval = 0.7
+
+    static let wordmarkPeriod: TimeInterval = 12
 
     // The curve a line draws on. Kept in one place so the SwiftUI marks and the ones
     // Core Animation plays in AppKit views move the same way.

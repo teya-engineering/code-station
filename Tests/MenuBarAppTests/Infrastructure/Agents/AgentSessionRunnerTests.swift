@@ -8,13 +8,13 @@ struct AgentSessionRunnerTests {
     func keepsTheConversationOpenForFollowUpsAndEndsItsTasks(agent: AgentKind) async throws {
         let fixture = try fixture(agent)
         defer { fixture.tearDown() }
-        fixture.runner.send("Start a timer", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("Start a timer", sessionID: fixture.session.id)
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
         #expect(fixture.runner.backgroundTasks(fixture.session.id).count == 2)
         let since = try #require(fixture.runner.waitingSince(fixture.session.id))
         #expect(await waitUntil { FileManager.default.fileExists(atPath: fixture.scratch.path("polled").path) })
         #expect(fixture.runner.waitingSince(fixture.session.id) == since)
-        fixture.runner.send("Continue here", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("Continue here", sessionID: fixture.session.id)
         #expect(await waitUntil {
             fixture.store.transcript(of: fixture.session.id).contains { $0.text.contains("Follow-up received") }
                 && fixture.runner.state(fixture.session.id) == .waiting
@@ -30,7 +30,7 @@ struct AgentSessionRunnerTests {
     func updatesTheTaskListAndFinishesNaturally(agent: AgentKind) async throws {
         let fixture = try fixture(agent)
         defer { fixture.tearDown() }
-        fixture.runner.send("Start timers", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("Start timers", sessionID: fixture.session.id)
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .waiting })
         let since = fixture.runner.waitingSince(fixture.session.id)
         try Data().write(to: fixture.scratch.path("drop"))

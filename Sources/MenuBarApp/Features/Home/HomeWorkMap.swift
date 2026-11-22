@@ -16,7 +16,7 @@ struct HomeLive: Identifiable {
     var finished = false
 
     var id: UUID { session.id }
-    var containerID: UUID { session.workspaceID ?? session.projectID }
+    var containerID: UUID { session.containerID }
     var needsAttention: Bool { tone == .needsYou }
 
     var status: String {

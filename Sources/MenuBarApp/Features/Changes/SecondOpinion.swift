@@ -523,15 +523,14 @@ enum SecondOpinion {
     // Reads the reviewer's output as it streams and reports each call it makes. It only
     // ever sees chunks, so it keeps the part of a line that has not ended yet.
     private final class ActivityReader: @unchecked Sendable {
-        private let agent: AgentKind
+        private let parser: AgentStreamParser
         private let writing: String
         private let report: @Sendable (String) -> Void
-        private let copilot = CopilotStream()
         private let lock = NSLock()
         private var partial = Data()
 
         init(agent: AgentKind, writing: String, report: @escaping @Sendable (String) -> Void) {
-            self.agent = agent
+            parser = AgentStreamParser(agent: agent)
             self.writing = writing
             self.report = report
         }
@@ -546,12 +545,7 @@ enum SecondOpinion {
             }
             lock.unlock()
             for line in lines where !line.isBlank {
-                let events: [StreamEvent] = switch agent {
-                case .claudeCode: StreamEvent.parse(line)
-                case .codex: StreamEvent.parseCodex(line)
-                case .copilot: copilot.parse(line)
-                }
-                for event in events {
+                for event in parser.parse(line) {
                     switch event {
                     case .toolUse(let tool): report(SecondOpinion.activity(for: tool))
                     case .text: report(writing)
@@ -577,11 +571,10 @@ enum SecondOpinion {
             }
             return output
         case .codex, .copilot:
-            let copilot = CopilotStream()
+            let parser = AgentStreamParser(agent: agent)
             var parts: [String] = []
             for line in output.split(separator: "\n") {
-                let events = agent == .codex ? StreamEvent.parseCodex(String(line)) : copilot.parse(String(line))
-                for case .text(let text) in events { parts.append(text) }
+                for case .text(let text) in parser.parse(String(line)) { parts.append(text) }
             }
             return parts.joined(separator: "\n")
         }
@@ -703,4 +696,93 @@ enum SecondOpinion {
         let lines = text.components(separatedBy: "\n")
         return number <= lines.count ? lines[number - 1] : nil
     }
+}
+
+// What a second opinion was asked to do, kept with its run so Try again asks the same.
+struct SecondOpinionRequest: Equatable, Sendable {
+    enum Scope: Equatable, Sendable {
+        case all
+        case file(root: String, path: String)
+        // Only what changed after the last review was sent, compared against the tree
+        // recorded in each project at that moment.
+        case sinceReview(trees: [String: String])
+
+        var isSinceReview: Bool {
+            if case .sinceReview = self { return true }
+            return false
+        }
+    }
+
+    var focus: [SecondOpinion.Focus] = SecondOpinion.Focus.standard
+    // Anything else to look for, in the person's own words.
+    var note = ""
+    var scope: Scope = .all
+    var repositories: [ReviewRepository]
+    var executable: String
+    // Nil keeps every MCP server away from the reviewer.
+    var servers: SecondOpinion.ServerAccess? = nil
+}
+
+// One reviewer's lane in the second opinion: what it is reading, how long it has taken,
+// and what it came to.
+struct SecondOpinionRun: Equatable, Identifiable {
+    enum State: Equatable {
+        case running
+        case finished(found: Int)
+        case failed(String)
+    }
+
+    var reviewer: SecondOpinion.Reviewer
+    var started: Date
+    var ended: Date?
+    var state: State = .running
+    var activity = "Gathering the changes"
+    // The last few things it did, oldest first, ending with the activity.
+    var recent = ["Gathering the changes"]
+    var request: SecondOpinionRequest
+
+    var agent: AgentKind { reviewer.agent }
+    var id: SecondOpinion.Reviewer { reviewer }
+    var isRunning: Bool { state == .running }
+}
+
+// Where the second opinion stands, which is what the header's control says and opens.
+enum SecondOpinionStatus: Equatable {
+    case ask
+    case reviewing(agents: [AgentKind], started: Date, pending: Int)
+    case failed(AgentKind)
+    case ready(agents: [AgentKind], pending: Int)
+    case settled(kept: Int, dismissed: Int)
+
+    @MainActor
+    init(reviews: ReviewCommentStore, sessionID: UUID) {
+        self.init(runs: reviews.runs(sessionID),
+                  findings: reviews.comments(sessionID).filter { $0.reviewer != nil },
+                  dismissed: reviews.dismissedFindings(sessionID).count)
+    }
+
+    init(runs: [SecondOpinionRun], findings: [ReviewComment], dismissed: Int) {
+        let pending = findings.filter(\.isPending)
+        let running = runs.filter(\.isRunning)
+        if !running.isEmpty {
+            self = .reviewing(agents: unique(running.map(\.agent)), started: running.map(\.started).min() ?? Date(),
+                              pending: pending.count)
+        } else if let failed = runs.first(where: { if case .failed = $0.state { true } else { false } }),
+                  pending.isEmpty {
+            self = .failed(failed.agent)
+        } else if !pending.isEmpty {
+            let voices = Set(pending.flatMap(\.reviewers))
+            self = .ready(agents: AgentKind.allCases.filter(voices.contains), pending: pending.count)
+        } else if !runs.isEmpty {
+            self = .settled(kept: findings.count { !$0.isPending }, dismissed: dismissed)
+        } else {
+            self = .ask
+        }
+    }
+}
+
+// Each agent once, in the order given. Two seats can run the same agent on two models.
+func unique(_ agents: [AgentKind]) -> [AgentKind] {
+    var seen = Set<AgentKind>()
+    return agents.filter { seen.insert($0).inserted }
 }

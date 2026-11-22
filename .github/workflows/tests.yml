@@ -8,9 +8,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request makes the older run useless, so it is
+# cancelled. Every commit on main keeps its run, because a release can only be
+# cut from a commit whose run passed. A per-commit group is needed for that:
+# with a shared group, GitHub still drops a run that is waiting in the queue.
 concurrency:
-  group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -31,6 +35,7 @@ jobs:
       - name: Test
         run: >-
           ./Scripts/swiftpm.sh test --disable-sandbox --no-parallel
+          --force-resolved-versions
           --cache-path /private/tmp/teya-swiftpm-cache
           --config-path /private/tmp/code-station-ci-configuration
           --security-path /private/tmp/code-station-ci-security

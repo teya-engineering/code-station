@@ -11,6 +11,7 @@ struct NewSessionView: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // Picked up front so the branch and folder shown here are the ones the session is
     // created with, rather than a guess at what they will look like.
@@ -43,6 +44,8 @@ struct NewSessionView: View {
     // The filename is saved with the session so the photo and its personality stay in
     // force for every turn. The built-in Default bot is ready before settings load.
     @State private var selectedAvatarName = AgentAvatarSelection.defaultName
+    @State private var branchName = ""
+    @State private var branchAccepted = true
 
     init(project: Project, onCreate: @escaping (NewSessionChoice) -> Void) {
         self.project = project
@@ -52,8 +55,18 @@ struct NewSessionView: View {
     }
 
     private var planned: GitWorktree.Created {
-        GitWorktree.plan(projectName: project.name, sessionID: sessionID)
+        GitWorktree.plan(projectName: project.name, sessionID: sessionID, branch: chosenBranch)
     }
+
+    private var showsBranchField: Bool { useWorktree && project.isGitRepository }
+
+    private var chosenBranch: String? {
+        let name = branchName.trimmed
+
+        return name.isEmpty ? nil : name
+    }
+
+    private var branchReady: Bool { !showsBranchField || branchAccepted }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,6 +89,13 @@ struct NewSessionView: View {
                                        reachedOrigin: retries.reached.contains(project.id),
                                        retryFetch: retryFetch,
                                        stopFetch: { retries.stop(project.id) })
+                    if showsBranchField {
+                        SessionBranchField(
+                            placeholder: GitWorktree.plan(projectName: project.name,
+                                                          sessionID: sessionID).branch,
+                            name: $branchName, projects: [project], accepted: $branchAccepted)
+                            .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
+                    }
                     SessionCheckoutPaths(entries: [
                         .init(name: project.name,
                               branch: project.isGitRepository
@@ -87,6 +107,7 @@ struct NewSessionView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(Space.pane)
+                .smoothlyResizes(when: showsBranchField)
             }
             .frame(maxHeight: 470)
 
@@ -96,6 +117,7 @@ struct NewSessionView: View {
                              fetching: fetching,
                              retrying: retries.isEmpty ? nil : project.name,
                              updating: pulling ? (freshness?.defaultBranch ?? "the checkout") : nil,
+                             ready: branchReady,
                              selectedAgent: $selectedAgent,
                              selectedAvatarName: $selectedAvatarName,
                              create: create,
@@ -147,7 +169,7 @@ struct NewSessionView: View {
     }
 
     private var chosenAgent: AgentKind? {
-        runner.agentForNewSession(selected: selectedAgent)
+        runner.catalog.agentForNewSession(selected: selectedAgent)
     }
 
     private func selectWorktree() {
@@ -179,6 +201,7 @@ struct NewSessionView: View {
     // still going, or free to be started again. On failure the sheet stays for another
     // try or a cancel.
     private func create() {
+        guard branchReady else { return }
         if fastForwardsDefaultBranch, let branch = freshness?.defaultBranch,
            let remote = freshness?.remoteRef {
             pulling = true
@@ -222,9 +245,9 @@ struct NewSessionView: View {
     private func finish() {
         guard let agent = chosenAgent else { return }
         let base = startPoint == .remote ? freshness?.remoteRef : nil
-        let model = runner.defaults(for: agent).model
+        let model = runner.catalog.defaults(for: agent).model
         onCreate(useWorktree
-                 ? .worktree(sessionID, base: base,
+                 ? .worktree(sessionID, base: base, branch: chosenBranch,
                              carryChanges: carryChanges && freshness?.dirty == true,
                              agent: agent, model: model,
                              agentAvatarName: selectedAvatarName, mode: .chat)
@@ -250,14 +273,11 @@ enum SessionStartPoint: Equatable {
     }
 }
 
-// What the sheet came back with. The worktree case carries the id the session must be
-// created with, since the branch and folder shown were named after it, the ref to fork
-// from when the user chose the remote tip over their own checkout, and whether the
-// folder's uncommitted work is copied in. The agent and model become part of the
-// session record. Any requested pull has already run by then.
+// The worktree case carries the id the sheet named the folder and default branch after.
+// Any requested pull has already run by then.
 enum NewSessionChoice: Equatable {
-    case worktree(UUID, base: String?, carryChanges: Bool, agent: AgentKind, model: String?,
-                  agentAvatarName: String?, mode: SessionMode)
+    case worktree(UUID, base: String?, branch: String?, carryChanges: Bool, agent: AgentKind,
+                  model: String?, agentAvatarName: String?, mode: SessionMode)
     case folder(UUID, agent: AgentKind, model: String?, agentAvatarName: String?,
                 mode: SessionMode)
 }

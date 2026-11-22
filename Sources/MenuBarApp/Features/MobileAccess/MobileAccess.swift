@@ -1,6 +1,4 @@
 import AppKit
-import CoreImage
-import CoreImage.CIFilterBuiltins
 import Darwin
 import Foundation
 import Observation
@@ -56,89 +54,6 @@ enum MobilePairingLifetime: Int, CaseIterable, Identifiable, Sendable {
 
     var duration: Duration? {
         self == .untilStopped ? nil : .seconds(rawValue)
-    }
-}
-
-struct LANInterfaceAddress: Equatable {
-    let name: String
-    let address: String
-    let isUp: Bool
-    let isRunning: Bool
-}
-
-enum LANAddress {
-    static func preferredIPv4(from candidates: [LANInterfaceAddress]) -> String? {
-        candidates
-            .filter { $0.isUp && $0.isRunning && isUsableIPv4($0.address) }
-            .sorted { rank($0) < rank($1) }
-            .first?.address
-    }
-
-    static func currentIPv4() -> String? {
-        var first: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&first) == 0, let first else { return nil }
-        defer { freeifaddrs(first) }
-
-        var candidates: [LANInterfaceAddress] = []
-        var cursor: UnsafeMutablePointer<ifaddrs>? = first
-        while let interface = cursor?.pointee {
-            defer { cursor = interface.ifa_next }
-            guard let address = interface.ifa_addr,
-                  address.pointee.sa_family == UInt8(AF_INET) else { continue }
-            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            let result = getnameinfo(address, socklen_t(address.pointee.sa_len),
-                                     &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
-            guard result == 0 else { continue }
-            let flags = Int32(interface.ifa_flags)
-            let numericAddress = String(
-                decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            candidates.append(LANInterfaceAddress(
-                name: String(cString: interface.ifa_name),
-                address: numericAddress,
-                isUp: flags & IFF_UP != 0,
-                isRunning: flags & IFF_RUNNING != 0))
-        }
-        return preferredIPv4(from: candidates)
-    }
-
-    private static func rank(_ candidate: LANInterfaceAddress) -> Int {
-        let privateAddress = isPrivate(candidate.address)
-        if candidate.name == "en0", privateAddress { return 0 }
-        if candidate.name.hasPrefix("en"), privateAddress { return 1 }
-        if privateAddress { return 2 }
-        if candidate.name == "en0" { return 3 }
-        if candidate.name.hasPrefix("en") { return 4 }
-        return 5
-    }
-
-    private static func isUsableIPv4(_ address: String) -> Bool {
-        let parts = address.split(separator: ".").compactMap { Int($0) }
-        guard parts.count == 4, parts.allSatisfy({ 0...255 ~= $0 }) else { return false }
-        return parts[0] != 0 && parts[0] != 127 && !(parts[0] == 169 && parts[1] == 254)
-    }
-
-    private static func isPrivate(_ address: String) -> Bool {
-        let parts = address.split(separator: ".").compactMap { Int($0) }
-        guard parts.count == 4 else { return false }
-        return parts[0] == 10
-            || (parts[0] == 172 && 16...31 ~= parts[1])
-            || (parts[0] == 192 && parts[1] == 168)
-    }
-}
-
-enum MobilePairingQRCode {
-    static func image(for url: URL) -> NSImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(url.absoluteString.utf8)
-        filter.correctionLevel = "M"
-        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
-        else { return nil }
-        // Keeping the Core Image representation avoids depending on a Metal renderer for
-        // a bitmap that AppKit can draw directly, including on headless test machines.
-        let representation = NSCIImageRep(ciImage: output)
-        let image = NSImage(size: representation.size)
-        image.addRepresentation(representation)
-        return image
     }
 }
 
@@ -369,6 +284,18 @@ final class MobileAccessController {
     }
 
     private func received(_ message: String, from connectionID: UUID) {
+        // A phone that has not proved itself has one short thing to say. Anything else
+        // is turned away unread, so a stranger on the network cannot make the app decode
+        // megabytes on the main actor.
+        if readers[connectionID] == nil {
+            guard pendingConnections.contains(connectionID),
+                  message.utf8.count <= Self.unprovenMessageLimit else {
+                server?.send(Self.error("This QR code is not valid. Scan a fresh code on your Mac.", code: "pairingEnded"), to: connectionID)
+                server?.close(connectionID)
+                return
+            }
+        }
+
         guard let data = message.data(using: .utf8),
               let command = try? JSONDecoder().decode(RemoteCommand.self, from: data) else {
             server?.send(Self.error("The phone sent a message Code Station could not read."),
@@ -418,7 +345,7 @@ final class MobileAccessController {
                 }
                 attachments.append(attachment)
             }
-            runner.send(prompt, attachments: attachments, sessionID: sessionID, store: store)
+            runner.send(prompt, attachments: attachments, sessionID: sessionID)
         case .stopTurn:
             guard let sessionID = openSession(of: connectionID, command: command) else { return }
             runner.stop(sessionID)
@@ -509,13 +436,13 @@ final class MobileAccessController {
                          to: connectionID)
             return
         }
-        runner.answer(request, with: answer, sessionID: sessionID, store: store)
+        runner.answer(request, with: answer, sessionID: sessionID)
 
         // Saying no is rarely the whole answer: the reason typed with it goes on as a
         // prompt, so the agent hears why rather than only that it was refused.
         let reason = command.prompt?.trimmed ?? ""
         if answer == .deny, !reason.isEmpty, reason.count <= 100_000 {
-            runner.send(reason, sessionID: sessionID, store: store)
+            runner.send(reason, sessionID: sessionID)
         }
     }
 
@@ -608,9 +535,9 @@ final class MobileAccessController {
 
         // The phone has no room for the choices the desktop sheet offers, so a session
         // made there starts on the app's own defaults.
-        let agent = runner.agent
-        let model = runner.defaults(for: agent).model
-        let avatar = Preferences.defaultAgentAvatarName()
+        let agent = runner.catalog.agent
+        let model = runner.catalog.defaults(for: agent).model
+        let avatar = Preferences.defaultAgentAvatarName.read()
         let worktree = command.worktree == true && project.isGitRepository
 
         Task { @MainActor in
@@ -639,7 +566,7 @@ final class MobileAccessController {
             }
             guard readers[connectionID] != nil else { return }
             open(created.id.uuidString, for: connectionID)
-            if !prompt.isEmpty { runner.send(prompt, sessionID: created.id, store: store) }
+            if !prompt.isEmpty { runner.send(prompt, sessionID: created.id) }
         }
     }
 
@@ -992,6 +919,9 @@ final class MobileAccessController {
         designs[connectionID] = design
         if let text = Self.encode(design) { server?.send(text, to: connectionID) }
     }
+
+    // Room for the version and the secret many times over.
+    private static let unprovenMessageLimit = 4096
 
     private static func error(_ message: String, code: String = "commandFailed") -> String {
         let data = try? JSONEncoder().encode(RemoteError(message: message, code: code))

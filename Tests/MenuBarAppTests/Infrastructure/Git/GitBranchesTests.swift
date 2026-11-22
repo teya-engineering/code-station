@@ -202,6 +202,12 @@ struct GitBranchesTests {
         #expect(try repo.git("branch", "--show-current") == "main")
     }
 
+    @Test func nameProblemAcceptsANewNameAndRejectsATakenOne() async throws {
+        let repo = try GitRepo()
+        #expect(await GitBranches.nameProblem("feature/login", at: repo.path) == nil)
+        #expect(await GitBranches.nameProblem("main", at: repo.path) != nil)
+    }
+
     @Test func unmergedBranchNeedsExplicitForceDeletion() async throws {
         let repo = try GitRepo()
         try feature(repo)

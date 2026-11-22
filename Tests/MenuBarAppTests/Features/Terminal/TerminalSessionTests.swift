@@ -137,6 +137,22 @@ struct TerminalSessionTests {
         #expect(!store.isOpen(scope))
     }
 
+    @Test func openingAShellInAFolderAddsOneThere() throws {
+        let store = makeStore()
+        let scope = TerminalScope.session(UUID())
+        let first = FileManager.default.temporaryDirectory.path
+        let folder = FileManager.default.homeDirectoryForCurrentUser.path
+        store.setOpen(true, for: scope, directory: first)
+        store.setOpen(false, for: scope, directory: first)
+        defer { store.discard(scope) }
+
+        store.openShell(for: scope, directory: folder)
+
+        #expect(store.isOpen(scope))
+        #expect(store.sessions(for: scope).map(\.directory) == [first, folder])
+        #expect(store.selection(for: scope)?.directory == folder)
+    }
+
     @Test func exitingOneShellKeepsTheOtherShellOpen() async throws {
         let store = makeStore()
         let scope = TerminalScope.session(UUID())

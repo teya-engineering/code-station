@@ -43,11 +43,11 @@ struct TurnEndActions: View {
             }
         }
 
-        if runner.canContinueAfterStop(sessionID, store: store) {
+        if runner.canContinueAfterStop(sessionID) {
             HStack(spacing: Space.md) {
                 Spacer(minLength: 0)
                 ActionButton(title: "Continue", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
-                    runner.continueAfterStop(sessionID, store: store)
+                    runner.continueAfterStop(sessionID)
                 }
             }
             .transition(.fadeIn)
@@ -114,9 +114,9 @@ extension TurnEndActions {
 
     @ViewBuilder
     private func continueButton(tone: ButtonTone) -> some View {
-        if runner.canContinueAfterFailure(sessionID, store: store) {
+        if runner.canContinueAfterFailure(sessionID) {
             ActionButton(title: "Continue", tone: tone, height: ControlHeight.md, size: Typography.Size.detail) {
-                runner.continueAfterFailure(sessionID, store: store)
+                runner.continueAfterFailure(sessionID)
             }
         }
     }

@@ -69,14 +69,14 @@ final class TreeSnapshots: @unchecked Sendable {
     // Records where the tree stands without reporting on it, so the next call is measured
     // from now. Taken as a turn begins: whatever changed between turns belongs to whoever
     // changed it, not to the first call that happens to run.
-    func baseline(at path: String, using git: GitInspector.GitTool) {
+    func baseline(at path: String, using git: Git.Tool) {
         queue.async { _ = self.take(at: path, using: git) }
     }
 
     // What changed in the checkout since the last snapshot. The answer comes back on the
     // main actor a beat after the call it belongs to has already been drawn, and is nil
     // when nothing changed, when the folder holds no repository, or when git could not say.
-    func change(at path: String, using git: GitInspector.GitTool,
+    func change(at path: String, using git: Git.Tool,
                 then finish: @escaping @MainActor @Sendable (WrittenChange?) -> Void) {
         queue.async {
             let change = self.take(at: path, using: git)
@@ -89,7 +89,7 @@ final class TreeSnapshots: @unchecked Sendable {
     // The tree the checkout holds right now, written the same way but without moving the
     // point the next call is measured from, so a call running meanwhile keeps its change.
     func record(at path: String) async -> String? {
-        guard let git = await GitInspector.tool() else { return nil }
+        guard let git = Git.tool() else { return nil }
         return await withCheckedContinuation { continuation in
             queue.async {
                 guard let root = self.root(of: path, using: git) else { return continuation.resume(returning: nil) }
@@ -105,7 +105,7 @@ final class TreeSnapshots: @unchecked Sendable {
     // What changed in a checkout between a recorded tree and now, as one unified patch,
     // with paths relative to the top of the repository. Nil when git could not say.
     func patch(since tree: String, at path: String) async -> (root: String, text: String)? {
-        guard let git = await GitInspector.tool() else { return nil }
+        guard let git = Git.tool() else { return nil }
         return await withCheckedContinuation { continuation in
             queue.async {
                 guard let root = self.root(of: path, using: git) else { return continuation.resume(returning: nil) }
@@ -113,14 +113,14 @@ final class TreeSnapshots: @unchecked Sendable {
                 guard let now = Self.writeTree(root: root, checkout: checkout, using: git) else {
                     return continuation.resume(returning: nil)
                 }
-                let patch = GitInspector.run(git, ["diff-tree", "-r", "-p", "-M", "--no-color", tree, now],
-                                             in: URL(fileURLWithPath: root))
+                let patch = Git.run(git, ["diff-tree", "-r", "-p", "-M", "--no-color", tree, now],
+                                    in: URL(fileURLWithPath: root))
                 continuation.resume(returning: patch.ok && !patch.truncated ? (root, patch.text) : nil)
             }
         }
     }
 
-    private static func writeTree(root: String, checkout: Checkout, using git: GitInspector.GitTool) -> String? {
+    private static func writeTree(root: String, checkout: Checkout, using git: Git.Tool) -> String? {
         let url = URL(fileURLWithPath: root)
         let environment = ["GIT_INDEX_FILE": checkout.indexPath]
         // A brand new index knows nothing about the checkout, and filling it from the last
@@ -128,18 +128,18 @@ final class TreeSnapshots: @unchecked Sendable {
         // with no commits yet has nothing to fill it from, which only costs one slow first
         // snapshot.
         if !FileManager.default.fileExists(atPath: checkout.indexPath) {
-            _ = GitInspector.run(git, ["read-tree", "HEAD"], in: url, environment: environment)
+            _ = Git.run(git, ["read-tree", "HEAD"], in: url, environment: environment)
         }
-        guard GitInspector.run(git, ["add", "-A"], in: url, environment: environment).ok,
-              case let written = GitInspector.run(git, ["write-tree"], in: url,
-                                                  environment: environment),
+        guard Git.run(git, ["add", "-A"], in: url, environment: environment).ok,
+              case let written = Git.run(git, ["write-tree"], in: url,
+                                         environment: environment),
               written.ok
         else { return nil }
         let tree = written.trimmedText
         return tree.isEmpty ? nil : tree
     }
 
-    private func take(at path: String, using git: GitInspector.GitTool) -> WrittenChange? {
+    private func take(at path: String, using git: Git.Tool) -> WrittenChange? {
         guard let root = root(of: path, using: git) else { return nil }
         var checkout = checkouts[root] ?? Checkout(indexPath: Self.indexPath(for: root))
         guard !checkout.isTooSlow else { return nil }
@@ -164,37 +164,34 @@ final class TreeSnapshots: @unchecked Sendable {
     }
 
     private static func change(from old: String, to new: String, in root: URL,
-                               using git: GitInspector.GitTool) -> WrittenChange? {
-        let counts = GitInspector.run(git, ["diff-tree", "-r", "--numstat", "-M", old, new],
-                                      in: root)
+                               using git: Git.Tool) -> WrittenChange? {
+        let counts = Git.run(git, ["diff-tree", "-r", "--numstat", "-z", "-M", old, new], in: root)
         guard counts.ok else { return nil }
 
         var change = WrittenChange()
-        for row in counts.text.split(separator: "\n") {
-            let fields = row.split(separator: "\t")
-            guard fields.count >= 3 else { continue }
+        for file in GitInspector.parseNumstat(counts.text) {
             change.files += 1
-            // A binary file is counted as "-" on both sides, which is honestly nothing to
-            // add: no line of it changed, because it has no lines.
-            change.added += Int(fields[0]) ?? 0
-            change.removed += Int(fields[1]) ?? 0
+            // A binary file has no counts, which is honestly nothing to add: no line of
+            // it changed, because it has no lines.
+            change.added += file.added ?? 0
+            change.removed += file.removed ?? 0
         }
         guard change.files > 0 else { return nil }
         guard change.files <= fileLimit, change.added + change.removed <= lineLimit
         else { return change }
 
-        let patch = GitInspector.run(git, ["diff-tree", "-r", "-p", "-M", "--no-color", old, new],
-                                     in: root)
+        let patch = Git.run(git, ["diff-tree", "-r", "-p", "-M", "--no-color", old, new],
+                            in: root)
         if patch.ok, !patch.truncated { change.patch = patch.text }
         return change
     }
 
     // MARK: - Where the snapshots live
 
-    private func root(of path: String, using git: GitInspector.GitTool) -> String? {
+    private func root(of path: String, using git: Git.Tool) -> String? {
         if let known = roots[path] { return known }
         let url = URL(fileURLWithPath: path)
-        let top = GitInspector.run(git, ["rev-parse", "--show-toplevel"], in: url)
+        let top = Git.run(git, ["rev-parse", "--show-toplevel"], in: url)
         let text = top.trimmedText
         let root = top.ok && !text.isEmpty ? text : nil
         roots[path] = root

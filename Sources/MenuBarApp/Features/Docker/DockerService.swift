@@ -503,10 +503,6 @@ final class DockerService {
         return result.ok ? nil : result.failureMessage
     }
 
-    func stop(_ containers: [DockerContainer]) async -> String? {
-        await perform(.stop, on: containers)
-    }
-
     // Compose knows the order its services depend on each other, so a whole project is
     // started and stopped through it rather than container by container.
     func compose(_ verb: DockerVerb, project: String, containers: [DockerContainer]) async -> String? {

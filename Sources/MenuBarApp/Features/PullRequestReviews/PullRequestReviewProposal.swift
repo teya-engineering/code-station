@@ -78,7 +78,7 @@ enum PullRequestReviewDrafter {
                       sessionID: UUID, store: ProjectStore, runner: SessionRunner,
                       reviews: PullRequestReviewStore) async -> Outcome {
         guard store.session(sessionID) != nil else { return .sessionGone }
-        guard !runner.isBusy(sessionID, store: store), runner.queued(sessionID).isEmpty,
+        guard !runner.isBusy(sessionID), runner.queued(sessionID).isEmpty,
               reviews.beginWork(on: loaded.pullRequest.url) else { return .busy }
         defer { reviews.endWork(on: loaded.pullRequest.url) }
         guard reviews.proposals[thread.id]?.changes?.files.isEmpty != false else {
@@ -101,10 +101,10 @@ enum PullRequestReviewDrafter {
         do { baseline = try await PullRequestReviewChanges.begin(at: root) }
         catch { return .blocked(.git(error.localizedDescription)) }
         // Repository reads suspend, so another turn may have started while they ran.
-        guard !runner.isBusy(sessionID, store: store), runner.queued(sessionID).isEmpty else { return .busy }
+        guard !runner.isBusy(sessionID), runner.queued(sessionID).isEmpty else { return .busy }
         let finished = await reviews.waitForTurnEnd(sessionID) {
             runner.send(prompt(review: review, thread: thread, pullRequest: loaded.pullRequest, file: file),
-                        sessionID: sessionID, store: store)
+                        sessionID: sessionID)
             guard runner.state(sessionID).isBusy else {
                 for queued in runner.queued(sessionID) { runner.unqueue(queued.id, sessionID: sessionID) }
                 return false
@@ -112,7 +112,7 @@ enum PullRequestReviewDrafter {
             return true
         }
         guard finished, !Task.isCancelled else { return .noAnswer }
-        guard !runner.isBusy(sessionID, store: store) else { return .busy }
+        guard !runner.isBusy(sessionID) else { return .busy }
         guard let text = try? String(contentsOf: file, encoding: .utf8),
               var proposal = PullRequestReviewProposal.parse(text) else { return .noAnswer }
         proposal.threadID = thread.id

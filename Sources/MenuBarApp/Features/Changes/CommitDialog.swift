@@ -13,20 +13,21 @@ final class CommitDialogModel {
     let draft: ChangesCommitDraft
     let files: [GitChange]
     let canAmend: Bool
+    let lastCommitPublished: Bool
     let lastSubject: String?
     private(set) var isCommitting = false
     private(set) var error: String?
     @ObservationIgnored private let perform: (_ message: String, _ files: [GitChange], _ amend: Bool) async -> String?
 
-    init(draft: ChangesCommitDraft, files: [GitChange], canAmend: Bool, lastSubject: String?,
+    init(draft: ChangesCommitDraft, files: [GitChange], canAmend: Bool,
+         lastCommitPublished: Bool, lastSubject: String?,
          perform: @escaping (_ message: String, _ files: [GitChange], _ amend: Bool) async -> String?) {
         self.draft = draft
         self.files = files
         self.canAmend = canAmend
+        self.lastCommitPublished = lastCommitPublished
         self.lastSubject = lastSubject
         self.perform = perform
-        // A draft left in amend mode on a branch that has since been pushed would rewrite
-        // a published commit.
         if !canAmend { draft.setAmend(false, lastMessage: nil) }
     }
 
@@ -215,14 +216,24 @@ struct CommitDialogView: View {
         Toggle(isOn: Binding(get: { model.amend }, set: { model.amend = $0 })) {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Amend last commit").font(Typography.body.weight(.medium))
-                Text(model.lastSubject.map { "Add these files to “\($0)” instead of making a new commit." }
-                     ?? "Add these files to the last commit instead of making a new one.")
-                    .font(Typography.detail).foregroundStyle(Theme.secondaryText)
+                Text(amendDescription)
+                    .font(Typography.detail)
+                    .foregroundStyle(model.lastCommitPublished ? Theme.warningText : Theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .toggleStyle(.appCheckbox)
         .disabled(model.isCommitting)
+    }
+
+    private var amendDescription: String {
+        guard model.lastCommitPublished else {
+            return model.lastSubject.map { "Add these files to “\($0)” instead of making a new commit." }
+                ?? "Add these files to the last commit instead of making a new one."
+        }
+        let target = model.lastSubject.map { "“\($0)”" } ?? "the last commit"
+
+        return "Add these files to \(target). This commit is already on origin. Your next push will replace it there."
     }
 
     private func failure(_ error: String) -> some View {
@@ -254,11 +265,14 @@ struct CommitDialogView: View {
             Group {
                 if model.isCommitting {
                     ChangesProgressLabel(title: model.amend ? "Amending…" : "Committing…")
+                } else if model.amend && model.lastCommitPublished {
+                    Label("Replaces the commit on origin.", systemImage: "exclamationmark.triangle")
                 } else {
                     Label("Stays on this Mac until you push.", systemImage: "lock")
                 }
             }
             .font(Typography.caption).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            .motion(Motion.control, value: model.amend)
             Spacer(minLength: 0)
             ActionButton(title: "Cancel", tone: .sunken) { dialogs.dismiss() }
                 .disabled(model.isCommitting)
