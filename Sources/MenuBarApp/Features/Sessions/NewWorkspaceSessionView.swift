@@ -311,7 +311,7 @@ struct NewWorkspaceSessionView: View {
     }
 
     private var chosenAgent: AgentKind? {
-        runner.agentForNewSession(selected: selectedAgent)
+        runner.catalog.agentForNewSession(selected: selectedAgent)
     }
 
     // The updates the user asked for run here, while the sheet is still up, one checkout
@@ -378,7 +378,7 @@ struct NewWorkspaceSessionView: View {
         }
         onCreate(WorkspaceSessionChoice(sessionID: sessionID, projects: choices,
                                         agent: agent,
-                                        model: runner.defaults(for: agent).model,
+                                        model: runner.catalog.defaults(for: agent).model,
                                         agentAvatarName: selectedAvatarName,
                                         mode: .chat,
                                         branch: worktreeProjects.isEmpty ? nil : chosenBranch))

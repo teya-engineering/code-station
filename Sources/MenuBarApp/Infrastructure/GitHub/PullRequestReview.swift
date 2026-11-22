@@ -60,6 +60,8 @@ struct PullRequestStatus: Equatable, Sendable {
     var title: String
     var headBranch: String
     var headRepositoryURL: String? = nil
+    // The branch the pull request merges into, which Changes compares the files with.
+    var baseBranch = ""
     var isDraft = false
     var createdAt: Date? = nil
 

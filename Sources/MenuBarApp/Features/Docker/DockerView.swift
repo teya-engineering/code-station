@@ -27,9 +27,7 @@ struct DockerView: View {
     @State private var selection: Set<String> = []
     @State private var anchor: String?
     @State private var animatesRows = false
-    @State private var note: String?
-    @State private var noteIcon = "checkmark"
-    @State private var notes = 0
+    @State private var note = TransientNote()
     @State private var keys = WindowKeyHandler(handlesTyping: true)
     @FocusState private var searchFocused: Bool
 
@@ -49,16 +47,7 @@ struct DockerView: View {
         }
         .frame(width: 1000, height: 680)
         .background(Theme.background)
-        .overlay(alignment: .topTrailing) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxl)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxl)
         .background(WindowKeyAnchor(handler: keys))
         .onAppear { keys.start { handleKey($0) } }
         .onDisappear { keys.stop() }
@@ -1241,16 +1230,7 @@ struct DockerView: View {
 
     // MARK: - Notes
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String, icon: String) {
-        notes += 1
-        let shown = notes
-        noteIcon = icon
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: icon)
     }
 }

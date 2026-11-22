@@ -28,7 +28,7 @@ enum DesignHandoffLifecycle {
         let title = "Could not start implementation"
         let implementationID: UUID
         if let settings {
-            guard runner.isAvailable(settings.agent) else {
+            guard runner.catalog.isAvailable(settings.agent) else {
                 return .failure(Failure(title: title, message: "\(settings.agent.title) is unavailable. Choose another agent or install it in Settings."))
             }
             if let sourceID = store.session(designSessionID)?.designSourceSessionID,
@@ -55,8 +55,7 @@ enum DesignHandoffLifecycle {
         runner.sendAppCommand(
             implementationPrompt(revision, additionalContext: context),
             attachments: store.implementationReferenceAttachments(for: implementation),
-            sessionID: implementationID,
-            store: store)
+            sessionID: implementationID)
         store.selectSession(implementationID)
         return .success(())
     }
@@ -84,8 +83,7 @@ enum DesignHandoffLifecycle {
                 behavior outside that gap, then run the relevant tests.
                 """,
                 attachments: store.implementationReferenceAttachments(for: implementation),
-                sessionID: implementationID,
-                store: store)
+                sessionID: implementationID)
             return .success(revision)
         }
     }
@@ -119,9 +117,9 @@ enum DesignHandoffLifecycle {
 
 enum GitRevision {
     static func head(at path: String) async -> String? {
-        guard let tool = await GitInspector.tool() else { return nil }
-        return await GitInspector.offMain {
-            let result = GitInspector.run(
+        guard let tool = Git.tool() else { return nil }
+        return await Git.offMain {
+            let result = Git.run(
                 tool, ["rev-parse", "--verify", "HEAD"], in: URL(fileURLWithPath: path))
             guard result.ok, !result.text.isBlank else { return nil }
             return result.text.trimmed

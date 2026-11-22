@@ -123,7 +123,7 @@ struct SessionSnoozeTests {
         wait_for "$folder/finish"
         """#)
         defer { fixture.tearDown() }
-        fixture.runner.send("Work", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("Work", sessionID: fixture.session.id)
         #expect(await waitUntil {
             fixture.store.transcript(of: fixture.session.id).contains { $0.text.contains("Working.") }
         })

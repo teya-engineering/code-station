@@ -148,7 +148,7 @@ struct PromptShortcutTests {
         let (store, scratch) = TestStore.make()
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id, seed: .init(agent: .codex))
-        let runner = SessionRunner(preferences: scratch.preferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: scratch.preferences.store, paths: [:])
         let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"), preferences: scratch.preferences.store)
         let host = NSHostingView(rootView: ComposerHarness(sessionID: session.id)
             .environment(store)

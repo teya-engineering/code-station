@@ -6,7 +6,7 @@ import Testing
 // no tool call describes, so nothing short of writing files and asking git can show that
 // they work.
 struct TreeSnapshotsTests {
-    private let git = GitInspector.GitTool(path: "/usr/bin/git",
+    private let git = Git.Tool(path: "/usr/bin/git",
                                            searchPath: "/usr/bin:/bin:/usr/local/bin")
 
     @Test func seesWhatAShellCommandWroteAndSaysNothingAboutAReadOnlyOne() async throws {
@@ -110,11 +110,11 @@ private extension GitRepo {
     // The first snapshot of a checkout has nothing to compare against, so it only records
     // where things stand. Taken by hand here rather than through `baseline`, which reports
     // nothing back and so gives a test no way to know it has happened.
-    func settle(using git: GitInspector.GitTool) async {
+    func settle(using git: Git.Tool) async {
         _ = await change(using: git)
     }
 
-    func change(using git: GitInspector.GitTool) async -> WrittenChange? {
+    func change(using git: Git.Tool) async -> WrittenChange? {
         await withCheckedContinuation { continuation in
             TreeSnapshots.shared.change(at: path, using: git) { continuation.resume(returning: $0) }
         }

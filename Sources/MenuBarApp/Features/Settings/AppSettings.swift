@@ -2,10 +2,40 @@ import AppKit
 import SwiftUI
 import Observation
 
+// The settings that Reset Appearance puts back, held together so a reset can be undone
+// as one value.
+struct AppearanceSettings: Equatable {
+    var appearance: Appearance
+    var sunlightEnabled: Bool
+    var sunlightMode: SunlightMode
+    var sunlightNightKelvin: Double
+    var cursorEffects: CursorEffectsSettings
+    var textSize: TextSize
+    var messageColour: MessageColour
+    var timestampFormat: TimestampFormat
+    var timestampScope: TimestampScope
+    var diceBearAvatarStyle: DiceBearAvatarStyle
+    var sidebarIconSet: SidebarIconSet
+
+    // Built from the fallbacks an empty store reads as, so a reset and a first launch
+    // cannot disagree.
+    static let standard = AppearanceSettings(
+        appearance: Preferences.appearance.fallback,
+        sunlightEnabled: Preferences.sunlightEnabled.fallback,
+        sunlightMode: Preferences.sunlightMode.fallback,
+        sunlightNightKelvin: Sunlight.nightKelvin,
+        cursorEffects: CursorEffectsSettings(),
+        textSize: Preferences.textSize.fallback,
+        messageColour: Preferences.messageColour.fallback,
+        timestampFormat: Preferences.timestampFormat.fallback,
+        timestampScope: Preferences.timestampScope.fallback,
+        diceBearAvatarStyle: Preferences.diceBearAvatarStyle.fallback,
+        sidebarIconSet: Preferences.sidebarIconSet.fallback)
+}
+
 // What the app itself does, as opposed to what a session runs with. It is observed
 // rather than read from UserDefaults where it is needed, so the sidebar's offer to clear
 // old sessions follows the threshold the moment it is changed.
-
 @MainActor
 @Observable
 final class AppSettings {
@@ -20,12 +50,12 @@ final class AppSettings {
                 sidebarSessionLimit = resolved
                 return
             }
-            Preferences.setSidebarSessionLimit(sidebarSessionLimit, in: preferences)
+            Preferences.sidebarSessionLimit.write(sidebarSessionLimit, in: preferences)
         }
     }
 
     var oldSessionDays: Int {
-        didSet { Preferences.setOldSessionDays(oldSessionDays, in: preferences) }
+        didSet { Preferences.oldSessionDays.write(oldSessionDays, in: preferences) }
     }
 
     var oldSessionsDeleteOnTheirOwn: Bool {
@@ -40,22 +70,22 @@ final class AppSettings {
     }
 
     var sessionMemoryLimit: SessionMemoryLimit {
-        didSet { Preferences.setSessionMemoryLimit(sessionMemoryLimit, in: preferences) }
+        didSet { Preferences.sessionMemoryLimit.write(sessionMemoryLimit, in: preferences) }
     }
 
     var sweepsOrphanedWorktrees: Bool {
         didSet {
-            Preferences.setSweepsOrphanedWorktrees(sweepsOrphanedWorktrees, in: preferences)
+            Preferences.sweepsOrphanedWorktrees.write(sweepsOrphanedWorktrees, in: preferences)
         }
     }
 
     var statsEnabled: Bool {
-        didSet { Preferences.setStatsEnabled(statsEnabled, in: preferences) }
+        didSet { Preferences.statsEnabled.write(statsEnabled, in: preferences) }
     }
 
     var statsRemovedSessionDays: Int {
         didSet {
-            Preferences.setStatsRemovedSessionDays(statsRemovedSessionDays, in: preferences)
+            Preferences.statsRemovedSessionDays.write(statsRemovedSessionDays, in: preferences)
         }
     }
 
@@ -67,16 +97,16 @@ final class AppSettings {
 
     var skillsRefreshInterval: SkillsRefreshInterval {
         didSet {
-            Preferences.setSkillsRefreshInterval(skillsRefreshInterval, in: preferences)
+            Preferences.skillsRefreshInterval.write(skillsRefreshInterval, in: preferences)
         }
     }
 
     var projectSort: ProjectSort {
-        didSet { Preferences.setProjectSort(projectSort, in: preferences) }
+        didSet { Preferences.projectSort.write(projectSort, in: preferences) }
     }
 
     var projectGrouping: ProjectGrouping {
-        didSet { Preferences.setProjectGrouping(projectGrouping, in: preferences) }
+        didSet { Preferences.projectGrouping.write(projectGrouping, in: preferences) }
     }
 
     // Which app a shell opens in when it opens in a window of its own. nil means no app
@@ -89,18 +119,18 @@ final class AppSettings {
 
     var appearance: Appearance {
         didSet {
-            Preferences.setAppearance(appearance, in: preferences)
+            Preferences.appearance.write(appearance, in: preferences)
             appearance.apply()
         }
     }
 
     // Warms every window with the sun, on top of whichever appearance is chosen.
     var sunlightEnabled: Bool {
-        didSet { Preferences.setSunlightEnabled(sunlightEnabled, in: preferences) }
+        didSet { Preferences.sunlightEnabled.write(sunlightEnabled, in: preferences) }
     }
 
     var sunlightMode: SunlightMode {
-        didSet { Preferences.setSunlightMode(sunlightMode, in: preferences) }
+        didSet { Preferences.sunlightMode.write(sunlightMode, in: preferences) }
     }
 
     // The colour the window reaches once the sun is down, or keeps all day when the
@@ -115,7 +145,7 @@ final class AppSettings {
 
     var sidebarIconSet: SidebarIconSet {
         didSet {
-            Preferences.setSidebarIconSet(sidebarIconSet, in: preferences)
+            Preferences.sidebarIconSet.write(sidebarIconSet, in: preferences)
         }
     }
 
@@ -139,12 +169,12 @@ final class AppSettings {
 
     var diceBearAvatarStyle: DiceBearAvatarStyle {
         didSet {
-            Preferences.setDiceBearAvatarStyle(diceBearAvatarStyle, in: preferences)
+            Preferences.diceBearAvatarStyle.write(diceBearAvatarStyle, in: preferences)
         }
     }
 
     var textSize: TextSize {
-        didSet { Preferences.setTextSize(textSize, in: preferences) }
+        didSet { Preferences.textSize.write(textSize, in: preferences) }
     }
 
     var keyBindings: KeyBindings {
@@ -152,15 +182,15 @@ final class AppSettings {
     }
 
     var messageColour: MessageColour {
-        didSet { Preferences.setMessageColour(messageColour, in: preferences) }
+        didSet { Preferences.messageColour.write(messageColour, in: preferences) }
     }
 
     var timestampFormat: TimestampFormat {
-        didSet { Preferences.setTimestampFormat(timestampFormat, in: preferences) }
+        didSet { Preferences.timestampFormat.write(timestampFormat, in: preferences) }
     }
 
     var timestampScope: TimestampScope {
-        didSet { Preferences.setTimestampScope(timestampScope, in: preferences) }
+        didSet { Preferences.timestampScope.write(timestampScope, in: preferences) }
     }
 
     var transcriptTimestamps: TranscriptTimestamps {
@@ -169,11 +199,11 @@ final class AppSettings {
     }
 
     var mobileAccessEnabled: Bool {
-        didSet { Preferences.setMobileAccessEnabled(mobileAccessEnabled, in: preferences) }
+        didSet { Preferences.mobileAccessEnabled.write(mobileAccessEnabled, in: preferences) }
     }
 
     var mobilePairingLifetime: MobilePairingLifetime {
-        didSet { Preferences.setMobilePairingLifetime(mobilePairingLifetime, in: preferences) }
+        didSet { Preferences.mobilePairingLifetime.write(mobilePairingLifetime, in: preferences) }
     }
 
     var sessionRecapsEnabled: Bool {
@@ -184,31 +214,31 @@ final class AppSettings {
 
     var sessionTitlesEnabled: Bool {
         didSet {
-            Preferences.setSessionTitlesEnabled(sessionTitlesEnabled, in: preferences)
+            Preferences.sessionTitlesEnabled.write(sessionTitlesEnabled, in: preferences)
         }
     }
 
     var promptSuggestionsEnabled: Bool {
         didSet {
-            Preferences.setPromptSuggestionsEnabled(promptSuggestionsEnabled, in: preferences)
+            Preferences.promptSuggestionsEnabled.write(promptSuggestionsEnabled, in: preferences)
         }
     }
 
     // What Return does with a prompt typed while a turn runs.
     var midTurnPromptDelivery: SessionRunner.PromptDelivery {
         didSet {
-            Preferences.setMidTurnPromptDelivery(midTurnPromptDelivery, in: preferences)
+            Preferences.midTurnPromptDelivery.write(midTurnPromptDelivery, in: preferences)
         }
     }
 
     // The Design ambition a session follows until it picks its own.
     var designAmbition: DesignAmbition {
-        didSet { Preferences.setDesignAmbition(designAmbition, in: preferences) }
+        didSet { Preferences.designAmbition.write(designAmbition, in: preferences) }
     }
 
     var sessionFinishedSound: SessionSound {
         didSet {
-            Preferences.setSessionFinishedSound(sessionFinishedSound, in: preferences)
+            Preferences.sessionFinishedSound.write(sessionFinishedSound, in: preferences)
         }
     }
 
@@ -224,71 +254,86 @@ final class AppSettings {
          preferences: UserDefaults = .standard) {
         self.agentAvatarURL = agentAvatarURL
         self.preferences = preferences
-        oldSessionDays = Preferences.oldSessionDays(in: preferences)
+        oldSessionDays = Preferences.oldSessionDays.read(in: preferences)
         oldSessionsDeleteOnTheirOwn = Preferences.oldSessionsDeleteOnTheirOwn(in: preferences)
         oldSessionAskReasons = Preferences.oldSessionAskReasons(in: preferences)
-        sweepsOrphanedWorktrees = Preferences.sweepsOrphanedWorktrees(in: preferences)
-        sessionMemoryLimit = Preferences.sessionMemoryLimit(in: preferences)
-        statsEnabled = Preferences.statsEnabled(in: preferences)
-        statsRemovedSessionDays = Preferences.statsRemovedSessionDays(in: preferences)
-        sidebarSessionLimit = Preferences.sidebarSessionLimit(in: preferences)
-        skillsRefreshInterval = Preferences.skillsRefreshInterval(in: preferences)
-        projectSort = Preferences.projectSort(in: preferences)
-        projectGrouping = Preferences.projectGrouping(in: preferences)
+        sweepsOrphanedWorktrees = Preferences.sweepsOrphanedWorktrees.read(in: preferences)
+        sessionMemoryLimit = Preferences.sessionMemoryLimit.read(in: preferences)
+        statsEnabled = Preferences.statsEnabled.read(in: preferences)
+        statsRemovedSessionDays = Preferences.statsRemovedSessionDays.read(in: preferences)
+        sidebarSessionLimit = Preferences.sidebarSessionLimit.read(in: preferences)
+        skillsRefreshInterval = Preferences.skillsRefreshInterval.read(in: preferences)
+        projectSort = Preferences.projectSort.read(in: preferences)
+        projectGrouping = Preferences.projectGrouping.read(in: preferences)
         terminalBundleID = Preferences.terminalBundleID(in: preferences)
-        appearance = Preferences.appearance(in: preferences)
-        sunlightEnabled = Preferences.sunlightEnabled(in: preferences)
-        sunlightMode = Preferences.sunlightMode(in: preferences)
+        appearance = Preferences.appearance.read(in: preferences)
+        sunlightEnabled = Preferences.sunlightEnabled.read(in: preferences)
+        sunlightMode = Preferences.sunlightMode.read(in: preferences)
         sunlightNightKelvin = Preferences.sunlightNightKelvin(in: preferences)
         cursorEffects = Preferences.cursorEffects(in: preferences)
-        sidebarIconSet = Preferences.sidebarIconSet(in: preferences)
+        sidebarIconSet = Preferences.sidebarIconSet.read(in: preferences)
         hiddenHeaderButtons = Preferences.hiddenHeaderButtons(in: preferences)
-        diceBearAvatarStyle = Preferences.diceBearAvatarStyle(in: preferences)
-        textSize = Preferences.textSize(in: preferences)
+        diceBearAvatarStyle = Preferences.diceBearAvatarStyle.read(in: preferences)
+        textSize = Preferences.textSize.read(in: preferences)
         keyBindings = Preferences.keyBindings(in: preferences)
-        messageColour = Preferences.messageColour(in: preferences)
-        timestampFormat = Preferences.timestampFormat(in: preferences)
-        timestampScope = Preferences.timestampScope(in: preferences)
-        mobileAccessEnabled = Preferences.mobileAccessEnabled(in: preferences)
-        mobilePairingLifetime = Preferences.mobilePairingLifetime(in: preferences)
+        messageColour = Preferences.messageColour.read(in: preferences)
+        timestampFormat = Preferences.timestampFormat.read(in: preferences)
+        timestampScope = Preferences.timestampScope.read(in: preferences)
+        mobileAccessEnabled = Preferences.mobileAccessEnabled.read(in: preferences)
+        mobilePairingLifetime = Preferences.mobilePairingLifetime.read(in: preferences)
         sessionRecapsEnabled = Preferences.sessionRecapsEnabled(in: preferences)
-        sessionTitlesEnabled = Preferences.sessionTitlesEnabled(in: preferences)
-        promptSuggestionsEnabled = Preferences.promptSuggestionsEnabled(in: preferences)
-        midTurnPromptDelivery = Preferences.midTurnPromptDelivery(in: preferences)
-        sessionFinishedSound = Preferences.sessionFinishedSound(in: preferences)
-        designAmbition = Preferences.designAmbition(in: preferences)
-        hasCompletedOnboarding = Preferences.hasCompletedOnboarding(in: preferences)
+        sessionTitlesEnabled = Preferences.sessionTitlesEnabled.read(in: preferences)
+        promptSuggestionsEnabled = Preferences.promptSuggestionsEnabled.read(in: preferences)
+        midTurnPromptDelivery = Preferences.midTurnPromptDelivery.read(in: preferences)
+        sessionFinishedSound = Preferences.sessionFinishedSound.read(in: preferences)
+        designAmbition = Preferences.designAmbition.read(in: preferences)
+        hasCompletedOnboarding = Preferences.hasCompletedOnboarding.read(in: preferences)
         costShown = Dictionary(uniqueKeysWithValues: AgentKind.allCases.map {
             ($0, Preferences.showCost(for: $0, in: preferences))
         })
         let avatars = AgentAvatarFile.loadAll(from: agentAvatarURL)
-        let preferredName = Preferences.defaultAgentAvatarName(in: preferences)
+        let preferredName = Preferences.defaultAgentAvatarName.read(in: preferences)
         agentAvatars = avatars
         defaultAgentAvatarName = AgentAvatarSelection.resolvedName(
             preferredName,
             availableNames: avatars.map { $0.url.lastPathComponent })
         if preferredName != defaultAgentAvatarName {
-            Preferences.setDefaultAgentAvatarName(defaultAgentAvatarName, in: preferences)
+            Preferences.defaultAgentAvatarName.write(defaultAgentAvatarName, in: preferences)
+        }
+    }
+
+    var appearanceSettings: AppearanceSettings {
+        get {
+            AppearanceSettings(
+                appearance: appearance, sunlightEnabled: sunlightEnabled,
+                sunlightMode: sunlightMode, sunlightNightKelvin: sunlightNightKelvin,
+                cursorEffects: cursorEffects, textSize: textSize,
+                messageColour: messageColour, timestampFormat: timestampFormat,
+                timestampScope: timestampScope, diceBearAvatarStyle: diceBearAvatarStyle,
+                sidebarIconSet: sidebarIconSet)
+        }
+        set {
+            appearance = newValue.appearance
+            sunlightEnabled = newValue.sunlightEnabled
+            sunlightMode = newValue.sunlightMode
+            sunlightNightKelvin = newValue.sunlightNightKelvin
+            cursorEffects = newValue.cursorEffects
+            textSize = newValue.textSize
+            messageColour = newValue.messageColour
+            timestampFormat = newValue.timestampFormat
+            timestampScope = newValue.timestampScope
+            diceBearAvatarStyle = newValue.diceBearAvatarStyle
+            sidebarIconSet = newValue.sidebarIconSet
         }
     }
 
     func resetAppearance() {
-        appearance = .system
-        sunlightEnabled = false
-        sunlightMode = .followsSun
-        sunlightNightKelvin = Sunlight.nightKelvin
-        cursorEffects = CursorEffectsSettings()
-        textSize = .standard
-        messageColour = .projectIcon
-        timestampFormat = .off
-        timestampScope = .messagesAndSteps
-        diceBearAvatarStyle = .waves
-        sidebarIconSet = .diceBear
+        appearanceSettings = .standard
     }
 
     func completeOnboarding() {
         hasCompletedOnboarding = true
-        Preferences.setHasCompletedOnboarding(true, in: preferences)
+        Preferences.hasCompletedOnboarding.write(true, in: preferences)
     }
 
     func shouldShowOnboarding(hasExistingWork: Bool) -> Bool {
@@ -377,6 +422,6 @@ final class AppSettings {
             return
         }
         defaultAgentAvatarName = name
-        Preferences.setDefaultAgentAvatarName(name, in: preferences)
+        Preferences.defaultAgentAvatarName.write(name, in: preferences)
     }
 }

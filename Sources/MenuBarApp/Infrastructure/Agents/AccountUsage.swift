@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 // How much of an agent account's limits has gone, as each agent's own `/usage` would put
 // it. The limits belong to the account rather than to any session, so they are read on
@@ -12,12 +11,6 @@ struct AccountUsage: Equatable, Sendable {
 extension AccountUsageWindow {
     static let warningPercent = 75
     static let criticalPercent = 90
-
-    var colour: Color {
-        if usedPercent >= Self.criticalPercent { return Theme.deletion }
-        if usedPercent >= Self.warningPercent { return Theme.attention }
-        return Theme.dotOn
-    }
 
     // "14:00" today, "Fri 14:00" within the week, "3 Nov" past it.
     static func resetLine(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {

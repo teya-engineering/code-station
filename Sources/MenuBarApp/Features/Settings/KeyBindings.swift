@@ -12,7 +12,7 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
     case previewAddress, previewBack, previewForward
     case stopTurn, editSuggestion, sendSuggestion, cancelSuggestion
     case dictate, stopDictating, throwAwayTake
-    case branches, commitSelected, askWholeChange, stepFindings, triageFinding
+    case branches, commitSelected, askWholeChange, stepFindings, triageFinding, toggleViewed, nextNotViewed
     case saveFile, findInFile, findInFiles, findFileNames, closeFile, renameFile, trashFile
     case searchDocker, switchDockerKind, deleteDockerSelection
     case findRequest, sendRequest
@@ -172,6 +172,14 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
                  detail: "Sort the finding in focus while nothing is being typed.",
                  keys: KeyCombo("k", []), scope: .pane(.changes),
                  alsoKeys: [KeyCombo("e", []), KeyCombo("d", [])], label: "K · E · D")
+        case .toggleViewed:
+            Info(title: "Mark the file viewed",
+                 detail: "Tick off the open file as read and move on to the next one, or untick it.",
+                 keys: KeyCombo("v", []), scope: .pane(.changes))
+        case .nextNotViewed:
+            Info(title: "Next file not viewed",
+                 detail: "Open the next changed file you have not read yet.",
+                 keys: KeyCombo("v", .shift), scope: .pane(.changes))
         case .saveFile:
             Info(title: "Save the file", detail: "Save the file being edited in the Explorer.",
                  keys: KeyCombo("s"), scope: .pane(.explorer), canChange: true)
@@ -244,7 +252,8 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
                       .runLastCommand, .savedCommands, .stopCommand, .stopTurn, .editSuggestion,
                       .sendSuggestion, .cancelSuggestion, .dictate, .stopDictating, .throwAwayTake]),
         ("Preview", [.previewAddress, .previewBack, .previewForward]),
-        ("Changes", [.branches, .commitSelected, .askWholeChange, .stepFindings, .triageFinding]),
+        ("Changes", [.branches, .commitSelected, .askWholeChange, .stepFindings, .triageFinding,
+                     .toggleViewed, .nextNotViewed]),
         ("Files", [.saveFile, .findInFile, .findInFiles, .findFileNames, .closeFile, .renameFile, .trashFile]),
         ("Docker", [.searchDocker, .switchDockerKind, .deleteDockerSelection]),
         ("Dispatch", [.findRequest, .sendRequest]),

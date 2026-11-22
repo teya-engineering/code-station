@@ -33,6 +33,9 @@ struct DiffTextView: NSViewRepresentable {
     var onRange: ((String, String) -> Void)?
     // The lines the comment being written is about, drawn picked out.
     var picked: Set<String> = []
+    // Lines added or removed after the reviewer last marked the file viewed, named by
+    // DiffAnchor key. Each wears an amber rail down its leading edge.
+    var fresh: Set<String> = []
     // What hangs under a line, keyed by the line's id: the review comments placed there
     // and the comment being written about it. The text keeps an empty row under each of
     // those lines, built with DiffComments, and the view sits on that row.
@@ -91,6 +94,10 @@ struct DiffTextView: NSViewRepresentable {
             textView.picked = picked
             textView.needsDisplay = true
         }
+        if textView.fresh != fresh {
+            textView.fresh = fresh
+            textView.needsDisplay = true
+        }
         textView.syncThreads(threads, environment: context.environment)
         // The string is built once per loaded diff, so identity is enough to tell the
         // same document from a newly opened file.
@@ -98,6 +105,7 @@ struct DiffTextView: NSViewRepresentable {
             if let reveal, reveal != context.coordinator.revealed,
                reveal.key.map({ textView.reveal(line: $0) }) ?? textView.reveal(thread: reveal.line) {
                 context.coordinator.revealed = reveal
+                textView.flash(reveal.flash)
             }
         }
         guard context.coordinator.shown !== text else {
@@ -161,6 +169,7 @@ private final class DiffDocumentView: NSTextView {
     var onLine: ((String, Bool) -> Void)?
     var onRange: ((String, String) -> Void)?
     var picked: Set<String> = []
+    var fresh: Set<String> = []
     // The lines a drag down the numbers covers while the button is still held.
     private var dragged: Set<String> = []
     // The gap row under the pointer, which is drawn a shade stronger so it reads as
@@ -329,6 +338,31 @@ private final class DiffDocumentView: NSTextView {
         let target = NSRect(x: 0, y: row.midY - visible / 2, width: 1, height: visible)
         scrollToVisible(target.intersection(bounds).isEmpty ? row : target.intersection(bounds))
         return true
+    }
+
+    // Washes the named lines on screen in amber for a beat, the way the lines a gap opens
+    // are washed in the accent.
+    func flash(_ keys: Set<String>) {
+        guard !keys.isEmpty, let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return }
+        let origin = textContainerOrigin
+        let visible = enclosingScrollView?.contentView.bounds ?? visibleRect
+        let glyphs = layoutManager.glyphRange(forBoundingRect: visible.offsetBy(dx: -origin.x, dy: -origin.y),
+                                              in: textContainer)
+        var runs: [NSRect] = []
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, _, _, lineGlyphs, _ in
+            let index = layoutManager.characterIndexForGlyph(at: lineGlyphs.location)
+            guard index < storage.length,
+                  let key = storage.attribute(.diffLineAnchor, at: index, effectiveRange: nil) as? String,
+                  keys.contains(key) else { return }
+            let row = NSRect(x: 0, y: fragment.minY + origin.y, width: self.bounds.width, height: fragment.height)
+            if let last = runs.last, abs(last.maxY - row.minY) < 0.5 {
+                runs[runs.count - 1] = last.union(row)
+            } else {
+                runs.append(row)
+            }
+        }
+        marks.arrive(runs, tint: NSColor(Theme.attention), alpha: 0.22)
     }
 
     private func overThread(_ event: NSEvent) -> Bool {
@@ -551,7 +585,26 @@ private final class DiffDocumentView: NSTextView {
             NSRect(x: 0, y: fragment.minY + origin.y,
                    width: self.bounds.width, height: fragment.height).fill()
         }
+        drawFreshRails(in: rect, layoutManager: layoutManager, container: textContainer, storage: storage)
         drawLineMarks(in: rect, layoutManager: layoutManager, container: textContainer, storage: storage)
+    }
+
+    // Lines that came in after the file was last marked viewed carry a thin amber rail at
+    // the pane's edge, so what is new since the last read can be found at a glance.
+    private func drawFreshRails(in rect: NSRect, layoutManager: NSLayoutManager,
+                                container: NSTextContainer, storage: NSTextStorage) {
+        guard !fresh.isEmpty else { return }
+        let origin = textContainerOrigin
+        let glyphs = layoutManager.glyphRange(forBoundingRect: rect.offsetBy(dx: -origin.x, dy: -origin.y),
+                                              in: container)
+        NSColor(Theme.attention).setFill()
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { fragment, _, _, lineGlyphs, _ in
+            let index = layoutManager.characterIndexForGlyph(at: lineGlyphs.location)
+            guard index < storage.length,
+                  let key = storage.attribute(.diffLineAnchor, at: index, effectiveRange: nil) as? String,
+                  self.fresh.contains(key) else { return }
+            NSRect(x: 0, y: fragment.minY + origin.y, width: 3, height: fragment.height).fill()
+        }
     }
 
     // The lines a comment is being written about wear the accent across the row, and the
@@ -663,10 +716,10 @@ private final class DiffMarksView: NSView {
     }
 
     // The new lines wear the pressed row's tint for a beat, then let it go, so the eye
-    // follows the press to what it opened. The tint only fades, so it plays the same
-    // with Reduce Motion on.
-    func arrive(_ rows: [NSRect]) {
-        let tint = color(Theme.accentNSColor, alpha: 0.16)
+    // follows the press to what it opened. A jump to lines washes them the same way in
+    // their own colour. The tint only fades, so it plays the same with Reduce Motion on.
+    func arrive(_ rows: [NSRect], tint: NSColor = Theme.accentNSColor, alpha: CGFloat = 0.16) {
+        let tint = color(tint, alpha: alpha)
         for row in rows {
             let wash = CALayer()
             CATransaction.begin()
@@ -1005,6 +1058,9 @@ struct DiffReveal: Equatable {
     // A numbered line to bring on screen rather than the thread under it, named by
     // DiffComments.key.
     var key: String? = nil
+    // Lines to wash in amber once they are on screen, so the eye finds them, by
+    // DiffComments.key.
+    var flash: Set<String> = []
 }
 
 // Where a diff that takes comments keeps room for them. It is handed to the builder off

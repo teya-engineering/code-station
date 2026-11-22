@@ -10,15 +10,14 @@ struct AgentConfiguredServerDetailView: View {
     @Environment(CopilotCodeManager.self) private var copilot
     let server: AgentConfiguredServer
     // The agent whose sidebar row was picked, so its card comes first.
-    let leading: AgentConfiguredServer.Source
+    let leading: AgentKind
 
     // Cards whose agent has been asked to change something, so they can say when the
     // change takes hold.
-    @State private var changed: Set<AgentConfiguredServer.Source> = []
-    @State private var copied: AgentConfiguredServer.Source?
+    @State private var changed: Set<AgentKind> = []
+    @State private var copied: AgentKind?
 
     private typealias Registration = AgentConfiguredServer.Registration
-    private typealias Source = AgentConfiguredServer.Source
 
     var body: some View {
         VStack(spacing: 0) {
@@ -378,7 +377,7 @@ struct AgentConfiguredServerDetailView: View {
 
     // MARK: - Actions
 
-    private func work(for source: Source) -> AgentServerWork {
+    private func work(for source: AgentKind) -> AgentServerWork {
         switch source {
         case .claudeCode: claude.serverWork
         case .codex: codex.serverWork
@@ -427,7 +426,7 @@ struct AgentConfiguredServerDetailView: View {
         }
     }
 
-    private func copy(_ command: String, for source: Source) {
+    private func copy(_ command: String, for source: AgentKind) {
         Pasteboard.copy(command)
         copied = source
         Task {
@@ -491,7 +490,7 @@ private struct AgentStatusPill: View {
 }
 
 private struct AgentMarkTile: View {
-    let source: AgentConfiguredServer.Source
+    let source: AgentKind
 
     var body: some View {
         Image(systemName: source.symbol)

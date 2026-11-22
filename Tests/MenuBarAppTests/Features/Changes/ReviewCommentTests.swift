@@ -490,6 +490,46 @@ struct ReviewCommentTests {
         #expect(saved.unread == [question.id])
     }
 
+    @Test func aSentReviewShowsAsOneCardWithItsAnswersCutFromTheReply() async throws {
+        let store = ReviewCommentStore(url: nil)
+        store.readFile = { _ in "let first = items.first!" }
+        let session = UUID()
+        var question = comment(.new, 2, excerpt: "let first = items.first!", body: "What if it is empty?")
+        question.kind = .question
+        let prompt = ReviewPrompt.feedback([question])
+        let asked = ChatMessage(role: .user, text: "Start")
+        let plain = ChatMessage(role: .assistant, text: "Started.")
+        #expect(store.sentReviews(in: [asked, plain], sessionID: session).cards.isEmpty)
+
+        let round = store.recordRound([question], prompt: prompt, note: "", roots: [], in: session)
+        let sent = ChatMessage(role: .user, text: prompt + "\n")
+        let lead = "I looked at it.\n\n"
+        let answer = ChatMessage(role: .assistant, text: lead + "### Comment 1\nIt would crash.")
+        let running = store.sentReviews(in: [asked, plain, sent, answer], sessionID: session)
+        #expect(running.cards[sent.id]?.id == round.id)
+        #expect(running.cards[asked.id] == nil)
+        #expect(running.hidden.isEmpty)
+        #expect(running.cuts == [answer.id: lead.count])
+
+        // A reply that is nothing but answers is left to the card.
+        let onlyAnswers = ChatMessage(role: .assistant, text: "### Comment 1\nIt would crash.")
+        #expect(store.sentReviews(in: [sent, onlyAnswers], sessionID: session).hidden == [onlyAnswers.id])
+
+        // Without headings nothing is known to be an answer while the turn runs.
+        let loose = ChatMessage(role: .assistant, text: "It would crash.")
+        #expect(store.sentReviews(in: [sent, loose], sessionID: session).cuts.isEmpty)
+        await store.turnEnded(session, prompt: prompt, reply: loose)
+        #expect(store.sentReviews(in: [sent, loose], sessionID: session).hidden == [loose.id])
+
+        // A reply sent in a thread is left to the thread, with the answer to it.
+        let followUp = try #require(await store.reply("Guard it", to: question.id, round: round.id, in: session))
+        let reply = ChatMessage(role: .user, text: followUp)
+        let done = ChatMessage(role: .assistant, text: "On it.\n### Comment 1\nGuarded.")
+        let threaded = store.sentReviews(in: [sent, loose, reply, done], sessionID: session)
+        #expect(threaded.hidden == [loose.id, reply.id])
+        #expect(threaded.cuts == [done.id: "On it.\n".count])
+    }
+
     @Test func aReplyInAThreadGoesAtOnceAndItsAnswerJoinsTheThread() async throws {
         let store = ReviewCommentStore(url: nil)
         let files = FileBox(["/repo/App.swift": "let items = load()\nlet first = items.first!\nreturn first"])

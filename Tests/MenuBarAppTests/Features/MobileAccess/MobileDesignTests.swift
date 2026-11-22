@@ -127,7 +127,7 @@ struct MobileDesignPairingTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try "<button>Preview</button>".write(to: directory.appendingPathComponent("index.html"),
                                           atomically: true, encoding: .utf8)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let controller = MobileAccessController(store: store, runner: runner, gitStats: GitStatsCache())
         controller.setEnabled(true)
         defer { controller.stop() }

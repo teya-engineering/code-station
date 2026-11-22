@@ -17,6 +17,7 @@ enum Typography {
         static let caption: CGFloat = 11
         static let detail: CGFloat = 12
         static let body: CGFloat = 13
+        static let wordmark: CGFloat = 15
         static let title: CGFloat = 17
         static let display: CGFloat = 22
     }
@@ -45,6 +46,7 @@ enum Typography {
     // spaces the letters.
     static let caps = Font.mono(Size.micro, .semibold)
     static let capsKerning: CGFloat = 0.6
+    static let wordmarkKerning: CGFloat = -0.55
 }
 
 extension View {
@@ -145,9 +147,10 @@ extension View {
     }
 }
 
-// Shared dimensions for compact dialog forms.
+// Shared dimensions for dialog and sheet forms.
 enum FormMetrics {
     static let dialogWidth: CGFloat = 460
+    static let sheetWidth: CGFloat = 680
     static let guidanceHeight: CGFloat = 96
     static let pairedFieldsWidth: CGFloat = 340
     static let rowLabelWidth: CGFloat = 68

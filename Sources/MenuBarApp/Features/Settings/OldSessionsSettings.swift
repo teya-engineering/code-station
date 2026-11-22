@@ -88,7 +88,7 @@ struct OldSessionsSettings: View {
     private var hasAnythingOld: Bool {
         let old = OldSessionSweep.due(
             days: settings.oldSessionDays, in: store.sidebarSessions,
-            isBusy: { runner.isBusy($0, store: store) },
+            isBusy: { runner.isBusy($0) },
             isOpen: { store.selection == .session($0) },
             snoozedUntil: { store.snoozeDeadline(for: $0) })
         return !old.isEmpty

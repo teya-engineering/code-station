@@ -248,4 +248,12 @@ struct AppBackupTests {
         #expect(try Data(contentsOf: newMac.path("shortcuts.json")) == Data("saved".utf8))
         #expect(AppBackup.pending(support: newMac.url) == nil)
     }
+
+    @Test func machineKeysStayBehind() {
+        #expect(AppBackup.machineKeys == [
+            "selectedSessionID", "selectedProjectID", "selectedWorkspaceID",
+            "hasCompletedOnboarding", "siteDefaultsPath", "appUpdateLastCheck",
+            "cachedAppUpdateRelease", "dismissedAppUpdateVersion", "dayRibbonEntranceDay"
+        ])
+    }
 }

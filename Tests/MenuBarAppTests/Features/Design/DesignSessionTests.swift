@@ -273,7 +273,7 @@ struct DesignSessionTests {
         _ = try writeDesign(for: design, in: store, html: "<html>Approved</html>")
         let revision = try store.approveDesign(
             design.id, screenshot: nil, sourceRevisions: [:]).get()
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
 
         let result = DesignHandoffLifecycle.startImplementation(
             design.id, revision: revision, additionalContext: "Keep the current header.",
@@ -431,15 +431,15 @@ struct DesignSessionTests {
         _ = try store.beginImplementation(original.id, revisionID: revision.id).get()
         let build = try #require(store.session(original.id))
         let design = try #require(store.designSession(for: build.id))
-        let runner = SessionRunner(preferences: testPreferences.store, persistentAgentSessions: false, paths: [.codex: executable.path])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, persistentAgentSessions: false, paths: [.codex: executable.path])
         defer { runner.stopAll() }
 
-        runner.send("Build the screen", sessionID: build.id, store: store)
+        runner.send("Build the screen", sessionID: build.id)
         #expect(await waitUntil {
             FileManager.default.fileExists(
                 atPath: scratch.path("first-started").path)
         })
-        runner.send("Make the button larger", sessionID: design.id, store: store)
+        runner.send("Make the button larger", sessionID: design.id)
 
         #expect(runner.queued(design.id).map(\.text) == ["Make the button larger"])
         #expect(runner.state(design.id) == .idle)
@@ -713,10 +713,10 @@ struct DesignSessionTests {
 
     @Test func aSessionWithNoAmbitionFollowsTheAppDefault() throws {
         let preferences = scratchDefaults()
-        #expect(Preferences.designAmbition(in: preferences) == .balanced)
+        #expect(Preferences.designAmbition.read(in: preferences) == .balanced)
 
-        Preferences.setDesignAmbition(.allOut, in: preferences)
-        #expect(Preferences.designAmbition(in: preferences) == .allOut)
+        Preferences.designAmbition.write(.allOut, in: preferences)
+        #expect(Preferences.designAmbition.read(in: preferences) == .allOut)
 
         let older = try JSONDecoder().decode(SessionSettings.self, from: Data(#"{"model":"opus"}"#.utf8))
         #expect(older.designAmbition == nil)
@@ -733,7 +733,7 @@ struct DesignSessionTests {
             printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}'
             """, to: executable)
         let design = store.newSession(in: project.id, seed: .init(agent: .codex, mode: .design))
-        let runner = SessionRunner(preferences: testPreferences.store, persistentAgentSessions: false, paths: [.codex: executable.path])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, persistentAgentSessions: false, paths: [.codex: executable.path])
         defer { runner.stopAll() }
 
         func setAmbition(_ ambition: DesignAmbition) {
@@ -742,7 +742,7 @@ struct DesignSessionTests {
             store.setSettings(settings, for: design.id)
         }
         func run(_ prompt: String, turn: Int) async throws -> String {
-            runner.send(prompt, sessionID: design.id, store: store)
+            runner.send(prompt, sessionID: design.id)
             #expect(await waitUntil {
                 FileManager.default.fileExists(atPath: scratch.path("input-\(turn)").path)
                     && runner.state(design.id) == .idle
@@ -784,7 +784,7 @@ struct DesignSessionTests {
     @Test func theCardOfADesignCompanionSaysWhatTheCompanionIsDoing() throws {
         let chat = store.newSession(in: project.id)
         let design = try store.startDesign(for: chat.id).get()
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
 
         store.append(ChatMessage(role: .user, text: "Draw a landing page"), to: design.id)
 
@@ -807,7 +807,7 @@ struct DesignSessionTests {
 
     @Test func aSessionWithoutADesignCompanionSpeaksForItself() throws {
         let chat = store.newSession(in: project.id)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
 
         store.append(ChatMessage(role: .user, text: "Add a login page"), to: chat.id)
 
@@ -864,7 +864,7 @@ struct DesignSessionTests {
         store.setAgentSessionID("design-context", agent: .claudeCode, for: design.id)
         _ = try writeDesign(for: design, in: store, html: "<html>Approved</html>")
         let revision = try store.approveDesign(design.id, screenshot: nil, sourceRevisions: [:]).get()
-        let runner = SessionRunner(preferences: testPreferences.store, persistentAgentSessions: false,
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, persistentAgentSessions: false,
                                    paths: [.codex: executable.path])
         defer { runner.stopAll() }
         let settings = DesignImplementationSettings(agent: .codex,

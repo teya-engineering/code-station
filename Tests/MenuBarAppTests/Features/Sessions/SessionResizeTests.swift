@@ -17,7 +17,7 @@ struct SessionResizeTests {
         let preferences = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"),
                                    preferences: preferences)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         store.append(ChatMessage(role: .assistant, text: String(repeating:
             "The conversation should wrap to the space left beside the sidebar. ", count: 8)),
                      to: session.id)

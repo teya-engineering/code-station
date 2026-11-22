@@ -10,7 +10,7 @@ struct SessionDraftTests {
     private let testPreferences = TestPreferences()
 
     @Test func keepsWhatWasTypedForEachSessionSeparately() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         let first = UUID()
         let second = UUID()
 
@@ -22,12 +22,12 @@ struct SessionDraftTests {
     }
 
     @Test func unknownSessionStartsEmpty() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         #expect(runner.composer.draft(UUID()).isEmpty)
     }
 
     @Test func keepsAttachmentsAlongsideTheText() throws {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         let sessionID = UUID()
         let file = Attachment(url: URL(fileURLWithPath: "/tmp/shot.png"))
 
@@ -41,7 +41,7 @@ struct SessionDraftTests {
 
     // Whitespace alone is nothing to come back to, so it should not count as a draft.
     @Test func blankTextIsNotADraft() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         let sessionID = UUID()
 
         runner.composer.editDraft(sessionID) { $0.text = "   \n " }
@@ -50,7 +50,7 @@ struct SessionDraftTests {
     }
 
     @Test func clearingLeavesNothingBehind() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         let sessionID = UUID()
 
         runner.composer.editDraft(sessionID) { $0.text = "ship it" }

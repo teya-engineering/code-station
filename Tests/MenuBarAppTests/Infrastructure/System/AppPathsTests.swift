@@ -128,18 +128,18 @@ struct AppPathsTests {
     @Test func defaultsAndClampsOldSessionDays() throws {
         let defaults = scratchDefaults()
 
-        #expect(Preferences.oldSessionDays(in: defaults) == 3)
+        #expect(Preferences.oldSessionDays.read(in: defaults) == 3)
 
         for days in [1, 2, 15, 30] {
             defaults.set(days, forKey: "oldSessionDays")
-            #expect(Preferences.oldSessionDays(in: defaults) == days)
+            #expect(Preferences.oldSessionDays.read(in: defaults) == days)
         }
 
         defaults.set(0, forKey: "oldSessionDays")
-        #expect(Preferences.oldSessionDays(in: defaults) == 1)
+        #expect(Preferences.oldSessionDays.read(in: defaults) == 1)
 
         defaults.set(31, forKey: "oldSessionDays")
-        #expect(Preferences.oldSessionDays(in: defaults) == 30)
+        #expect(Preferences.oldSessionDays.read(in: defaults) == 30)
     }
 
     // Only "review" used to mean no, so every other old answer carries over as yes.
@@ -200,18 +200,18 @@ struct AppPathsTests {
     @Test func defaultsAndClampsTheSidebarSessionLimit() throws {
         let defaults = scratchDefaults()
 
-        #expect(Preferences.sidebarSessionLimit(in: defaults) == 4)
+        #expect(Preferences.sidebarSessionLimit.read(in: defaults) == 4)
 
         for limit in SidebarSessionVisibility.limitRange {
-            Preferences.setSidebarSessionLimit(limit, in: defaults)
-            #expect(Preferences.sidebarSessionLimit(in: defaults) == limit)
+            Preferences.sidebarSessionLimit.write(limit, in: defaults)
+            #expect(Preferences.sidebarSessionLimit.read(in: defaults) == limit)
         }
 
-        Preferences.setSidebarSessionLimit(1, in: defaults)
-        #expect(Preferences.sidebarSessionLimit(in: defaults) == 2)
+        Preferences.sidebarSessionLimit.write(1, in: defaults)
+        #expect(Preferences.sidebarSessionLimit.read(in: defaults) == 2)
 
-        Preferences.setSidebarSessionLimit(11, in: defaults)
-        #expect(Preferences.sidebarSessionLimit(in: defaults) == 10)
+        Preferences.sidebarSessionLimit.write(11, in: defaults)
+        #expect(Preferences.sidebarSessionLimit.read(in: defaults) == 10)
     }
 
     @Test @MainActor func sessionRecapsDefaultOffAndPersist() throws {
@@ -234,12 +234,12 @@ struct AppPathsTests {
         let avatar = root.appendingPathComponent("avatar.png")
         let settings = AppSettings(agentAvatarURL: avatar, preferences: defaults)
 
-        #expect(!Preferences.sessionTitlesEnabled(in: defaults))
+        #expect(!Preferences.sessionTitlesEnabled.read(in: defaults))
         #expect(!settings.sessionTitlesEnabled)
 
         settings.sessionTitlesEnabled = true
 
-        #expect(Preferences.sessionTitlesEnabled(in: defaults))
+        #expect(Preferences.sessionTitlesEnabled.read(in: defaults))
         #expect(AppSettings(agentAvatarURL: avatar, preferences: defaults)
             .sessionTitlesEnabled)
     }
@@ -259,7 +259,7 @@ struct AppPathsTests {
         #expect(settings.sidebarSessionLimit == 4)
 
         settings.sidebarSessionLimit = 8
-        #expect(Preferences.sidebarSessionLimit(in: defaults) == 8)
+        #expect(Preferences.sidebarSessionLimit.read(in: defaults) == 8)
 
         settings.sidebarSessionLimit = 20
         #expect(settings.sidebarSessionLimit == 10)
@@ -281,14 +281,14 @@ struct AppPathsTests {
         }
         let avatar = root.appendingPathComponent("avatar.png")
 
-        Preferences.setOldSessionDays(21, in: firstDefaults)
-        Preferences.setSkillsRefreshInterval(.oneDay, in: firstDefaults)
-        Preferences.setProjectSort(.lastUsed, in: firstDefaults)
-        Preferences.setProjectGrouping(.kind, in: firstDefaults)
+        Preferences.oldSessionDays.write(21, in: firstDefaults)
+        Preferences.skillsRefreshInterval.write(.oneDay, in: firstDefaults)
+        Preferences.projectSort.write(.lastUsed, in: firstDefaults)
+        Preferences.projectGrouping.write(.kind, in: firstDefaults)
         Preferences.setTerminalBundleID("com.example.FirstTerminal", in: firstDefaults)
-        Preferences.setAppearance(.dark, in: firstDefaults)
-        Preferences.setTextSize(.larger, in: firstDefaults)
-        Preferences.setMobileAccessEnabled(true, in: firstDefaults)
+        Preferences.appearance.write(.dark, in: firstDefaults)
+        Preferences.textSize.write(.larger, in: firstDefaults)
+        Preferences.mobileAccessEnabled.write(true, in: firstDefaults)
         Preferences.setShowCost(false, for: .codex, in: firstDefaults)
 
         let first = AppSettings(agentAvatarURL: avatar, preferences: firstDefaults)
@@ -324,15 +324,15 @@ struct AppPathsTests {
         first.mobileAccessEnabled = false
         first.setShowsCost(true, for: .codex)
 
-        #expect(Preferences.oldSessionDays(in: firstDefaults) == 21)
-        #expect(Preferences.skillsRefreshInterval(in: firstDefaults) == .thirtyDays)
-        #expect(Preferences.projectSort(in: firstDefaults) == .name)
-        #expect(Preferences.projectGrouping(in: firstDefaults) == .flat)
+        #expect(Preferences.oldSessionDays.read(in: firstDefaults) == 21)
+        #expect(Preferences.skillsRefreshInterval.read(in: firstDefaults) == .thirtyDays)
+        #expect(Preferences.projectSort.read(in: firstDefaults) == .name)
+        #expect(Preferences.projectGrouping.read(in: firstDefaults) == .flat)
         #expect(Preferences.terminalBundleID(in: firstDefaults)
                 == "com.example.UpdatedTerminal")
-        #expect(Preferences.appearance(in: firstDefaults) == .light)
-        #expect(Preferences.textSize(in: firstDefaults) == .small)
-        #expect(!Preferences.mobileAccessEnabled(in: firstDefaults))
+        #expect(Preferences.appearance.read(in: firstDefaults) == .light)
+        #expect(Preferences.textSize.read(in: firstDefaults) == .small)
+        #expect(!Preferences.mobileAccessEnabled.read(in: firstDefaults))
         #expect(Preferences.showCost(for: .codex, in: firstDefaults))
 
         let restoredSecond = AppSettings(agentAvatarURL: avatar, preferences: secondDefaults)
@@ -406,13 +406,13 @@ struct AppPathsTests {
                                    preferences: defaults)
 
         #expect(!settings.hasCompletedOnboarding)
-        #expect(!Preferences.hasCompletedOnboarding(in: defaults))
+        #expect(!Preferences.hasCompletedOnboarding.read(in: defaults))
         #expect(settings.shouldShowOnboarding(hasExistingWork: false))
 
         settings.completeOnboarding()
 
         #expect(settings.hasCompletedOnboarding)
-        #expect(Preferences.hasCompletedOnboarding(in: defaults))
+        #expect(Preferences.hasCompletedOnboarding.read(in: defaults))
 
         let restored = AppSettings(agentAvatarURL: root.appendingPathComponent("avatar.png"),
                                    preferences: defaults)
@@ -427,7 +427,7 @@ struct AppPathsTests {
 
         #expect(!settings.shouldShowOnboarding(hasExistingWork: true))
         #expect(settings.hasCompletedOnboarding)
-        #expect(Preferences.hasCompletedOnboarding(in: defaults))
+        #expect(Preferences.hasCompletedOnboarding.read(in: defaults))
     }
 
     @Test func takesOverThePreferencesTheOldBundleIdentifierOwned() throws {

@@ -153,6 +153,10 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
 
     var ownsDesign: Bool { mode == .design }
 
+    // The sidebar row the session sits under: its workspace, or its project when it has
+    // none.
+    var containerID: UUID { workspaceID ?? projectID }
+
     var isActivelyDesigning: Bool {
         ownsDesign && designPhase != .implementing
     }

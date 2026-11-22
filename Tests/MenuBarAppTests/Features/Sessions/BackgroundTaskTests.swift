@@ -737,7 +737,7 @@ struct BackgroundTaskTests {
                       waitingStaleAfter: TimeInterval = 10 * 60) throws -> RunnerHarness {
         let harness = try RunnerHarness(agent: .claudeCode, script: script,
                                         waitingStaleAfter: waitingStaleAfter)
-        harness.runner.send("start", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("start", sessionID: harness.session.id)
         return harness
     }
 

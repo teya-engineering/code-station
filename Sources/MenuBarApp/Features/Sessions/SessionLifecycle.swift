@@ -256,8 +256,11 @@ enum SessionLifecycle {
             let note = (["I attached \(project.name) to this session at \(path). Before editing "
                 + "it, read the AGENTS.md or CLAUDE.md files that apply inside it."]
                 + [carried].compactMap { $0 }).joined(separator: "\n\n")
-            composer?.editDraft(session.id) {
-                $0.text = $0.text.isEmpty ? note : note + "\n\n" + $0.text
+            let conversationIDs = [session.id] + [store.designSession(for: session.id)?.id].compactMap { $0 }
+            for conversationID in conversationIDs {
+                composer?.editDraft(conversationID) {
+                    $0.text = $0.text.isEmpty ? note : note + "\n\n" + $0.text
+                }
             }
 
             return .success(updated)

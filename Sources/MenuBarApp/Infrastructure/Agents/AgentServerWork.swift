@@ -7,11 +7,6 @@ import Observation
 @MainActor
 @Observable
 final class AgentServerWork {
-    struct Failure: LocalizedError, Sendable {
-        let message: String
-        var errorDescription: String? { message }
-    }
-
     private(set) var work: [String: AgentConfiguredServer.Work] = [:]
     var errors: [String: String] = [:]
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
@@ -57,7 +52,7 @@ final class AgentServerWork {
     nonisolated static func output(_ command: String, _ arguments: [String],
                                    timeout: Duration) async throws -> String {
         guard let executable = ProcessManager.resolve(command) else {
-            throw Failure(message: "\(command) not found on PATH.")
+            throw AgentFailure(message: "\(command) not found on PATH.")
         }
         let result = try await CommandRunner.run(executable: executable,
                                                  arguments: arguments,
@@ -66,7 +61,7 @@ final class AgentServerWork {
         guard result.succeeded else {
             let said = [result.errorOutput, result.output]
                 .map(\.trimmed).filter { !$0.isEmpty }.joined(separator: "\n")
-            throw Failure(message: said.isEmpty ? "Command failed (exit \(result.status))." : said)
+            throw AgentFailure(message: said.isEmpty ? "Command failed (exit \(result.status))." : said)
         }
         return result.output
     }
@@ -78,13 +73,13 @@ final class AgentServerWork {
     nonisolated static func terminalOutput(_ command: String, _ arguments: [String],
                                            timeout: Duration) async throws -> String {
         guard let executable = ProcessManager.resolve(command) else {
-            throw Failure(message: "\(command) not found on PATH.")
+            throw AgentFailure(message: "\(command) not found on PATH.")
         }
         do {
             return try await output("/usr/bin/script", ["-q", "/dev/null", executable] + arguments,
                                     timeout: timeout)
-        } catch let failure as Failure {
-            throw Failure(message: withoutTerminalCodes(failure.message))
+        } catch let failure as AgentFailure {
+            throw AgentFailure(message: withoutTerminalCodes(failure.message))
         }
     }
 

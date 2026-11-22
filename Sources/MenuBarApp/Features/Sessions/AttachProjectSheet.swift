@@ -76,7 +76,7 @@ struct AttachProjectSheet: View {
                 .padding(Space.pane)
                 .motion(Motion.reveal, value: projectID)
             }
-            .frame(maxHeight: 470)
+            .scrollCap(ScrollCap.tall)
 
             SheetFooter(primary: SheetAction(title: "Attach", enabled: canAttach,
                                              shortcut: .defaultAction, action: attach),
@@ -90,7 +90,7 @@ struct AttachProjectSheet: View {
                 }
             }
         }
-        .frame(width: 680)
+        .frame(width: FormMetrics.sheetWidth)
         .background(Theme.background)
         .disabled(working != nil)
         .interactiveDismissDisabled(working != nil)
