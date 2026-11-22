@@ -5,6 +5,18 @@ struct GitRemoteCommit: Identifiable, Sendable, Equatable {
     let subject: String
 
     var shortID: String { String(id.prefix(8)) }
+
+    // One commit a line for `git log`: the hash, a tab, then the subject. Git strips tabs
+    // from a subject, so the first tab always ends the hash.
+    static let logFormat = "--format=%H%x09%s"
+
+    static func parse(log text: String) -> [GitRemoteCommit] {
+        text.split(separator: "\n").compactMap { line in
+            let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            guard fields.count == 2, !fields[0].isEmpty else { return nil }
+            return GitRemoteCommit(id: String(fields[0]), subject: String(fields[1]))
+        }
+    }
 }
 
 enum GitPushPreview: Sendable, Equatable {
@@ -46,23 +58,26 @@ enum GitActions {
     // origin cannot hold a button down for minutes.
     private static let networkTimeout: TimeInterval = 30
 
+    private static let upstreamAdvancedAfterRewrite =
+        "You rewrote commits that origin still has, and origin has newer work. Reconcile the changes in a terminal before pulling or pushing."
+
     static func fetchOrigin(at root: String) async -> String? {
-        guard let tool = await GitInspector.tool() else {
-            return "Could not find git on PATH."
+        guard let tool = Git.tool() else {
+            return Git.notFoundMessage
         }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
-            let origin = GitInspector.run(tool, ["remote", "get-url", "origin"], in: url)
+        return await Git.offMain {
+            let origin = Git.run(tool, ["remote", "get-url", "origin"], in: url)
             guard origin.ok else { return nil }
-            let fetch = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
-                                         timeout: networkTimeout)
+            let fetch = Git.run(tool, ["fetch", "--quiet", "origin"], in: url,
+                                timeout: networkTimeout)
             return fetch.ok ? nil : fetch.failureMessage
         }
     }
 
     static func switchBranch(_ branch: String, at root: String) async -> String? {
         await perform(at: root) { tool, url in
-            GitInspector.run(tool, ["switch", branch], in: url)
+            Git.run(tool, ["switch", branch], in: url)
         }
     }
 
@@ -74,15 +89,15 @@ enum GitActions {
     // leaves a way back.
     static func discard(_ files: [GitChange], at root: String) async -> String? {
         guard !files.isEmpty else { return "No files are selected." }
-        guard let tool = await GitInspector.tool() else { return "Could not find git on PATH." }
+        guard let tool = Git.tool() else { return Git.notFoundMessage }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
+        return await Git.offMain {
             guard !GitBranches.blocksOtherActions(tool, url) else {
                 return "Finish or abort the current operation in Branches before discarding files."
             }
             let paths = pathspec(for: files.filter { !$0.isUntracked })
             if !paths.isEmpty {
-                let restored = GitInspector.run(
+                let restored = Git.run(
                     tool, ["restore", "--staged", "--worktree", "--source=HEAD", "--"] + paths, in: url)
                 guard restored.ok else { return restored.failureMessage }
             }
@@ -113,10 +128,10 @@ enum GitActions {
         let unstaged = files.filter(\.isUnstaged).map { ":(literal)" + $0.path }
         return await perform(at: root) { tool, url in
             if !unstaged.isEmpty {
-                let add = GitInspector.run(tool, ["add", "-A", "--"] + unstaged, in: url)
+                let add = Git.run(tool, ["add", "-A", "--"] + unstaged, in: url)
                 guard add.ok else { return add }
             }
-            return GitInspector.run(
+            return Git.run(
                 tool, commitArguments(message: message, amend: amend) + ["--"] + paths, in: url)
         }
     }
@@ -147,12 +162,12 @@ enum GitActions {
     // work is stashed around the move either way, since sessions leave trees dirty all the
     // time and a pull otherwise refuses to touch them.
     static func pull(at root: String) async -> GitPullOutcome {
-        guard let tool = await GitInspector.tool() else {
-            return .failed("Could not find git on PATH.")
+        guard let tool = Git.tool() else {
+            return .failed(Git.notFoundMessage)
         }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
-            reconcile(tool, in: url, with: "@{u}", refusingRewrittenTip: true)
+        return await Git.offMain {
+            reconcile(tool, in: url, with: "@{u}", refusingRewrittenCommits: true)
         }
     }
 
@@ -161,18 +176,17 @@ enum GitActions {
     // explicit. A failed rebase aborts itself, and a checkout that started on another
     // branch is put back there so a failed session launch leaves the folder unchanged.
     static func updateCheckout(to branch: String, at root: String) async -> String? {
-        guard let tool = await GitInspector.tool() else {
-            return "Could not find git on PATH."
+        guard let tool = Git.tool() else {
+            return Git.notFoundMessage
         }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
+        return await Git.offMain {
             guard !GitBranches.blocksOtherActions(tool, url) else {
                 return "Finish or abort the current operation in Branches before switching branches."
             }
-            let originalBranch = GitInspector.run(
-                tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
-            let originalHead = GitInspector.run(tool, ["rev-parse", "--verify", "HEAD"], in: url)
-            let switched = GitInspector.run(tool, ["switch", branch], in: url)
+            let originalBranch = Git.currentBranch(tool, in: url)
+            let originalHead = Git.run(tool, ["rev-parse", "--verify", "HEAD"], in: url)
+            let switched = Git.run(tool, ["switch", branch], in: url)
             guard switched.ok else { return switched.failureMessage }
 
             switch reconcile(tool, in: url, with: "origin/\(branch)") {
@@ -196,19 +210,18 @@ enum GitActions {
     // against moving a branch another worktree has checked out.
     static func fastForwardBranch(_ branch: String, to target: String,
                                   at root: String) async -> String? {
-        guard let tool = await GitInspector.tool() else {
-            return "Could not find git on PATH."
+        guard let tool = Git.tool() else {
+            return Git.notFoundMessage
         }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
+        return await Git.offMain {
             guard !GitBranches.blocksOtherActions(tool, url) else {
                 return "Finish or abort the current operation in Branches before updating \(branch)."
             }
-            let current = GitInspector.run(
-                tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
+            let current = Git.currentBranch(tool, in: url)
             let moved = current.ok && current.trimmedText == branch
-                ? GitInspector.run(tool, ["merge", "--ff-only", "--no-autostash", target], in: url)
-                : GitInspector.run(
+                ? Git.run(tool, ["merge", "--ff-only", "--no-autostash", target], in: url)
+                : Git.run(
                     tool, ["fetch", "--quiet", ".", "refs/remotes/\(target):refs/heads/\(branch)"],
                     in: url)
             return moved.ok ? nil : moved.failureMessage
@@ -222,12 +235,32 @@ enum GitActions {
     static func push(hasUpstream: Bool, replacing tip: String? = nil, at root: String) async -> String? {
         await perform(at: root) { tool, url in
             let publish = hasUpstream ? [] : ["-u", "origin", "HEAD"]
-            guard let tip else { return GitInspector.run(tool, ["push"] + publish, in: url) }
-            let branch = GitInspector.run(tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
+            guard let tip else { return Git.run(tool, ["push"] + publish, in: url) }
+            let branch = Git.currentBranch(tool, in: url)
             guard branch.ok else { return branch }
 
-            return GitInspector.run(tool, ["push", "--force-with-lease=refs/heads/\(branch.trimmedText):\(tip)"]
-                                    + publish, in: url)
+            if hasUpstream {
+                let upstream = Git.run(
+                    tool, ["for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)",
+                           "refs/heads/\(branch.trimmedText)"], in: url)
+                guard upstream.ok else { return upstream }
+                let destination = upstream.trimmedText.components(separatedBy: "\0")
+                guard destination.count == 2, !destination[0].isEmpty,
+                      destination[1].hasPrefix("refs/heads/") else {
+                    return Git.Output(
+                        errorText: "Could not resolve the upstream branch. Refresh the push review before trying again.")
+                }
+                let remote = destination[0]
+                let ref = destination[1]
+
+                // The review shows the upstream, so Git's push settings must not send
+                // its replacement to a different branch or remote.
+                return Git.run(
+                    tool, ["push", "--force-with-lease=\(ref):\(tip)", "--", remote, "HEAD:\(ref)"], in: url)
+            }
+
+            return Git.run(tool, ["push", "--force-with-lease=refs/heads/\(branch.trimmedText):\(tip)"]
+                           + publish, in: url)
         }
     }
 
@@ -237,51 +270,54 @@ enum GitActions {
     // fatal here: reaching origin is the push's own job, and the preview can still be built
     // from whatever the last one left behind.
     static func commitsToPush(hasUpstream: Bool, at root: String) async -> GitPushPreview {
-        guard let tool = await GitInspector.tool() else {
-            return .failed("Could not find git on PATH.")
+        guard let tool = Git.tool() else {
+            return .failed(Git.notFoundMessage)
         }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
+        return await Git.offMain {
             if hasUpstream {
-                _ = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
-                                     timeout: networkTimeout)
+                _ = Git.run(tool, ["fetch", "--quiet", "origin"], in: url,
+                            timeout: networkTimeout)
             }
             let tip = hasUpstream ? nil : originTipForCurrentBranch(tool, in: url)
             let arguments = hasUpstream
-                ? ["log", "--no-color", "--format=%H%x09%s", "@{u}..HEAD"]
-                : ["log", "--no-color", "--format=%H%x09%s", "HEAD", "--not", "--remotes=origin"]
-            let output = GitInspector.run(tool, arguments, in: url)
+                ? ["log", "--no-color", GitRemoteCommit.logFormat, "@{u}..HEAD"]
+                : ["log", "--no-color", GitRemoteCommit.logFormat, "HEAD", "--not", "--remotes=origin"]
+            let output = Git.run(tool, arguments, in: url)
             guard output.ok else { return .failed(output.failureMessage) }
-            let commits = parseRemoteCommits(output.text)
+            let commits = GitRemoteCommit.parse(log: output.text)
             if let tip {
-                let theirs = GitInspector.run(tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..\(tip)"], in: url)
+                let theirs = Git.run(tool, ["log", "--no-color", GitRemoteCommit.logFormat, "HEAD..\(tip)"], in: url)
                 guard theirs.ok else { return .failed(theirs.failureMessage) }
-                return .nameOnOrigin(outgoing: commits, unrelated: parseRemoteCommits(theirs.text), tip: tip)
+                return .nameOnOrigin(outgoing: commits, unrelated: GitRemoteCommit.parse(log: theirs.text), tip: tip)
             }
             guard hasUpstream else { return .commits(commits) }
 
-            let behind = GitInspector.run(tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..@{u}"], in: url)
-            let incoming = behind.ok ? parseRemoteCommits(behind.text) : []
-            guard !incoming.isEmpty else { return .commits(commits) }
-            guard !commits.isEmpty, let upstream = rewrittenTip("@{u}", tool, in: url) else {
+            let behind = Git.run(tool, ["log", "--no-color", GitRemoteCommit.logFormat, "HEAD..@{u}"], in: url)
+            guard behind.ok else { return .failed(behind.failureMessage) }
+            let incoming = GitRemoteCommit.parse(log: behind.text)
+            guard let upstream = incoming.first else { return .commits(commits) }
+            guard !commits.isEmpty, let rewritten = rewrittenCommit(in: incoming, tool, at: url) else {
                 return .behindUpstream(incoming: incoming, outgoing: commits)
             }
+            guard rewritten == upstream.id else { return .failed(upstreamAdvancedAfterRewrite) }
 
-            return .rewroteUpstream(outgoing: commits, replaced: incoming, tip: upstream)
+            return .rewroteUpstream(outgoing: commits, replaced: incoming, tip: upstream.id)
         }
     }
 
-    // After an amend or rebase the old tip survives only in this branch's reflog, so a hit means the ref was rewritten here.
-    private static func rewrittenTip(_ ref: String, _ tool: GitInspector.GitTool, in url: URL) -> String? {
-        let branch = GitInspector.run(tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
-        let tip = GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: url)
-        guard branch.ok, tip.ok else { return nil }
-        let reflog = GitInspector.run(tool, ["reflog", "show", "--format=%H", "refs/heads/\(branch.trimmedText)", "--"],
-                                      in: url)
-        guard reflog.ok, reflog.text.split(whereSeparator: \.isNewline).contains(where: { $0 == tip.trimmedText })
-        else { return nil }
+    // A rewritten commit can sit below newer work on origin. Check every incoming
+    // commit against the branch's old tips so pulling cannot undo that rewrite.
+    private static func rewrittenCommit(in commits: [GitRemoteCommit],
+                                        _ tool: Git.Tool, at url: URL) -> String? {
+        let branch = Git.currentBranch(tool, in: url)
+        guard branch.ok else { return nil }
+        let reflog = Git.run(tool, ["reflog", "show", "--format=%H", "refs/heads/\(branch.trimmedText)", "--"],
+                             in: url)
+        guard reflog.ok else { return nil }
+        let previousTips = Set(reflog.text.split(whereSeparator: \.isNewline).map(String.init))
 
-        return tip.trimmedText
+        return commits.first { previousTips.contains($0.id) }?.id
     }
 
     // Where origin's branch of the same name points, or nil when origin has none. A branch
@@ -290,28 +326,28 @@ enum GitActions {
     // old fetch can name a branch that was deleted long ago. That branch alone is then
     // fetched, so its commits can be listed. When origin cannot be reached, the last fetch
     // is the best guess, and the push itself will say that origin is out of reach.
-    private static func originTipForCurrentBranch(_ tool: GitInspector.GitTool, in url: URL) -> String? {
-        let branch = GitInspector.run(tool, ["symbolic-ref", "--quiet", "--short", "HEAD"], in: url)
+    private static func originTipForCurrentBranch(_ tool: Git.Tool, in url: URL) -> String? {
+        let branch = Git.currentBranch(tool, in: url)
         guard branch.ok, !branch.trimmedText.isEmpty else { return nil }
         let name = branch.trimmedText
-        let listed = GitInspector.run(tool, ["ls-remote", "--heads", "origin", "refs/heads/\(name)"], in: url,
-                                      timeout: networkTimeout)
+        let listed = Git.run(tool, ["ls-remote", "--heads", "origin", "refs/heads/\(name)"], in: url,
+                             timeout: networkTimeout)
         guard listed.ok else {
-            let cached = GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(name)"], in: url)
+            let cached = Git.run(tool, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(name)"], in: url)
             return cached.ok && !cached.trimmedText.isEmpty ? cached.trimmedText : nil
         }
         guard let tip = listed.text.split(separator: "\t").first.map(String.init), !tip.isEmpty else { return nil }
-        _ = GitInspector.run(tool, ["fetch", "--quiet", "origin", "+refs/heads/\(name):refs/remotes/origin/\(name)"],
-                             in: url, timeout: networkTimeout)
+        _ = Git.run(tool, ["fetch", "--quiet", "origin", "+refs/heads/\(name):refs/remotes/origin/\(name)"],
+                    in: url, timeout: networkTimeout)
         return tip
     }
 
     static func originMatches(repositoryURL: String, at root: String) async -> Bool {
-        guard let tool = await GitInspector.tool() else { return false }
+        guard let tool = Git.tool() else { return false }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
-            let origin = GitInspector.run(tool, ["remote", "get-url", "origin"], in: url)
-            let push = GitInspector.run(tool, ["remote", "get-url", "--push", "--all", "origin"], in: url)
+        return await Git.offMain {
+            let origin = Git.run(tool, ["remote", "get-url", "origin"], in: url)
+            let push = Git.run(tool, ["remote", "get-url", "--push", "--all", "origin"], in: url)
             let destinations = push.text.split(whereSeparator: \.isNewline)
             return origin.ok && push.ok && destinations.count == 1
                 && remoteMatches(origin.trimmedText, repositoryURL: repositoryURL)
@@ -338,10 +374,10 @@ enum GitActions {
     // Keeps a folder out of `git status` without touching the repository's .gitignore.
     // The exclude file is shared by every worktree of a repository.
     static func excludeFromStatus(_ folder: String, at root: String) async {
-        guard let tool = await GitInspector.tool() else { return }
+        guard let tool = Git.tool() else { return }
         let url = URL(fileURLWithPath: root)
-        await GitInspector.offMain {
-            let path = GitInspector.run(tool, ["rev-parse", "--git-path", "info/exclude"], in: url)
+        await Git.offMain {
+            let path = Git.run(tool, ["rev-parse", "--git-path", "info/exclude"], in: url)
             guard path.ok else { return }
             let exclude = URL(fileURLWithPath: path.trimmedText, relativeTo: url).standardizedFileURL
             let existing = (try? String(contentsOf: exclude, encoding: .utf8)) ?? ""
@@ -354,13 +390,13 @@ enum GitActions {
 
     private static func perform(
         at root: String,
-        _ work: @escaping @Sendable (GitInspector.GitTool, URL) -> GitInspector.CommandOutput
+        _ work: @escaping @Sendable (Git.Tool, URL) -> Git.Output
     ) async -> String? {
-        guard let tool = await GitInspector.tool() else {
-            return "Could not find git on PATH."
+        guard let tool = Git.tool() else {
+            return Git.notFoundMessage
         }
         let url = URL(fileURLWithPath: root)
-        return await GitInspector.offMain {
+        return await Git.offMain {
             guard !GitBranches.blocksOtherActions(tool, url) else {
                 return "Finish or abort the current operation in Branches before starting another Git action."
             }
@@ -369,36 +405,37 @@ enum GitActions {
         }
     }
 
-    private static func reconcile(_ tool: GitInspector.GitTool, in url: URL, with target: String,
-                                  refusingRewrittenTip: Bool = false) -> GitPullOutcome {
+    private static func reconcile(_ tool: Git.Tool, in url: URL, with target: String,
+                                  refusingRewrittenCommits: Bool = false) -> GitPullOutcome {
         guard !GitBranches.blocksOtherActions(tool, url) else {
             return .failed("Finish or abort the current operation in Branches before pulling.")
         }
-        let fetch = GitInspector.run(tool, ["fetch", "--quiet", "origin"], in: url,
-                                     timeout: networkTimeout)
+        let fetch = Git.run(tool, ["fetch", "--quiet", "origin"], in: url,
+                            timeout: networkTimeout)
         guard fetch.ok else { return .failed(fetch.failureMessage) }
 
-        let counts = GitInspector.run(
+        let counts = Git.run(
             tool, ["rev-list", "--count", "--left-right", "HEAD...\(target)"], in: url)
         guard counts.ok else { return .failed(counts.failureMessage) }
         guard let (ahead, behind) = counts.aheadBehind else {
             return .failed("Could not read how far this branch is from \(target).")
         }
         guard behind > 0 else { return .upToDate }
-        if refusingRewrittenTip, ahead > 0, rewrittenTip(target, tool, in: url) != nil {
+        let incoming = Git.run(
+            tool, ["log", "--no-color", GitRemoteCommit.logFormat, "HEAD..\(target)"], in: url)
+        guard incoming.ok else { return .failed(incoming.failureMessage) }
+        let commits = GitRemoteCommit.parse(log: incoming.text)
+        if refusingRewrittenCommits, ahead > 0,
+           let rewritten = rewrittenCommit(in: commits, tool, at: url) {
+            guard rewritten == commits.first?.id else { return .failed(upstreamAdvancedAfterRewrite) }
             return .failed("You rewrote these commits, so pulling would bring the old versions back. Push to replace them on origin instead.")
         }
-
-        let incoming = GitInspector.run(
-            tool, ["log", "--no-color", "--format=%H%x09%s", "HEAD..\(target)"], in: url)
-        guard incoming.ok else { return .failed(incoming.failureMessage) }
-        let commits = parseRemoteCommits(incoming.text)
 
         // With no commits of its own to replay, the branch only has to move forward,
         // and moving forward cannot conflict with anything. --ff-only holds it to that:
         // if something did make a merge necessary, it stops instead of making one.
         if ahead == 0 {
-            let merge = GitInspector.run(
+            let merge = Git.run(
                 tool, ["merge", "--ff-only", "--autostash", target], in: url)
             guard merge.ok else { return .failed(merge.failureMessage) }
             return stashConflicted(merge)
@@ -406,13 +443,13 @@ enum GitActions {
                 : .updated(commits)
         }
 
-        let rebase = GitInspector.run(tool, ["rebase", "--autostash", target], in: url)
+        let rebase = Git.run(tool, ["rebase", "--autostash", target], in: url)
         guard rebase.ok else {
-            let files = conflictedFiles(tool, in: url)
+            let files = Git.conflictedPaths(tool, in: url)
             // A rebase that stops leaves the branch halfway onto origin, and this screen
             // has nothing to finish one with. Aborting puts the branch and the stashed
             // work back where they were, so a press that cannot succeed leaves no rebase.
-            let restored = GitInspector.run(tool, ["rebase", "--abort"], in: url).ok
+            let restored = Git.run(tool, ["rebase", "--abort"], in: url).ok
             return .failed(conflictReport(files: files, restored: restored, output: rebase))
         }
         return stashConflicted(rebase)
@@ -420,34 +457,28 @@ enum GitActions {
             : .updated(commits)
     }
 
-    private static func restoreCheckout(_ tool: GitInspector.GitTool, in url: URL,
-                                        branch: GitInspector.CommandOutput,
-                                        head: GitInspector.CommandOutput,
+    private static func restoreCheckout(_ tool: Git.Tool, in url: URL,
+                                        branch: Git.Output,
+                                        head: Git.Output,
                                         unlessAlreadyOn target: String) -> Bool {
         if branch.ok {
             let name = branch.trimmedText
             guard name != target else { return true }
-            return GitInspector.run(tool, ["switch", name], in: url).ok
+            return Git.run(tool, ["switch", name], in: url).ok
         }
         guard head.ok else { return false }
-        return GitInspector.run(tool, ["switch", "--detach", head.trimmedText], in: url).ok
+        return Git.run(tool, ["switch", "--detach", head.trimmedText], in: url).ok
     }
 
     // An autostash that will not go back on cleanly is the one way the reconcile step
     // reports trouble while still exiting zero: the branch did move, and the uncommitted
     // work is now conflict markers in the files.
-    private static func stashConflicted(_ output: GitInspector.CommandOutput) -> Bool {
+    private static func stashConflicted(_ output: Git.Output) -> Bool {
         (output.text + output.errorText).contains("autostash resulted in conflicts")
     }
 
-    private static func conflictedFiles(_ tool: GitInspector.GitTool, in url: URL) -> [String] {
-        let output = GitInspector.run(tool, ["diff", "--name-only", "--diff-filter=U"], in: url)
-        guard output.ok else { return [] }
-        return output.text.split(separator: "\n").map(String.init)
-    }
-
     private static func conflictReport(files: [String], restored: Bool,
-                                       output: GitInspector.CommandOutput) -> String {
+                                       output: Git.Output) -> String {
         guard !files.isEmpty else { return output.failureMessage }
         let shown = files.prefix(5).joined(separator: "\n")
         let rest = files.count > 5 ? "\nand \(files.count - 5) more" : ""
@@ -455,13 +486,5 @@ enum GitActions {
             ? "Nothing was changed. To work through it, run git pull --rebase in a terminal."
             : "The rebase could not be undone, so this repository is still in the middle of one."
         return "Your commits and origin's changed the same lines in:\n\(shown)\(rest)\n\n\(tail)"
-    }
-
-    private static func parseRemoteCommits(_ text: String) -> [GitRemoteCommit] {
-        text.split(separator: "\n").compactMap { line in
-            let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-            guard fields.count == 2, !fields[0].isEmpty else { return nil }
-            return GitRemoteCommit(id: String(fields[0]), subject: String(fields[1]))
-        }
     }
 }

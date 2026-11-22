@@ -31,7 +31,7 @@ struct ResumedConversationTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("carry on", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("carry on", sessionID: fixture.session.id)
 
         try #require(await waitUntil {
             fixture.store.session(fixture.session.id)?.claudeSessionID == "claude-2"
@@ -55,7 +55,7 @@ struct ResumedConversationTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("carry on", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("carry on", sessionID: fixture.session.id)
 
         try #require(await waitUntil {
             fixture.store.transcript(of: fixture.session.id)
@@ -76,7 +76,7 @@ struct ResumedConversationTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("carry on", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("carry on", sessionID: fixture.session.id)
 
         #expect(await waitUntil { !fixture.runner.state(fixture.session.id).isBusy })
         guard case .failed = fixture.runner.state(fixture.session.id) else {
@@ -94,7 +94,7 @@ struct ResumedConversationTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("carry on", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("carry on", sessionID: fixture.session.id)
 
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
         #expect(fixture.store.session(fixture.session.id)?.claudeSessionID == "claude-2")

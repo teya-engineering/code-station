@@ -138,7 +138,7 @@ struct HomeView: View {
     // Answered from Home exactly as the session's own card would answer it.
     private func answer(_ live: HomeLive, _ answer: PermissionAnswer) {
         guard let request = live.permission else { return }
-        runner.answer(request, with: answer, sessionID: live.liveID, store: store)
+        runner.answer(request, with: answer, sessionID: live.liveID)
     }
 
     // What today's turns wrote, rather than everything the sessions that ran today have
@@ -248,7 +248,7 @@ struct HomeView: View {
                                   title: session.title,
                                   subject: RibbonSubject(name: identity.name,
                                                          tint: identity.tint,
-                                                         subjectID: session.workspaceID ?? session.projectID),
+                                                         subjectID: session.containerID),
                                   sources: sources,
                                   isOpen: busy))
                 standing.timeRequests.append(

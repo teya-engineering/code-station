@@ -36,7 +36,7 @@ struct WorkspaceDetailLayoutTests {
 
         let view = WorkspaceDetailView(workspaceID: workspace.id)
             .environment(store)
-            .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+            .environment(SessionRunner(store: store, preferences: testPreferences.store, paths: [:]))
             .environment(DialogPresenter())
             .environment(TerminalStore())
             .environment(WorkingTreeWatch(inspect: { _ in 1 }))

@@ -32,7 +32,7 @@ struct BranchBrowserLayoutTests {
             window.center()
             window.layoutIfNeeded()
             for _ in 0..<8 {
-                _ = await GitInspector.offMain { true }
+                _ = await Git.offMain { true }
                 try await Task.sleep(for: .milliseconds(100))
                 hosting.view.layoutSubtreeIfNeeded()
             }

@@ -260,6 +260,33 @@ struct SessionLifecycleTests {
         #expect(draft.hasSuffix("Half a thought"))
     }
 
+    @Test func attachingNotifiesBothConversationsAndKeepsTheirDrafts() async throws {
+        let lead = try project(named: "lead")
+        let session = store.newSession(in: lead.id)
+        let design = try store.startDesign(for: session.id).get()
+        let other = try project(named: "other")
+        let composer = SessionComposerStore()
+        composer.editDraft(session.id) { $0.text = "Build draft" }
+        composer.editDraft(design.id) { $0.text = "Design draft" }
+
+        let updated = try await SessionLifecycle.attachProject(
+            other, to: session, useWorktree: false, base: nil, carryChanges: false,
+            store: store, composer: composer).get()
+
+        let updatedDesign = try #require(store.session(design.id))
+        #expect(updatedDesign.workspaceID == updated.workspaceID)
+        #expect(updatedDesign.sessionProjects == updated.sessionProjects)
+        for (id, draft) in [(session.id, "Build draft"), (design.id, "Design draft")] {
+            let text = composer.draft(id).text
+            #expect(text.hasPrefix("I attached other to this session at \(other.path)."))
+            #expect(text.contains("AGENTS.md or CLAUDE.md"))
+            #expect(text.hasSuffix(draft))
+        }
+        let loaded = ProjectStore(preferences: testPreferences.store, storeURL: store.storeURL)
+        #expect(loaded.session(design.id)?.sessionProjects == updated.sessionProjects)
+        #expect(loaded.session(session.id)?.workspaceID == updated.workspaceID)
+    }
+
     @Test func removesTheNewWorktreeWhenTheAttachCannotBeSaved() async throws {
         let session = try workspaceSession(branch: "feature/login")
         let third = try project(named: "third")
@@ -333,7 +360,7 @@ struct SessionLifecycleTests {
     }
 
     @Test func keepsDeletionPendingWhenWorktreeRemovalFails() async throws {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: store, preferences: testPreferences.store)
         let project = try TestStore.project(in: store, named: "project")
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",
@@ -362,7 +389,7 @@ struct SessionLifecycleTests {
     }
 
     @Test func aSecondOpinionAtWorkKeepsTheSessionRunning() throws {
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let project = try TestStore.project(in: store, named: "project")
         let session = store.newSession(in: project.id)
         #expect(SessionTone(session.id, store: store, runner: runner) == .idle)
@@ -374,21 +401,21 @@ struct SessionLifecycleTests {
         runner.reviews.startSecondOpinion(session.id, reviewer: .init(agent: .codex), request: request)
 
         #expect(runner.state(session.id).isBusy == false)
-        #expect(runner.isBusy(session.id, store: store))
+        #expect(runner.isBusy(session.id))
         #expect(SessionTone(session.id, store: store, runner: runner) == .running)
 
         runner.reviews.stopSecondOpinion(session.id)
-        #expect(!runner.isBusy(session.id, store: store))
+        #expect(!runner.isBusy(session.id))
         #expect(SessionTone(session.id, store: store, runner: runner) == .idle)
     }
 
     @Test func blocksNewPromptsWhileRemovalIsInProgress() throws {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: store, preferences: testPreferences.store)
         let project = try TestStore.project(in: store, named: "project")
         let session = store.newSession(in: project.id)
 
         #expect(runner.beginRemoval(session.id))
-        runner.send("must not be queued", sessionID: session.id, store: store)
+        runner.send("must not be queued", sessionID: session.id)
 
         #expect(runner.queued(session.id).isEmpty)
         runner.cancelRemoval(session.id)
@@ -415,8 +442,8 @@ struct SessionLifecycleTests {
         let session = harness.session
         let runner = harness.runner
         // Changing the default after creation must not move this session to Codex.
-        runner.agent = .codex
-        runner.send("start", sessionID: session.id, store: store)
+        runner.catalog.agent = .codex
+        runner.send("start", sessionID: session.id)
         defer {
             if let processGroup = readPID(in: processGroupPIDFile) {
                 CommandRunner.signalProcessGroup(processGroup, signal: SIGKILL)
@@ -451,7 +478,7 @@ struct SessionLifecycleTests {
     }
 
     @Test func dropsSessionMetadataAfterWorktreeRemovalSucceeds() async throws {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: store, preferences: testPreferences.store)
         let project = try TestStore.project(in: store, named: "project")
         let session = store.newSession(in: project.id,
                                        worktreePath: "/worktrees/project",

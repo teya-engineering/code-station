@@ -11,10 +11,7 @@ struct PullRequestReviewsView: View {
 
     @State private var failure: String?
     @State private var showing: PullRequestReviewerFilter = .everyone
-    @State private var note: String?
-    @State private var noteIcon = "arrow.up.forward.app"
-    @State private var notes = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var note = TransientNote()
 
     private var entries: [PullRequestReviewStore.Loaded] { reviews.loaded[sessionID] ?? [] }
     private var isLoading: Bool { reviews.loading.contains(sessionID) }
@@ -45,29 +42,11 @@ struct PullRequestReviewsView: View {
         }
         .background(Theme.background)
         .environment(\.showExternalNote, ExternalNote(showNote))
-        .overlay(alignment: .topTrailing) {
-            ZStack {
-                if let note {
-                    HeaderNote(icon: noteIcon, text: note)
-                        .padding(.top, Space.lg).padding(.trailing, Space.xxl)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                }
-            }
-            .motion(Motion.reveal, value: note)
-        }
+        .headerNote(note, top: Space.lg, trailing: Space.xxl)
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String, icon: String) {
-        notes += 1
-        let shown = notes
-        noteIcon = icon
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: icon)
     }
 
     private var filterRow: some View {

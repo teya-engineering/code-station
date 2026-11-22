@@ -545,8 +545,7 @@ struct Composer<Above: View, Accessory: View>: View {
                     customInstructions: draft.customInstructions,
                     dictated: draft.dictated,
                     delivery: delivery,
-                    sessionID: sessionID,
-                    store: store)
+                    sessionID: sessionID)
         runner.composer.clearDraft(sessionID)
         dictationHere?.sent(sessionID)
     }

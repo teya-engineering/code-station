@@ -416,7 +416,7 @@ struct CopilotTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("say done", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("say done", sessionID: fixture.session.id)
 
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
         #expect(fixture.store.transcript(of: fixture.session.id).last?.text == "Done")
@@ -452,7 +452,7 @@ struct CopilotTests {
         defer { fixture.tearDown() }
         fixture.store.setAgentSessionID("stale", agent: .copilot, for: fixture.session.id)
 
-        fixture.runner.send("carry on", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("carry on", sessionID: fixture.session.id)
 
         #expect(await waitUntil { fixture.runner.state(fixture.session.id) == .idle })
         let first = try String(contentsOf: fixture.scratch.path("arguments-1.txt"), encoding: .utf8)
@@ -471,7 +471,7 @@ struct CopilotTests {
         """)
         defer { fixture.tearDown() }
 
-        fixture.runner.send("go", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("go", sessionID: fixture.session.id)
 
         #expect(await waitUntil { !fixture.runner.state(fixture.session.id).isBusy })
         guard case .failed(let message) = fixture.runner.state(fixture.session.id) else {

@@ -22,11 +22,11 @@ struct WorkingWords {
 
     // The default bot in a Claude session says what Claude's own spinner would, so the
     // `spinnerVerbs` set for the CLI carry over. A bot with a personality keeps its own
-    // lines, and the other agents have no such setting.
-    init(personality: AgentPersonality, agent: AgentKind, lead: String?) {
+    // lines.
+    init(personality: AgentPersonality, spinnerVerbs: ClaudeSpinnerVerbs?) {
         var words = personality.workingWords
-        if personality == .standard, agent == .claudeCode {
-            words = ClaudeSpinnerVerbs.applied(to: words, lead: lead)
+        if personality == .standard, let spinnerVerbs {
+            words = spinnerVerbs.applied(to: words)
         }
         self.init(order: words.shuffled())
     }

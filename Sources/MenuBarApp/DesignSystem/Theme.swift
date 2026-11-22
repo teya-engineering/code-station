@@ -102,6 +102,16 @@ enum Theme {
     // needs a colour of its own.
     static let brand = Color(red: 0.867, green: 0.878, blue: 0.282)
 
+    // The wordmark's green, teal and gold stay deep on paper and light on charcoal.
+    static let wordmarkColours: [Color] = [
+        adaptive(light: NSColor(srgbRed: 0.20, green: 0.36, blue: 0.25, alpha: 1),
+                 dark: NSColor(srgbRed: 0.65, green: 0.82, blue: 0.47, alpha: 1)),
+        adaptive(light: NSColor(srgbRed: 0.09, green: 0.39, blue: 0.40, alpha: 1),
+                 dark: NSColor(srgbRed: 0.43, green: 0.79, blue: 0.77, alpha: 1)),
+        adaptive(light: NSColor(srgbRed: 0.48, green: 0.36, blue: 0.12, alpha: 1),
+                 dark: NSColor(srgbRed: 0.87, green: 0.80, blue: 0.48, alpha: 1))
+    ]
+
     // The app listening through the microphone. Dictation is the app's own feature, so it
     // wears the brand lime, kept apart from the green of an agent at work, the red of a
     // turn that can be stopped and the amber of something waiting. Lime is only on screen
@@ -382,10 +392,16 @@ extension Font {
     // machine. Weight is a point on the axis, not a Font.Weight, because the file is a
     // single variable font.
     static func logo(_ size: CGFloat, weight: Double = 600) -> Font {
+        Font(NSFont.logo(size, weight: weight))
+    }
+}
+
+extension NSFont {
+    static func logo(_ size: CGFloat, weight: Double = 600) -> NSFont {
         guard SoraFont.isRegistered,
               let font = NSFont(descriptor: SoraFont.descriptor(weight: weight), size: size)
-        else { return .system(size: size, weight: .semibold) }
-        return Font(font)
+        else { return .systemFont(ofSize: size, weight: .semibold) }
+        return font
     }
 }
 
@@ -438,80 +454,5 @@ private enum SoraFont {
             .name: family,
             NSFontDescriptor.AttributeName(kCTFontVariationAttribute as String): [weightAxis: weight]
         ])
-    }
-}
-
-// What a pane says when it has nothing to show: no changes, no file picked, a folder that
-// is not there any more. Centred in whatever room it is given.
-struct PaneMessage<Action: View>: View {
-    let icon: String
-    let title: String
-    var detail: String
-    var mono = false
-    // An empty pane that names a way out should offer it here, so the sentence and the
-    // button that carries it out are read in one place.
-    @ViewBuilder let action: Action
-
-    init(icon: String, title: String, detail: String, mono: Bool = false,
-         @ViewBuilder action: () -> Action) {
-        self.icon = icon
-        self.title = title
-        self.detail = detail
-        self.mono = mono
-        self.action = action()
-    }
-
-    var body: some View {
-        VStack(spacing: Space.md) {
-            Image(systemName: icon)
-                .font(.system(size: 26, weight: .light))
-                .foregroundStyle(.secondary)
-            Text(title).font(Typography.title)
-            if !detail.isEmpty {
-                Text(detail)
-                    .font(mono ? Typography.data : Typography.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: 420)
-            }
-            action
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-extension PaneMessage where Action == EmptyView {
-    init(icon: String, title: String, detail: String, mono: Bool = false) {
-        self.init(icon: icon, title: title, detail: detail, mono: mono) { EmptyView() }
-    }
-}
-
-struct UpdateIndicator: View {
-    var body: some View {
-        Circle()
-            .fill(Theme.deletion)
-            .frame(width: 7, height: 7)
-            .accessibilityLabel("Update available")
-    }
-}
-
-// How full something is, from a rate limit window to a context window. It takes the width
-// it is given, so the caller decides whether it is a full-width bar or a small inline one.
-struct Meter: View {
-    let fraction: Double
-    let colour: Color
-    var height: CGFloat = 6
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Theme.field)
-                Capsule().fill(colour)
-                    .frame(width: max(2, geometry.size.width * min(1, max(0, fraction))))
-            }
-        }
-        .frame(height: height)
     }
 }

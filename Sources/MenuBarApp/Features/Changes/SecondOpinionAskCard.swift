@@ -169,7 +169,7 @@ struct SecondOpinionAskCard: View {
                 seat(agent)
             }
         }
-        .task { for agent in installed { await runner.discoverModels(for: agent) } }
+        .task { for agent in installed { await runner.catalog.discoverModels(for: agent) } }
     }
 
     // MARK: Preview
@@ -339,10 +339,10 @@ struct SecondOpinionAskCard: View {
 
     // A new seat starts on the agent's own model and effort.
     private func seat(_ agent: AgentKind) {
-        let defaults = runner.defaults(for: agent)
-        let model = runner.validModel(defaults.model, for: agent)
+        let defaults = runner.catalog.defaults(for: agent)
+        let model = runner.catalog.validModel(defaults.model, for: agent)
         lineup.append(SecondOpinion.Reviewer(agent: agent, model: model,
-                                             effort: runner.validEffort(defaults.effort, for: agent, model: model)))
+                                             effort: runner.catalog.validEffort(defaults.effort, for: agent, model: model)))
     }
 
     private var tuneButton: some View {
@@ -486,10 +486,10 @@ struct SecondOpinionAskCard: View {
     }
 
     private func modelMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let title = seat.model.map { runner.modelTitle($0) } ?? "Default"
+        let title = seat.model.map { runner.catalog.modelTitle($0) } ?? "Default"
         return SeatPill(form: true) { Text(title).contentTransition(.opacity) }
             .appMenu(showsFocusRing: true) {
-                runner.modelOptions(for: seat.agent).map { option in
+                runner.catalog.modelOptions(for: seat.agent).map { option in
                     var changed = seat
                     changed.model = option.id
                     let words = SecondOpinion.independence(of: changed, from: author)
@@ -497,7 +497,7 @@ struct SecondOpinionAskCard: View {
                                           subtitle: option.detail,
                                           detail: words == .sameModel ? "Author's model" : nil,
                                           detailColour: Theme.attentionText) {
-                        changed.effort = runner.validEffort(seat.effort, for: seat.agent, model: option.id)
+                        changed.effort = runner.catalog.validEffort(seat.effort, for: seat.agent, model: option.id)
                         lineup[index] = changed
                     }
                 }
@@ -507,8 +507,8 @@ struct SecondOpinionAskCard: View {
     }
 
     private func effortMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let levels = runner.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
-        let title = seat.effort.map { runner.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
+        let levels = runner.catalog.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
+        let title = seat.effort.map { runner.catalog.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
         return SeatPill(form: true) {
             EffortMeter(lit: EffortMeter.lit(for: seat.effort, among: levels), height: Typography.Size.caption)
                 .fixedSize()
@@ -520,7 +520,7 @@ struct SecondOpinionAskCard: View {
                             detail: "about \(SecondOpinion.minutes(for: nil)) min") {
                 lineup[index].effort = nil
             }, .separator] + levels.map { level in
-                MenuEntry.item(runner.effortTitle(level, for: seat.agent, model: seat.model),
+                MenuEntry.item(runner.catalog.effortTitle(level, for: seat.agent, model: seat.model),
                                meter: EffortMeter.lit(for: level, among: levels),
                                checked: seat.effort == level,
                                detail: "about \(SecondOpinion.minutes(for: level)) min") {

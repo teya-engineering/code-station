@@ -53,6 +53,8 @@ enum Motion {
     // a line draws on, held long enough for the eye to find where the words went.
     static let washDuration: TimeInterval = 0.7
 
+    static let wordmarkPeriod: TimeInterval = 12
+
     // The curve a line draws on. Kept in one place so the SwiftUI marks and the ones
     // Core Animation plays in AppKit views move the same way.
     private static let drawPoints: (Double, Double, Double, Double) = (0.2, 0.7, 0.1, 1)

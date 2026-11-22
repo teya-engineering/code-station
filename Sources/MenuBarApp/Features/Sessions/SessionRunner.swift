@@ -7,19 +7,8 @@ import Observation
 @MainActor
 @Observable
 final class SessionRunner {
+    let store: ProjectStore
     let catalog: AgentCatalog
-
-    var agent: AgentKind {
-        get { catalog.agent }
-        set { catalog.agent = newValue }
-    }
-
-    var defaults: SessionSettings {
-        get { catalog.defaults }
-        set { catalog.defaults = newValue }
-    }
-
-    var discoveredModels: [AgentKind: [ModelChoice.Option]] { catalog.discoveredModels }
 
     // The account's usage windows belong to an agent account rather than a session.
     // Claude Code sends them while a turn runs, so they are kept apart from Codex's
@@ -95,6 +84,9 @@ final class SessionRunner {
         // How the last turn the user asked for ended, for the seal under its answer. Held
         // in memory only, since nothing on disk says when a turn started.
         var lastEnding: TurnEnding?
+        // The spinner words Claude was set up with when the last turn started. Kept past
+        // the turn, so the next one opens with them rather than switching a moment in.
+        var spinnerVerbs: ClaudeSpinnerVerbs?
 
         // A turn inside a command, parked on a question or holding for a task is quiet
         // for a reason. Only silence with none of those is a turn that has stopped moving.
@@ -148,7 +140,12 @@ final class SessionRunner {
     @ObservationIgnored private var waitWatchdogs: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private let memoryLimit: () -> UInt64
     @ObservationIgnored private let midTurnPromptDelivery: () -> PromptDelivery
-    let followUps: SessionFollowUps
+    @ObservationIgnored let automaticRecapsEnabled: () -> Bool
+    @ObservationIgnored let automaticTitlesEnabled: () -> Bool
+    @ObservationIgnored let promptSuggestionsEnabled: () -> Bool
+    // The run each session's prompt suggestion is being asked in. An answer from any
+    // other run is out of date and is dropped.
+    @ObservationIgnored var suggestionRequests: [UUID: UUID] = [:]
     // Called once for every turn that ends, however it ended.
     @ObservationIgnored var onTurnEnded: (UUID) -> Void = { _ in }
     // Told how each turn ended and when the person answered a question, for Stats. Both
@@ -156,44 +153,10 @@ final class SessionRunner {
     @ObservationIgnored var onTurnRecorded: (UUID, TurnEnding) -> Void = { _, _ in }
     @ObservationIgnored var onQuestionAnswered: (PermissionRequest, Bool, UUID) -> Void = { _, _, _ in }
 
-    // How a CLI says it no longer holds the conversation we asked to resume. Codex has
-    // no such message: a thread it cannot find is a failed turn like any other.
-    nonisolated static func lostConversation(_ agent: AgentKind) -> String? {
-        switch agent {
-        case .claudeCode: "No conversation found with session ID"
-        case .codex: nil
-        case .copilot: "No session, task, or name matched"
-        }
-    }
-    // How each CLI says its login has lapsed. Matched loosely and without case, since the
-    // wording shifts between releases; a miss only costs the shortcut, because the account
-    // is also read again after every failed turn.
-    nonisolated static func signedOut(_ agent: AgentKind, message: String) -> Bool {
-        let phrases = switch agent {
-        case .claudeCode: ["failed to authenticate", "oauth token has expired",
-                           "invalid api key", "please run /login"]
-        case .codex: ["codex login", "not logged in", "login has expired",
-                      "refresh token", "401 unauthorized"]
-        case .copilot: ["copilot login", "not authenticated", "not logged in",
-                        "no authentication information"]
-        }
-        let lowered = message.lowercased()
-        return phrases.contains { lowered.contains($0) }
-    }
-    // How each CLI refuses a flag or config value it does not know, which is how an
-    // install older than the app needs usually shows itself. Copilot's prompt mode takes
-    // an unknown flag for an unquoted prompt and says so instead.
-    nonisolated static func rejectedArguments(_ message: String) -> Bool {
-        ["unknown option '", "unexpected argument '", "unknown variant `", "Invalid command format."]
-            .contains { message.contains($0) }
-    }
-    static let recoveryPrompt = """
-    Inspect the current state and continue only the unfinished parts of the previous request. Do not repeat work or side effects that are already complete.
-    """
-
     private let persistentAgentSessions: Bool
 
-    init(preferences: UserDefaults = .standard, configs: ConfigStore? = nil, persistentAgentSessions: Bool = true, paths: [AgentKind: String]? = nil,
+    init(store: ProjectStore, preferences: UserDefaults = .standard, configs: ConfigStore? = nil,
+         persistentAgentSessions: Bool = true, paths: [AgentKind: String]? = nil,
          discoveredModels: [AgentKind: [ModelChoice.Option]] = [:],
          stalledAfter: TimeInterval = 5 * 60,
          stallCheckInterval: Duration = .seconds(5),
@@ -203,6 +166,7 @@ final class SessionRunner {
          automaticTitlesEnabled: (() -> Bool)? = nil,
          promptSuggestionsEnabled: (() -> Bool)? = nil,
          midTurnPromptDelivery: (() -> PromptDelivery)? = nil) {
+        self.store = store
         self.configs = configs
         self.persistentAgentSessions = persistentAgentSessions
         // A runner that keeps nothing between launches, as tests make, keeps no review either.
@@ -212,50 +176,27 @@ final class SessionRunner {
         self.stalledAfter = stalledAfter
         self.stallCheckInterval = stallCheckInterval
         self.waitingStaleAfter = waitingStaleAfter
-        self.memoryLimit = memoryLimit ?? { Preferences.sessionMemoryLimit(in: preferences).bytes() }
+        self.memoryLimit = memoryLimit ?? { Preferences.sessionMemoryLimit.read(in: preferences).bytes() }
         self.midTurnPromptDelivery = midTurnPromptDelivery
-            ?? { Preferences.midTurnPromptDelivery(in: preferences) }
-        followUps = SessionFollowUps(
-            automaticRecapsEnabled: automaticRecapsEnabled ?? { Preferences.sessionRecapsEnabled(in: preferences) },
-            automaticTitlesEnabled: automaticTitlesEnabled ?? { Preferences.sessionTitlesEnabled(in: preferences) },
-            promptSuggestionsEnabled: promptSuggestionsEnabled ?? { Preferences.promptSuggestionsEnabled(in: preferences) })
+            ?? { Preferences.midTurnPromptDelivery.read(in: preferences) }
+        self.automaticRecapsEnabled = automaticRecapsEnabled
+            ?? { Preferences.sessionRecapsEnabled(in: preferences) }
+        self.automaticTitlesEnabled = automaticTitlesEnabled
+            ?? { Preferences.sessionTitlesEnabled.read(in: preferences) }
+        self.promptSuggestionsEnabled = promptSuggestionsEnabled
+            ?? { Preferences.promptSuggestionsEnabled.read(in: preferences) }
     }
-
-    func defaults(for agent: AgentKind) -> SessionSettings { catalog.defaults(for: agent) }
-    func setDefaults(_ defaults: SessionSettings, for agent: AgentKind) {
-        catalog.setDefaults(defaults, for: agent)
-    }
-    func isAvailable(_ agent: AgentKind) -> Bool { catalog.isAvailable(agent) }
-    func refreshAvailableAgents() { catalog.refreshAvailableAgents() }
-    func discoverModels(for agent: AgentKind) async { await catalog.discoverModels(for: agent) }
-    func refreshDiscoveredModels() async { await catalog.refreshDiscoveredModels() }
 
     // The seat a session's own agent works in, which a second opinion's independence is
     // measured against. Read the way a launch reads it, falling back to the model the
     // agent last reported running on.
     func author(of session: ChatSession) -> SecondOpinion.Reviewer {
-        let model = validModel(session.settings?.model, for: session.agent)
+        let model = catalog.validModel(session.settings?.model, for: session.agent)
             ?? session.usage?.model(for: session.agent)
-        let effort = validEffort(session.settings?.effort ?? defaults(for: session.agent).effort,
+        let effort = catalog.validEffort(session.settings?.effort ?? catalog.defaults(for: session.agent).effort,
                                  for: session.agent, model: model)
         return SecondOpinion.Reviewer(agent: session.agent, model: model, effort: effort)
     }
-
-    func modelOptions(for agent: AgentKind) -> [ModelChoice.Option] { catalog.modelOptions(for: agent) }
-    func validModel(_ id: String?, for agent: AgentKind) -> String? { catalog.validModel(id, for: agent) }
-    func modelTitle(_ id: String?) -> String { catalog.modelTitle(id) }
-    func effortOptions(for agent: AgentKind, model: String?) -> [EffortChoice.Option] {
-        catalog.effortOptions(for: agent, model: model)
-    }
-    func validEffort(_ id: String?, for agent: AgentKind, model: String?) -> String? {
-        catalog.validEffort(id, for: agent, model: model)
-    }
-    func effortTitle(_ id: String?, for agent: AgentKind, model: String?) -> String {
-        catalog.effortTitle(id, for: agent, model: model)
-    }
-    var availableAgents: [AgentKind] { catalog.availableAgents }
-    func agentForNewSession(selected: AgentKind?) -> AgentKind? { catalog.agentForNewSession(selected: selected) }
-    var available: Bool { catalog.available }
 
     func state(_ sessionID: UUID) -> SessionState { records[sessionID]?.state ?? .idle }
 
@@ -282,10 +223,10 @@ final class SessionRunner {
 
     func avatarSequence(_ sessionID: UUID) -> Int? { records[sessionID]?.turn?.avatarSequence }
 
-    func refreshContext(_ sessionID: UUID, store: ProjectStore) {
+    func refreshContext(_ sessionID: UUID) {
         guard let session = store.session(sessionID), session.agent == .codex,
               let threadID = session.codexSessionID else { return }
-        refreshCodexContext(threadID: threadID, sessionID: sessionID, store: store)
+        refreshCodexContext(threadID: threadID, sessionID: sessionID)
     }
 
     private func endTurn(_ ending: TurnEnding, for sessionID: UUID) {
@@ -325,6 +266,8 @@ final class SessionRunner {
     // rather than from the start of the turn.
     func waitingSince(_ sessionID: UUID) -> Date? { records[sessionID]?.wait?.since }
 
+    func spinnerVerbs(_ sessionID: UUID) -> ClaudeSpinnerVerbs? { records[sessionID]?.spinnerVerbs }
+
     // Whether the wait has gone on long enough that it is not going to end by itself. A
     // task that never reports leaves the turn held open for good, so the state light has
     // to stop reading as a live session and start asking for someone.
@@ -344,7 +287,7 @@ final class SessionRunner {
         turn.endingWait = true
         if let connection = turn.connection {
             if !connection.cancelTasks() {
-                requestStop(sessionID, failure: "Could not stop the agent's background tasks.")
+                requestStop(sessionID, .failed("Could not stop the agent's background tasks."))
             }
         } else {
             stopStartedGroups(sessionID, reason: "wait ended by hand")
@@ -384,10 +327,10 @@ final class SessionRunner {
     // also written into the transcript: the answers travel inside the tool's own input,
     // where nothing in the conversation would ever show them.
     func answer(_ request: PermissionRequest, with answer: PermissionAnswer,
-                sessionID: UUID, store: ProjectStore) {
+                sessionID: UUID) {
         guard let record = records[sessionID], let turn = record.turn,
               record.asked.contains(where: { $0.id == request.id }) else { return }
-        records[sessionID]?.asked.removeAll { $0.id == request.id }
+        record.asked.removeAll { $0.id == request.id }
         AppNotifier.shared.clear(sessionID: store.userFacingSessionID(for: sessionID))
         onQuestionAnswered(request, answer.allows, sessionID)
         SessionLog.note("answered \(request.toolName) \(request.id) with \(answer.logLabel)",
@@ -405,7 +348,7 @@ final class SessionRunner {
             }
             settingsAfterPlan = settings
             leavingPlanFor = PermissionMode.afterPlan(
-                settings.permissionMode ?? defaults(for: session.agent).permissionMode)
+                settings.permissionMode ?? catalog.defaults(for: session.agent).permissionMode)
         }
 
         let sent = turn.connection.map { $0.answer(request, with: answer) }
@@ -413,7 +356,7 @@ final class SessionRunner {
         guard sent else {
             requestStop(
                 sessionID,
-                failure: "Could not send the answer to \(turn.agent.title). The turn has been stopped.")
+                .failed("Could not send the answer to \(turn.agent.title). The turn has been stopped."))
             return
         }
 
@@ -452,75 +395,6 @@ final class SessionRunner {
         var isStale = false
     }
 
-    enum SummaryMode: Equatable, Sendable {
-        case claudeRecap
-        case promptRecap
-        case title(SessionTitleRequest)
-
-        var isTitle: Bool {
-            if case .title = self { return true }
-            return false
-        }
-    }
-
-    enum SummaryRestingState: Equatable, Sendable {
-        case idle
-        case failed(String)
-
-        var sessionState: SessionState {
-            switch self {
-            case .idle: .idle
-            case .failed(let message): .failed(message)
-            }
-        }
-    }
-
-    struct SummaryAttempt: Equatable, Sendable {
-        let mode: SummaryMode
-        let restingState: SummaryRestingState
-        var recapAfterTitle = false
-        var askedFor = false
-    }
-
-    struct QueuedPrompt: Identifiable, Equatable, Sendable {
-        let id = UUID()
-        let text: String
-        let attachments: [Attachment]
-        let customInstructions: String?
-        // The words behind a slash command, for the agents that do not know their own.
-        // The line stays as it was typed in the transcript, since that is what was meant
-        // and a whole command file read back would bury the conversation.
-        var expansion: String? = nil
-        // A command the app sends on the person's behalf rather than something they
-        // typed at the agent. It travels down the same pipe but is not a line of the
-        // conversation, so it does not appear as one.
-        var isAppCommand = false
-        var summary: SummaryAttempt? = nil
-        var dictated = false
-
-        var prompt: String {
-            let text = expansion ?? text
-            guard let customInstructions else { return text }
-            guard !text.isEmpty else { return customInstructions }
-            return "\(text)\n\n\(customInstructions)"
-        }
-
-        var transcriptMessages: [ChatMessage] {
-            // The note explaining what the app is doing is already in the transcript.
-            guard !isAppCommand else { return [] }
-            var userMessage = ChatMessage(role: .user, text: text)
-            if dictated { userMessage.dictated = true }
-            if !attachments.isEmpty {
-                userMessage.attachments = attachments.map(\.url.path)
-            }
-            guard let customInstructions else { return [userMessage] }
-            return [
-                userMessage,
-                ChatMessage(role: .instructions, text: customInstructions),
-            ]
-        }
-    }
-
     // The canvas reports its own width as it is resized. Sub-pixel changes would rewrite
     // the system prompt for no visible difference, so only whole pixels are kept.
     func recordCanvasWidth(_ width: Double, for sessionID: UUID) {
@@ -540,9 +414,9 @@ final class SessionRunner {
     // Sends a waiting prompt into the turn that is running, instead of after it. When the
     // turn cannot take it the prompt keeps its place in the queue.
     @discardableResult
-    func steer(_ id: UUID, sessionID: UUID, store: ProjectStore) -> Bool {
+    func steer(_ id: UUID, sessionID: UUID) -> Bool {
         guard let item = queued(sessionID).first(where: { $0.id == id }),
-              steer(item, sessionID: sessionID, store: store) else { return false }
+              steer(item, sessionID: sessionID) else { return false }
         records[sessionID]?.queue.removeAll { $0.id == id }
         return true
     }
@@ -575,7 +449,7 @@ final class SessionRunner {
     }
 
     @discardableResult
-    func recallEarlier(_ sessionID: UUID, store: ProjectStore) -> Bool {
+    func recallEarlier(_ sessionID: UUID) -> Bool {
         if !composer.isWalking(sessionID), composer.draft(sessionID).text.isEmpty,
            let waiting = queued(sessionID).last {
             recall(waiting.id, sessionID: sessionID)
@@ -585,7 +459,7 @@ final class SessionRunner {
     }
 
     @discardableResult
-    func recallLater(_ sessionID: UUID, store: ProjectStore) -> Bool {
+    func recallLater(_ sessionID: UUID) -> Bool {
         composer.recallLater(sessionID, history: PromptHistory.entries(in: store.transcript(of: sessionID)))
     }
 
@@ -601,7 +475,7 @@ final class SessionRunner {
     //
     // The transcript is left alone. It belongs to the person reading it, not to the agent.
     @discardableResult
-    func clearContext(_ sessionID: UUID, store: ProjectStore) -> ClearOutcome {
+    func clearContext(_ sessionID: UUID) -> ClearOutcome {
         guard let session = store.session(sessionID), !isBeingRemoved(sessionID) else {
             return .nothingToClear
         }
@@ -625,7 +499,7 @@ final class SessionRunner {
     }
 
     // Whether there is a conversation to drop and nothing running that still holds it.
-    func canClearContext(_ sessionID: UUID, store: ProjectStore) -> Bool {
+    func canClearContext(_ sessionID: UUID) -> Bool {
         guard let session = store.session(sessionID), !state(sessionID).isBusy else { return false }
         return session.hasAgentConversation
     }
@@ -675,42 +549,40 @@ final class SessionRunner {
         }
     }
 
-    func canContinueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        canResume(sessionID, after: .failedTurn, store: store)
+    func canContinueAfterFailure(_ sessionID: UUID) -> Bool {
+        canResume(sessionID, after: .failedTurn)
     }
 
     @discardableResult
-    func continueAfterFailure(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        resumeIfOffered(sessionID, after: .failedTurn, store: store)
+    func continueAfterFailure(_ sessionID: UUID) -> Bool {
+        resumeIfOffered(sessionID, after: .failedTurn)
     }
 
-    func canContinueAfterStop(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        canResume(sessionID, after: .stoppedTurn, store: store)
+    func canContinueAfterStop(_ sessionID: UUID) -> Bool {
+        canResume(sessionID, after: .stoppedTurn)
     }
 
     @discardableResult
-    func continueAfterStop(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        resumeIfOffered(sessionID, after: .stoppedTurn, store: store)
+    func continueAfterStop(_ sessionID: UUID) -> Bool {
+        resumeIfOffered(sessionID, after: .stoppedTurn)
     }
 
-    private func canResume(_ sessionID: UUID, after reason: ResumeReason,
-                           store: ProjectStore) -> Bool {
+    private func canResume(_ sessionID: UUID, after reason: ResumeReason) -> Bool {
         guard let record = records[sessionID], record.continuable == reason,
               reason.isOffered(in: record.state), !record.isBeingRemoved,
               let session = store.session(sessionID) else { return false }
         return session.hasAgentConversation
     }
 
-    private func resumeIfOffered(_ sessionID: UUID, after reason: ResumeReason,
-                                 store: ProjectStore) -> Bool {
-        guard canResume(sessionID, after: reason, store: store) else { return false }
-        resume(sessionID, after: reason, store: store)
+    private func resumeIfOffered(_ sessionID: UUID, after reason: ResumeReason) -> Bool {
+        guard canResume(sessionID, after: reason) else { return false }
+        resume(sessionID, after: reason)
         return true
     }
 
     // Recovery goes through the normal queue so it gets the same ownership and process
     // checks as a prompt typed by hand.
-    private func resume(_ sessionID: UUID, after reason: ResumeReason, store: ProjectStore) {
+    private func resume(_ sessionID: UUID, after reason: ResumeReason) {
         recordAddingIfMissing(sessionID).continuable = nil
         store.markSessionSeen(sessionID)
         store.append(ChatMessage(role: .system, text: reason.note), to: sessionID)
@@ -719,13 +591,13 @@ final class SessionRunner {
                          isAppCommand: true),
             at: 0)
         SessionLog.note(reason.log, session: sessionID)
-        runQueue(sessionID, store: store)
+        runQueue(sessionID)
     }
 
     // A retry stops the unresponsive process first, then resumes its saved conversation
     // through the normal queue. The original prompt is not replayed because it may have
     // already caused changes before the stream stopped moving.
-    func canRetryStalled(_ sessionID: UUID, store: ProjectStore) -> Bool {
+    func canRetryStalled(_ sessionID: UUID) -> Bool {
         guard let record = records[sessionID], case .stalled = record.state,
               !record.isBeingRemoved,
               let turn = record.turn, !turn.agent.asksPermissions, !turn.stopRequested,
@@ -735,12 +607,10 @@ final class SessionRunner {
     }
 
     @discardableResult
-    func retryStalled(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard canRetryStalled(sessionID, store: store),
-              let turn = records[sessionID]?.turn else { return false }
-        turn.restartAfterStop = true
+    func retryStalled(_ sessionID: UUID) -> Bool {
+        guard canRetryStalled(sessionID) else { return false }
         SessionLog.note("retry requested for stalled turn", session: sessionID)
-        requestStop(sessionID)
+        requestStop(sessionID, .forRetry)
         return true
     }
 
@@ -774,7 +644,7 @@ final class SessionRunner {
     // The words behind a typed slash command, for an agent that would not recognise one.
     // Nil for everything else, which is nearly every prompt: only a line starting with a
     // slash is ever looked up, so the folders are read on the rare turn that needs them.
-    private func expansion(of text: String, sessionID: UUID, store: ProjectStore) -> String? {
+    private func expansion(of text: String, sessionID: UUID) -> String? {
         guard text.hasPrefix("/"), let session = store.session(sessionID),
               !session.agent.expandsCommands else { return nil }
         let commands = AgentCommands.all(for: session.agent,
@@ -786,17 +656,16 @@ final class SessionRunner {
     // when the text was a command, whether or not anything came of it. Typing one is as
     // deliberate as any other prompt that costs a turn, so unlike the menu it does not
     // stop to ask first.
-    private func handleWindowCommand(_ text: String, sessionID: UUID,
-                                     store: ProjectStore) -> Bool {
+    private func handleWindowCommand(_ text: String, sessionID: UUID) -> Bool {
         if Self.isClearCommand(text) {
-            switch clearContext(sessionID, store: store) {
+            switch clearContext(sessionID) {
             case .cleared:
                 break
             case .busy:
                 note("The context cannot be cleared while a turn is running. Stop it first.",
-                     sessionID: sessionID, store: store)
+                     sessionID: sessionID)
             case .nothingToClear:
-                note("There is no conversation to clear yet.", sessionID: sessionID, store: store)
+                note("There is no conversation to clear yet.", sessionID: sessionID)
             }
             return true
         }
@@ -804,29 +673,29 @@ final class SessionRunner {
         guard let agent = store.session(sessionID)?.agent, agent == .claudeCode else {
             let title = store.session(sessionID)?.agent.title ?? "This agent"
             note("\(title) compacts context automatically. Manual compaction is not available.",
-                 sessionID: sessionID, store: store)
+                 sessionID: sessionID)
             return true
         }
-        if !compact(sessionID, store: store) {
+        if !compact(sessionID) {
             note(state(sessionID).isBusy
                  ? "The context cannot be compacted while a turn is running. Stop it first."
                  : "There is no conversation to compact yet.",
-                 sessionID: sessionID, store: store)
+                 sessionID: sessionID)
         }
         return true
     }
 
     // A side question goes straight out, whatever the session is doing: it waits for no
     // turn and no turn waits for it.
-    private func askAside(_ question: String, sessionID: UUID, store: ProjectStore) {
+    private func askAside(_ question: String, sessionID: UUID) {
         guard !question.isEmpty else {
-            note("Type a question after /btw to ask it on the side.", sessionID: sessionID, store: store)
+            note("Type a question after /btw to ask it on the side.", sessionID: sessionID)
             return
         }
         guard let session = store.session(sessionID),
               let executable = catalog.executable(for: session.agent) else {
             note("\(store.session(sessionID)?.agent.title ?? "The agent") is not installed, so the side question could not be asked.",
-                 sessionID: sessionID, store: store)
+                 sessionID: sessionID)
             return
         }
         let conversationID = session.agent == .claudeCode
@@ -838,23 +707,23 @@ final class SessionRunner {
             conversationID: conversationID,
             recentChat: SideQuestion.recentChat(store.transcript(of: sessionID)),
             model: ModelChoice.valid(session.settings?.model, for: session.agent,
-                                     discovered: discoveredModels[session.agent]))
+                                     discovered: catalog.discoveredModels[session.agent]))
         asides.ask(request, in: sessionID)
         SessionLog.note("asking a side question", session: sessionID)
     }
 
     // The mode is read when a turn starts, so this takes effect from the next one. A turn
     // already running goes on in the mode it was started in.
-    private func enterPlanMode(_ sessionID: UUID, store: ProjectStore) {
+    private func enterPlanMode(_ sessionID: UUID) {
         guard let session = store.session(sessionID) else { return }
         var settings = session.settings ?? SessionSettings()
         settings.permissionMode = .plan
         store.setSettings(settings, for: sessionID)
         note("Plan mode is on. Claude Code will plan without changing anything, and the session goes back to its usual mode once you approve the plan.",
-             sessionID: sessionID, store: store)
+             sessionID: sessionID)
     }
 
-    private func note(_ text: String, sessionID: UUID, store: ProjectStore) {
+    private func note(_ text: String, sessionID: UUID) {
         store.append(ChatMessage(role: .system, text: text), to: sessionID)
     }
 
@@ -863,7 +732,7 @@ final class SessionRunner {
     // Whether the conversation can go back to just before this prompt. Only prompts
     // that recorded a checkpoint qualify, and only while nothing is running - a live
     // turn still owns the conversation it would rewind.
-    func canRewind(to messageID: UUID, sessionID: UUID, store: ProjectStore) -> Bool {
+    func canRewind(to messageID: UUID, sessionID: UUID) -> Bool {
         guard !state(sessionID).isBusy, !isBeingRemoved(sessionID),
               store.session(sessionID) != nil else { return false }
         return store.rewindableMessageIDs(in: sessionID).contains(messageID)
@@ -873,8 +742,8 @@ final class SessionRunner {
     // leaves the transcript, the next turn resumes the conversation as it stood then,
     // and the prompt itself returns to the composer for another go. Only the words are
     // wound back - files the discarded turns edited keep their current state.
-    func rewind(to messageID: UUID, sessionID: UUID, store: ProjectStore) {
-        guard canRewind(to: messageID, sessionID: sessionID, store: store) else { return }
+    func rewind(to messageID: UUID, sessionID: UUID) {
+        guard canRewind(to: messageID, sessionID: sessionID) else { return }
         let transcript = store.transcript(of: sessionID)
         guard let index = transcript.firstIndex(where: { $0.id == messageID }),
               let checkpoint = transcript[index].checkpoint else { return }
@@ -920,8 +789,8 @@ final class SessionRunner {
     // Codex compacts automatically, but `codex exec` has no equivalent manual command,
     // which is why this action is Claude Code only.
     @discardableResult
-    func compact(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        guard canCompactContext(sessionID, store: store) else { return false }
+    func compact(_ sessionID: UUID) -> Bool {
+        guard canCompactContext(sessionID) else { return false }
         store.markSessionSeen(sessionID)
         // A turn that says nothing for the best part of a minute needs to say why.
         let notice = ChatMessage(role: .system, text: "Compacting the context…")
@@ -932,11 +801,11 @@ final class SessionRunner {
             QueuedPrompt(text: "/compact", attachments: [], customInstructions: nil,
                          isAppCommand: true))
         SessionLog.note("compacting the context", session: sessionID)
-        runQueue(sessionID, store: store)
+        runQueue(sessionID)
         return true
     }
 
-    func canCompactContext(_ sessionID: UUID, store: ProjectStore) -> Bool {
+    func canCompactContext(_ sessionID: UUID) -> Bool {
         guard let session = store.session(sessionID), session.agent == .claudeCode,
               !state(sessionID).isBusy, !isBeingRemoved(sessionID) else { return false }
         return session.hasAgentConversation
@@ -965,11 +834,11 @@ final class SessionRunner {
     // Sending the suggestion as it stands, as its own turn. The draft is left exactly as
     // it was, and a draft with words in it stops this outright: a prediction may join
     // what was typed, but it may never send over it, replace it, or throw it away.
-    func sendSuggestion(_ sessionID: UUID, store: ProjectStore) {
+    func sendSuggestion(_ sessionID: UUID) {
         guard let suggestion = records[sessionID]?.suggestion,
               composer.draft(sessionID).text.isBlank else { return }
         records[sessionID]?.suggestion = nil
-        send(suggestion, sessionID: sessionID, store: store)
+        send(suggestion, sessionID: sessionID)
     }
 
     // Taking a suggestion puts it in the composer rather than sending it, so it can be
@@ -980,38 +849,6 @@ final class SessionRunner {
         composer.editDraft(sessionID) { draft in
             draft.text = draft.text.isBlank ? suggestion : draft.text + " " + suggestion
         }
-    }
-
-    private func requestPromptSuggestion(_ sessionID: UUID, store: ProjectStore) {
-        followUps.requestPromptSuggestion(sessionID, store: store, runner: self)
-    }
-
-    nonisolated static let recapPrompt = SessionFollowUps.recapPrompt
-
-    func isRecapping(_ sessionID: UUID) -> Bool { hasSummary(sessionID, title: false) }
-    func canRecap(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        followUps.canRecap(sessionID, store: store, runner: self)
-    }
-    @discardableResult
-    func recap(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        followUps.requestRecap(sessionID, store: store, runner: self)
-    }
-    private func requestAutomaticRecap(_ sessionID: UUID, unseen: Bool, store: ProjectStore) {
-        followUps.requestAutomaticRecap(sessionID, unseen: unseen, store: store, runner: self)
-    }
-    func isGeneratingTitle(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        hasSummary(followUps.titleConversationID(sessionID, store: store), title: true)
-    }
-    func canRegenerateTitle(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        followUps.canRegenerateTitle(sessionID, store: store, runner: self)
-    }
-    @discardableResult
-    func regenerateTitle(_ sessionID: UUID, store: ProjectStore) -> Bool {
-        followUps.regenerateTitle(sessionID, store: store, runner: self)
-    }
-    private func queueAutomaticTitle(after turn: Turn, sessionID: UUID, store: ProjectStore) -> Bool {
-        followUps.queueAutomaticTitle(isFirstTurn: turn.isFirstTurn, sessionID: sessionID,
-                                      store: store, runner: self)
     }
 
     // A title or recap is the app asking about a turn that has already ended and been
@@ -1029,10 +866,10 @@ final class SessionRunner {
     }
 
     func enqueueSummary(_ prompt: QueuedPrompt, sessionID: UUID, atFront: Bool = false,
-                        start: Bool = true, store: ProjectStore) {
+                        start: Bool = true) {
         if atFront { recordAddingIfMissing(sessionID).queue.insert(prompt, at: 0) }
         else { recordAddingIfMissing(sessionID).queue.append(prompt) }
-        if start { runQueue(sessionID, store: store) }
+        if start { runQueue(sessionID) }
     }
 
     func acceptSuggestion(_ suggestion: String, for sessionID: UUID) {
@@ -1045,10 +882,6 @@ final class SessionRunner {
     // interrupting for. It is the same point at which the meter turns red.
     static let nearlyFullContext = 0.85
 
-    // Where an agent's CLI was found, for the runs that ask one something outside any
-    // session, such as a second opinion on a review. Nil when it is not installed.
-    func executable(for agent: AgentKind) -> String? { catalog.executable(for: agent) }
-
     func isNudgeDismissed(_ sessionID: UUID) -> Bool {
         records[sessionID]?.nudgeDismissed ?? false
     }
@@ -1059,18 +892,13 @@ final class SessionRunner {
         recordAddingIfMissing(sessionID).nudgeDismissed = true
     }
 
-    // When a prompt sent during a turn reaches the agent. Now means inside the turn that is
-    // running, if the agent can take it there; otherwise, and after the turn, the prompt
-    // waits its turn in the queue.
-    enum PromptDelivery: String { case now, afterTurn }
-
     // A prompt joins the queue and the queue is what runs, unless a turn is running and can
     // take the prompt now. Typing during a turn therefore costs nothing, and the ones
     // already waiting keep their order. Without a delivery the one chosen in settings is used.
     func send(_ prompt: String, attachments: [Attachment] = [],
               customInstructions: String? = nil, dictated: Bool = false,
               delivery: PromptDelivery? = nil,
-              sessionID: UUID, store: ProjectStore) {
+              sessionID: UUID) {
         guard !isBeingRemoved(sessionID), store.session(sessionID) != nil else { return }
         var text = prompt.trimmed
         let instructions = customInstructions?.trimmed
@@ -1083,19 +911,19 @@ final class SessionRunner {
         // off a command would be thrown away with it, so a prompt that carries files or
         // instructions is left to run as one.
         if attachments.isEmpty, instructions?.isEmpty != false,
-           handleWindowCommand(text, sessionID: sessionID, store: store) {
+           handleWindowCommand(text, sessionID: sessionID) {
             return
         }
         if attachments.isEmpty, instructions?.isEmpty != false,
            let question = SessionAside.question(in: text) {
-            askAside(question, sessionID: sessionID, store: store)
+            askAside(question, sessionID: sessionID)
             return
         }
         // The CLI refuses /plan in a headless run, so the app turns it into the setting it
         // stands for. The words after it, if any, are the prompt the plan is about.
         if store.session(sessionID)?.agent == .claudeCode,
            let planPrompt = Self.planCommandPrompt(text) {
-            enterPlanMode(sessionID, store: store)
+            enterPlanMode(sessionID)
             guard !planPrompt.isEmpty || !attachments.isEmpty
                     || instructions?.isEmpty == false else { return }
             text = planPrompt
@@ -1104,12 +932,12 @@ final class SessionRunner {
             text: text,
             attachments: attachments,
             customInstructions: instructions?.isEmpty == false ? instructions : nil,
-            expansion: expansion(of: text, sessionID: sessionID, store: store),
+            expansion: expansion(of: text, sessionID: sessionID),
             dictated: dictated)
         if (delivery ?? midTurnPromptDelivery()) == .now,
-           steer(queued, sessionID: sessionID, store: store) { return }
+           steer(queued, sessionID: sessionID) { return }
         recordAddingIfMissing(sessionID).queue.append(queued)
-        runQueue(sessionID, store: store)
+        runQueue(sessionID)
     }
 
     // Whether a prompt sent now would reach the agent inside the turn that is running.
@@ -1131,7 +959,7 @@ final class SessionRunner {
     // instead of after everything it had planned. Claude Code reads it off its open input
     // and Codex has a request for it. False when the turn cannot take it, and the prompt
     // then waits in the queue like any other.
-    private func steer(_ prompt: QueuedPrompt, sessionID: UUID, store: ProjectStore) -> Bool {
+    private func steer(_ prompt: QueuedPrompt, sessionID: UUID) -> Bool {
         guard canSteer(sessionID), let turn = records[sessionID]?.turn else { return false }
         let text = Self.prompt(prompt.prompt, with: prompt.attachments)
         let requestID: Int
@@ -1155,8 +983,8 @@ final class SessionRunner {
         // The reply so far stays above the new prompt and what the agent says next goes
         // under it, so the transcript reads in the order things happened.
         let previousReplyID = turn.messageID
-        removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
-        openFreshReply(turn, sessionID: sessionID, store: store)
+        removeReplyIfEmpty(turn, sessionID: sessionID)
+        openFreshReply(turn, sessionID: sessionID)
         turn.steersInFlight[requestID] = SteerInFlight(
             prompt: prompt, messageIDs: messageIDs, replyID: turn.messageID,
             previousReplyID: previousReplyID)
@@ -1165,8 +993,7 @@ final class SessionRunner {
 
     // Undoes what a steer put in the transcript and queues its prompt to run as a turn of
     // its own instead.
-    private func takeBack(_ steer: SteerInFlight, turn: Turn, sessionID: UUID,
-                          store: ProjectStore) {
+    private func takeBack(_ steer: SteerInFlight, turn: Turn, sessionID: UUID) {
         for id in steer.messageIDs { store.removeMessage(id, from: sessionID) }
         if turn.messageID == steer.replyID,
            store.transcript(of: sessionID).first(where: { $0.id == steer.replyID })?.isEmpty ?? false {
@@ -1177,7 +1004,7 @@ final class SessionRunner {
     }
 
     func sendAppCommand(_ prompt: String, attachments: [Attachment] = [],
-                        sessionID: UUID, store: ProjectStore) {
+                        sessionID: UUID) {
         guard !isBeingRemoved(sessionID), store.session(sessionID) != nil else { return }
         store.markSessionSeen(sessionID)
         store.setMarkedUnread(false, for: sessionID)
@@ -1186,30 +1013,30 @@ final class SessionRunner {
             attachments: attachments,
             customInstructions: nil,
             isAppCommand: true))
-        runQueue(sessionID, store: store)
+        runQueue(sessionID)
     }
 
     // Starts the oldest waiting prompt, if the session is free to take it. A prompt that
     // cannot start yet stays at the head of the queue rather than being lost.
-    func runQueue(_ sessionID: UUID, store: ProjectStore) {
+    func runQueue(_ sessionID: UUID) {
         guard let record = records[sessionID], !record.isBeingRemoved else { return }
         // A turn that is only waiting on a background task has a live process with an
         // open pipe, so the next prompt goes straight down it instead of sitting behind
         // a timer that could run for a long while.
         if record.turn?.waitingOnTasks == true {
-            injectQueued(sessionID, store: store)
+            injectQueued(sessionID)
             return
         }
         guard !record.state.isBusy,
               let next = record.queue.first,
               let session = store.session(sessionID) else { return }
-        if next.summary == nil { records[sessionID]?.continuable = nil }
+        if next.summary == nil { record.continuable = nil }
 
         // Two agents sharing any direct project folder would edit the same files under
         // each other. Workspace sessions therefore conflict when any root overlaps.
-        if let conflict = busySession(sharingDirectoryWith: session, store: store) {
+        if let conflict = busySession(sharingDirectoryWith: session) {
             if store.sessionsShareDesignWorkflow(sessionID, conflict.session.id) {
-                records[sessionID]?.waitsForDesignWorkflowDirectory = true
+                record.waitsForDesignWorkflowDirectory = true
                 setState(.idle, for: sessionID)
                 return
             }
@@ -1218,15 +1045,15 @@ final class SessionRunner {
                 for: sessionID)
             return
         }
-        records[sessionID]?.waitsForDesignWorkflowDirectory = false
+        record.waitsForDesignWorkflowDirectory = false
 
-        records[sessionID]?.queue.removeFirst()
+        record.queue.removeFirst()
         // The prediction belonged to the turn that has just ended, so starting another
         // one takes it away whether or not it was used. Forgetting the run it was asked
         // for is what stops a slow answer arriving afterwards and putting it back.
         if next.summary == nil {
-            records[sessionID]?.suggestion = nil
-            followUps.invalidateSuggestion(sessionID)
+            record.suggestion = nil
+            suggestionRequests[sessionID] = nil
         }
         // Where the conversation stands right now, stamped on the prompt so it marks a
         // point that can be come back to.
@@ -1238,8 +1065,8 @@ final class SessionRunner {
         let isFirstTurn = !next.isAppCommand && !session.hasStarted && !titleSession.hasStarted
             && titleSession.title == "New session"
         let ambition = next.isAppCommand || next.summary != nil
-            ? nil : designAmbitionStep(sessionID, store: store)
-        if let ambition { noteDesignAmbition(ambition, sessionID: sessionID, store: store) }
+            ? nil : designAmbitionStep(sessionID)
+        if let ambition { noteDesignAmbition(ambition, sessionID: sessionID) }
         for var message in next.transcriptMessages {
             if message.role == .user { message.checkpoint = checkpoint }
             store.append(message, to: sessionID)
@@ -1247,7 +1074,7 @@ final class SessionRunner {
         let prompt = ambition?.changePrompt.map { "\($0)\n\n\(next.prompt)" } ?? next.prompt
         let avatarSequence = nextAvatarSequence(for: sessionID)
         launch(Self.prompt(prompt, with: next.attachments), attachments: next.attachments,
-               sessionID: sessionID, store: store, avatarSequence: avatarSequence,
+               sessionID: sessionID, avatarSequence: avatarSequence,
                canRetryWithoutResume: true, summary: next.summary,
                isFirstTurn: isFirstTurn)
     }
@@ -1264,14 +1091,14 @@ final class SessionRunner {
         }
     }
 
-    private func designAmbitionStep(_ sessionID: UUID, store: ProjectStore) -> DesignAmbitionStep? {
+    private func designAmbitionStep(_ sessionID: UUID) -> DesignAmbitionStep? {
         guard let session = store.session(sessionID), session.isActivelyDesigning else { return nil }
         return DesignAmbitionStep(current: (session.settings?.designAmbition ?? catalog.designAmbition),
                                   previous: .valid(session.designAmbitionRan))
     }
 
     // The note goes in ahead of the prompt, so it sits above the turn it applies to.
-    private func noteDesignAmbition(_ step: DesignAmbitionStep, sessionID: UUID, store: ProjectStore) {
+    private func noteDesignAmbition(_ step: DesignAmbitionStep, sessionID: UUID) {
         store.setDesignAmbitionRan(step.current, for: sessionID)
         if let previous = step.previous, previous != step.current {
             store.append(ChatMessage(role: .system, text: step.current.changeNote(from: previous)),
@@ -1285,50 +1112,15 @@ final class SessionRunner {
         return next
     }
 
-    // Claude Code takes one block of text, so a file goes over as its path and the agent
-    // reads it itself. That is also how images work: the Read tool takes a picture back.
-    nonisolated static func prompt(_ text: String, with attachments: [Attachment]) -> String {
-        guard !attachments.isEmpty else { return text }
-        let list = attachments.map { "- \($0.url.path)" }.joined(separator: "\n")
-        guard !text.isEmpty else { return "Look at these files:\n\(list)" }
-        return "\(text)\n\nAttached files:\n\(list)"
-    }
-
-    // The folders holding attachments that the agent could not otherwise reach, each one
-    // named once. Paths are resolved first so a symlinked home does not make a folder
-    // that is inside the project look like it is outside it.
-    nonisolated static func directoriesOutside(_ workingDirectory: String,
-                                               for attachments: [Attachment]) -> [String] {
-        directoriesOutside([workingDirectory], for: attachments)
-    }
-
-    nonisolated static func directoriesOutside(_ workingDirectories: [String],
-                                               for attachments: [Attachment]) -> [String] {
-        let roots = workingDirectories.map {
-            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
-        }
-        var directories: [String] = []
-        for attachment in attachments {
-            let parent = attachment.url.deletingLastPathComponent()
-                .resolvingSymlinksInPath().path
-            let alreadyReachable = roots.contains { parent.pathRelative(to: $0) != nil }
-            guard !alreadyReachable, !directories.contains(parent) else {
-                continue
-            }
-            directories.append(parent)
-        }
-        return directories
-    }
-
     // The folder handed back is this session's own root as the person knows it, not the
     // symlink-resolved path the comparison ran on, so the message can name what they see.
-    private func busySession(sharingDirectoryWith session: ChatSession, store: ProjectStore)
+    private func busySession(sharingDirectoryWith session: ChatSession)
         -> (session: ChatSession, directory: String)? {
         let directories = store.workingDirectories(for: session)
         guard !directories.isEmpty else { return nil }
         for other in records.filter({ $0.key != session.id && $0.value.turn != nil })
             .compactMap({ store.session($0.key) }) {
-            let otherDirectories = resolvedWorkingDirectories(of: other, store: store)
+            let otherDirectories = resolvedWorkingDirectories(of: other)
             let shared = directories.first { directory in
                 let resolved = Self.resolved(directory)
                 return otherDirectories.contains { Self.overlaps(resolved, $0) }
@@ -1338,20 +1130,12 @@ final class SessionRunner {
         return nil
     }
 
-    private func resolvedWorkingDirectories(of session: ChatSession,
-                                            store: ProjectStore) -> [String] {
+    private func resolvedWorkingDirectories(of session: ChatSession) -> [String] {
         store.workingDirectories(for: session).map(Self.resolved)
     }
 
     private nonisolated static func resolved(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-    }
-
-    // Two roots are the same working tree to an agent whenever either sits inside the
-    // other, not only when they name the same folder. A repository added as one project
-    // and a package inside it added as another are still two agents editing one tree.
-    nonisolated static func overlaps(_ first: String, _ second: String) -> Bool {
-        first.pathRelative(to: second) != nil || second.pathRelative(to: first) != nil
     }
 
     // Leaves whatever has streamed in so far in place.
@@ -1396,7 +1180,7 @@ final class SessionRunner {
     // A stop kills the process wherever it had got to, so the transcript ends mid-sentence
     // or mid-command with nothing to say why. Left unmarked that reads as a crash, and the
     // session sitting idle underneath it reads as a broken one.
-    private func noteStop(_ sessionID: UUID, store: ProjectStore) {
+    private func noteStop(_ sessionID: UUID) {
         store.append(
             ChatMessage(role: .system, text: "Stopped. The turn ended before it finished."),
             to: sessionID)
@@ -1405,30 +1189,31 @@ final class SessionRunner {
         }
     }
 
-    private func requestStop(_ sessionID: UUID, failure: String? = nil) {
-        guard let turn = records[sessionID]?.turn, !turn.stopRequested else { return }
-        let reason = if turn.restartAfterStop {
-            "stopping stalled turn for retry"
-        } else if failure != nil {
-            "stopping turn after runner failure"
-        } else {
-            "stopped by hand"
-        }
-        SessionLog.note(reason, session: sessionID)
-        turn.stopRequested = true
-        turn.stopFailure = failure
+    // Marks the turn as on its way out and closes its input, which is what lets the CLI
+    // end. Nothing is waiting on an answer from a turn that is stopping.
+    private func beginStopping(_ turn: Turn, _ stop: Turn.Stop, sessionID: UUID) {
+        turn.stop = stop
         records[sessionID]?.asked = []
         setState(.stopping, for: sessionID)
         turn.closeInput()
+    }
+
+    private func requestStop(_ sessionID: UUID, _ stop: Turn.Stop = .byHand) {
+        guard let turn = records[sessionID]?.turn, !turn.stopRequested else { return }
+        let reason = switch stop {
+        case .forRetry: "stopping stalled turn for retry"
+        case .failed: "stopping turn after runner failure"
+        case .byHand: "stopped by hand"
+        }
+        SessionLog.note(reason, session: sessionID)
+        beginStopping(turn, stop, sessionID: sessionID)
         CommandRunner.signalProcessGroup(turn.processGroup, signal: SIGTERM)
         let token = turn.token
         let processGroup = turn.processGroup
-        let runner = self
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
-            Task { @MainActor in
-                guard runner.turn(sessionID, token)?.stopRequested == true else { return }
-                CommandRunner.signalProcessGroup(processGroup, signal: SIGKILL)
-            }
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard self.turn(sessionID, token)?.stopRequested == true else { return }
+            CommandRunner.signalProcessGroup(processGroup, signal: SIGKILL)
         }
     }
 
@@ -1437,8 +1222,7 @@ final class SessionRunner {
     // Three steps: work out what the process is run with, start it and listen to it, then
     // hand it the prompt. Anything that stops the turn before its process exists is undone
     // here, so a turn that never ran leaves nothing behind.
-    private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID,
-                        store: ProjectStore, avatarSequence: Int,
+    private func launch(_ prompt: String, attachments: [Attachment], sessionID: UUID, avatarSequence: Int,
                         canRetryWithoutResume: Bool,
                         summary: SummaryAttempt? = nil, isFirstTurn: Bool = false) {
         // Read the session again rather than passing it in: a retry runs after the stored
@@ -1484,18 +1268,9 @@ final class SessionRunner {
         // Where the tree stands before the turn touches it. Without this the turn's first
         // call would be credited with everything that changed since the last one ended,
         // which is whatever was edited by hand in between.
-        if let git = GitInspector.tool() {
+        if let git = Git.tool() {
             TreeSnapshots.shared.baseline(at: workingDirectory, using: git)
         }
-        // Read before the agent starts, which is long before it could make a commit.
-        let startHeads = Task {
-            var heads: [String: String] = [:]
-            for directory in workingDirectories {
-                heads[directory] = await GitInspector.head(at: directory)
-            }
-            return heads
-        }
-
         // Summaries belong to the session title or recap card, so their replies stay
         // private to the turn.
         let reply = ChatMessage(role: .assistant)
@@ -1518,8 +1293,7 @@ final class SessionRunner {
                                 // A recap or a title is the app talking to itself, so
                                 // there is no next prompt for it to predict.
                                 suggestsPrompts: summary == nil && agent.predictsPrompts
-                                    && followUps.promptSuggestionsEnabled(),
-                                store: store)
+                                    && promptSuggestionsEnabled())
         } catch {
             fail(error.localizedDescription)
             return
@@ -1532,7 +1306,7 @@ final class SessionRunner {
                              avatarSequence: avatarSequence,
                              canRetryWithoutResume: canRetryWithoutResume,
                              mcpConfigURL: mcpConfigURL, summary: summary,
-                             sessionID: sessionID, store: store)
+                             sessionID: sessionID)
         } catch {
             SessionLog.note("could not start: \(error.localizedDescription)", session: sessionID)
             fail("Could not start \(agent.title): \(error.localizedDescription)")
@@ -1541,9 +1315,27 @@ final class SessionRunner {
 
         turn.isFirstTurn = isFirstTurn
         recordAddingIfMissing(sessionID).turn = turn
+        // Read as the turn starts, which is long before the agent could make a commit.
         Task { [weak turn] in
-            let heads = await startHeads.value
+            var heads: [String: String] = [:]
+            for directory in workingDirectories {
+                heads[directory] = await GitInspector.head(at: directory)
+            }
             turn?.startHeads = heads
+        }
+        // Read from the folders this turn's Claude reads, which for an imported session can
+        // be a history folder the app itself was not started with. The files are read off
+        // the main thread, since every turn does this.
+        if agent == .claudeCode, summary == nil {
+            let configDirectory = plan.historyDirectory.map { URL(fileURLWithPath: $0) }
+                ?? agent.configDirectory()
+            Task { [weak self] in
+                let verbs = await Task.detached {
+                    ClaudeSpinnerVerbs.load(configDirectory: configDirectory, lead: workingDirectory)
+                }.value
+                guard let record = self?.records[sessionID], record.spinnerVerbs != verbs else { return }
+                record.spinnerVerbs = verbs
+            }
         }
         if let presetSessionID = plan.presetSessionID {
             turn.agentSessionID = presetSessionID
@@ -1578,10 +1370,10 @@ final class SessionRunner {
 
     private func turnPlan(for session: ChatSession, prompt: String, attachments: [Attachment],
                           workingDirectories: [String], mcpConfigURL: URL?,
-                          suggestsPrompts: Bool, store: ProjectStore) throws -> TurnPlan {
+                          suggestsPrompts: Bool) throws -> TurnPlan {
         let agent = session.agent
         let resume = session.agentSessionID(for: agent).flatMap { $0.isEmpty ? nil : $0 }
-        let promptForAgent = resume == nil ? workspacePrompt(prompt, session: session, store: store)
+        let promptForAgent = resume == nil ? workspacePrompt(prompt, session: session)
                                            : prompt
         let presetSessionID = agent == .copilot && resume == nil
             ? UUID().uuidString.lowercased() : nil
@@ -1608,7 +1400,7 @@ final class SessionRunner {
         let configuration = AgentLaunchConfiguration(
             agent: agent,
             settings: session.settings ?? SessionSettings(),
-            defaults: defaults(for: agent),
+            defaults: catalog.defaults(for: agent),
             // A pasted screenshot or a file picked from anywhere on disk sits outside the
             // folder the agent runs in, and reading outside it needs saying so up front.
             addDirectories: additionalDirectories,
@@ -1623,7 +1415,7 @@ final class SessionRunner {
                                         ambition: (session.settings?.designAmbition ?? catalog.designAmbition))
             } ?? implementationReference.map(AgentInstructions.implementationSystemPrompt),
             suggestsPrompts: suggestsPrompts,
-            discovered: discoveredModels[agent])
+            discovered: catalog.discoveredModels[agent])
         let serverLaunch = persistentAgentSessions && agent != .claudeCode
             ? try AgentServerLaunch(configuration: configuration, directory: workingDirectories[0]) : nil
         return TurnPlan(agent: agent, arguments: serverLaunch?.arguments ?? configuration.arguments, prompt: promptForAgent,
@@ -1640,7 +1432,7 @@ final class SessionRunner {
                        messageID: UUID, attachments: [Attachment], avatarSequence: Int,
                        canRetryWithoutResume: Bool, mcpConfigURL: URL?,
                        summary: SummaryAttempt?,
-                       sessionID: UUID, store: ProjectStore) throws -> Turn {
+                       sessionID: UUID) throws -> Turn {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = ProcessManager.searchPath
         if let directory = plan.historyDirectory {
@@ -1711,13 +1503,9 @@ final class SessionRunner {
             }
         }
         turn.connection = connection
-        let copilotStream = CopilotStream()
+        let parser = AgentStreamParser(agent: agent, projectPath: workingDirectory)
         let parseLine: @Sendable (String) -> [StreamEvent] = { line in
-            let events = switch agent {
-            case .claudeCode: StreamEvent.parse(line, projectPath: workingDirectory)
-            case .codex: StreamEvent.parseCodex(line)
-            case .copilot: copilotStream.parse(line)
-            }
+            let events = parser.parse(line)
             let detail = events.isEmpty
                 ? "stream event ignored bytes=\(line.utf8.count)"
                 : events.map(\.logSummary).joined(separator: ", ")
@@ -1730,7 +1518,7 @@ final class SessionRunner {
         let scheduleFlush: @Sendable () -> Void = {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(40))
-                runner.flush(stream, sessionID: sessionID, token: token, store: store)
+                runner.flush(stream, sessionID: sessionID, token: token)
             }
         }
 
@@ -1806,7 +1594,7 @@ final class SessionRunner {
                 session: sessionID)
             Task { @MainActor in
                 if stopped {
-                    runner.processExited(sessionID, token: token, status: status, store: store)
+                    runner.processExited(sessionID, token: token, status: status)
                 } else {
                     runner.processGroupDidNotStop(sessionID, token: token)
                 }
@@ -1819,7 +1607,7 @@ final class SessionRunner {
                     try? await Task.sleep(for: .seconds(5))
                     guard !Task.isCancelled else { return }
                     if !connection.refreshTasks() {
-                        self?.requestStop(sessionID, failure: "Could not refresh the agent's background tasks.")
+                        self?.requestStop(sessionID, .failed("Could not refresh the agent's background tasks."))
                         return
                     }
                 }
@@ -1851,8 +1639,8 @@ final class SessionRunner {
             }
         }
         guard sent else {
-            requestStop(sessionID, failure:
-                "Could not start \(turn.agent.title): the prompt could not be handed over.")
+            requestStop(sessionID, .failed(
+                "Could not start \(turn.agent.title): the prompt could not be handed over."))
             return
         }
     }
@@ -1889,8 +1677,7 @@ final class SessionRunner {
     // Additional roots grant access but do not make their repository instructions part
     // of the lead project's discovery chain. The first turn names every root and asks
     // the agent to load local guidance before it edits an attached project.
-    private func workspacePrompt(_ prompt: String, session: ChatSession,
-                                 store: ProjectStore) -> String {
+    private func workspacePrompt(_ prompt: String, session: ChatSession) -> String {
         let rows = store.checkoutProjects(for: session).enumerated().compactMap { pair -> String? in
             let (index, checkout) = pair
             guard let project = store.project(checkout.projectID) else { return nil }
@@ -1922,20 +1709,6 @@ final class SessionRunner {
             "message": ["role": "user", "content": [["type": "text", "text": text]]],
         ]
         guard var line = try? JSONSerialization.data(withJSONObject: message) else { return nil }
-        line.append(0x0A)
-        return line
-    }
-
-    // The answer to a control request the app has no way to serve. An error response is
-    // the honest one: the CLI treats it as "the host cannot do this" and carries on, which
-    // is the whole point of sending anything at all.
-    nonisolated static func refusalLine(requestID: String, subtype: String) -> Data? {
-        let envelope: [String: Any] = [
-            "type": "control_response",
-            "response": ["subtype": "error", "request_id": requestID,
-                         "error": "This app does not handle \"\(subtype)\" requests."],
-        ]
-        guard var line = try? JSONSerialization.data(withJSONObject: envelope) else { return nil }
         line.append(0x0A)
         return line
     }
@@ -1982,10 +1755,10 @@ final class SessionRunner {
     private func noteWhatWasWritten(by toolID: String, named name: String,
                                     describesOwnChange: Bool,
                                     fallbackEditIDs: [String] = [], turn: Turn,
-                                    sessionID: UUID, store: ProjectStore) {
-        guard TreeSnapshots.measures(name), let git = GitInspector.tool() else { return }
+                                    sessionID: UUID) {
+        guard TreeSnapshots.measures(name), let git = Git.tool() else { return }
         let messageID = turn.messageID
-        TreeSnapshots.shared.change(at: turn.workingDirectory, using: git) { change in
+        TreeSnapshots.shared.change(at: turn.workingDirectory, using: git) { [store] change in
             guard let change else { return }
             store.updateMessage(messageID, in: sessionID) { message in
                 if !fallbackEditIDs.isEmpty {
@@ -2006,7 +1779,7 @@ final class SessionRunner {
         }
     }
 
-    private func apply(_ events: [StreamEvent], sessionID: UUID, token: UUID, store: ProjectStore) {
+    private func apply(_ events: [StreamEvent], sessionID: UUID, token: UUID) {
         guard let turn = turn(sessionID, token) else { return }
         let completedToolIDs = Set(events.compactMap { event -> String? in
             guard case .toolResult(let id, _, _, _) = event else { return nil }
@@ -2076,18 +1849,18 @@ final class SessionRunner {
 
             case .turnStarted:
                 records[sessionID]?.hasFinishedResponse = false
-                freshReply(turn, sessionID: sessionID, store: store)
+                freshReply(turn, sessionID: sessionID)
                 setState(.streaming, for: sessionID)
 
             case .text(let text):
                 setState(.streaming, for: sessionID)
-                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
+                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID)
                 if turn.summary != nil {
                     if !turn.summaryText.isEmpty { turn.summaryText += "\n\n" }
                     turn.summaryText += text
                     continue
                 }
-                freshReply(turn, sessionID: sessionID, store: store)
+                freshReply(turn, sessionID: sessionID)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Each event carries a complete block, and blocks are split around
                     // tool calls, so they need a gap between them.
@@ -2099,8 +1872,8 @@ final class SessionRunner {
 
             case .thinking(let text):
                 setState(.streaming, for: sessionID)
-                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
-                freshReply(turn, sessionID: sessionID, store: store)
+                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID)
+                freshReply(turn, sessionID: sessionID)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Stamped the same way a tool call is: only the message being built
                     // knows how far the turn had come when the thought arrived.
@@ -2120,8 +1893,8 @@ final class SessionRunner {
 
             case .toolUse(let tool):
                 setState(.streaming, for: sessionID)
-                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID, store: store)
-                freshReply(turn, sessionID: sessionID, store: store)
+                refreshCodexContextAfterModelActivity(turn, sessionID: sessionID)
+                freshReply(turn, sessionID: sessionID)
                 records[sessionID]?.runningTools.append(tool)
                 store.updateMessage(turn.messageID, in: sessionID) { message in
                     // Stamped here rather than in the parser: only the message being
@@ -2175,7 +1948,7 @@ final class SessionRunner {
                     }
                 }
                 if let completedAgent {
-                    recordAgentTask(completedAgent, turn: turn, sessionID: sessionID, store: store)
+                    recordAgentTask(completedAgent, turn: turn, sessionID: sessionID)
                     turn.pendingTasks.removeAll { $0.id == completedAgent.task.id }
                     records[sessionID]?.agentsAtWork.remove(completedAgent.task.id)
                     if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.holdsFor }
@@ -2184,7 +1957,7 @@ final class SessionRunner {
                     noteWhatWasWritten(
                         by: id, named: toolName, describesOwnChange: describesOwnChange,
                         fallbackEditIDs: instantEditIDs.contains(id) ? fallbackEditIDs : [],
-                        turn: turn, sessionID: sessionID, store: store)
+                        turn: turn, sessionID: sessionID)
                 }
                 // The only moment a pull request announces itself is in the output of the
                 // command that opened it.
@@ -2231,7 +2004,7 @@ final class SessionRunner {
                 if turn.agent == .codex,
                    let threadID = turn.agentSessionID
                     ?? store.session(sessionID)?.agentSessionID(for: .codex) {
-                    refreshCodexContext(threadID: threadID, sessionID: sessionID, store: store)
+                    refreshCodexContext(threadID: threadID, sessionID: sessionID)
                 }
 
             case .context(let tokens):
@@ -2264,7 +2037,7 @@ final class SessionRunner {
                 let startedAt = record.task.startedAt
                 record.task = task
                 record.task.startedAt = startedAt
-                recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                recordAgentTask(record, turn: turn, sessionID: sessionID)
                 if let index = turn.pendingTasks.firstIndex(where: { $0.id == task.id }) {
                     turn.pendingTasks[index] = record.task
                 }
@@ -2276,7 +2049,7 @@ final class SessionRunner {
                 record.state = state
                 record.report = report
                 record.finishedAt = Date()
-                recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                recordAgentTask(record, turn: turn, sessionID: sessionID)
                 turn.pendingTasks.removeAll { $0.id == id }
                 records[sessionID]?.agentsAtWork.remove(id)
                 if turn.waitingOnTasks { records[sessionID]?.wait?.tasks = turn.holdsFor }
@@ -2303,12 +2076,12 @@ final class SessionRunner {
                     // can tell us whether it succeeded.
                     record.state = .finished
                     record.finishedAt = Date()
-                    recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                    recordAgentTask(record, turn: turn, sessionID: sessionID)
                 }
                 for task in named where task.isAgent {
                     var record = turn.agentTasks[task.id] ?? AgentTaskRecord(task: task)
                     record.task = task
-                    recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+                    recordAgentTask(record, turn: turn, sessionID: sessionID)
                 }
                 turn.pendingTasks = named
                 records[sessionID]?.agentsAtWork = Set(named.map(\.id)).union(
@@ -2329,13 +2102,13 @@ final class SessionRunner {
                 // the front of the queue and runs when this turn is over.
                 guard let steer = turn.steersInFlight.removeValue(forKey: requestID) else { continue }
                 SessionLog.note("steer rejected: \(message)", session: sessionID)
-                takeBack(steer, turn: turn, sessionID: sessionID, store: store)
+                takeBack(steer, turn: turn, sessionID: sessionID)
 
             // Sent after the result, since the turn has to be over before there is
             // anything to predict. The preference is read again here because it can be
             // turned off while the turn that asked for one is still running.
             case .promptSuggestion(let suggestion):
-                guard turn.summary == nil, followUps.promptSuggestionsEnabled() else { continue }
+                guard turn.summary == nil, promptSuggestionsEnabled() else { continue }
                 records[sessionID]?.suggestion = suggestion
 
             case .finished(let isError, let message):
@@ -2377,10 +2150,10 @@ final class SessionRunner {
                         records[sessionID]?.wait = Wait(tasks: turn.holdsFor, since: Date())
                     }
                     setState(.waiting, for: sessionID)
-                    if !alreadyWaiting { startWaitWatchdog(sessionID, token: turn.token, store: store) }
+                    if !alreadyWaiting { startWaitWatchdog(sessionID, token: turn.token) }
                     // A prompt typed while the agent was working can go down the open
                     // pipe now instead of sitting behind the task.
-                    injectQueued(sessionID, store: store)
+                    injectQueued(sessionID)
                     continue
                 }
                 // Nothing more is coming, and the CLI keeps its input stream open waiting
@@ -2415,7 +2188,7 @@ final class SessionRunner {
     }
 
     private func recordAgentTask(_ record: AgentTaskRecord, turn: Turn,
-                                 sessionID: UUID, store: ProjectStore) {
+                                 sessionID: UUID) {
         guard turn.summary == nil else { return }
         let messageID = turn.agentTaskMessages[record.task.id] ?? turn.messageID
         turn.agentTasks[record.task.id] = record
@@ -2436,37 +2209,35 @@ final class SessionRunner {
         setState(.stalled, for: sessionID)
     }
 
-    private func flush(_ stream: StreamBatcher, sessionID: UUID, token: UUID,
-                       store: ProjectStore) {
+    private func flush(_ stream: StreamBatcher, sessionID: UUID, token: UUID) {
         let batch = stream.drain()
         if batch.stdoutActivity || !batch.events.isEmpty {
-            apply(batch.events, sessionID: sessionID, token: token, store: store)
+            apply(batch.events, sessionID: sessionID, token: token)
         }
         if !batch.stderr.isEmpty {
             appendStderr(sessionID, token: token, batch.stderr)
         }
         if batch.stdoutClosed {
-            pipeClosed(sessionID, token: token, stdout: true, store: store)
+            pipeClosed(sessionID, token: token, stdout: true)
         }
         if batch.stderrClosed {
-            pipeClosed(sessionID, token: token, stdout: false, store: store)
+            pipeClosed(sessionID, token: token, stdout: false)
         }
     }
 
-    private func refreshCodexContextAfterModelActivity(_ turn: Turn, sessionID: UUID,
-                                                       store: ProjectStore) {
+    private func refreshCodexContextAfterModelActivity(_ turn: Turn, sessionID: UUID) {
         guard turn.agent == .codex,
               let threadID = turn.agentSessionID
                 ?? store.session(sessionID)?.agentSessionID(for: .codex) else { return }
-        refreshCodexContext(threadID: threadID, sessionID: sessionID, store: store,
+        refreshCodexContext(threadID: threadID, sessionID: sessionID,
                             after: .milliseconds(200))
     }
 
-    private func refreshCodexContext(threadID: String, sessionID: UUID, store: ProjectStore,
+    private func refreshCodexContext(threadID: String, sessionID: UUID,
                                      after delay: Duration? = nil) {
         codexContextRefreshes.removeValue(forKey: sessionID)?.task.cancel()
         let refreshID = UUID()
-        let task = Task { [weak self, codexContextReader] in
+        let task = Task { [weak self, codexContextReader, store] in
             if let delay {
                 do {
                     try await Task.sleep(for: delay)
@@ -2509,7 +2280,7 @@ final class SessionRunner {
     // when the deadline passes is a wait nothing is going to come back to. The turn is
     // left running: its tasks are the CLI's children and may yet finish, and throwing away
     // work nobody asked to stop would be worse than a row that says it needs someone.
-    private func startWaitWatchdog(_ sessionID: UUID, token: UUID, store: ProjectStore) {
+    private func startWaitWatchdog(_ sessionID: UUID, token: UUID) {
         waitWatchdogs.removeValue(forKey: sessionID)?.cancel()
         // A wakeup or a scheduled job is known to stay quiet until it is due, so the wait
         // is only judged from that moment on. A recurring job is quiet between runs for as
@@ -2521,17 +2292,17 @@ final class SessionRunner {
         waitWatchdogs[sessionID] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(deadline))
             guard !Task.isCancelled else { return }
-            self?.markWaitStale(sessionID, token: token, store: store)
+            self?.markWaitStale(sessionID, token: token)
         }
     }
 
-    private func markWaitStale(_ sessionID: UUID, token: UUID, store: ProjectStore) {
+    private func markWaitStale(_ sessionID: UUID, token: UUID) {
         waitWatchdogs.removeValue(forKey: sessionID)
         // The turn is checked by token because a session can be on its next turn by now,
         // and that one's wait is its own.
         guard let record = records[sessionID], let wait = record.wait,
               record.turn?.token == token, !wait.isStale else { return }
-        records[sessionID]?.wait?.isStale = true
+        record.wait?.isStale = true
         SessionLog.note("wait went stale after \(Int(Date().timeIntervalSince(wait.since)))s "
                         + "with \(wait.tasks.count) tasks still running", session: sessionID)
         // Named after the session the person can actually open: a Design companion has no
@@ -2545,14 +2316,14 @@ final class SessionRunner {
 
     // A reply bubble is normally full by the time it is left behind, but a turn that said
     // nothing would leave an empty one sitting in the transcript for good.
-    private func removeReplyIfEmpty(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
+    private func removeReplyIfEmpty(_ turn: Turn, sessionID: UUID) {
         if store.transcript(of: sessionID).first(where: { $0.id == turn.messageID })?.isEmpty ?? false {
             store.removeMessage(turn.messageID, from: sessionID)
         }
     }
 
     // The bubble everything the turn streams from here on is written into.
-    private func openFreshReply(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
+    private func openFreshReply(_ turn: Turn, sessionID: UUID) {
         let reply = ChatMessage(role: .assistant)
         store.append(reply, to: sessionID)
         turn.messageID = reply.id
@@ -2561,23 +2332,23 @@ final class SessionRunner {
     // Opens a new reply bubble for a turn the CLI started on its own - the one it runs
     // when a background task finishes. Without this the follow-up would keep writing
     // into the bubble of the turn that already answered.
-    private func freshReply(_ turn: Turn, sessionID: UUID, store: ProjectStore) {
+    private func freshReply(_ turn: Turn, sessionID: UUID) {
         guard turn.summary == nil, turn.waitingOnTasks else { return }
         endHold(turn, sessionID: sessionID)
-        removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
-        openFreshReply(turn, sessionID: sessionID, store: store)
+        removeReplyIfEmpty(turn, sessionID: sessionID)
+        openFreshReply(turn, sessionID: sessionID)
     }
 
     // Hands the next queued prompt to the process a waiting turn is holding open. The
     // CLI accepts further user messages for as long as the pipe is open, so the person
     // is not stuck behind a task that could run for many minutes. One prompt at a time:
     // the ones behind it go when this one's result comes back.
-    private func injectQueued(_ sessionID: UUID, store: ProjectStore) {
+    private func injectQueued(_ sessionID: UUID) {
         guard let record = records[sessionID], let turn = record.turn, turn.waitingOnTasks,
               let next = record.queue.first, turn.summary == nil, next.summary == nil else { return }
         // The process was started with the old level in its system prompt, so a change
         // made while it waited can only reach the agent through the prompt.
-        let ambition = next.isAppCommand ? nil : designAmbitionStep(sessionID, store: store)
+        let ambition = next.isAppCommand ? nil : designAmbitionStep(sessionID)
         let text = ambition?.changePrompt.map { "\($0)\n\n\(next.prompt)" } ?? next.prompt
         let prompt = Self.prompt(text, with: next.attachments)
         // A failed write means the pipe is gone; the prompt stays queued and starts a
@@ -2585,30 +2356,17 @@ final class SessionRunner {
         let sent = turn.connection.map { $0.send(prompt) }
             ?? Self.userMessageLine(prompt).map(turn.write) ?? false
         guard sent else { return }
-        records[sessionID]?.queue.removeFirst()
+        record.queue.removeFirst()
         SessionLog.note("prompt sent into waiting turn", session: sessionID)
 
-        if let ambition { noteDesignAmbition(ambition, sessionID: sessionID, store: store) }
+        if let ambition { noteDesignAmbition(ambition, sessionID: sessionID) }
         for message in next.transcriptMessages {
             store.append(message, to: sessionID)
         }
-        openFreshReply(turn, sessionID: sessionID, store: store)
+        openFreshReply(turn, sessionID: sessionID)
         turn.avatarSequence = nextAvatarSequence(for: sessionID)
         endHold(turn, sessionID: sessionID)
         setState(.streaming, for: sessionID)
-    }
-
-    // What a new usage report adds over the one before it. Clamped at zero so a report
-    // that is not cumulative after all can only under-count, never charge twice.
-    nonisolated static func grown(_ totals: TurnUsage, since recorded: TurnUsage?) -> TurnUsage {
-        guard let recorded else { return totals }
-        var grown = totals
-        grown.costUSD = max(0, totals.costUSD - recorded.costUSD)
-        grown.inputTokens = max(0, totals.inputTokens - recorded.inputTokens)
-        grown.outputTokens = max(0, totals.outputTokens - recorded.outputTokens)
-        grown.cacheReadTokens = max(0, totals.cacheReadTokens - recorded.cacheReadTokens)
-        grown.cacheWriteTokens = max(0, totals.cacheWriteTokens - recorded.cacheWriteTokens)
-        return grown
     }
 
     // MARK: - Ending a turn
@@ -2619,13 +2377,13 @@ final class SessionRunner {
         if turn.stderr.count > 4000 { turn.stderr = String(turn.stderr.suffix(4000)) }
     }
 
-    private func pipeClosed(_ sessionID: UUID, token: UUID, stdout: Bool, store: ProjectStore) {
+    private func pipeClosed(_ sessionID: UUID, token: UUID, stdout: Bool) {
         guard let turn = turn(sessionID, token) else { return }
         if stdout { turn.stdoutOpen = false } else { turn.stderrOpen = false }
-        finishIfDone(sessionID, store: store)
+        finishIfDone(sessionID)
     }
 
-    private func processExited(_ sessionID: UUID, token: UUID, status: Int32, store: ProjectStore) {
+    private func processExited(_ sessionID: UUID, token: UUID, status: Int32) {
         guard let turn = turn(sessionID, token) else { return }
         if let violation = turn.memoryGuard?.violation {
             memoryLimitExceeded(sessionID, token: token, violation: violation)
@@ -2637,29 +2395,21 @@ final class SessionRunner {
             turn.stdoutOpen = false
             turn.stderrOpen = false
         }
-        finishIfDone(sessionID, store: store)
+        finishIfDone(sessionID)
     }
 
     private func memoryLimitExceeded(_ sessionID: UUID, token: UUID,
                                      violation: SessionMemoryGuard.Violation) {
         guard let turn = turn(sessionID, token) else { return }
-        turn.stopRequested = true
-        turn.stopFailure = violation.message
-        turn.restartAfterStop = false
-        records[sessionID]?.asked = []
-        setState(.stopping, for: sessionID)
-        turn.closeInput()
+        beginStopping(turn, .failed(violation.message), sessionID: sessionID)
     }
 
     private func processGroupDidNotStop(_ sessionID: UUID, token: UUID) {
         guard let turn = turn(sessionID, token) else { return }
-        turn.stopRequested = true
-        if turn.stopFailure == nil {
-            turn.stopFailure = "The agent process group could not be stopped."
-        }
-        records[sessionID]?.asked = []
-        setState(.stopping, for: sessionID)
-        turn.closeInput()
+        // A failure the turn is already stopping for says more about why it ended.
+        var stop = Turn.Stop.failed("The agent process group could not be stopped.")
+        if case .failed(let earlier) = turn.stop { stop = .failed(earlier) }
+        beginStopping(turn, stop, sessionID: sessionID)
     }
 
     // Puts back the conversation a turn was resuming when the fork it opened instead was
@@ -2668,8 +2418,7 @@ final class SessionRunner {
     // turn stopped or broken before its first word therefore leaves an id that nothing can
     // be resumed from, while the id it replaced is still whole. Keeping the new one costs
     // the session its entire history on the next prompt.
-    private func restorePreviousConversation(_ turn: Turn, status: Int32, sessionID: UUID,
-                                             store: ProjectStore) {
+    private func restorePreviousConversation(_ turn: Turn, status: Int32, sessionID: UUID) {
         guard let previous = turn.resumedFrom, !turn.answered,
               let opened = turn.agentSessionID, opened != previous,
               turn.stopRequested || turn.failure != nil || status != 0
@@ -2685,18 +2434,18 @@ final class SessionRunner {
     // a reply, or the stderr that explains a failure, can be dropped. Dropping the turn
     // before doing anything else means the events the CLI still writes after its result
     // cannot end the same turn twice.
-    private func finishIfDone(_ sessionID: UUID, store: ProjectStore) {
+    private func finishIfDone(_ sessionID: UUID) {
         guard let turn = records[sessionID]?.turn, !turn.stdoutOpen, !turn.stderrOpen,
               let status = turn.exitStatus else { return }
         for var record in Array(turn.agentTasks.values) where record.state == .running {
             record.state = .interrupted
             record.finishedAt = Date()
-            recordAgentTask(record, turn: turn, sessionID: sessionID, store: store)
+            recordAgentTask(record, turn: turn, sessionID: sessionID)
         }
         // A steer the agent never got to has nowhere to go once the turn is over, so its
         // prompt waits as the next turn instead of being lost with the one that died.
         for steer in turn.steersInFlight.values where !steer.answered {
-            takeBack(steer, turn: turn, sessionID: sessionID, store: store)
+            takeBack(steer, turn: turn, sessionID: sessionID)
         }
         turn.steersInFlight = [:]
         records[sessionID]?.turn = nil
@@ -2711,7 +2460,7 @@ final class SessionRunner {
         let carried = startedGroups(sessionID)
         records[sessionID]?.startedGroups = carried
         cleanUp(turn)
-        restorePreviousConversation(turn, status: status, sessionID: sessionID, store: store)
+        restorePreviousConversation(turn, status: status, sessionID: sessionID)
         onTurnEnded(sessionID)
         // A review sent to the session is judged against the files as this turn left them,
         // and what the agent wrote is split into answers to its comments.
@@ -2721,10 +2470,39 @@ final class SessionRunner {
             Task { await reviews.turnEnded(sessionID, prompt: prompt, reply: reply) }
         }
 
+        // The steps every ending shares, in one place so that none can be left out. Each
+        // ending says only what it does differently.
+        func close(endedOnItsOwn: Bool = false, titleQueued: Bool = false,
+                   notifies: Bool = true, failure: String? = nil, recaps: Bool = true) {
+            // Given back before the queue runs: the next turn takes the transcript for
+            // itself, and releasing after it started would take that hold away.
+            store.release(sessionID, for: .running)
+            // Only a turn that ended on its own pulls the next one in. After a failure or a
+            // stop the queue waits to be sent by hand, so the reason it stopped stays on
+            // screen long enough to read.
+            if endedOnItsOwn { runQueue(sessionID) }
+            // A Design or Build partner parked behind this turn runs in its own process,
+            // so it is free to start as soon as the folder is.
+            resumeDesignWorkflowQueues(after: sessionID)
+            // A queued prompt starting straight away means the session has not stopped
+            // working, and there is nothing to come back to yet.
+            if endedOnItsOwn, state(sessionID).isBusy || titleQueued { return }
+            let unseen = store.noteTurnEnded(for: sessionID)
+            if notifies, let session = store.session(sessionID) {
+                AppNotifier.shared.turnEnded(
+                    sessionID: store.userFacingSessionID(for: sessionID),
+                    sessionTitle: session.title, failure: failure)
+            }
+            // Before the recap, which would otherwise hold the session busy and leave the
+            // turn with nothing to offer.
+            if endedOnItsOwn { requestPromptSuggestion(sessionID) }
+            if recaps { requestAutomaticRecap(sessionID, unseen: unseen) }
+        }
+
         // Even a recap must stay stopped after exceeding the limit. Starting queued
         // work or a fallback summary here can immediately repeat the memory spike.
         if let violation = turn.memoryGuard?.violation {
-            removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
+            removeReplyIfEmpty(turn, sessionID: sessionID)
             if let noticeID = records[sessionID]?.compactNoticeID {
                 records[sessionID]?.compactNoticeID = nil
                 store.removeMessage(noticeID, from: sessionID)
@@ -2735,28 +2513,19 @@ final class SessionRunner {
             if store.session(sessionID)?.hasAgentConversation == true {
                 records[sessionID]?.continuable = .failedTurn
             }
-            _ = store.noteTurnEnded(for: sessionID)
-            store.release(sessionID, for: .running)
-            // A Design or Build partner parked behind this turn runs in its own process,
-            // so it is free to start now that the folder is.
-            resumeDesignWorkflowQueues(after: sessionID, store: store)
-            if let session = store.session(sessionID) {
-                AppNotifier.shared.turnEnded(
-                    sessionID: store.userFacingSessionID(for: sessionID),
-                    sessionTitle: session.title, failure: violation.message)
-            }
+            close(failure: violation.message, recaps: false)
             return
         }
 
         if let summary = turn.summary {
             finishSummary(turn, attempt: summary, status: status,
-                          sessionID: sessionID, store: store)
+                          sessionID: sessionID)
             return
         }
 
         // A turn that produced nothing at all would otherwise leave a blank assistant
         // bubble sitting under the failure.
-        removeReplyIfEmpty(turn, sessionID: sessionID, store: store)
+        removeReplyIfEmpty(turn, sessionID: sessionID)
 
         // A compaction that ended without saying it had happened did not happen: the
         // conversation was too short for one, or the turn failed. Either way the agent's
@@ -2769,28 +2538,24 @@ final class SessionRunner {
         // reading back on the row.
         if turn.compacted { store.recordCompaction(for: sessionID) }
 
-        if turn.stopRequested {
-            if turn.restartAfterStop, turn.stopFailure == nil {
+        if let stop = turn.stop {
+            if case .forRetry = stop {
                 setState(.idle, for: sessionID)
                 store.release(sessionID, for: .running)
-                resume(sessionID, after: .stalledTurn, store: store)
+                resume(sessionID, after: .stalledTurn)
                 return
             }
-            let unseen: Bool
-            endTurn(TurnEnding(
-                started: turn.startedAt, ended: Date(),
-                outcome: turn.stopFailure == nil ? .stopped : .failed, startHeads: turn.startHeads), for: sessionID)
-            if let failure = turn.stopFailure {
+            if case .failed(let failure) = stop {
+                endTurn(TurnEnding(started: turn.startedAt, ended: Date(),
+                                   outcome: .failed, startHeads: turn.startHeads), for: sessionID)
                 setState(.failed(failure), for: sessionID)
-                unseen = store.noteTurnEnded(for: sessionID)
             } else {
+                endTurn(TurnEnding(started: turn.startedAt, ended: Date(),
+                                   outcome: .stopped, startHeads: turn.startHeads), for: sessionID)
                 setState(.idle, for: sessionID)
-                noteStop(sessionID, store: store)
-                unseen = store.noteTurnEnded(for: sessionID)
+                noteStop(sessionID)
             }
-            store.release(sessionID, for: .running)
-            resumeDesignWorkflowQueues(after: sessionID, store: store)
-            requestAutomaticRecap(sessionID, unseen: unseen, store: store)
+            close(notifies: false)
             return
         }
 
@@ -2801,32 +2566,10 @@ final class SessionRunner {
         guard turn.failure != nil || status != 0 || missingCompletion else {
             SessionLog.note("turn finished", session: sessionID)
             endTurn(TurnEnding(started: turn.startedAt, ended: Date(),
-                                                        outcome: .finished, startHeads: turn.startHeads), for: sessionID)
+                               outcome: .finished, startHeads: turn.startHeads), for: sessionID)
             setState(.idle, for: sessionID)
-            let titleQueued = queueAutomaticTitle(after: turn, sessionID: sessionID,
-                                                  store: store)
-            // Given back before the queue runs: the next turn takes the transcript for
-            // itself, and releasing after it started would take that hold away.
-            store.release(sessionID, for: .running)
-            // Only a turn that ended on its own pulls the next one in. After a failure or a
-            // stop the queue waits to be sent by hand, so the reason it stopped stays on
-            // screen long enough to read.
-            runQueue(sessionID, store: store)
-            resumeDesignWorkflowQueues(after: sessionID, store: store)
-            // A queued prompt starting straight away means the session has not stopped
-            // working, and there is nothing to come back to yet.
-            if !state(sessionID).isBusy, !titleQueued {
-                let unseen = store.noteTurnEnded(for: sessionID)
-                if let session = store.session(sessionID) {
-                    AppNotifier.shared.turnEnded(
-                        sessionID: store.userFacingSessionID(for: sessionID),
-                        sessionTitle: session.title, failure: nil)
-                }
-                // Before the recap, which would otherwise hold the session busy and
-                // leave the turn with nothing to offer.
-                requestPromptSuggestion(sessionID, store: store)
-                requestAutomaticRecap(sessionID, unseen: unseen, store: store)
-            }
+            let titleQueued = queueAutomaticTitle(isFirstTurn: turn.isFirstTurn, sessionID: sessionID)
+            close(endedOnItsOwn: true, titleQueued: titleQueued)
             return
         }
         var parts: [String] = []
@@ -2862,11 +2605,10 @@ final class SessionRunner {
             // The new turn takes its own hold. Giving this one back first means a retry
             // that cannot start does not keep the transcript held for good.
             store.release(sessionID, for: .running)
-            launch(turn.prompt, attachments: turn.attachments, sessionID: sessionID,
-                   store: store, avatarSequence: turn.avatarSequence,
+            launch(turn.prompt, attachments: turn.attachments, sessionID: sessionID, avatarSequence: turn.avatarSequence,
                    canRetryWithoutResume: false, isFirstTurn: turn.isFirstTurn)
             if records[sessionID]?.turn == nil {
-                resumeDesignWorkflowQueues(after: sessionID, store: store)
+                resumeDesignWorkflowQueues(after: sessionID)
             }
             return
         }
@@ -2875,33 +2617,17 @@ final class SessionRunner {
             records[sessionID]?.continuable = .failedTurn
         }
         endTurn(TurnEnding(started: turn.startedAt, ended: Date(),
-                                                    outcome: .failed, startHeads: turn.startHeads), for: sessionID)
+                           outcome: .failed, startHeads: turn.startHeads), for: sessionID)
         setState(.failed(message), for: sessionID)
-        store.release(sessionID, for: .running)
-        resumeDesignWorkflowQueues(after: sessionID, store: store)
-        let unseen = store.noteTurnEnded(for: sessionID)
-        if let session = store.session(sessionID) {
-            AppNotifier.shared.turnEnded(
-                sessionID: store.userFacingSessionID(for: sessionID),
-                sessionTitle: session.title, failure: message)
-        }
-        requestAutomaticRecap(sessionID, unseen: unseen, store: store)
-    }
-
-    // A dialog grows to fit its message, so a CLI that dumps a stack trace would push the
-    // buttons off screen. The opening lines usually name the problem.
-    nonisolated static func dialogExcerpt(_ text: String, lines: Int = 4, characters: Int = 400) -> String {
-        let kept = text.split(separator: "\n", omittingEmptySubsequences: false).prefix(lines).joined(separator: "\n")
-        let clipped = kept.count > characters ? String(kept.prefix(characters)) : kept
-        return clipped.count < text.count ? clipped.trimmed + "…" : clipped
+        close(failure: message)
     }
 
     private func finishSummary(_ turn: Turn, attempt: SummaryAttempt, status: Int32,
-                               sessionID: UUID, store: ProjectStore) {
+                               sessionID: UUID) {
         // A title runs before the turn that earned a suggestion has settled, so the ask
         // is made here instead. It stands down on its own if one has already been made,
         // or if another summary is still to run.
-        defer { requestPromptSuggestion(sessionID, store: store) }
+        defer { requestPromptSuggestion(sessionID) }
         let streamed = turn.summaryText
         store.release(sessionID, for: .running)
 
@@ -2919,6 +2645,15 @@ final class SessionRunner {
             }
         } else {
             nil
+        }
+
+        // How every summary ends: the session goes back to the state it rested in, and
+        // whatever waited behind the summary is free to run.
+        func settle(_ outcome: String, runsQueue: Bool = true) {
+            setState(attempt.restingState.sessionState, for: sessionID)
+            SessionLog.note(outcome, session: sessionID)
+            if runsQueue { runQueue(sessionID) }
+            resumeDesignWorkflowQueues(after: sessionID)
         }
 
         if case .title(let request) = attempt.mode {
@@ -2944,14 +2679,11 @@ final class SessionRunner {
                                             reason: Self.dialogExcerpt(reason))
             }
             if let text { store.setGeneratedTitle(text, for: request) }
-            setState(attempt.restingState.sessionState, for: sessionID)
-            SessionLog.note(text != nil ? "session title finished" : "session title unchanged",
-                            session: sessionID)
-            if !turn.stopRequested { runQueue(sessionID, store: store) }
-            resumeDesignWorkflowQueues(after: sessionID, store: store)
+            settle(text != nil ? "session title finished" : "session title unchanged",
+                   runsQueue: !turn.stopRequested)
             if attempt.recapAfterTitle, !turn.stopRequested,
                store.hasFinished(request.sessionID) {
-                requestAutomaticRecap(sessionID, unseen: true, store: store)
+                requestAutomaticRecap(sessionID, unseen: true)
             }
             return
         }
@@ -2961,10 +2693,7 @@ final class SessionRunner {
                 ? .claudeCode : .prompt
             store.setRecap(SessionRecap(text: text, generatedAt: Date(), source: source),
                            for: sessionID)
-            setState(attempt.restingState.sessionState, for: sessionID)
-            SessionLog.note("session recap finished", session: sessionID)
-            runQueue(sessionID, store: store)
-            resumeDesignWorkflowQueues(after: sessionID, store: store)
+            settle("session recap finished")
             return
         }
 
@@ -2976,27 +2705,20 @@ final class SessionRunner {
                 isAppCommand: true,
                 summary: SummaryAttempt(mode: .promptRecap, restingState: attempt.restingState)),
                 at: 0)
-            setState(attempt.restingState.sessionState, for: sessionID)
-            SessionLog.note("native recap unavailable; using summary prompt", session: sessionID)
-            runQueue(sessionID, store: store)
-            resumeDesignWorkflowQueues(after: sessionID, store: store)
+            settle("native recap unavailable; using summary prompt")
             return
         }
 
-        setState(attempt.restingState.sessionState, for: sessionID)
-        SessionLog.note(turn.stopRequested ? "session recap stopped" : "session recap failed",
-                        session: sessionID)
-        runQueue(sessionID, store: store)
-        resumeDesignWorkflowQueues(after: sessionID, store: store)
+        settle(turn.stopRequested ? "session recap stopped" : "session recap failed")
     }
 
-    private func resumeDesignWorkflowQueues(after sessionID: UUID, store: ProjectStore) {
+    private func resumeDesignWorkflowQueues(after sessionID: UUID) {
         let waiting = records.filter {
             $0.value.waitsForDesignWorkflowDirectory
                 && store.sessionsShareDesignWorkflow(sessionID, $0.key)
         }
         for waitingSessionID in waiting.keys {
-            runQueue(waitingSessionID, store: store)
+            runQueue(waitingSessionID)
         }
     }
 
@@ -3071,9 +2793,11 @@ final class SessionRunner {
         // Whether anything the turn said has come through yet. A result before that
         // belongs to a turn the app never asked for, so it is not this turn ending.
         var answered = false
-        var stopRequested = false
-        var stopFailure: String?
-        var restartAfterStop = false
+        // Why the turn is being stopped, once it is. A stalled turn stopped for a retry
+        // is picked up again when its process has gone; a failed stop shows its reason.
+        enum Stop { case byHand, forRetry, failed(String) }
+        var stop: Stop?
+        var stopRequested: Bool { stop != nil }
         var stallWatchdog: Task<Void, Never>?
         var stdoutOpen = true
         var stderrOpen = true

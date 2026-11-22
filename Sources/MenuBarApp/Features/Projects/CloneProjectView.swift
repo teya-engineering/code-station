@@ -185,7 +185,7 @@ struct CloneProjectView: View {
     // missing one, and a failed clone would then leave it behind.
     private var folder: URL {
         if let chosenFolder { return chosenFolder }
-        if let remembered = Preferences.cloneFolder,
+        if let remembered = Preferences.cloneFolder.read(),
            FileManager.default.fileExists(atPath: remembered) {
             return URL(fileURLWithPath: remembered, isDirectory: true)
         }
@@ -229,7 +229,7 @@ struct CloneProjectView: View {
             case .cloned(let url):
                 // Still shown as cloning while the sheet closes. The folder exists now, so
                 // the idle state would flash the "already exists" warning.
-                Preferences.cloneFolder = target.path
+                Preferences.cloneFolder.write(target.path)
                 onCloned(url)
                 dismiss()
             case .failed(let message):

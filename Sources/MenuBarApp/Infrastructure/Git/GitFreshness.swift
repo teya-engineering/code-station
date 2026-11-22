@@ -153,12 +153,12 @@ enum GitFreshness {
     // and when the calling task is cancelled, which also stops a fetch in flight.
     static func check(at path: String, fetch: Bool,
                       timeout: TimeInterval = fetchWaits[0]) async -> Report? {
-        guard let tool = await GitInspector.tool() else { return nil }
+        guard let tool = Git.tool() else { return nil }
         let url = URL(fileURLWithPath: path)
-        var fetched: (output: GitInspector.CommandOutput, wait: TimeInterval)?
+        var fetched: (output: Git.Output, wait: TimeInterval)?
         if fetch {
-            let output = await GitInspector.runCancellable(tool, ["fetch", "--quiet", "origin"],
-                                                           in: url, timeout: timeout)
+            let output = await Git.runCancellable(tool, ["fetch", "--quiet", "origin"],
+                                                  in: url, timeout: timeout)
             if Task.isCancelled { return nil }
             fetched = (output, timeout)
         }
@@ -192,13 +192,13 @@ enum GitFreshness {
         }
     }
 
-    private static func inspect(tool: GitInspector.GitTool, url: URL,
-                                fetch: (output: GitInspector.CommandOutput, wait: TimeInterval)?) -> Report? {
-        guard GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", "HEAD"], in: url).ok else { return nil }
+    private static func inspect(tool: Git.Tool, url: URL,
+                                fetch: (output: Git.Output, wait: TimeInterval)?) -> Report? {
+        guard Git.run(tool, ["rev-parse", "--verify", "--quiet", "HEAD"], in: url).ok else { return nil }
 
         var report = Report()
 
-        let head = GitInspector.run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url)
+        let head = Git.run(tool, ["rev-parse", "--abbrev-ref", "HEAD"], in: url)
         if head.ok {
             let name = head.trimmedText
             report.currentBranch = name == "HEAD" ? nil : name
@@ -216,12 +216,12 @@ enum GitFreshness {
 
         report.defaultBranch = defaultBranch(tool, in: url)
         if let name = report.defaultBranch,
-           GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(name)"], in: url).ok {
+           Git.run(tool, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(name)"], in: url).ok {
             report.remoteRef = "origin/\(name)"
         }
 
         if let branch = report.defaultBranch, let remote = report.remoteRef {
-            let counts = GitInspector.run(
+            let counts = Git.run(
                 tool,
                 ["rev-list", "--count", "--left-right", "refs/heads/\(branch)...\(remote)"],
                 in: url)
@@ -235,7 +235,7 @@ enum GitFreshness {
         // could be behind.
         let target = report.remoteRef ?? (report.onDefaultBranch ? nil : report.defaultBranch)
         if let target {
-            let count = GitInspector.run(tool, ["rev-list", "--count", "HEAD..\(target)"], in: url)
+            let count = Git.run(tool, ["rev-list", "--count", "HEAD..\(target)"], in: url)
             if count.ok {
                 report.behind = Int(count.trimmedText) ?? 0
             }
@@ -243,7 +243,7 @@ enum GitFreshness {
 
         report.lastFetch = lastFetch(tool, in: url)
 
-        let status = GitInspector.run(tool, ["status", "--porcelain=v1", "-z"], in: url)
+        let status = Git.run(tool, ["status", "--porcelain=v1", "-z"], in: url)
         report.dirty = status.ok && !status.text.isEmpty
 
         return report
@@ -251,10 +251,10 @@ enum GitFreshness {
 
     // What origin calls its default branch. A repository without origin/HEAD falls back
     // to whichever of main or master exists locally.
-    private static func defaultBranch(_ tool: GitInspector.GitTool, in url: URL) -> String? {
+    private static func defaultBranch(_ tool: Git.Tool, in url: URL) -> String? {
         if let named = GitInspector.originDefaultBranch(tool, in: url) { return named }
         for candidate in ["main", "master"]
-        where GitInspector.run(tool, ["rev-parse", "--verify", "--quiet", "refs/heads/\(candidate)"], in: url).ok {
+        where Git.run(tool, ["rev-parse", "--verify", "--quiet", "refs/heads/\(candidate)"], in: url).ok {
             return candidate
         }
         return nil
@@ -262,8 +262,8 @@ enum GitFreshness {
 
     // When the remote refs were last brought up to date, taken from the file every
     // fetch rewrites. A repository that has never fetched has no file and no date.
-    private static func lastFetch(_ tool: GitInspector.GitTool, in url: URL) -> Date? {
-        let gitDir = GitInspector.run(tool, ["rev-parse", "--absolute-git-dir"], in: url)
+    private static func lastFetch(_ tool: Git.Tool, in url: URL) -> Date? {
+        let gitDir = Git.run(tool, ["rev-parse", "--absolute-git-dir"], in: url)
         guard gitDir.ok else { return nil }
         let path = gitDir.trimmedText + "/FETCH_HEAD"
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)

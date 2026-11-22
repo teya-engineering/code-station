@@ -261,7 +261,7 @@ final class OldSessionsWatch {
                                                snoozedUntil: { store.snoozeDeadline(for: $0) })
                 .map {
                     RefreshRule.Session(id: $0.id,
-                                        isBusy: runner.isBusy($0.id, store: store))
+                                        isBusy: runner.isBusy($0.id))
                 },
             nextOldAt: OldSessions.nextOldAt(days, in: sessions,
                                              snoozedUntil: { store.snoozeDeadline(for: $0) }))
@@ -288,7 +288,7 @@ final class OldSessionsWatch {
 
     private func refresh(store: ProjectStore, runner: SessionRunner, days: Int) async {
         let old = OldSessions.olderThan(days, in: store.sidebarSessions)
-            .filter { !runner.isBusy($0.id, store: store) }
+            .filter { !runner.isBusy($0.id) }
         let heldBack = old.filter { ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }
         let sessions = old.filter { !ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }
         var losesWork = 0

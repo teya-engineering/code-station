@@ -63,6 +63,9 @@ struct SideBySideDiff: View {
     // comments placed there, and the comment being written if it is about those lines.
     var threads: [Int: AnyView] = [:]
     var picked: Set<String> = []
+    // Lines added or removed after the reviewer last marked the file viewed, named by
+    // DiffAnchor key.
+    var fresh: Set<String> = []
     // A press on a line number, and whether shift was held. A diff with nowhere to send
     // comments leaves it out, and its numbers are plain text.
     var onLine: ((DiffAnchor, Bool) -> Void)?
@@ -74,6 +77,9 @@ struct SideBySideDiff: View {
     @State private var numberFrames: [DiffAnchor: CGRect] = [:]
     @State private var dragStart: DiffAnchor?
     @State private var dragEnd: DiffAnchor?
+    // The lines a reveal washes in amber for a beat, and the wait before the wash fades.
+    @State private var flashing: Set<String> = []
+    @State private var flashFade: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let space = "sideBySideRows"
@@ -120,7 +126,10 @@ struct SideBySideDiff: View {
                 .frame(width: max(760, geometry.size.width))
             }
             .onChange(of: reveal) { _, reveal in
-                if let reveal { withAnimation(reduceMotion ? nil : Motion.reveal) { proxy.scrollTo(reveal.line, anchor: .center) } }
+                if let reveal {
+                    withAnimation(reduceMotion ? nil : Motion.reveal) { proxy.scrollTo(reveal.line, anchor: .center) }
+                    flash(reveal.flash)
+                }
             }
             .onAppear {
                 if let reveal { proxy.scrollTo(reveal.line, anchor: .center) }
@@ -141,6 +150,19 @@ struct SideBySideDiff: View {
             result[marked].backgroundColor = tint
         }
         return result
+    }
+
+    // The lines wear amber for a beat, then let it go, as the unified diff's do. The wash
+    // only fades, so it plays the same with Reduce Motion on.
+    private func flash(_ keys: Set<String>) {
+        guard !keys.isEmpty else { return }
+        flashFade?.cancel()
+        flashing = keys
+        flashFade = Task {
+            try? await Task.sleep(for: .seconds(Motion.revealDuration))
+            guard !Task.isCancelled else { return }
+            withAnimation(Motion.reveal) { flashing = [] }
+        }
     }
 
     // A context line is numbered on both sides but commented on in the new version, so
@@ -233,6 +255,12 @@ struct SideBySideDiff: View {
         .background(line?.kind == .addition ? Theme.addition.opacity(0.12) :
                     line?.kind == .deletion ? Theme.deletion.opacity(0.12) : line == nil ? Theme.field : .clear)
         .background(isPicked ? Theme.accent.opacity(0.16) : .clear)
+        .background(anchor.map { flashing.contains(DiffComments.key($0)) } == true ? Theme.attention.opacity(0.22) : .clear)
+        .overlay(alignment: .leading) {
+            if anchor.map({ fresh.contains(DiffComments.key($0)) }) == true {
+                Rectangle().fill(Theme.attention).frame(width: 3)
+            }
+        }
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 1) }
         .accessibilityLabel(line == nil ? "No corresponding line" : line!.text)
     }

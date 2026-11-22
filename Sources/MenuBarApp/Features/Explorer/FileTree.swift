@@ -338,7 +338,7 @@ enum FileTree {
                     || source.deletingLastPathComponent().standardizedFileURL.path == target {
                     continue
                 }
-                guard !target.hasPrefix(path + "/") else {
+                guard !target.isInside(path) else {
                     result.failures.append(CopyFailure(
                         name: name, message: "A folder cannot be moved into itself."))
                     continue
@@ -446,8 +446,7 @@ enum FileTree {
     // Where a path ends up once the item at `old` is called `new`: the item itself and
     // everything inside it move, anything else stays put.
     static func path(_ path: String, afterMoving old: String, to new: String) -> String {
-        if path == old { return new }
-        guard path.hasPrefix(old + "/") else { return path }
+        guard path.isInside(old) else { return path }
         return new + path.dropFirst(old.count)
     }
 
@@ -537,20 +536,6 @@ private extension URL {
     func isInside(_ directory: URL) -> Bool {
         let parent = directory.resolvingSymlinksInPath().standardizedFileURL.path
         let child = resolvingSymlinksInPath().standardizedFileURL.path
-        return child == parent || child.hasPrefix(parent + "/")
-    }
-}
-
-extension Data {
-    // git only looks for a NUL byte, but anything that is not valid UTF-8 would render as
-    // a wall of replacement characters, so treat that as binary too.
-    var looksBinary: Bool {
-        let head = prefix(8000)
-        if head.contains(0) { return true }
-        // Complete a character cut by the sample without hiding invalid trailing bytes.
-        for end in head.count...Swift.min(count, head.count + 3) {
-            if String(data: prefix(end), encoding: .utf8) != nil { return false }
-        }
-        return true
+        return child.isInside(parent)
     }
 }

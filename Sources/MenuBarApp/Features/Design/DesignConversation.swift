@@ -364,8 +364,8 @@ struct DesignConversation: View {
         } label: {
             HStack(spacing: Space.lg) {
                 conversationBot(session, needsYou: needsYou, size: botSize)
-                MinimizedConversationLine(tone: tone, personality: personality, agent: session.agent,
-                                          lead: store.workingDirectory(for: session),
+                MinimizedConversationLine(tone: tone, personality: personality,
+                                          spinnerVerbs: runner.spinnerVerbs(sessionID),
                                           waitingSince: runner.waitingSince(sessionID)) { lineWidth in
                     // The tab hugs its line: the bot, the gap and the padding around them.
                     minimizedWidth = Space.lg + botSize + Space.lg + lineWidth + Space.xl
@@ -520,8 +520,7 @@ struct DesignConversation: View {
                    sessionID: sessionID,
                    avatarName: session.agentAvatarName,
                    agentTitle: session.agent.title,
-                   agent: session.agent,
-                   lead: store.workingDirectory(for: session),
+                   spinnerVerbs: runner.spinnerVerbs(sessionID),
                    completionActivity: runner.completionActivity(sessionID),
                    tasks: runner.backgroundTasks(sessionID),
                    waitingSince: runner.waitingSince(sessionID))
@@ -548,7 +547,7 @@ struct DesignConversation: View {
 
     private func designComposer(_ session: ChatSession) -> some View {
         let blocked = !FileManager.default.fileExists(atPath: store.workingDirectory(for: session) ?? "")
-            || !runner.isAvailable(session.agent)
+            || !runner.catalog.isAvailable(session.agent)
         return Composer(sessionID: sessionID,
                         agent: session.agent,
                         blocked: blocked,
@@ -558,8 +557,8 @@ struct DesignConversation: View {
                         minimumLines: 3,
                         buttonAlignment: .center,
                         onOversizedPaste: attachPastedText,
-                        onRecallUp: { runner.recallEarlier(sessionID, store: store) },
-                        onRecallDown: { runner.recallLater(sessionID, store: store) },
+                        onRecallUp: { runner.recallEarlier(sessionID) },
+                        onRecallDown: { runner.recallLater(sessionID) },
                         onSend: { promptSentAt = .now },
                         dictates: !conversationMinimized,
                         above: {
@@ -608,7 +607,7 @@ struct DesignConversation: View {
                                workingDirectories: store.workingDirectories(for: session),
                                projectPath: projectPath) { answer in
                     runner.answer(request, with: answer,
-                                  sessionID: sessionID, store: store)
+                                  sessionID: sessionID)
                 }
                 .id(request.id)
             }
@@ -635,7 +634,7 @@ struct DesignConversation: View {
 
     private func hasTurnEndAction(_ state: SessionState) -> Bool {
         if case .failed = state { return true }
-        return runner.canContinueAfterStop(sessionID, store: store)
+        return runner.canContinueAfterStop(sessionID)
     }
 }
 
@@ -647,8 +646,7 @@ private struct MinimizedConversationLine: View {
 
     let tone: SessionTone
     let personality: AgentPersonality
-    let agent: AgentKind
-    let lead: String?
+    let spinnerVerbs: ClaudeSpinnerVerbs?
     let waitingSince: Date?
     let measured: (CGFloat) -> Void
 
@@ -677,10 +675,13 @@ private struct MinimizedConversationLine: View {
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { measured($0) }
                 }
         }
-        .onAppear { words = WorkingWords(personality: personality, agent: agent, lead: lead) }
+        .onAppear { words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs) }
         .onChange(of: personality) { _, personality in
-            words = WorkingWords(personality: personality, agent: agent, lead: lead)
+            words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs)
             started = .now
+        }
+        .onChange(of: spinnerVerbs) { _, spinnerVerbs in
+            words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs)
         }
     }
 }

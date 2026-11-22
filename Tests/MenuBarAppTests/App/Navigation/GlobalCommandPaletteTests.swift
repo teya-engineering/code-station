@@ -13,7 +13,7 @@ struct GlobalCommandPaletteTests {
         controller.open()
         let host = NSHostingController(rootView: GlobalCommandPalette(openSettings: {})
             .environment(store)
-            .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+            .environment(SessionRunner(store: store, preferences: testPreferences.store, paths: [:]))
             .environment(controller)
             .appOverlays())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),

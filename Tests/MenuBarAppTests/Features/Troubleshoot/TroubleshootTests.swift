@@ -521,7 +521,7 @@ struct TroubleshootBriefTests {
     private let testPreferences = TestPreferences()
 
     @Test func whatWasTypedOutlivesTheTabBeingRebuilt() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         let sessionID = UUID()
         let evidence = Attachment(url: URL(fileURLWithPath: "/tmp/payments.log"))
 
@@ -539,7 +539,7 @@ struct TroubleshootBriefTests {
     }
 
     @Test func eachSessionKeepsItsOwnBrief() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         let first = UUID()
         let second = UUID()
 
@@ -551,7 +551,7 @@ struct TroubleshootBriefTests {
     }
 
     @Test func aSessionWithoutABriefStartsOnTheDefaults() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
 
         let brief = runner.composer.brief(UUID())
 
@@ -564,7 +564,7 @@ struct TroubleshootBriefTests {
 
     // A sent brief is in the transcript, so the form it came from starts again empty.
     @Test func sendingLeavesTheFormEmpty() {
-        let runner = SessionRunner(preferences: testPreferences.store)
+        let runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store)
         let sessionID = UUID()
 
         runner.composer.editBrief(sessionID) {

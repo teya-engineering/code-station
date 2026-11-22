@@ -58,10 +58,17 @@ extension SessionRunner {
     // companion is taking. Counts, sweeps and anything that treats a session as free to
     // clear away have to ask this rather than the session's own state.
     @MainActor
-    func isBusy(_ sessionID: UUID, store: ProjectStore) -> Bool {
+    func isBusy(_ sessionID: UUID) -> Bool {
         if state(sessionID).isBusy || isAskingSecondOpinion(sessionID) { return true }
         guard let companion = store.designCompanions[sessionID] else { return false }
         return state(companion.id).isBusy
+    }
+
+    // The sessions with work under way. A Design companion is left out, since its work
+    // already counts toward the session it belongs to.
+    @MainActor
+    func runningSessions() -> [ChatSession] {
+        store.sessions.filter { $0.designSourceSessionID == nil && isBusy($0.id) }
     }
 
     // A second opinion runs beside the agent rather than as one of its turns, so the
@@ -86,7 +93,7 @@ extension SessionRunner {
     // something to read just like a finished turn does, so it is told the same way. A
     // turn still running will say so itself when it ends.
     @MainActor
-    func secondOpinionSettled(_ sessionID: UUID, store: ProjectStore) {
+    func secondOpinionSettled(_ sessionID: UUID) {
         guard !isAskingSecondOpinion(sessionID), !state(sessionID).isBusy,
               let session = store.session(sessionID) else { return }
         store.noteSecondOpinionReady(for: sessionID)

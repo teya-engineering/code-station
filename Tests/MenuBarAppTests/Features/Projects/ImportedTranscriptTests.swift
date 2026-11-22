@@ -102,7 +102,7 @@ struct ImportedSessionRunnerTests {
         let session = try await harness.store.importSession(.init(candidate: candidate,
             messages: [ChatMessage(role: .user, text: "Start")], resumeID: "imported-fork"),
             into: harness.session.projectID).get()
-        harness.runner.send("Continue", sessionID: session.id, store: harness.store)
+        harness.runner.send("Continue", sessionID: session.id)
         #expect(await waitUntil { harness.runner.state(session.id) == .idle })
         let roots = try String(contentsOf: harness.scratch.path("history-roots"), encoding: .utf8)
         let arguments = try String(contentsOf: harness.scratch.path("arguments"), encoding: .utf8)

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 // One meaningful thing an agent CLI said on its stream. Each agent's own parser turns
 // its dialect into these. A CLI emits far more than this (rate limits, token counters,
@@ -561,32 +562,31 @@ extension StreamEvent {
 // Newline framing for the CLI's stdout. Reads off a pipe do not line up with JSON lines,
 // so a partial tail is held back until the rest of it arrives. The pipe's read handler
 // runs on a background queue, hence the lock.
-final class LineBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var pending = Data()
+final class LineBuffer: Sendable {
+    private let pending = Mutex(Data())
 
     // Split on bytes rather than on a decoded string: a chunk boundary can land in the
     // middle of a multi-byte character, which would decode as garbage.
     func lines(from data: Data) -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        pending.append(data)
-        var lines: [String] = []
-        while let newline = pending.firstIndex(of: 0x0A) {
-            lines.append(String(decoding: pending[pending.startIndex..<newline], as: UTF8.self))
-            pending = pending[pending.index(after: newline)...]
+        pending.withLock { pending in
+            pending.append(data)
+            var lines: [String] = []
+            while let newline = pending.firstIndex(of: 0x0A) {
+                lines.append(String(decoding: pending[pending.startIndex..<newline], as: UTF8.self))
+                pending = pending[pending.index(after: newline)...]
+            }
+            // Re-base the slice so its dropped prefix is not carried around forever.
+            pending = Data(pending)
+            return lines
         }
-        // Re-base the slice so its dropped prefix is not carried around forever.
-        pending = Data(pending)
-        return lines
     }
 
     // Whatever is left when the pipe closes: the last line may have no newline.
     func flush() -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        let rest = String(decoding: pending, as: UTF8.self)
-        pending = Data()
-        return rest.isEmpty ? [] : [rest]
+        pending.withLock { pending in
+            let rest = String(decoding: pending, as: UTF8.self)
+            pending = Data()
+            return rest.isEmpty ? [] : [rest]
+        }
     }
 }

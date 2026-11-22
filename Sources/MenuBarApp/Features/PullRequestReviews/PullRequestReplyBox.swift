@@ -105,7 +105,7 @@ struct PullRequestReplyBox: View {
                 else { resolve(discarding: nil) }
             }
         }
-        .disabled(working || reviews.busy.contains(entry.pullRequest.url) || runner.isBusy(sessionID, store: store))
+        .disabled(working || reviews.busy.contains(entry.pullRequest.url) || runner.isBusy(sessionID))
     }
 
     private func confirmDiscard(_ fix: PullRequestReviewProposal) {
