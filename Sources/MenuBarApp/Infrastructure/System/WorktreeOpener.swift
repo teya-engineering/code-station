@@ -95,15 +95,20 @@ enum WorktreeOpener {
 
     @discardableResult
     static func add(appAt url: URL) -> WorktreeApp? {
-        guard let id = SystemTerminal.bundleID(of: url) else { return nil }
-        if !apps.contains(where: { $0.bundleID == id }),
-           !Preferences.openInAddedBundleIDs().contains(id) {
-            Preferences.setOpenInAddedBundleIDs(Preferences.openInAddedBundleIDs() + [id])
-            refresh()
+        guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier,
+              let executable = bundle.executableURL,
+              FileManager.default.isExecutableFile(atPath: executable.path) else { return nil }
+        let added = Preferences.openInAddedBundleIDs()
+        if !apps.contains(where: { $0.bundleID == id }) || added.contains(id) {
+            if !added.contains(id) { Preferences.setOpenInAddedBundleIDs(added + [id]) }
+            var paths = Preferences.openInAddedAppPaths()
+            paths[id] = url.path
+            Preferences.setOpenInAddedAppPaths(paths)
         }
+        refresh()
         Preferences.setOpenInBundleID(id)
 
-        return current
+        return apps.first { $0.bundleID == id }
     }
 
     static func pickApp(dialogs: DialogPresenter) -> WorktreeApp? {
@@ -124,6 +129,9 @@ enum WorktreeOpener {
 
     static func remove(_ bundleID: String) {
         Preferences.setOpenInAddedBundleIDs(Preferences.openInAddedBundleIDs().filter { $0 != bundleID })
+        var paths = Preferences.openInAddedAppPaths()
+        paths.removeValue(forKey: bundleID)
+        Preferences.setOpenInAddedAppPaths(paths)
         if Preferences.openInBundleID() == bundleID {
             Preferences.setOpenInBundleID(nil)
         }
@@ -155,6 +163,15 @@ enum WorktreeOpener {
     }
 
     private static func app(withBundleID id: String) -> WorktreeApp? {
+        // A picked app may not be registered with macOS. Keep its path so the choice
+        // survives a restart, and use Launch Services if it has since moved.
+        if let path = Preferences.openInAddedAppPaths()[id],
+           FileManager.default.fileExists(atPath: path) {
+            let url = URL(fileURLWithPath: path)
+            if SystemTerminal.bundleID(of: url) == id {
+                return WorktreeApp(bundleID: id, name: SystemTerminal.name(of: url), url: url)
+            }
+        }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else {
             return nil
         }
