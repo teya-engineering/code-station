@@ -89,19 +89,20 @@ struct NewSessionView: View {
                                        reachedOrigin: retries.reached.contains(project.id),
                                        retryFetch: retryFetch,
                                        stopFetch: { retries.stop(project.id) })
-                    if showsBranchField {
-                        SessionBranchField(
-                            placeholder: GitWorktree.plan(projectName: project.name,
-                                                          sessionID: sessionID).branch,
-                            name: $branchName, projects: [project], accepted: $branchAccepted)
-                            .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
-                    }
                     SessionCheckoutPaths(entries: [
                         .init(name: project.name,
                               branch: project.isGitRepository
                                 ? (useWorktree ? planned.branch : GitHead.branch(at: project.path)) : nil,
                               path: useWorktree ? planned.path.abbreviatedPath : project.collapsedPath)
-                    ])
+                    ]) {
+                        if showsBranchField {
+                            SessionBranchField(
+                                placeholder: GitWorktree.plan(projectName: project.name,
+                                                              sessionID: sessionID).branch,
+                                name: $branchName, projects: [project], accepted: $branchAccepted)
+                                .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
+                        }
+                    }
                     Text(footerNote)
                         .font(Typography.detail)
                         .foregroundStyle(.secondary)

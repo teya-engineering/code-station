@@ -82,14 +82,6 @@ struct NewWorkspaceSessionView: View {
                         }
                     }
 
-                    if let first = worktreeProjects.first {
-                        SessionBranchField(
-                            placeholder: GitWorktree.plan(projectName: first.name, projectID: first.id,
-                                                          sessionID: sessionID).branch,
-                            name: $branchName, projects: worktreeProjects, accepted: $branchAccepted)
-                            .transition(cardTransition)
-                    }
-
                     SessionCheckoutPaths(entries: projectIDs.compactMap { id in
                         guard let project = store.project(id) else { return nil }
                         let usesWorktree = project.isGitRepository && worktrees.contains(id)
@@ -98,7 +90,15 @@ struct NewWorkspaceSessionView: View {
                         return .init(name: project.name,
                                      branch: usesWorktree ? plan.branch : GitHead.branch(at: project.path),
                                      path: usesWorktree ? plan.path.abbreviatedPath : project.collapsedPath)
-                    })
+                    }) {
+                        if let first = worktreeProjects.first {
+                            SessionBranchField(
+                                placeholder: GitWorktree.plan(projectName: first.name, projectID: first.id,
+                                                              sessionID: sessionID).branch,
+                                name: $branchName, projects: worktreeProjects, accepted: $branchAccepted)
+                                .transition(cardTransition)
+                        }
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Text("Worktrees are isolated checkouts. Deleting this session removes its worktrees.")
                         .font(Typography.detail)

@@ -91,24 +91,28 @@ struct SessionProjectCard: View {
     }
 }
 
-struct SessionCheckoutPaths: View {
-    struct Entry {
-        let name: String
-        let branch: String?
-        let path: String
-    }
+struct SessionCheckoutPath {
+    let name: String
+    let branch: String?
+    let path: String
+}
 
-    let entries: [Entry]
+struct SessionCheckoutPaths<BranchField: View>: View {
+    let entries: [SessionCheckoutPath]
+    @ViewBuilder let branchField: BranchField
     @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
+        VStack(alignment: .leading, spacing: 0) {
             DisclosureHeader(isExpanded: $expanded, show: "Show branch and checkout paths",
                              hide: "Hide branch and checkout paths") {
                 Text("Branch and checkout paths").font(Typography.detail)
             }
+            .foregroundStyle(.secondary)
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-            if expanded {
+            // Keep the field mounted so closing the section does not cancel branch validation.
+            VStack(alignment: .leading, spacing: Space.md) {
+                branchField
                 VStack(alignment: .leading, spacing: Space.md) {
                     ForEach(entries.indices, id: \.self) { index in
                         let entry = entries[index]
@@ -123,10 +127,16 @@ struct SessionCheckoutPaths: View {
                         .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .transition(.fold)
+                .foregroundStyle(.secondary)
             }
+            .padding(.top, Space.md)
+            .frame(height: expanded ? nil : 0, alignment: .top)
+            .opacity(expanded ? 1 : 0)
+            .clipped()
+            .disabled(!expanded)
+            .allowsHitTesting(expanded)
+            .accessibilityHidden(!expanded)
         }
-        .foregroundStyle(.secondary)
         .smoothlyResizes(when: expanded)
     }
 }
