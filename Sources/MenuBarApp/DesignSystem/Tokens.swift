@@ -55,6 +55,15 @@ extension View {
     }
 }
 
+// The brand lockup keeps its artwork and text metrics independent of control sizing.
+enum BrandMetrics {
+    static let barHeight: CGFloat = 68
+    static let drawingSide: CGFloat = 41
+    static let layoutSide: CGFloat = 33
+    static let ownerSize: CGFloat = 9
+    static let nameGap: CGFloat = 1
+}
+
 // MARK: - Space
 
 // Gaps and padding. The steps are far enough apart to be told from each other, which is
