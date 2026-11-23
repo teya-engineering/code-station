@@ -14,14 +14,14 @@ struct AppUpdateCheckerTests {
         #expect(AppVersion("1..0") == nil)
     }
 
-    @Test func waitsADayBetweenAutomaticChecks() {
+    @Test func waitsSixHoursBetweenAutomaticChecks() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
         #expect(AppUpdateChecker.shouldCheck(lastCheck: nil, now: now))
         #expect(!AppUpdateChecker.shouldCheck(
-            lastCheck: now.addingTimeInterval(-86_400 + 1), now: now))
+            lastCheck: now.addingTimeInterval(-21_600 + 1), now: now))
         #expect(AppUpdateChecker.shouldCheck(
-            lastCheck: now.addingTimeInterval(-86_400), now: now))
+            lastCheck: now.addingTimeInterval(-21_600), now: now))
     }
 
     @MainActor
@@ -79,7 +79,7 @@ struct AppUpdateCheckerTests {
     }
 
     @MainActor
-    @Test func anAnswerWithNoUsableReleaseStillWaitsADay() async throws {
+    @Test func anAnswerWithNoUsableReleaseStillWaitsForTheNextCheck() async throws {
         let (preferences, suite) = try preferences()
         defer { preferences.removePersistentDomain(forName: suite) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -96,6 +96,46 @@ struct AppUpdateCheckerTests {
         #expect(AppUpdateURLProtocol.requestCount == 1)
         #expect(Preferences.appUpdateLastCheck(in: preferences) == now)
         #expect(checker.availableRelease == nil)
+    }
+
+    @MainActor
+    @Test func checkingByHandSkipsTheWaitAndAnnouncesADismissedVersionAgain() async throws {
+        let (preferences, suite) = try preferences()
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        Preferences.setAppUpdateLastCheck(now.addingTimeInterval(-60), in: preferences)
+        Preferences.dismissedAppUpdateVersion.write("1.3.0", in: preferences)
+        AppUpdateURLProtocol.prepare(status: 200, body: release(version: "v1.3.0"))
+        let checker = AppUpdateChecker(installedVersion: "1.2.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       now: { now },
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!)
+
+        await checker.checkIfNeeded()
+        #expect(AppUpdateURLProtocol.requestCount == 0)
+
+        #expect(await checker.checkNow() == .available("1.3.0"))
+        #expect(AppUpdateURLProtocol.requestCount == 1)
+        #expect(checker.announcedRelease?.version == "1.3.0")
+        #expect(checker.lastCheck == now)
+        #expect(Preferences.dismissedAppUpdateVersion.read(in: preferences) == nil)
+    }
+
+    @MainActor
+    @Test func checkingByHandReportsUpToDateAndFailure() async throws {
+        let (preferences, suite) = try preferences()
+        defer { preferences.removePersistentDomain(forName: suite) }
+        AppUpdateURLProtocol.prepare(status: 200, body: release(version: "v1.2.0"))
+        let checker = AppUpdateChecker(installedVersion: "1.2.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!)
+
+        #expect(await checker.checkNow() == .upToDate)
+
+        AppUpdateURLProtocol.prepare(status: 503, body: Data())
+        #expect(await checker.checkNow() == .failed)
     }
 
     @MainActor

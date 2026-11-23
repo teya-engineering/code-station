@@ -35,6 +35,13 @@ enum AppUpdateInstallState: Equatable, Sendable {
     }
 }
 
+// What a check asked for by hand found, so the place that asked can say so.
+enum AppUpdateCheckOutcome: Equatable, Sendable {
+    case available(String)
+    case upToDate
+    case failed
+}
+
 struct AppVersion: Comparable, Equatable, Sendable {
     let display: String
     private let components: [Int]
@@ -78,7 +85,9 @@ struct AppVersion: Comparable, Equatable, Sendable {
 @MainActor
 @Observable
 final class AppUpdateChecker {
-    nonisolated static let checkInterval: TimeInterval = 86_400
+    // A release can land just after a check, so a day between checks left it unannounced
+    // for most of that day. Four checks a day stay far inside GitHub's anonymous limit.
+    nonisolated static let checkInterval: TimeInterval = 21_600
     // The app can stay open for days, so it keeps looking while it runs. Waking often
     // costs nothing, since a day still has to pass between checks that worked, and it lets
     // a check that failed try again within the hour.
@@ -89,6 +98,7 @@ final class AppUpdateChecker {
     private(set) var dismissedVersion: String?
     private(set) var installState = AppUpdateInstallState.idle
     private(set) var isRelaunching = false
+    private(set) var lastCheck: Date?
     // Counts each time the release page is opened in the browser. The page opens outside
     // the window, so the window watches this to leave a note that the click landed.
     private(set) var releasePageOpenings = 0
@@ -130,6 +140,7 @@ final class AppUpdateChecker {
         self.releaseEndpoint = releaseEndpoint
         self.installTarget = installTarget
         dismissedVersion = Preferences.dismissedAppUpdateVersion.read(in: preferences)
+        lastCheck = Preferences.appUpdateLastCheck(in: preferences)
         availableRelease = Self.available(
             Preferences.cachedAppUpdateRelease(in: preferences),
             to: self.installedVersion)
@@ -144,11 +155,27 @@ final class AppUpdateChecker {
 
     func checkIfNeeded() async {
         guard installedVersion != nil, !isChecking else { return }
-        let checkedAt = now()
         guard Self.shouldCheck(
             lastCheck: Preferences.appUpdateLastCheck(in: preferences),
-            now: checkedAt) else { return }
+            now: now()) else { return }
+        // Automatic update checks must not interrupt work when GitHub is unavailable.
+        _ = await check()
+    }
 
+    // Asked for by hand, so it ignores the wait between checks. Asking is also wanting to
+    // hear the answer, so a version whose announcement was put away is announced again.
+    func checkNow() async -> AppUpdateCheckOutcome {
+        guard installedVersion != nil, !isChecking else { return .failed }
+        let outcome = await check()
+        if case .available(let version) = outcome, version == dismissedVersion {
+            dismissedVersion = nil
+            Preferences.dismissedAppUpdateVersion.write(nil, in: preferences)
+        }
+        return outcome
+    }
+
+    private func check() async -> AppUpdateCheckOutcome {
+        let checkedAt = now()
         isChecking = true
         defer { isChecking = false }
 
@@ -160,16 +187,18 @@ final class AppUpdateChecker {
 
             let (data, response) = try await session.data(for: request)
             guard let response = response as? HTTPURLResponse,
-                  response.statusCode == 200 else { return }
-            // GitHub answered, so the day starts now even if there is no release worth
+                  response.statusCode == 200 else { return .failed }
+            // GitHub answered, so the wait starts now even if there is no release worth
             // offering. Only a check that never got an answer is tried again sooner.
             Preferences.setAppUpdateLastCheck(checkedAt, in: preferences)
-            guard let release = Self.decodeRelease(data) else { return }
+            lastCheck = checkedAt
+            guard let release = Self.decodeRelease(data) else { return .upToDate }
 
             Preferences.setCachedAppUpdateRelease(release, in: preferences)
             availableRelease = Self.available(release, to: installedVersion)
+            return availableRelease.map { .available($0.version) } ?? .upToDate
         } catch {
-            // Automatic update checks must not interrupt work when GitHub is unavailable.
+            return .failed
         }
     }
 
