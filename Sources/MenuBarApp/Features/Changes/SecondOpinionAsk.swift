@@ -214,17 +214,38 @@ enum SecondOpinionAsk {
         return lineup.filter { seen.insert($0).inserted }
     }
 
-    // The Ask button names who is asked, or says what is missing.
-    static func askTitle(lineup: [SecondOpinion.Reviewer], hasFocus: Bool) -> String {
+    // The Ask button names who is asked. What is missing is said beside it, not on it.
+    static func askTitle(lineup: [SecondOpinion.Reviewer]) -> String {
         let chosen = seated(lineup)
-        guard !chosen.isEmpty else { return "Pick a reviewer" }
-        guard hasFocus else { return "Pick what to look for" }
+        guard !chosen.isEmpty else { return "Ask" }
         var seen = Set<AgentKind>()
         let agents = chosen.map(\.agent).filter { seen.insert($0).inserted }
         if chosen.count == agents.count && agents.count <= 2 {
             return "Ask " + agents.map(\.title).joined(separator: " and ")
         }
         return "Ask \(chosen.count) reviewers"
+    }
+
+    // The one line at the foot of the preview that says what else the reviewers get.
+    // It names only what is in, so nothing reads as a list of what was left out.
+    static func alsoIncluded(_ stop: SecondOpinionStop, chatReading: ChatSecondOpinion.Reading,
+                             designReading: DesignSecondOpinion.Reading, usesServers: Bool) -> String? {
+        var parts: [String] = []
+        switch stop {
+        case .file, .sinceReview, .uncommitted, .branch:
+            parts.append("the project files around these changes")
+        case .answer:
+            if chatReading.files { parts.append("the project files the answer mentions") }
+            if chatReading.conversation { parts.append("the earlier conversation") }
+        case .conversation:
+            if chatReading.files { parts.append("the project files the chat mentions") }
+        case .design:
+            if designReading.source { parts.append("the HTML, handoff and theme") }
+            if designReading.conversation { parts.append("the design conversation") }
+        }
+        if usesServers { parts.append("your read-only MCP tools") }
+        guard let last = parts.popLast() else { return nil }
+        return "Plus " + (parts.isEmpty ? last : parts.joined(separator: ", ") + " and " + last)
     }
 
     // What the reviewers can reach, under the tray. With MCP servers open it says they
@@ -248,8 +269,8 @@ enum SecondOpinionAsk {
     }
 
     static func blockedReason(lineup: [SecondOpinion.Reviewer], hasFocus: Bool) -> String? {
-        guard !lineup.isEmpty else { return "Choose at least one reviewer." }
-        guard hasFocus else { return "Choose what to look for or add a note." }
+        guard !lineup.isEmpty else { return "Pick a reviewer." }
+        guard hasFocus else { return "Pick something to look for." }
         return nil
     }
 }

@@ -118,6 +118,24 @@ final class SecondOpinionContext {
         return nil
     }
 
+    // The short fix shown beside the Ask button. The preview carries the longer reason.
+    // Nil while the comparison is still being read, which blocks without asking anything
+    // of the person.
+    func footerReason(for stop: SecondOpinionStop) -> String? {
+        guard !loading, blockedReason(for: stop) != nil else { return nil }
+        if failure != nil { return "Read the changes again." }
+        if stop == .sinceReview && sinceFailure != nil { return "Pick All changes." }
+        if stop != .sinceReview && usesBranch && bases.isEmpty && (!snapshots.isEmpty || facts.branch == nil) {
+            return "Pick a base branch."
+        }
+        return "Nothing to review."
+    }
+
+    // The ref a project compares with when it compares with a branch.
+    func currentRef(_ root: String) -> String? {
+        bases[root] ?? refs[root] ?? snapshots[root]?.remoteBase?.ref
+    }
+
     func read(
         snapshot: (String, String?) async -> GitSnapshot = {
             await GitInspector.snapshot(at: $0, lane: .interactive, comparingToLastCommit: true,

@@ -121,15 +121,30 @@ struct SecondOpinionAskTests {
         let codex = SecondOpinion.Reviewer(agent: .codex)
         let copilot = SecondOpinion.Reviewer(agent: .copilot)
         let codexMini = SecondOpinion.Reviewer(agent: .codex, model: "mini")
-        #expect(SecondOpinionAsk.askTitle(lineup: [], hasFocus: true) == "Pick a reviewer")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex], hasFocus: false) == "Pick what to look for")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codex], hasFocus: true) == "Ask Codex")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex, copilot], hasFocus: true) == "Ask Codex and Copilot")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codexMini], hasFocus: true) == "Ask 2 reviewers")
-        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: true) == "Choose at least one reviewer.")
-        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: false) == "Choose at least one reviewer.")
-        #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: false) == "Choose what to look for or add a note.")
+        #expect(SecondOpinionAsk.askTitle(lineup: []) == "Ask")
+        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codex]) == "Ask Codex")
+        #expect(SecondOpinionAsk.askTitle(lineup: [codex, copilot]) == "Ask Codex and Copilot")
+        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codexMini]) == "Ask 2 reviewers")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: true) == "Pick a reviewer.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: false) == "Pick a reviewer.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: false) == "Pick something to look for.")
         #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: true) == nil)
+    }
+
+    @Test func theReceiptNamesOnlyWhatComesWithTheSubject() {
+        let none = ChatSecondOpinion.Reading(files: false, conversation: false)
+        let both = ChatSecondOpinion.Reading(files: true, conversation: true)
+        let design = DesignSecondOpinion.Reading(source: false, conversation: false)
+        #expect(SecondOpinionAsk.alsoIncluded(.branch, chatReading: none, designReading: design, usesServers: false)
+                == "Plus the project files around these changes")
+        #expect(SecondOpinionAsk.alsoIncluded(.uncommitted, chatReading: none, designReading: design, usesServers: true)
+                == "Plus the project files around these changes and your read-only MCP tools")
+        #expect(SecondOpinionAsk.alsoIncluded(.answer, chatReading: both, designReading: design, usesServers: true)
+                == "Plus the project files the answer mentions, the earlier conversation and your read-only MCP tools")
+        #expect(SecondOpinionAsk.alsoIncluded(.conversation, chatReading: both, designReading: design, usesServers: false)
+                == "Plus the project files the chat mentions")
+        #expect(SecondOpinionAsk.alsoIncluded(.answer, chatReading: none, designReading: design, usesServers: false) == nil)
+        #expect(SecondOpinionAsk.alsoIncluded(.design, chatReading: none, designReading: design, usesServers: false) == nil)
     }
 
     @Test func wordsTheyWriteJoinWhatTheyTicked() {
@@ -176,7 +191,7 @@ struct SecondOpinionAskCardLayoutTests {
         let lineup = [SecondOpinion.Reviewer(agent: .claudeCode, model: "opus"),
                       SecondOpinion.Reviewer(agent: .codex, model: "gpt-6-astra"),
                       SecondOpinion.Reviewer(agent: .copilot)]
-        for width: CGFloat in [390, 840] {
+        for width: CGFloat in [390, ReviewMetrics.askWidth] {
             for dark in [false, true] {
                 for reducedMotion in [false, true] {
                     let card = SecondOpinionAskCard(

@@ -84,6 +84,24 @@ struct SecondOpinionContextTests {
         #expect(context.blockedReason(for: .answer) == nil)
     }
 
+    @Test func theFooterNamesTheFixForEachBlockedComparison() async {
+        var facts = facts()
+        facts.canReadSince = true
+        facts.reviewTrees = [root: "missing"]
+        let context = SecondOpinionContext(facts: facts, comparison: .branch)
+        #expect(context.footerReason(for: .uncommitted) == nil)
+        await context.read(snapshot: { _, _ in .init(state: .failed("Cannot read")) }, remoteBranches: { _ in [] },
+                           since: { _, _ in nil })
+        #expect(context.footerReason(for: .uncommitted) == "Read the changes again.")
+        await context.read(snapshot: { _, _ in snapshot() }, remoteBranches: { _ in [] }, since: { _, _ in nil })
+        #expect(context.footerReason(for: .uncommitted) == nil)
+        #expect(context.footerReason(for: .sinceReview) == "Pick All changes.")
+        #expect(context.currentRef(root) == "upstream/develop")
+        context.comparison = .head
+        #expect(context.footerReason(for: .uncommitted) == "Nothing to review.")
+        #expect(context.footerReason(for: .answer) == nil)
+    }
+
     @Test func anUnavailableBaseDoesNotQuietlyBecomeHEAD() async {
         var facts = facts()
         facts.branch = .init(base: "upstream/develop", files: [], bases: [root: "upstream/develop"])
@@ -91,6 +109,7 @@ struct SecondOpinionContextTests {
         await context.read(snapshot: { _, _ in .init(state: .ready, root: root, files: [changed]) },
                            remoteBranches: { _ in [] })
         #expect(context.blockedReason(for: .uncommitted)?.contains("No base branch") == true)
+        #expect(context.footerReason(for: .uncommitted) == "Pick a base branch.")
     }
 
     @Test func realGitPreviewAndReviewUseTheSameSelectedRemoteBranch() async throws {

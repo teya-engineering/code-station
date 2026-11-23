@@ -165,13 +165,12 @@ enum SettingsRuleMetrics {
 }
 
 enum ReviewMetrics {
-    static let askWidth: CGFloat = 840
+    static let askWidth: CGFloat = 640
     static let askHeight: CGFloat = 760
     static let columnsWidth: CGFloat = 680
-    static let previewHeight: CGFloat = 140
-    static let subjectHeight: CGFloat = 100
     static let rangeHeight: CGFloat = 44
-    static let fileNameWidth: CGFloat = 120
+    static let rangeStripHeight: CGFloat = 30
+    static let fileNameWidth: CGFloat = 260
     static let findingsWidth: CGFloat = 1000
     static let findingsListWidth: CGFloat = 280
 }
