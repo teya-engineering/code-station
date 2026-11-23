@@ -120,7 +120,7 @@ final class SessionSecondOpinion {
         func files(_ snapshot: GitSnapshot, root: String) -> [SecondOpinionAskFacts.File] {
             snapshot.files.map { change in
                 .init(root: snapshot.root.isEmpty ? root : snapshot.root, path: change.path,
-                      added: change.added ?? 0, removed: change.removed ?? 0)
+                      added: change.added ?? 0, removed: change.removed ?? 0, change: .init(change.kind))
             }
         }
         // A project the Changes screen does not compare with a base adds its uncommitted

@@ -53,6 +53,10 @@ enum Motion {
     // a line draws on, held long enough for the eye to find where the words went.
     static let washDuration: TimeInterval = 0.7
 
+    // The step between rows that arrive together, such as a folder's files, so they
+    // read as a list unfolding rather than a block appearing.
+    static let stagger: TimeInterval = 0.02
+
     static let wordmarkPeriod: TimeInterval = 12
 
     // The curve a line draws on. Kept in one place so the SwiftUI marks and the ones

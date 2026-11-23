@@ -171,6 +171,13 @@ enum ReviewMetrics {
     static let rangeHeight: CGFloat = 44
     static let rangeStripHeight: CGFloat = 30
     static let fileNameWidth: CGFloat = 260
+    // The change receipt in the ask stops at nine and a half rows and scrolls inside, so
+    // a big review keeps the card one size and the half row says there is more.
+    static let receiptListHeight: CGFloat = ControlHeight.md * 9.5
+    static let receiptBarWidth: CGFloat = 84
+    // Room for a row's file count and its "+n −n", so the bars line up down the list.
+    static let receiptCountWidth: CGFloat = 52
+    static let receiptFiguresWidth: CGFloat = 88
     static let findingsWidth: CGFloat = 1000
     static let findingsListWidth: CGFloat = 280
 }

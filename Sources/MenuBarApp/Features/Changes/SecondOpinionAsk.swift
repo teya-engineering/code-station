@@ -34,13 +34,27 @@ struct SecondOpinionAskFacts: Equatable {
     }
 
     struct File: Equatable, Identifiable, Sendable {
+        enum Change: Equatable, Sendable {
+            case edited, new, deleted
+
+            init(_ kind: GitStatusKind) {
+                switch kind {
+                case .added, .untracked: self = .new
+                case .deleted: self = .deleted
+                default: self = .edited
+                }
+            }
+        }
+
         var root: String
         var path: String
         var added: Int
         var removed: Int
+        var change = Change.edited
 
         var id: String { root + "\u{0}" + path }
         var name: String { (path as NSString).lastPathComponent }
+        var lines: Int { added + removed }
     }
 
     // What the branch changes from the base the Changes screen compares it with,

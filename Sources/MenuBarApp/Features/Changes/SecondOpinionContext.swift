@@ -76,7 +76,8 @@ final class SecondOpinionContext {
                 let files = bases[repository.root] == nil ? snapshot.localFiles : snapshot.files
                 return files.filter { !$0.isBinary }.map {
                     SecondOpinionAskFacts.File(root: snapshot.root, path: $0.path,
-                                               added: $0.added ?? 0, removed: $0.removed ?? 0)
+                                               added: $0.added ?? 0, removed: $0.removed ?? 0,
+                                               change: .init($0.kind))
                 }
             }
         }
@@ -191,7 +192,7 @@ final class SecondOpinionContext {
                 if line.hasPrefix("-") { removed += 1 }
             }
             return .init(root: patch.root, path: patch.path,
-                         added: added, removed: removed)
+                         added: added, removed: removed, change: patch.deleted ? .deleted : .edited)
         }
     }
 }

@@ -599,12 +599,17 @@ private struct MenuIconGrid: View {
 // lets a short menu hug its rows while a long one stays clipped inside its viewport.
 struct MenuContentScrollView<Content: View>: View {
     let maxHeight: CGFloat
+    // The surface behind the list. Given, the bottom edge fades into it while more of the
+    // list sits below, so a cut-off row reads as more to scroll rather than the end.
+    let fade: Color?
     let content: Content
 
     @State private var contentHeight: CGFloat?
+    @State private var moreBelow = false
 
-    init(maxHeight: CGFloat, @ViewBuilder content: () -> Content) {
+    init(maxHeight: CGFloat, fade: Color? = nil, @ViewBuilder content: () -> Content) {
         self.maxHeight = maxHeight
+        self.fade = fade
         self.content = content()
     }
 
@@ -618,7 +623,22 @@ struct MenuContentScrollView<Content: View>: View {
                 })
         }
         .scrollIndicators(.visible)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentSize.height - geometry.contentOffset.y - geometry.containerSize.height > Space.xs
+        } action: { _, more in
+            moreBelow = more
+        }
         .frame(height: min(contentHeight ?? maxHeight, maxHeight))
+        .overlay(alignment: .bottom) {
+            if let fade {
+                LinearGradient(colors: [fade.opacity(0), fade], startPoint: .top, endPoint: .bottom)
+                    .frame(height: ControlHeight.md)
+                    .opacity(moreBelow ? 1 : 0)
+                    .motion(Motion.reveal, value: moreBelow)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .clipped()
         .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
         // One of these can sit inside another, such as a list that scrolls on its own

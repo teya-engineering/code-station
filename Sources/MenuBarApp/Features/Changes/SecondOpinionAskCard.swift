@@ -70,6 +70,7 @@ struct SecondOpinionAskCard: View {
     @State private var designReading: DesignSecondOpinion.Reading
     @State private var usesServers: Bool
     @State private var note = ""
+    @State private var receiptFilter = ""
     @State private var noteOpen = false
     @State private var tuning = false
     @Namespace private var subjectTrack
@@ -168,7 +169,8 @@ struct SecondOpinionAskCard: View {
         .floatingCard(cornerRadius: Radius.floating)
         .motion(Motion.reveal, value: tuning)
         .background {
-            Button(action: close) { EmptyView() }
+            // Escape clears the receipt's filter before it closes the card.
+            Button { if receiptFilter.isEmpty { close() } else { receiptFilter = "" } } label: { EmptyView() }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 .opacity(0)
@@ -524,15 +526,21 @@ struct SecondOpinionAskCard: View {
     private var changesReceipt: some View {
         let files = context.files(for: stop)
         let reason = context.loading ? nil : context.blockedReason(for: stop)
-        let scale = files.map { $0.added + $0.removed }.max() ?? 1
+        let receipt = ChangeReceipt(files: files, repositoryNames: Dictionary(
+            facts.repositories.map { ($0.root, $0.name) }, uniquingKeysWith: { first, _ in first }))
         let base = stop == .sinceReview ? "Last review" : branchTitle(facts.repositories.count == 1 ? facts.repositories.first?.root : nil)
         return VStack(alignment: .leading, spacing: Space.md) {
             HStack(alignment: .center, spacing: Space.sm) {
                 if context.loading {
                     ChangesProgressLabel(title: "Reading the comparison…").font(Typography.label)
+                } else if reason == nil {
+                    Text("\(Text(counted(files.count, "file") + " in this review").font(Typography.label))"
+                         + "\(Text(receipt.isFlat ? "" : ", in " + counted(receipt.folders.count, "folder")).foregroundStyle(.secondary))")
+                        .font(Typography.detail)
+                        .lineLimit(1)
+                        .contentTransition(.numericText())
                 } else {
-                    Text(reason == nil ? counted(files.count, "file") + " in this review"
-                         : context.failure != nil ? "Nothing to show yet" : "Nothing to review")
+                    Text(context.failure != nil ? "Nothing to show yet" : "Nothing to review")
                         .font(Typography.label)
                         .contentTransition(.opacity)
                 }
@@ -546,30 +554,14 @@ struct SecondOpinionAskCard: View {
             ComparisonRange(base: base, includesCommits: context.usesBranch && stop != .sinceReview,
                             snapshot: stop == .sinceReview, compact: true)
             if context.loading {
-                EmptyView()
+                ReceiptSkeleton()
+                    .transition(.opacity)
             } else if let reason {
                 receiptMessage(reason)
                     .transition(reduceMotion ? .opacity : .fadeIn)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(files) { file in
-                        Button { showFile(file) } label: {
-                            FileBarRow(name: file.path, added: file.added, removed: file.removed,
-                                       scale: scale, nameWidth: ReviewMetrics.fileNameWidth)
-                                .motion(Motion.draw, value: file)
-                                .padding(.horizontal, Space.sm)
-                                .frame(height: ControlHeight.md)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .hoverFill(cornerRadius: Radius.inset)
-                        .appTooltip(file.path)
-                        .accessibilityLabel("Open \(file.path), \(file.added) added, \(file.removed) removed")
-                        .transition(reduceMotion ? .opacity
-                                    : .asymmetric(insertion: .fadeIn, removal: .opacity.animation(Motion.leave)))
-                    }
-                }
-                .padding(.horizontal, -Space.sm)
+                SecondOpinionChangeList(receipt: receipt, filter: $receiptFilter, open: showFile)
+                    .transition(reduceMotion ? .opacity : .fadeIn)
             }
         }
         .contentTransition(.opacity)
@@ -861,6 +853,30 @@ struct SecondOpinionAskCard: View {
         }
         .motion(Motion.control, value: title)
         .motion(Motion.reveal, value: reason)
+    }
+}
+
+// Stand-in rows while the comparison is read, shaped like the file rows that replace
+// them, so the receipt keeps its place instead of jumping when they arrive.
+private struct ReceiptSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<5, id: \.self) { index in
+                HStack(spacing: Space.md) {
+                    RoundedRectangle(cornerRadius: Radius.tag / 2).fill(Theme.border)
+                        .frame(width: Space.lg, height: Space.md)
+                    RoundedRectangle(cornerRadius: Radius.tag / 2).fill(Theme.border)
+                        .frame(width: ReviewMetrics.fileNameWidth - CGFloat(index % 3) * Space.xxxl * 2, height: Space.md)
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: Radius.tag / 2).fill(Theme.field)
+                        .frame(width: ReviewMetrics.receiptBarWidth / 2, height: Space.xs)
+                    RoundedRectangle(cornerRadius: Radius.tag / 2).fill(Theme.field)
+                        .frame(width: ReviewMetrics.receiptFiguresWidth / 2, height: Space.md)
+                }
+                .frame(height: ControlHeight.md)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 

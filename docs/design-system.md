@@ -134,7 +134,7 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 | `lg` | 32 | The standard: a sheet footer, a form, a text field, a button on its own. `ActionButton` uses this. |
 | `xl` | 36 | The one action an empty pane or a whole form is there to offer. |
 
-`FormMetrics` supplies `dialogWidth` for compact forms, `sheetWidth` for project sheets, the guidance editor height and stacking breakpoint. `FormPair` places two fields side by side and stacks them when the dialog is narrow. Pass `minimumWidth` when pairing larger sections, such as a form and its preview. `ReviewMetrics` supplies the ask, preview and findings dimensions.
+`FormMetrics` supplies `dialogWidth` for compact forms, `sheetWidth` for project sheets, the guidance editor height and stacking breakpoint. `FormPair` places two fields side by side and stacks them when the dialog is narrow. Pass `minimumWidth` when pairing larger sections, such as a form and its preview. `ReviewMetrics` supplies the ask, preview, receipt and findings dimensions.
 
 `FormRow` places a label in a 68-point column beside flexible content. Below 360 points it stacks the label above the content. Give it one child for content that shares the same inset without a label.
 
@@ -153,6 +153,8 @@ A block that scrolls inside a taller page, such as tool output, log lines or a t
 | `tall` | 460 | A whole trace waterfall. |
 
 Set it with `.scrollCap(_:)` on the `ScrollView` (`Layout/ScrollCap.swift`), never with `.frame(maxHeight:)`. The modifier scales the cap with the text, and it keeps the block at its own height when the page offers less. A block that gives way makes the page measure shorter than it draws, and the end of the page can no longer be scrolled into view.
+
+A list inside a card that already scrolls, such as the files in the second opinion receipt, uses `MenuContentScrollView` with a `maxHeight` instead, since it stops at its own edge rather than the page's. Pass `fade:` with the surface behind it and the bottom edge fades while more of the list is below. The receipt's height is `ReviewMetrics.receiptListHeight`: nine and a half rows, so the half row also says there is more.
 
 ### Depth
 
@@ -179,6 +181,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 | `Motion.draw` | A line drawing itself. |
 | `Motion.leave` | Anything put away. Leaving is always faster than arriving. |
 | `Motion.flightAcross`, `Motion.flightDown` | A small mark carried across the window. Across eases out and down eases in, which bends the path into a curve. Going home uses `Motion.flightHomeDuration`, which is shorter. |
+| `Motion.stagger` | The step between rows that arrive together, such as the files of a folder opening. Add it as a delay per row, and stop counting after a few rows so a long list does not keep the last one waiting. |
 | `Motion.ring` | A ring spreading out from a mark that has just landed. |
 | `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
 | `Motion.wordmarkPeriod` | The slow colour flow inside the app's wordmark. Core Animation plays it through `LayerLoop`; it pauses when the window is hidden and stays still under Reduce Motion. |
@@ -290,6 +293,8 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A small tag or value | `MonoChip` |
 | Lines added and removed | `DiffPair` |
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. Pass `nameWidth` for compact previews. |
+| Lines added and removed as bars in a list whose names need the room | `DiffBar`: two short bars on a fixed length (`ReviewMetrics.receiptBarWidth`), on a `scale` the rows share. |
+| The shape of a whole change at a glance | `ChangeMap` (`Layout/ChangeMap.swift`): one slice per file, as wide as its lines changed, green over red, with a wider gap between groups and a group's name under it when it is wide enough. Hovering a slice names it and clicking opens it. Pass a `focus` to light one group or file and dim the rest, and use `hover` to light the matching row in the list beside it. It draws in left to right with `Motion.draw` through a mask. It is one image to assistive tech and not a tab stop, so the list beside it must carry the same facts. |
 | The range a review covers | `ComparisonRange`: the base, HEAD and working tree, or the previous review snapshot. It draws the included range without inventing commit counts. Pass `compact: true` for a 30-point strip with no card, at the head of a card that already names the range. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
