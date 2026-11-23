@@ -50,6 +50,7 @@ enum Attachments {
     // so names from different drops cannot clash, and joins as soon as it is there. A file
     // the other app fails to write is reported, since the drop has already been taken.
     // Returns false when there is nowhere to write them, so the drop can be refused.
+    @MainActor
     static func receive(_ promises: [NSFilePromiseReceiver],
                         each: @escaping @MainActor (Attachment) -> Void,
                         failed: @escaping @MainActor () -> Void) -> Bool {
@@ -172,6 +173,8 @@ final class FileDropView: NSView {
     var onDrop: ([Attachment]) -> Void = { _ in }
     // A promised file that never arrived, after the drop was already taken.
     var onFailure: () -> Void = {}
+    // AppKit requires a live drag to receive promises, so tests replace that handoff.
+    var receivePromises = Attachments.receive
 
     // Whether a drag carrying files is over the chat now, so the box is lit and put out
     // once each rather than on every message AppKit sends.
@@ -232,19 +235,23 @@ final class FileDropView: NSView {
 
     override func draggingEnded(_ sender: NSDraggingInfo) { target(false) }
 
-    // Files on disk win over promises: an app that offers both means the file it already has.
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         target(false)
         let pasteboard = sender.draggingPasteboard
-        let files = Pasteboard.fileURLs(from: pasteboard)
+        // The first readable class wins for each item. A promise can carry a better
+        // image than the file URL offered alongside it.
+        let items = pasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self, NSURL.self],
+                                          options: [.urlReadingFileURLsOnly: true]) ?? []
+        let promises = items.compactMap { $0 as? NSFilePromiseReceiver }
+        let files = items.compactMap { $0 as? URL }
+        if !promises.isEmpty {
+            let onDrop = onDrop, onFailure = onFailure
+            guard receivePromises(promises, { onDrop([$0]) }, { onFailure() }) else { return false }
+        }
         if !files.isEmpty {
             onDrop(Attachments.fromDrop(files))
-            return true
         }
-        let promises = pasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self]) as? [NSFilePromiseReceiver] ?? []
-        guard !promises.isEmpty else { return false }
-        let onDrop = onDrop, onFailure = onFailure
-        return Attachments.receive(promises, each: { onDrop([$0]) }, failed: { onFailure() })
+        return !promises.isEmpty || !files.isEmpty
     }
 }
 

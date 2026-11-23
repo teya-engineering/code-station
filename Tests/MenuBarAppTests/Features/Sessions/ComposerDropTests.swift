@@ -1,10 +1,29 @@
 import AppKit
 import SwiftUI
 import Testing
+import UniformTypeIdentifiers
 @testable import MenuBarApp
 
 @MainActor
 struct ComposerDropTests {
+    private final class ImagePromise: NSFilePromiseProvider {
+        var fileURL: URL?
+
+        override init() {
+            super.init()
+            fileType = UTType.png.identifier
+        }
+
+        override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+            super.writableTypes(for: pasteboard) + (fileURL == nil ? [] : [.fileURL])
+        }
+
+        override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+            if type == .fileURL { return fileURL?.absoluteString }
+            return super.pasteboardPropertyList(forType: type)
+        }
+    }
+
     // Only what the text view reads off a drag is real; the rest is never asked for.
     @MainActor
     private final class Drag: NSObject, @preconcurrency NSDraggingInfo {
@@ -46,9 +65,13 @@ struct ComposerDropTests {
     }
 
     private func pasteboard(with url: URL) -> NSPasteboard {
+        pasteboard(with: [url as NSURL])
+    }
+
+    private func pasteboard(with items: [NSPasteboardWriting]) -> NSPasteboard {
         let pasteboard = NSPasteboard(name: .init("composer-drop-\(UUID().uuidString)"))
         pasteboard.clearContents()
-        pasteboard.writeObjects([url as NSURL])
+        pasteboard.writeObjects(items)
         return pasteboard
     }
 
@@ -86,6 +109,75 @@ struct ComposerDropTests {
 
         #expect(dropped == [file])
         #expect(targeted == [true, false])
+    }
+
+    @Test func mixedDropAttachesBothTheFileAndThePromise() throws {
+        let file = URL(fileURLWithPath: "/tmp/existing.png")
+        let promisedFile = URL(fileURLWithPath: "/tmp/promised.png")
+        let promise = ImagePromise()
+        let pasteboard = pasteboard(with: [file as NSURL, promise])
+        defer { pasteboard.releaseGlobally() }
+        let view = FileDropView()
+        var dropped: [URL] = []
+        var deliverPromise: (@MainActor () -> Void)?
+        view.onDrop = { dropped += $0.map(\.url) }
+        view.receivePromises = { promises, each, _ in
+            #expect(promises.count == 1)
+            #expect(promises.first?.fileTypes == [UTType.png.identifier])
+            deliverPromise = { each(Attachment(url: promisedFile)) }
+            return true
+        }
+
+        #expect(view.performDragOperation(Drag(pasteboard)))
+        #expect(dropped == [file])
+        let deliver = try #require(deliverPromise)
+        deliver()
+
+        #expect(dropped == [file, promisedFile])
+    }
+
+    @Test func promiseWinsWhenAnItemAlsoOffersAFileURL() throws {
+        let promisedFile = URL(fileURLWithPath: "/tmp/full-image.png")
+        let promise = ImagePromise()
+        promise.fileURL = URL(fileURLWithPath: "/tmp/preview.png")
+        let pasteboard = pasteboard(with: [promise])
+        defer { pasteboard.releaseGlobally() }
+        let view = FileDropView()
+        var dropped: [URL] = []
+        var deliverPromise: (@MainActor () -> Void)?
+        view.onDrop = { dropped += $0.map(\.url) }
+        view.receivePromises = { promises, each, _ in
+            #expect(promises.count == 1)
+            #expect(promises.first?.fileTypes == [UTType.png.identifier])
+            deliverPromise = { each(Attachment(url: promisedFile)) }
+            return true
+        }
+
+        #expect(view.performDragOperation(Drag(pasteboard)))
+        #expect(dropped.isEmpty)
+        let deliver = try #require(deliverPromise)
+        deliver()
+
+        #expect(dropped == [promisedFile])
+    }
+
+    @Test func mixedDropIsRefusedWhenPromisesCannotBeReceived() {
+        let file = URL(fileURLWithPath: "/tmp/existing.png")
+        let promise = ImagePromise()
+        let pasteboard = pasteboard(with: [file as NSURL, promise])
+        defer { pasteboard.releaseGlobally() }
+        let view = FileDropView()
+        var dropped: [URL] = []
+        var receivedPromise = false
+        view.onDrop = { dropped += $0.map(\.url) }
+        view.receivePromises = { _, _, _ in
+            receivedPromise = true
+            return false
+        }
+
+        #expect(!view.performDragOperation(Drag(pasteboard)))
+        #expect(receivedPromise)
+        #expect(dropped.isEmpty)
     }
 
     @Test func chatDropLetsClicksAndTextThrough() {
