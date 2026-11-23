@@ -57,7 +57,9 @@ enum Motion {
     // read as a list unfolding rather than a block appearing.
     static let stagger: TimeInterval = 0.02
 
-    static let wordmarkPeriod: TimeInterval = 12
+    static let brandOrbitDuration: TimeInterval = 1.12
+    static let brandGleamDuration: TimeInterval = 1.6
+    static let wordmarkPeriod: TimeInterval = 2.2
 
     // The curve a line draws on. Kept in one place so the SwiftUI marks and the ones
     // Core Animation plays in AppKit views move the same way.

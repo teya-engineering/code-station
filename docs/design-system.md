@@ -82,7 +82,8 @@ Roles come from `Typography` (`Tokens.swift`). A role fixes the size and the fac
 - **Icons follow their text.** An SF Symbol beside a label takes the label's size and weight. A glyph that stands alone, such as a small chevron or a large empty-state mark, may set its own size.
 - **Reading text scales.** The transcript, tool output, diffs and the terminal follow the size the person picked. Use `.scaledText`, `.scaledMono` and `.scaledSerif` there, with a size from `Typography.Size`. The chrome around them stays fixed.
 - `Font.logo` is only for the wordmark.
-- `BrandWordmark` draws the Code Station name in Sora with green, teal and gold flowing inside the letters. It keeps the text's size and accessibility label, uses `Theme.wordmarkColours` for both appearances and follows the reading scale. Use it for the sidebar brand name.
+- `BrandWordmark` draws the Code Station name in Sora, in `Theme.accent` at rest. Pass the brand bar's hover state and pointer position to flow green, teal and gold through the fixed text mask on hover. It keeps the text's size and accessibility label, uses `Theme.wordmarkColours` for both appearances and follows the reading scale. Reduce Motion gives hover a still gradient. Keyboard focus never starts playback.
+- `BrandMetrics` keeps the sidebar lockup's drawing size, layout size, owner label and gap fixed. The mark uses the original nine-dot geometry from `AppMark`; only its dots move during the hover orbit. The tile and text container stay anchored.
 
 ### Space
 
@@ -184,7 +185,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 | `Motion.stagger` | The step between rows that arrive together, such as the files of a folder opening. Add it as a delay per row, and stop counting after a few rows so a long list does not keep the last one waiting. |
 | `Motion.ring` | A ring spreading out from a mark that has just landed. |
 | `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
-| `Motion.wordmarkPeriod` | The slow colour flow inside the app's wordmark. Core Animation plays it through `LayerLoop`; it pauses when the window is hidden and stays still under Reduce Motion. |
+| `Motion.brandOrbitDuration`, `Motion.brandGleamDuration`, `Motion.wordmarkPeriod` | The brand's finite dot orbit, one entry gleam and repeating hover colour flow. Core Animation plays them without a frame clock. `BrandLayerView` cancels playback when the window loses focus or becomes hidden; another pointer entry is needed to start again. Exit returns to rest on `Motion.leaveDuration`. |
 
 - Animate with `.motion(_:value:)`, so it turns off under Reduce Motion. Every transition takes `reduceMotion` and falls back to a plain fade.
 - Buttons and pills use `.hoverLift`. Rows use `.hoverFill`. Track the pointer with `.onPointerHover`.
@@ -194,7 +195,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 - Words put into a text field by a pick, such as a slash command chosen from the menu, are marked where they land with `TextWash.play(over:in:colour:)` (`Motion/TextWash.swift`): a short wash of the colour that fades on `Motion.washDuration`. Core Animation plays it, so the text is not drawn again, and an edit clears it. Leave it out under Reduce Motion.
 - A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
-- Motion confirms what the person did and never makes them wait. The brand wordmark's quiet colour flow is the only decorative loop; other motion answers an action or shows work in progress.
+- Motion confirms what the person did and never makes them wait. The brand wordmark's colour flow is decorative and runs only while hovered; other motion answers an action or shows work in progress.
 
 The full motion rules are in `CLAUDE.md`.
 
