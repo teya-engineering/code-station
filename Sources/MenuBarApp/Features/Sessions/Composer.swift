@@ -40,10 +40,12 @@ struct Composer<Above: View, Accessory: View>: View {
     var onSuggestionKey: ((SuggestionKey) -> Bool)? = nil
     // Whether the box has a microphone.
     var dictates = false
+    // Whether files are being dragged over the chat the box sits in. The chat takes the
+    // drop, and the box lights up because that is where the files land.
+    var fileDragOver = false
     @ViewBuilder let above: Above
     @ViewBuilder let accessory: Accessory
 
-    @State private var dropTargeted = false
     @State private var commands: [AgentCommand] = []
     @State private var commandSelection = 0
     // Whether the arrows have walked the menu for the word at the caret. Further into a
@@ -144,8 +146,6 @@ struct Composer<Above: View, Accessory: View>: View {
                               onCaretChange: { caret = $0 },
                               onSuggestionKey: onSuggestionKey,
                               onCommandKey: commandKey,
-                              onDropFiles: blocked ? nil : { attach(Attachments.fromDrop($0)) },
-                              onFileDragTargeted: { dropTargeted = $0 },
                               minimumLines: minimumLines,
                               listening: listening,
                               marks: dictationMarks,
@@ -218,9 +218,9 @@ struct Composer<Above: View, Accessory: View>: View {
         .padding(.bottom, Space.lg)
         .background(Theme.card)
         .overlay(RoundedRectangle(cornerRadius: Radius.card)
-            .stroke(Theme.accent, lineWidth: dropTargeted ? 2 : 0)
+            .stroke(Theme.accent, lineWidth: fileDragOver ? 2 : 0)
             .padding(Space.sm))
-        .motion(Motion.hover, value: dropTargeted)
+        .motion(Motion.hover, value: fileDragOver)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
         .overlay(alignment: .topLeading) { promptFlight }
         .onChange(of: runner.composer.flight(sessionID)?.id) { _, id in
@@ -269,11 +269,6 @@ struct Composer<Above: View, Accessory: View>: View {
             dictationKeys.start(stop: { dictation.stop() }, throwAway: { dictation.throwAway() })
         }
         .pasteAttachments(enabled: isFocused && !blocked) { attach($0) }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !blocked else { return false }
-            attach(Attachments.fromDrop(urls))
-            return true
-        } isTargeted: { dropTargeted = $0 }
     }
 
     // What keeps the command menu in step with the field: the commands on offer, the word

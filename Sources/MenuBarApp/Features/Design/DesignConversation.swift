@@ -199,6 +199,7 @@ struct DesignConversation: View {
     @State private var composerHeight: CGFloat = 167
     @State private var transcriptHeight: CGFloat = .infinity
     @State private var waitNoticeDismissed = false
+    @State private var fileDragOver = false
 
     private var sessionID: UUID { session.id }
 
@@ -245,6 +246,13 @@ struct DesignConversation: View {
             .frame(maxHeight: .infinity)
         }
         .onPointerHover { conversationHovered = $0 }
+        // Off while the panel is put away, so a file dropped on the canvas behind it is not
+        // taken by a chat that is not on screen.
+        .fileDrop(enabled: !conversationMinimized && !composerBlocked(session),
+                  isTargeted: $fileDragOver) { dropped in
+            runner.composer.attach(dropped, to: sessionID)
+            composerFocused = true
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Conversation")
         // The panel stays built while it is small, so the transcript keeps its scroll
@@ -545,9 +553,13 @@ struct DesignConversation: View {
 
     // MARK: - Composer
 
-    private func designComposer(_ session: ChatSession) -> some View {
-        let blocked = !FileManager.default.fileExists(atPath: store.workingDirectory(for: session) ?? "")
+    private func composerBlocked(_ session: ChatSession) -> Bool {
+        !FileManager.default.fileExists(atPath: store.workingDirectory(for: session) ?? "")
             || !runner.catalog.isAvailable(session.agent)
+    }
+
+    private func designComposer(_ session: ChatSession) -> some View {
+        let blocked = composerBlocked(session)
         return Composer(sessionID: sessionID,
                         agent: session.agent,
                         blocked: blocked,
@@ -561,6 +573,7 @@ struct DesignConversation: View {
                         onRecallDown: { runner.recallLater(sessionID) },
                         onSend: { promptSentAt = .now },
                         dictates: !conversationMinimized,
+                        fileDragOver: fileDragOver,
                         above: {
                             // The panel shares its height with the transcript, so about
                             // three rows show and the rest scroll.

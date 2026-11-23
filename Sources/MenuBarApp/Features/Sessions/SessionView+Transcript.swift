@@ -55,6 +55,10 @@ extension SessionView {
             composer(session: session, project: project, blocked: blocked)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fileDrop(enabled: !blocked, isTargeted: $fileDragOver) { dropped in
+            runner.composer.attach(dropped, to: sessionID)
+            composerFocused = true
+        }
     }
 
     // Reply is offered only while the composer can take the quote and send it.

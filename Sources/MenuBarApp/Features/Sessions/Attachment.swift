@@ -45,6 +45,29 @@ enum Attachments {
         urls.filter(\.isFileURL).map { Attachment(url: $0) }
     }
 
+    // Files another app promises rather than hands over: a screenshot's thumbnail, a
+    // photo from Photos, an image in a browser. Each is written into a folder of its own,
+    // so names from different drops cannot clash, and joins as soon as it is there. A file
+    // the other app fails to write is reported, since the drop has already been taken.
+    // Returns false when there is nowhere to write them, so the drop can be refused.
+    static func receive(_ promises: [NSFilePromiseReceiver],
+                        each: @escaping @MainActor (Attachment) -> Void,
+                        failed: @escaping @MainActor () -> Void) -> Bool {
+        let directory = folder.appendingPathComponent("dropped-\(UUID().uuidString.prefix(8))")
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil
+        else { return false }
+        let queue = OperationQueue()
+        queue.qualityOfService = .userInitiated
+        for promise in promises {
+            promise.receivePromisedFiles(atDestination: directory, options: [:], operationQueue: queue) { url, error in
+                Task { @MainActor in
+                    if error == nil { each(Attachment(url: url)) } else { failed() }
+                }
+            }
+        }
+        return true
+    }
+
     static func fromPastedText(_ text: String) -> Attachment? {
         let name = "pasted-text-\(UUID().uuidString.prefix(8)).txt"
         let url = folder.appendingPathComponent(name)
@@ -134,6 +157,117 @@ private struct PasteCatcher: ViewModifier {
 extension View {
     func pasteAttachments(enabled: Bool, onPaste: @escaping ([Attachment]) -> Void) -> some View {
         modifier(PasteCatcher(isEnabled: enabled, onPaste: onPaste))
+    }
+}
+
+// MARK: - Dropping onto a chat
+
+// Files dropped anywhere on a chat, not only on the box they join. AppKit hands a drag to
+// the front-most view registered for what it carries, so a view laid over the whole chat
+// takes every file before the transcript or the text view can. It lets clicks through to
+// the views underneath, and registers only for files, so text dragged into the box still
+// reaches the box.
+final class FileDropView: NSView {
+    var onTargeted: (Bool) -> Void = { _ in }
+    var onDrop: ([Attachment]) -> Void = { _ in }
+    // A promised file that never arrived, after the drop was already taken.
+    var onFailure: () -> Void = {}
+
+    // Whether a drag carrying files is over the chat now, so the box is lit and put out
+    // once each rather than on every message AppKit sends.
+    private var targeted = false
+
+    // A chat that cannot take files lets the drag through rather than lighting up for it.
+    var isEnabled = true {
+        didSet {
+            guard isEnabled != oldValue else { return }
+            guard !isEnabled else { return registerForDraggedTypes(Self.types) }
+            unregisterDraggedTypes()
+            // A chat turned off under a drag may never hear that the drag left, so the box
+            // is put out here. After this update, since SwiftUI is partway through one.
+            guard targeted else { return }
+            targeted = false
+            Task { @MainActor [weak self] in
+                guard let self, !targeted else { return }
+                onTargeted(false)
+            }
+        }
+    }
+
+    private func target(_ over: Bool) {
+        guard targeted != over else { return }
+        targeted = over
+        onTargeted(over)
+    }
+
+    static let types: [NSPasteboard.PasteboardType] =
+        [.fileURL] + NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        registerForDraggedTypes(Self.types)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func carriesFiles(_ drag: NSDraggingInfo) -> Bool {
+        let pasteboard = drag.draggingPasteboard
+        return pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+            || pasteboard.canReadObject(forClasses: [NSFilePromiseReceiver.self])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard isEnabled, carriesFiles(sender) else { return [] }
+        target(true)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        isEnabled && carriesFiles(sender) ? .copy : []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { target(false) }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) { target(false) }
+
+    // Files on disk win over promises: an app that offers both means the file it already has.
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        target(false)
+        let pasteboard = sender.draggingPasteboard
+        let files = Pasteboard.fileURLs(from: pasteboard)
+        if !files.isEmpty {
+            onDrop(Attachments.fromDrop(files))
+            return true
+        }
+        let promises = pasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self]) as? [NSFilePromiseReceiver] ?? []
+        guard !promises.isEmpty else { return false }
+        let onDrop = onDrop, onFailure = onFailure
+        return Attachments.receive(promises, each: { onDrop([$0]) }, failed: { onFailure() })
+    }
+}
+
+private struct FileDropArea: NSViewRepresentable {
+    let isEnabled: Bool
+    let isTargeted: Binding<Bool>
+    let onDrop: ([Attachment]) -> Void
+
+    func makeNSView(context: Context) -> FileDropView { FileDropView() }
+
+    func updateNSView(_ view: FileDropView, context: Context) {
+        view.onTargeted = { isTargeted.wrappedValue = $0 }
+        view.onDrop = onDrop
+        let note = context.environment.showExternalNote
+        view.onFailure = { note("A dropped file could not be added", "exclamationmark.triangle") }
+        view.isEnabled = isEnabled
+    }
+}
+
+extension View {
+    func fileDrop(enabled: Bool, isTargeted: Binding<Bool>,
+                  onDrop: @escaping ([Attachment]) -> Void) -> some View {
+        overlay(FileDropArea(isEnabled: enabled, isTargeted: isTargeted, onDrop: onDrop))
     }
 }
 

@@ -71,6 +71,68 @@ struct ComposerDropTests {
         _ = coordinator
     }
 
+    @Test func fileDroppedAnywhereOnTheChatBecomesAnAttachment() {
+        let view = FileDropView()
+        var dropped: [URL] = []
+        var targeted: [Bool] = []
+        view.onDrop = { dropped += $0.map(\.url) }
+        view.onTargeted = { targeted.append($0) }
+        let file = URL(fileURLWithPath: "/tmp/screenshot.png")
+        let drag = Drag(pasteboard(with: file))
+
+        #expect(view.draggingEntered(drag) == .copy)
+        #expect(view.draggingUpdated(drag) == .copy)
+        #expect(view.performDragOperation(drag))
+
+        #expect(dropped == [file])
+        #expect(targeted == [true, false])
+    }
+
+    @Test func chatDropLetsClicksAndTextThrough() {
+        let view = FileDropView()
+
+        #expect(view.hitTest(NSPoint(x: 1, y: 1)) == nil)
+        #expect(view.registeredDraggedTypes.contains(.fileURL))
+        #expect(!view.registeredDraggedTypes.contains(.string))
+    }
+
+    @Test func chatThatCannotTakeFilesLetsTheDragThrough() {
+        let view = FileDropView()
+        var targeted: [Bool] = []
+        view.onTargeted = { targeted.append($0) }
+        view.isEnabled = false
+
+        #expect(view.registeredDraggedTypes.isEmpty)
+        #expect(view.draggingEntered(Drag(pasteboard(with: URL(fileURLWithPath: "/tmp/a.png")))) == [])
+        #expect(targeted.isEmpty)
+
+        view.isEnabled = true
+        #expect(view.registeredDraggedTypes.contains(.fileURL))
+    }
+
+    @Test func webLinkIsNotTakenAsAFile() {
+        let view = FileDropView()
+        var targeted: [Bool] = []
+        view.onTargeted = { targeted.append($0) }
+        let drag = Drag(pasteboard(with: URL(string: "https://example.com/cat.png")!))
+
+        #expect(view.draggingEntered(drag) == [])
+        #expect(!view.performDragOperation(drag))
+        #expect(targeted.isEmpty)
+    }
+
+    @Test func chatTurnedOffUnderADragPutsTheBoxOut() async {
+        let view = FileDropView()
+        var targeted: [Bool] = []
+        view.onTargeted = { targeted.append($0) }
+
+        #expect(view.draggingEntered(Drag(pasteboard(with: URL(fileURLWithPath: "/tmp/a.png")))) == .copy)
+        view.isEnabled = false
+        for _ in 0..<10 where targeted.count < 2 { await Task.yield() }
+
+        #expect(targeted == [true, false])
+    }
+
     @Test func fileDragIsLeftToTheTextViewWhenTheBoxTakesNoFiles() {
         var targeted: [Bool] = []
         let (view, coordinator) = editor(onDropFiles: nil, onTargeted: { targeted.append($0) })
