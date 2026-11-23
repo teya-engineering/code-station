@@ -87,6 +87,36 @@ struct SecondOpinionAskTests {
         #expect(SecondOpinionAsk.litFiles(.answer, facts: changed, sinceReview: nil) == nil)
     }
 
+    @Test func theWholeBranchFollowsWhatTheChangesScreenComparesWith() {
+        let feature = SecondOpinionAskFacts.File(root: "/repo", path: "retry/Backoff.java", added: 40, removed: 2)
+        var compared = facts(files: [retry], file: retry, turns: turns)
+        compared.branch = .init(base: "origin/main", files: [feature, retry])
+        #expect(SecondOpinionAsk.stops(compared) == [.file, .uncommitted, .branch, .conversation])
+        // From the header, the screen's comparison decides what is proposed.
+        #expect(SecondOpinionAsk.initialStop(compared) == .branch)
+        #expect(SecondOpinionAsk.title(.branch, facts: compared) == "Changes from origin/main")
+        #expect(SecondOpinionAsk.fact(.branch, facts: compared) == "2 files")
+        #expect(SecondOpinionAsk.proposal(.branch, facts: compared, reviewers: [.codex])
+                == "Codex reviews everything this branch changes from origin/main")
+        #expect(SecondOpinionAsk.litFiles(.branch, facts: compared, sinceReview: nil) == [feature.id, retry.id])
+        #expect(SecondOpinionAsk.files(.branch, facts: compared) == [feature, retry])
+        #expect(SecondOpinionAsk.files(.uncommitted, facts: compared) == [retry])
+
+        // Compared with the last commit, the uncommitted changes lead as before.
+        compared.branch = nil
+        #expect(!SecondOpinionAsk.stops(compared).contains(.branch))
+        #expect(SecondOpinionAsk.initialStop(compared) == .uncommitted)
+    }
+
+    @Test func aPromptOnTheWholeBranchSaysWhatItIsComparedWith() {
+        #expect(SecondOpinion.prompt(for: [], base: "origin/main")
+                .contains("all the changes compared with origin/main, both committed and not yet committed"))
+        #expect(SecondOpinionRequest.Scope.branch(bases: ["/a": "origin/main", "/b": "origin/main"]).base == "origin/main")
+        #expect(SecondOpinionRequest.Scope.branch(bases: ["/a": "origin/main", "/b": "origin/dev"]).base
+                == "each project's base branch")
+        #expect(SecondOpinionRequest.Scope.all.base == nil)
+    }
+
     @Test func theAskButtonNamesWhoIsAskedOrWhatIsMissing() {
         let codex = SecondOpinion.Reviewer(agent: .codex)
         let copilot = SecondOpinion.Reviewer(agent: .copilot)

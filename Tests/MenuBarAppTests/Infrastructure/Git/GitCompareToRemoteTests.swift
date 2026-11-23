@@ -274,6 +274,35 @@ struct GitCompareToRemoteTests {
         #expect(merged[0].isUnstaged)
     }
 
+    @Test func aSecondOpinionOnTheWholeBranchReadsWhatItCommittedToo() async throws {
+        let (repo, remote) = try branchedFromOrigin()
+        defer { withExtendedLifetime(remote) {} }
+        try repo.write("feature.txt", "feature\n")
+        try repo.git("add", "feature.txt")
+        try repo.git("commit", "-qm", "Add feature")
+        try repo.write("README.md", "changed")
+        let root = try repo.git("rev-parse", "--show-toplevel").trimmingCharacters(in: .whitespacesAndNewlines)
+        func request(_ scope: SecondOpinionRequest.Scope) -> SecondOpinionRequest {
+            SecondOpinionRequest(scope: scope, repositories: [ReviewRepository(root: repo.path, name: "repo")],
+                                 executable: "/bin/false")
+        }
+
+        let uncommitted = await SecondOpinion.patches(for: request(.all))
+        #expect(uncommitted.map(\.path) == ["README.md"])
+
+        let branch = await SecondOpinion.patches(for: request(.branch(bases: [repo.path: "origin/main"])))
+        #expect(branch.map(\.path) == ["feature.txt", "README.md"])
+        #expect(branch.first?.text.contains("+feature") == true)
+        #expect(branch.allSatisfy { $0.root == root })
+
+        let file = await SecondOpinion.patches(for: request(.file(root: root, path: "feature.txt", base: "origin/main")))
+        #expect(file.map(\.path).contains("feature.txt"))
+
+        // A base the remote no longer has falls back to the uncommitted changes.
+        let gone = await SecondOpinion.patches(for: request(.branch(bases: [repo.path: "origin/deleted"])))
+        #expect(gone.map(\.path).contains("README.md"))
+    }
+
     // The bare remote is deleted with its object, so the caller keeps it alive.
     private func branchedFromOrigin() throws -> (GitRepo, GitRepo) {
         let repo = try GitRepo()

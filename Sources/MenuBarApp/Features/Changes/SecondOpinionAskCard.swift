@@ -177,7 +177,7 @@ struct SecondOpinionAskCard: View {
     private var preview: some View {
         Group {
             switch stop {
-            case .file, .sinceReview, .uncommitted: filesPreview
+            case .file, .sinceReview, .uncommitted, .branch: filesPreview
             case .answer: answerPreview
             case .conversation: conversationPreview
             case .design: designPreview
@@ -196,10 +196,11 @@ struct SecondOpinionAskCard: View {
 
     private var filesPreview: some View {
         let lit = SecondOpinionAsk.litFiles(stop, facts: facts, sinceReview: sinceReviewFiles) ?? []
+        let files = SecondOpinionAsk.files(stop, facts: facts)
         // Files in scope lead, so a narrow scope is never below the fold.
-        let ordered = facts.files.filter { lit.contains($0.id) } + facts.files.filter { !lit.contains($0.id) }
+        let ordered = files.filter { lit.contains($0.id) } + files.filter { !lit.contains($0.id) }
         let fits = ordered.count > Self.previewRows ? Self.previewRows - 1 : Self.previewRows
-        let scale = facts.files.map { $0.added + $0.removed }.max() ?? 1
+        let scale = files.map { $0.added + $0.removed }.max() ?? 1
         return VStack(alignment: .leading, spacing: Space.sm) {
             if stop == .sinceReview && sinceReviewFiles == nil {
                 Text("Working out what changed since the review…")
@@ -288,7 +289,7 @@ struct SecondOpinionAskCard: View {
     private var codeLines: (added: Int, removed: Int)? {
         guard let lit = SecondOpinionAsk.litFiles(stop, facts: facts, sinceReview: sinceReviewFiles),
               stop != .sinceReview else { return nil }
-        let files = facts.files.filter { lit.contains($0.id) }
+        let files = SecondOpinionAsk.files(stop, facts: facts).filter { lit.contains($0.id) }
         return (files.reduce(0) { $0 + $1.added }, files.reduce(0) { $0 + $1.removed })
     }
 
@@ -465,7 +466,7 @@ struct SecondOpinionAskCard: View {
         case .conversation:
             ToggleChip(fixed: "The conversation")
             ToggleChip("Project files", isOn: $chatReading.files)
-        case .file, .sinceReview, .uncommitted:
+        case .file, .sinceReview, .uncommitted, .branch:
             ToggleChip(fixed: "The changes")
             ToggleChip(fixed: "Project files")
         case .design:

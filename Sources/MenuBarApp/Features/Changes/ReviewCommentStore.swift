@@ -296,7 +296,7 @@ final class ReviewCommentStore {
         let searchPath = ProcessManager.searchPath
         tasks[sessionID, default: [:]][reviewer] = Task { [weak self] in
             var patches = await SecondOpinion.patches(for: request)
-            if case .file(let root, let path) = request.scope {
+            if case .file(let root, let path, _) = request.scope {
                 patches = patches.filter { $0.root == root && $0.path == path }
             }
             guard !Task.isCancelled else { return }
@@ -310,6 +310,7 @@ final class ReviewCommentStore {
                     patches, reviewer: reviewer, executable: request.executable, searchPath: searchPath,
                     repositories: request.repositories.map { (root: $0.root, name: $0.name) },
                     focus: request.focus, note: request.note, sinceReview: request.scope.isSinceReview,
+                    base: request.scope.base,
                     servers: request.servers,
                     activity: { [weak self] text in
                         Task { @MainActor in self?.setActivity(text, reviewer: reviewer, in: sessionID) }

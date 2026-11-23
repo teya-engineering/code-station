@@ -28,6 +28,9 @@ final class SessionSecondOpinion {
         var design: ChatSession?
         // The page in view is the Design's canvas.
         var showsDesign = false
+        // What the Changes screen last read for each project root, which holds the
+        // branch's changes from its base while that screen compares with one.
+        var compared: [String: GitSnapshot] = [:]
     }
 
     // The reviewers last asked from this session, whatever they were asked about.
@@ -90,17 +93,34 @@ final class SessionSecondOpinion {
 
         var facts = SecondOpinionAskFacts(origin: origin)
         facts.answer = chatSubject.map { .init(subject: $0, picked: picked != nil) }
-        for root in store.workingDirectories(for: session) {
-            guard let snapshot = gitStats.snapshot(at: root) else { continue }
-            facts.files += snapshot.files.map { change in
+        func files(_ snapshot: GitSnapshot, root: String) -> [SecondOpinionAskFacts.File] {
+            snapshot.files.map { change in
                 .init(root: snapshot.root.isEmpty ? root : snapshot.root, path: change.path,
                       added: change.added ?? 0, removed: change.removed ?? 0)
             }
         }
+        // A project the Changes screen does not compare with a base adds its uncommitted
+        // files to the branch, the way a run reads it.
+        var branchFiles: [SecondOpinionAskFacts.File] = []
+        var bases: [String] = []
+        for root in store.workingDirectories(for: session) {
+            let uncommitted = gitStats.snapshot(at: root).map { files($0, root: root) }
+            facts.files += uncommitted ?? []
+            if let compared = screen.compared[root], compared.comparedToRemote, let base = compared.remoteBase {
+                bases.append(base.ref)
+                branchFiles += files(compared, root: root)
+            } else {
+                branchFiles += uncommitted ?? []
+            }
+        }
+        if !bases.isEmpty && branchFiles != facts.files {
+            facts.branch = .init(base: Set(bases).count == 1 ? bases[0] : "each project's base", files: branchFiles)
+        }
+        let pickable = facts.branch?.files ?? facts.files
         if let file {
-            facts.file = facts.files.first { $0.path == file.path && ($0.root == file.root || facts.files.count(where: { $0.path == file.path }) == 1) }
+            facts.file = pickable.first { $0.path == file.path && ($0.root == file.root || pickable.count(where: { $0.path == file.path }) == 1) }
         } else if let picked = screen.selectedChange {
-            facts.file = facts.files.first { $0.path == picked.path }
+            facts.file = pickable.first { $0.path == picked.path }
         }
         facts.canReadSince = runner.reviews.latestTrees(session.id) != nil
         if let design = screen.design,
@@ -220,13 +240,14 @@ final class SessionSecondOpinion {
                 anchor: choice.stop == .conversation
                     ? latestAnswer(in: session, state: state)?.id : ask.chatAnchor,
                 in: session.id)
-        case .file, .sinceReview, .uncommitted:
+        case .file, .sinceReview, .uncommitted, .branch:
             navigation.secondOpinionFocus = choice.changesFocus
             navigation.secondOpinionNote = choice.note
             navigation.secondOpinionServers = servers
             navigation.secondOpinionScope = switch choice.stop {
             case .file: .file
             case .sinceReview: .sinceReview
+            case .branch: .branch
             default: .all
             }
             navigation.secondOpinionRequest = .ask(choice.lineup)

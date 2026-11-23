@@ -170,16 +170,22 @@ enum SecondOpinion {
 
     // MARK: - Gathering the changes
 
-    static func patches(for repositories: [(root: String, name: String)]) async -> [Patch] {
+    // Each project against the base named for it, when it has one and the remote still
+    // has it, and against the last commit otherwise.
+    static func patches(for repositories: [(root: String, name: String)],
+                        bases: [String: String] = [:]) async -> [Patch] {
         let spansProjects = repositories.count > 1
         var patches: [Patch] = []
         for repository in repositories {
+            let base = bases[repository.root]
             let snapshot = await GitInspector.snapshot(at: repository.root, lane: .interactive,
-                                                       comparingToLastCommit: true)
+                                                       comparingToLastCommit: true,
+                                                       comparingToRemote: base != nil, remoteRef: base)
             guard snapshot.state == .ready else { continue }
             for file in snapshot.files where !file.isBinary {
                 guard case .success(let text) = await GitInspector.copyText(
-                    for: file, root: snapshot.root, version: .patch), !text.isBlank else { continue }
+                    for: file, root: snapshot.root, version: .patch, base: snapshot.diffBase(for: file)),
+                      !text.isBlank else { continue }
                 patches.append(Patch(root: snapshot.root, path: file.path,
                                      label: spansProjects ? repository.name + "/" + file.path : file.path,
                                      text: text, deleted: file.kind == .deleted))
@@ -188,12 +194,20 @@ enum SecondOpinion {
         return patches
     }
 
-    // The changes a request asks for: everything uncommitted, or only what changed after
-    // the last review was sent, read from the tree recorded in each project then.
+    // The changes a request asks for: everything uncommitted, everything the branch
+    // changes from its base, or only what changed after the last review was sent, read
+    // from the tree recorded in each project then.
     static func patches(for request: SecondOpinionRequest) async -> [Patch] {
         let repositories = request.repositories.map { (root: $0.root, name: $0.name) }
-        guard case .sinceReview(let trees) = request.scope else {
-            return await patches(for: repositories)
+        let trees: [String: String]
+        switch request.scope {
+        case .all: return await patches(for: repositories)
+        case .branch(let bases): return await patches(for: repositories, bases: bases)
+        // The run keeps only the one file, so the base can go to every project.
+        case .file(_, _, let base):
+            return await patches(for: repositories,
+                                 bases: base.map { base in Dictionary(repositories.map { ($0.root, base) }) { first, _ in first } } ?? [:])
+        case .sinceReview(let recorded): trees = recorded
         }
         let spansProjects = repositories.count > 1
         var patches: [Patch] = []
@@ -236,7 +250,8 @@ enum SecondOpinion {
     // MARK: - Asking
 
     static func prompt(for patches: [Patch], repositories: [(root: String, name: String)] = [],
-                       focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false) -> String {
+                       focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false,
+                       base: String? = nil) -> String {
         var budget = patchBudget
         var shown: [String] = []
         var left: [String] = []
@@ -263,6 +278,8 @@ enum SecondOpinion {
         """
         if sinceReview {
             text += "\n\nThese are only the changes made after the author's last review was sent, so they are mostly fixes for that review. Check that the fixes are right and did not break anything else."
+        } else if let base {
+            text += "\n\nThese are all the changes compared with \(base), both committed and not yet committed. Review them as one change, the way a pull request is reviewed."
         }
         if !repositories.isEmpty {
             text += "\n\nProject roots (the first is the working directory):\n"
@@ -410,14 +427,14 @@ enum SecondOpinion {
     static func review(_ patches: [Patch], reviewer: Reviewer, executable: String,
                        searchPath: String, repositories: [(root: String, name: String)],
                        focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false,
-                       servers: ServerAccess? = nil,
+                       base: String? = nil, servers: ServerAccess? = nil,
                        activity: @escaping @Sendable (String) -> Void = { _ in }) async -> Result<[ReviewComment], Failure> {
         let agent = reviewer.agent
         guard let directory = repositories.first?.root else {
             return .failure(Failure(message: "There is no project to review."))
         }
         let prompt = prompt(for: patches, repositories: repositories, focus: focus, note: note,
-                            sinceReview: sinceReview)
+                            sinceReview: sinceReview, base: base)
         let output = await run(agent: agent, executable: executable, searchPath: searchPath, directory: directory,
                                timeout: .seconds(420), writing: "Writing findings", servers: servers,
                                activity: activity) { codexServers, copilotServers in
@@ -702,14 +719,29 @@ enum SecondOpinion {
 struct SecondOpinionRequest: Equatable, Sendable {
     enum Scope: Equatable, Sendable {
         case all
-        case file(root: String, path: String)
+        // One file, read against the base the Changes screen compares it with when there
+        // is one, else against the last commit.
+        case file(root: String, path: String, base: String? = nil)
         // Only what changed after the last review was sent, compared against the tree
         // recorded in each project at that moment.
         case sinceReview(trees: [String: String])
+        // Everything each branch changes from its base, committed or not, keyed by
+        // project root. A project with no base gives its uncommitted changes.
+        case branch(bases: [String: String])
 
         var isSinceReview: Bool {
             if case .sinceReview = self { return true }
             return false
+        }
+
+        // The base named in the prompt, when every project is read against the same one.
+        var base: String? {
+            switch self {
+            case .file(_, _, let base): base
+            case .branch(let bases):
+                Set(bases.values).count > 1 ? "each project's base branch" : bases.values.first
+            case .all, .sinceReview: nil
+            }
         }
     }
 

@@ -4,7 +4,7 @@ import Foundation
 // The ask shows them as stops along one track, and only the stops with something behind
 // them: no "Not committed" when nothing is, no "Whole chat" before there is a chat.
 enum SecondOpinionStop: Hashable, CaseIterable {
-    case file, answer, sinceReview, uncommitted, design, conversation
+    case file, answer, sinceReview, uncommitted, branch, design, conversation
 
     // Where the results land: a card under the answer, findings on the diff, or notes
     // pinned on the design.
@@ -15,7 +15,7 @@ enum SecondOpinionStop: Hashable, CaseIterable {
     var kind: Kind {
         switch self {
         case .answer, .conversation: .chat
-        case .file, .sinceReview, .uncommitted: .changes
+        case .file, .sinceReview, .uncommitted, .branch: .changes
         case .design: .design
         }
     }
@@ -44,6 +44,14 @@ struct SecondOpinionAskFacts: Equatable {
         var name: String { (path as NSString).lastPathComponent }
     }
 
+    // What the branch changes from the base the Changes screen compares it with,
+    // committed or not.
+    struct Branch: Equatable {
+        // The base's name, such as origin/main.
+        var base: String
+        var files: [File]
+    }
+
     struct Turn: Equatable {
         var fromPerson: Bool
         var text: String
@@ -53,7 +61,11 @@ struct SecondOpinionAskFacts: Equatable {
     var answer: Answer?
     // Every uncommitted file, in every project the session works in.
     var files: [File] = []
-    // The file picked on the Changes screen, which a review can be held to.
+    // Nil while the Changes screen compares with the last commit, or when the branch
+    // changes nothing that is not also uncommitted.
+    var branch: Branch?
+    // The file picked on the Changes screen, which a review can be held to. While that
+    // screen compares with a base, its counts are against the base too.
     var file: File?
     // A review has been sent, so what changed after it can be read on its own.
     var canReadSince = false
@@ -73,6 +85,7 @@ enum SecondOpinionAsk {
         if facts.answer != nil { stops.append(.answer) }
         if facts.canReadSince && !facts.files.isEmpty { stops.append(.sinceReview) }
         if !facts.files.isEmpty { stops.append(.uncommitted) }
+        if facts.branch?.files.isEmpty == false { stops.append(.branch) }
         if facts.designScreens != nil { stops.append(.design) }
         // With one answer, the whole chat is that answer and its question, which the
         // answer's own stop already reads.
@@ -82,7 +95,8 @@ enum SecondOpinionAsk {
 
     // What a click proposes before the person changes anything. Under an answer or on a
     // file it is that thing. From the header it is named by where the work stands: a plan
-    // waiting on an answer first, then the design when it is on screen, then the
+    // waiting on an answer first, then the design when it is on screen, then the changes
+    // as the Changes screen compares them: the whole branch when it shows that, else the
     // uncommitted changes, so a review never misses work that is not committed yet.
     static func initialStop(_ facts: SecondOpinionAskFacts) -> SecondOpinionStop? {
         let stops = stops(facts)
@@ -92,7 +106,7 @@ enum SecondOpinionAsk {
         case .header:
             (facts.answer?.subject.kind == .plan ? [.answer] : [])
                 + (facts.showsDesign ? [.design] : [])
-                + [.uncommitted, .answer, .design]
+                + [.branch, .uncommitted, .answer, .design]
         }
         return preferred.first(where: stops.contains) ?? stops.first
     }
@@ -107,6 +121,7 @@ enum SecondOpinionAsk {
             facts.answer?.subject.kind == .plan ? "This plan" : facts.answer?.picked == true ? "This answer" : "Last answer"
         case .sinceReview: "Since review"
         case .uncommitted: "Not committed"
+        case .branch: "Whole branch"
         case .design: "Design"
         case .conversation: "Whole chat"
         }
@@ -120,6 +135,7 @@ enum SecondOpinionAsk {
             facts.answer?.subject.kind == .plan ? "This plan" : facts.answer?.picked == true ? "This answer" : "The last answer"
         case .sinceReview: "Since your last review"
         case .uncommitted: "Uncommitted changes"
+        case .branch: "Changes from " + (facts.branch?.base ?? "the base")
         case .design: "The design"
         case .conversation: "The whole conversation"
         }
@@ -132,6 +148,7 @@ enum SecondOpinionAsk {
         case .answer: "and what you asked"
         case .sinceReview: "only what changed after it was sent"
         case .uncommitted: counted(facts.files.count, "file")
+        case .branch: counted(facts.branch?.files.count ?? 0, "file")
         case .design: counted(facts.designScreens?.count ?? 0, "screen") + ", light and dark"
         case .conversation:
             counted(facts.turns.count(where: { !$0.fromPerson }), "turn") + ", checked against what you asked"
@@ -146,6 +163,7 @@ enum SecondOpinionAsk {
             facts.answer?.subject.kind == .plan ? "this plan" : facts.answer?.picked == true ? "this answer" : "the last answer"
         case .sinceReview: "what changed since your last review"
         case .uncommitted: "the uncommitted changes"
+        case .branch: "everything this branch changes from " + (facts.branch?.base ?? "its base")
         case .design: "the design"
         case .conversation: "the whole conversation"
         }
@@ -160,12 +178,22 @@ enum SecondOpinionAsk {
             + phrase(stop, facts: facts)
     }
 
+    // The files the preview lists for a code stop. The branch and a file picked on it are
+    // counted against the base, the rest against the last commit.
+    static func files(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts) -> [SecondOpinionAskFacts.File] {
+        switch stop {
+        case .branch, .file: facts.branch?.files ?? facts.files
+        default: facts.files
+        }
+    }
+
     // The files a stop covers, which the preview lights. Nil for a stop that is not code.
     static func litFiles(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts,
                          sinceReview: Set<String>?) -> Set<String>? {
         switch stop {
         case .file: facts.file.map { [$0.id] } ?? []
         case .uncommitted: Set(facts.files.map(\.id))
+        case .branch: Set((facts.branch?.files ?? []).map(\.id))
         case .sinceReview: sinceReview ?? []
         case .answer, .design, .conversation: nil
         }

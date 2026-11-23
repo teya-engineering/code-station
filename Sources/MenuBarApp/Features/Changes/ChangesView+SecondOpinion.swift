@@ -42,8 +42,9 @@ extension ChangesView {
         let scope: SecondOpinionRequest.Scope
         switch navigation.secondOpinionScope {
         case .all: scope = .all
-        case .file: scope = selected.map { .file(root: repoRoot, path: $0.path) } ?? .all
+        case .file: scope = selected.map { .file(root: repoRoot, path: $0.path, base: comparedBases[root]) } ?? .all
         case .sinceReview: scope = review.reviews.latestTrees(review.sessionID).map { .sinceReview(trees: $0) } ?? .all
+        case .branch: scope = comparedBases.isEmpty ? .all : .branch(bases: comparedBases)
         }
         let running = Set(review.reviews.runs(review.sessionID).filter(\.isRunning).map(\.reviewer))
         var seen = Set<SecondOpinion.Reviewer>()
@@ -65,6 +66,17 @@ extension ChangesView {
         }
         guard !asked.isEmpty else { return }
         announce("Asked \(asked.joined(separator: " and ")) for a second opinion")
+    }
+
+    // The base each project is compared with on this screen, for the ones that show one.
+    private var comparedBases: [String: String] {
+        var bases: [String: String] = [:]
+        for repository in repositories {
+            guard let snapshot = navigation.snapshots[repository.root], snapshot.comparedToRemote,
+                  let base = snapshot.remoteBase else { continue }
+            bases[repository.root] = base.ref
+        }
+        return bases
     }
 
     // The open project leads, so the reviewer starts in the folder the session works in.

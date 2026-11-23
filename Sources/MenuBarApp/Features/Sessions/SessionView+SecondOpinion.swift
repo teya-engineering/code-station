@@ -86,13 +86,17 @@ extension SessionView {
     private func hasOpinionSubject(_ session: ChatSession) -> Bool {
         SessionSecondOpinion.latestAnswer(in: session, state: runner.state(session.id)) != nil
             || workingTreeChanges(session) != nil || reviewableDesign(session) != nil
+            || store.workingDirectories(for: session).contains { root in
+                changesNavigation.snapshots[root].map { $0.comparedToRemote && !$0.files.isEmpty } == true
+            }
     }
 
     // What this pane has in view that an ask can start from.
     private func opinionScreen(_ session: ChatSession) -> SessionSecondOpinion.Screen {
         SessionSecondOpinion.Screen(selectedChange: tab == .changes ? selectedChange(session) : nil,
                                     design: reviewableDesign(session),
-                                    showsDesign: shownDesign(session) != nil)
+                                    showsDesign: shownDesign(session) != nil,
+                                    compared: changesNavigation.snapshots)
     }
 
     func askForSecondOpinion(_ session: ChatSession, on picked: ChatSecondOpinion.Subject? = nil,
@@ -190,7 +194,7 @@ extension SessionView {
         switch choice.stop {
         case .answer, .conversation:
             if tab != .conversation { tab = .conversation }
-        case .file, .sinceReview, .uncommitted:
+        case .file, .sinceReview, .uncommitted, .branch:
             // The Changes screen starts the run; its progress shows on the header control.
             tab = .changes
         case .design:
@@ -205,7 +209,8 @@ extension SessionView {
         let root = directory(for: selectedProjectID ?? session.projectID, in: session)
             ?? store.workingDirectories(for: session).first
         guard let root, let id = changesNavigation.selections[root]?.activeID,
-              let file = gitStats.snapshot(at: root)?.files.first(where: { $0.id == id }) else { return nil }
+              let file = (changesNavigation.snapshots[root] ?? gitStats.snapshot(at: root))?.files
+                  .first(where: { $0.id == id }) else { return nil }
         return (root, file.path)
     }
 

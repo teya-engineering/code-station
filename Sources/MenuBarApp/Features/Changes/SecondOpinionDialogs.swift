@@ -8,7 +8,7 @@ import SwiftUI
 
 // What a second opinion is asked to read.
 enum SecondOpinionScopeChoice: Hashable {
-    case all, file, sinceReview
+    case all, file, sinceReview, branch
 }
 
 enum SecondOpinionFindings {
