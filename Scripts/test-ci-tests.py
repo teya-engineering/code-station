@@ -41,6 +41,19 @@ class ShardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ci_tests.select_tests(set(), 0, 2)
 
+    def test_batches_bound_process_lifetime_without_omitting_or_repeating_tests(self):
+        tests = {f"MenuBarAppTests.Suite{index}/one()" for index in range(101)}
+        tests.add("MenuBarAppTests.Suite0.Nested/two()")
+        completed = set()
+        for pattern, batch in ci_tests.test_batches(tests):
+            self.assertFalse(completed & batch)
+            self.assertLessEqual(len({test.split(".")[1] for test in batch}), 25)
+            self.assertEqual({test for test in tests if re.search(pattern, test)}, batch)
+            self.assertEqual("MenuBarAppTests.Suite0/one()" in batch,
+                             "MenuBarAppTests.Suite0.Nested/two()" in batch)
+            completed |= batch
+        self.assertEqual(completed, tests)
+
 
 class ReportTests(unittest.TestCase):
     test_id = "MenuBarAppTests.Alpha/one()"
@@ -61,6 +74,10 @@ class ReportTests(unittest.TestCase):
     def test_an_early_successful_exit_does_not_pass(self):
         with self.assertRaisesRegex(ValueError, "stopped before"):
             self.check([{"kind": "testEnded", "testID": self.test_id + "/Alpha.swift:10:6"}])
+
+    def test_an_early_exit_names_the_last_test_started(self):
+        with self.assertRaisesRegex(ValueError, "Last started: MenuBarAppTests.Alpha/one"):
+            self.check([{"kind": "testStarted", "testID": self.test_id + "/Alpha.swift:10:6"}])
 
     def test_a_run_that_did_not_execute_the_selected_tests_does_not_pass(self):
         with self.assertRaisesRegex(ValueError, "did not finish"):

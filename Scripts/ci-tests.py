@@ -21,10 +21,19 @@ def select_tests(tests, shard, count):
     return pattern, {test for test in tests if re.search(pattern, test)}
 
 
+def test_batches(tests):
+    tests = set(tests)
+    suite_count = len({".".join(test.split("/")[0].split(".")[:2]) for test in tests})
+    # A fresh process releases AppKit and WebKit state between groups of suites.
+    count = (suite_count + 24) // 25
+    return [select_tests(tests, index, count) for index in range(count)]
+
+
 def check_results(path, expected):
     completed = set()
     ended = False
     issues = 0
+    last_started = None
     with path.open() as stream:
         for line in stream:
             record = json.loads(line)
@@ -35,6 +44,8 @@ def check_results(path, expected):
             event = record["payload"]
             if event["kind"] == "runEnded":
                 ended = True
+            elif event["kind"] == "testStarted":
+                last_started = event["testID"]
             elif event["kind"] == "issueRecorded" and not event["issue"].get("isKnown", False):
                 issues += 1
             elif event["kind"] in {"testEnded", "testSkipped"}:
@@ -42,7 +53,7 @@ def check_results(path, expected):
     if issues:
         raise ValueError(f"The test run recorded {issues} unexpected issues.")
     if not ended:
-        raise ValueError("The test process stopped before the suite finished.")
+        raise ValueError(f"The test process stopped before the suite finished. Last started: {last_started}")
     missing = expected - completed
     if missing:
         raise ValueError("Tests did not finish: " + ", ".join(sorted(missing)))
@@ -62,16 +73,20 @@ def main():
     ]
     listing = subprocess.run(command + ["list"], check=True, capture_output=True, text=True)
     tests = {line.strip() for line in listing.stdout.splitlines() if line.startswith("MenuBarAppTests.")}
-    pattern, expected = select_tests(tests, args.shard, args.count)
+    _, expected = select_tests(tests, args.shard, args.count)
     print(f"Shard {args.shard + 1}/{args.count}: {len(expected)} of {len(tests)} tests", flush=True)
+    batches = test_batches(expected)
     with tempfile.TemporaryDirectory(prefix="code-station-ci-tests-", dir="/private/tmp") as scratch:
-        report = Path(scratch) / "events.jsonl"
-        subprocess.run(command + [
-            "--no-parallel", "--filter", pattern,
-            "--event-stream-output-path", str(report), "--event-stream-version", "0",
-        ], check=True)
-        # A process can exit successfully without letting Swift Testing finish its run.
-        check_results(report, expected)
+        for index, (pattern, batch) in enumerate(batches):
+            print(f"Batch {index + 1}/{len(batches)}: {len(batch)} tests", flush=True)
+            report = Path(scratch) / f"events-{index}.jsonl"
+            subprocess.run(command + [
+                "--no-parallel", "--filter", pattern,
+                "--event-stream-output-path", str(report), "--event-stream-version", "0",
+            ], check=True)
+            # A process can exit successfully without letting Swift Testing finish its run.
+            check_results(report, batch)
+    print(f"Shard {args.shard + 1}/{args.count}: all {len(expected)} tests finished", flush=True)
 
 
 if __name__ == "__main__":
