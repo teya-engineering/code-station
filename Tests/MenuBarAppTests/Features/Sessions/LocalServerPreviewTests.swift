@@ -590,8 +590,12 @@ struct LocalServerPreviewPageTests {
               style='position:absolute; left:0; top:0; width:200px; height:80px'>Export</a>"
               style="position:absolute; left:0; top:100px; width:300px; height:120px; border:0"></iframe>
             <a href="\(report)" \(box(0, 240))>Report</a>
-            """)
+            """, at: url("http://127.0.0.1:\(port)/settings"))
         defer { pane.close() }
+        // WebKit and layout can take longer than the download cooldown on a busy runner.
+        // Advance the clock only when the test asks for that cooldown to end.
+        var now = ContinuousClock.now
+        pane.preview.coordinator.now = { now }
         let scratch = ScratchDirectory()
         var asked: [String] = []
         pane.preview.coordinator.saveDownload = { asked.append($0); return scratch.path($0) }
@@ -608,7 +612,7 @@ struct LocalServerPreviewPageTests {
                      (280, "report.csv", "week,picks\n42,7\n")]
         for (y, file, contents) in files {
             try pane.click(page: CGPoint(x: 100, y: y))
-            #expect(await waitUntil { saved(file) == contents })
+            try #require(await waitUntil { saved(file) == contents }, "Download did not finish: \(file)")
         }
         #expect(asked == ["people.csv", "teams.csv", "report.csv"])
         // A link to a file starts loading it as a page, and the address must not move to the
@@ -622,24 +626,24 @@ struct LocalServerPreviewPageTests {
 
         pane.preview.coordinator.saveDownload = { asked.append($0); return nil }
         _ = try await page.evaluateJavaScript(export)
-        #expect(await waitUntil { asked.count == 4 })
+        try #require(await waitUntil { asked.count == 4 }, "Save requests: \(asked)")
         _ = try await page.evaluateJavaScript("\(export); \(export)")
         _ = try await page.evaluateJavaScript("location.href = '\(report)'")
         try await pane.settle()
         #expect(asked.count == 4)
         try pane.click(page: CGPoint(x: 100, y: 40))
-        #expect(await waitUntil { asked.count == 5 })
+        try #require(await waitUntil { asked.count == 5 }, "Save requests: \(asked)")
         try await pane.settle()
         #expect(asked.count == 5)
         #expect(pane.preview.phase == .showing)
         try pane.click(page: CGPoint(x: 100, y: 280))
-        #expect(await waitUntil { asked.count == 6 })
+        try #require(await waitUntil { asked.count == 6 }, "Save requests: \(asked)")
         pane.preview.open(url(report))
-        #expect(await waitUntil { asked.count == 7 })
-        #expect(await waitUntil { pane.preview.address.path == "/settings" })
-        pane.preview.coordinator.declinedAt = .now - .seconds(2)
+        try #require(await waitUntil { asked.count == 7 }, "Save requests: \(asked)")
+        try #require(await waitUntil { pane.preview.address.path == "/settings" })
+        now += .seconds(2)
         _ = try await page.evaluateJavaScript(export)
-        #expect(await waitUntil { asked.count == 8 })
+        try #require(await waitUntil { asked.count == 8 }, "Save requests: \(asked)")
     }
 
     // A press while picking is a pick on its way to the composer, so it leaves the panel open.

@@ -52,6 +52,8 @@ Run the suite serially because the AppKit, WebKit, process, and preference fixtu
 
 Pull requests and pushes to `main` run the suite on macOS. Tests live in `Tests/MenuBarAppTests`. They cover session and transcript behavior, CLI stream parsing, Git and worktree operations, terminal and PTY integration, file browsing, Dispatch and OAuth flows, skills, settings, persistence, and UI-facing presentation logic.
 
+CI splits the discovered suites across two separate Mac runners, keeping tests serial on each. It caches the build and dependencies for the selected toolchain and SDK, and saves the cache before tests run. `Scripts/ci-tests.py` checks Swift Testing's event report so a process that exits early cannot pass. The `test` check passes only when both runners finish successfully.
+
 Live background-task tests are opt-in because they use the installed agents and their signed-in accounts. They start `sleep 600`, send a follow-up, and cancel the task. Set `CODE_STATION_LIVE_AGENT_TESTS=1` and filter to `AgentSessionLiveTests`; optionally set `CODE_STATION_LIVE_AGENT=codex` or `copilot` to test only one. Codex uses an account-advertised model for this disposable test. Normal test runs use protocol fixtures and make no model calls.
 
 Add tests for behavior and business logic. Trivial view wiring, accessors, and framework behavior do not need dedicated tests.
