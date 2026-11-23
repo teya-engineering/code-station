@@ -1116,7 +1116,7 @@ struct SettingsView: View {
         case .upToDate:
             showNote("Teya Code Station is up to date", icon: "checkmark")
         case .failed:
-            showNote("Could not reach GitHub - try again later", icon: "exclamationmark.triangle")
+            showNote("Could not check for updates - try again later", icon: "exclamationmark.triangle")
         }
     }
 

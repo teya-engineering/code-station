@@ -85,23 +85,28 @@ struct AppVersion: Comparable, Equatable, Sendable {
 @MainActor
 @Observable
 final class AppUpdateChecker {
-    // A release can land just after a check, so a day between checks left it unannounced
-    // for most of that day. Four checks a day stay far inside GitHub's anonymous limit.
+    // Four checks a day keep releases visible without nearing GitHub's anonymous limit.
     nonisolated static let checkInterval: TimeInterval = 21_600
-    // The app can stay open for days, so it keeps looking while it runs. Waking often
-    // costs nothing, since a day still has to pass between checks that worked, and it lets
-    // a check that failed try again within the hour.
+    // The app can stay open for days. Waking hourly lets failed checks try again,
+    // while successful checks still wait six hours.
     nonisolated static let wakeInterval: Duration = .seconds(3_600)
 
     private(set) var availableRelease: AppUpdateRelease?
     private(set) var isChecking = false
     private(set) var dismissedVersion: String?
-    private(set) var installState = AppUpdateInstallState.idle
+    private(set) var installState = AppUpdateInstallState.idle {
+        didSet {
+            if installState.stage != oldValue.stage { dismissedInstallStage = nil }
+        }
+    }
     private(set) var isRelaunching = false
     private(set) var lastCheck: Date?
+    // The window animates a manual check's answer without animating background checks.
+    private(set) var manualCheckAnnouncements = 0
     // Counts each time the release page is opened in the browser. The page opens outside
     // the window, so the window watches this to leave a note that the click landed.
     private(set) var releasePageOpenings = 0
+    private var dismissedInstallStage: AppUpdateInstallState.Stage?
 
     @ObservationIgnored private let installedVersion: AppVersion?
     @ObservationIgnored private let preferences: UserDefaults
@@ -109,12 +114,21 @@ final class AppUpdateChecker {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let releaseEndpoint: URL
     @ObservationIgnored private let installTarget: () -> URL?
+    @ObservationIgnored private let install: @Sendable (URL, String, URL) async throws -> Void
     @ObservationIgnored private var installTask: Task<Void, Never>?
 
     var announcedRelease: AppUpdateRelease? {
         guard let availableRelease,
               availableRelease.version != dismissedVersion else { return nil }
         return availableRelease
+    }
+
+    // Dismissing an offer does not hide the work started from it. Each install stage
+    // can be put away until the person asks to see the update again.
+    var bannerRelease: AppUpdateRelease? {
+        let stage = installState.stage
+        guard stage != dismissedInstallStage else { return nil }
+        return stage == .idle ? announcedRelease : availableRelease
     }
 
     // A debug build, or a copy installed where it cannot write over itself, can still be
@@ -131,7 +145,8 @@ final class AppUpdateChecker {
         now: @escaping () -> Date = Date.init,
         releaseEndpoint: URL = URL(
             string: "https://api.github.com/repos/teya-engineering/code-station/releases/latest")!,
-        installTarget: @escaping () -> URL? = { AppUpdateInstall.installedBundle() }
+        installTarget: @escaping () -> URL? = { AppUpdateInstall.installedBundle() },
+        install: @escaping @Sendable (URL, String, URL) async throws -> Void = AppUpdateInstall.install
     ) {
         self.installedVersion = installedVersion.flatMap(AppVersion.init)
         self.preferences = preferences
@@ -139,6 +154,7 @@ final class AppUpdateChecker {
         self.now = now
         self.releaseEndpoint = releaseEndpoint
         self.installTarget = installTarget
+        self.install = install
         dismissedVersion = Preferences.dismissedAppUpdateVersion.read(in: preferences)
         lastCheck = Preferences.appUpdateLastCheck(in: preferences)
         availableRelease = Self.available(
@@ -167,9 +183,13 @@ final class AppUpdateChecker {
     func checkNow() async -> AppUpdateCheckOutcome {
         guard installedVersion != nil, !isChecking else { return .failed }
         let outcome = await check()
-        if case .available(let version) = outcome, version == dismissedVersion {
-            dismissedVersion = nil
-            Preferences.dismissedAppUpdateVersion.write(nil, in: preferences)
+        if case .available(let version) = outcome {
+            dismissedInstallStage = nil
+            if version == dismissedVersion {
+                dismissedVersion = nil
+                Preferences.dismissedAppUpdateVersion.write(nil, in: preferences)
+            }
+            manualCheckAnnouncements += 1
         }
         return outcome
     }
@@ -192,7 +212,7 @@ final class AppUpdateChecker {
             // offering. Only a check that never got an answer is tried again sooner.
             Preferences.setAppUpdateLastCheck(checkedAt, in: preferences)
             lastCheck = checkedAt
-            guard let release = Self.decodeRelease(data) else { return .upToDate }
+            guard let release = Self.decodeRelease(data) else { return .failed }
 
             Preferences.setCachedAppUpdateRelease(release, in: preferences)
             availableRelease = Self.available(release, to: installedVersion)
@@ -206,6 +226,14 @@ final class AppUpdateChecker {
         guard let version = announcedRelease?.version else { return }
         dismissedVersion = version
         Preferences.dismissedAppUpdateVersion.write(version, in: preferences)
+    }
+
+    func dismissBanner() {
+        if installState.stage == .idle {
+            dismissAnnouncement()
+        } else {
+            dismissedInstallStage = installState.stage
+        }
     }
 
     // For the places where the page is how the update is taken, so going there is acting
@@ -252,8 +280,7 @@ final class AppUpdateChecker {
                     }
                 }
                 installState = .installing
-                try await AppUpdateInstall.install(dmg, version: release.version,
-                                                   over: installed)
+                try await install(dmg, release.version, installed)
                 installState = .ready
             } catch {
                 installState = .failed(error.localizedDescription)
