@@ -107,6 +107,13 @@ struct SecondOpinionAskCard: View {
 
     private var stops: [SecondOpinionStop] { SecondOpinionAsk.stops(facts) }
 
+    // A click that reshapes the card runs in one animated transaction, so the chips,
+    // the preview and the card's own height all move together. A modifier on one part
+    // would leave the rest, and the scroll view's measured height, to snap.
+    private func choose(_ change: () -> Void) {
+        withAnimation(reduceMotion ? nil : Motion.reveal, change)
+    }
+
     private var asked: [SecondOpinion.Reviewer] {
         SecondOpinionAsk.seated(lineup).filter { stop.kind != .changes || !running.contains($0) }
     }
@@ -152,6 +159,9 @@ struct SecondOpinionAskCard: View {
                 .overlay(alignment: .top) { Divider().overlay(Theme.hairline) }
         }
         .frame(minWidth: 0, idealWidth: Self.width, maxWidth: Self.width, alignment: .leading)
+        // The header band and footer are square fills, so the card is clipped to its own
+        // corners the way a dialog is.
+        .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
         .floatingCard(cornerRadius: Radius.floating)
         .motion(Motion.reveal, value: tuning)
         .background {
@@ -207,19 +217,19 @@ struct SecondOpinionAskCard: View {
             if facts.answer != nil {
                 SubjectChoice(title: SecondOpinionAsk.stopTitle(.answer, facts: facts),
                               detail: "The answer and what you asked", icon: "text.bubble",
-                              selected: stop == .answer) { stop = .answer }
+                              selected: stop == .answer) { choose { stop = .answer } }
             }
             if stops.contains(.conversation) {
                 SubjectChoice(title: "Whole chat", detail: "Every turn in this conversation", icon: "bubble.left.and.bubble.right",
-                              selected: stop == .conversation) { stop = .conversation }
+                              selected: stop == .conversation) { choose { stop = .conversation } }
             }
             if stops.contains(where: { $0.kind == .changes }) {
                 SubjectChoice(title: "Changes", detail: "The code in your comparison", icon: "plus.forwardslash.minus",
-                              selected: stop.kind == .changes) { stop = .uncommitted }
+                              selected: stop.kind == .changes) { choose { stop = .uncommitted } }
             }
             if stops.contains(.design) {
                 SubjectChoice(title: "Design", detail: "Every screen, light and dark", icon: "rectangle.on.rectangle",
-                              selected: stop == .design) { stop = .design }
+                              selected: stop == .design) { choose { stop = .design } }
             }
         }
         .accessibilityElement(children: .contain)
@@ -239,8 +249,8 @@ struct SecondOpinionAskCard: View {
                     .cardSurface()
             } else {
                 FlowRow(spacing: Space.sm) {
-                    ChoicePill(title: "HEAD", selected: !context.usesBranch) { context.comparison = .head }
-                    ChoicePill(title: context.baseTitle, selected: context.usesBranch) { context.comparison = .branch }
+                    ChoicePill(title: "HEAD", selected: !context.usesBranch) { choose { context.comparison = .head } }
+                    ChoicePill(title: context.baseTitle, selected: context.usesBranch) { choose { context.comparison = .branch } }
                 }
                 Text(context.usesBranch ? "Committed and uncommitted work since the branch point."
                      : "Uncommitted edits since the latest commit.")
@@ -265,12 +275,12 @@ struct SecondOpinionAskCard: View {
                 }
             }
             FlowRow(spacing: Space.sm) {
-                ChoicePill(title: "All changes", selected: stop == .uncommitted || stop == .branch) { stop = .uncommitted }
+                ChoicePill(title: "All changes", selected: stop == .uncommitted || stop == .branch) { choose { stop = .uncommitted } }
                 if facts.file != nil {
-                    ChoicePill(title: "This file", selected: stop == .file) { stop = .file }
+                    ChoicePill(title: "This file", selected: stop == .file) { choose { stop = .file } }
                 }
                 if facts.canReadSince {
-                    ChoicePill(title: "Since last review", selected: stop == .sinceReview) { stop = .sinceReview }
+                    ChoicePill(title: "Since last review", selected: stop == .sinceReview) { choose { stop = .sinceReview } }
                 }
             }
             .accessibilityLabel("Files to review")
@@ -508,7 +518,7 @@ struct SecondOpinionAskCard: View {
     }
 
     private var tuneButton: some View {
-        TuneButton(open: tuning, changed: tuned) { tuning.toggle() }
+        TuneButton(open: tuning, changed: tuned) { choose { tuning.toggle() } }
             .focused($tuneFocused)
             .focusEffectDisabled()
             .overlay { FocusRingStroke(focused: tuneFocused) }
