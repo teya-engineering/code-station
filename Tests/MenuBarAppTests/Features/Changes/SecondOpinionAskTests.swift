@@ -26,12 +26,12 @@ struct SecondOpinionAskTests {
 
     @Test func onlyStopsWithSomethingBehindThemShowNarrowestFirst() {
         #expect(SecondOpinionAsk.stops(facts()) == [])
-        #expect(SecondOpinionAsk.stops(facts(answer: answer, turns: Array(turns.prefix(2)))) == [.answer])
+        #expect(SecondOpinionAsk.stops(facts(answer: answer, turns: Array(turns.prefix(2)))) == [.answer, .conversation])
         #expect(SecondOpinionAsk.stops(facts(answer: answer, files: [retry, test], file: retry, canReadSince: true,
                                              design: ["Home"], turns: turns))
                 == [.file, .answer, .sinceReview, .uncommitted, .design, .conversation])
-        // Since the last review needs both a review and something changed.
-        #expect(!SecondOpinionAsk.stops(facts(canReadSince: true)).contains(.sinceReview))
+        // A clean working tree may still differ from the last review snapshot.
+        #expect(SecondOpinionAsk.stops(facts(canReadSince: true)).contains(.sinceReview))
     }
 
     @Test func eachWayInProposesItsOwnSubject() {
@@ -161,21 +161,22 @@ struct SecondOpinionAskTests {
     }
 }
 
-// The card keeps one size while the knob moves, so it never jumps under the pointer, and
-// it keeps to its content whatever room it is offered.
+// The ask stays inside its pane while the subject and expanded options change.
 @MainActor
 @Suite(.serialized)
 struct SecondOpinionAskCardLayoutTests {
     private let testPreferences = TestPreferences()
 
     @Test func expandedOptionsFitNarrowCardsAndBothAppearances() async throws {
-        let facts = SecondOpinionAskFacts(origin: .header, files: [
-            .init(root: "/repo", path: "src/RetryPolicy.swift", added: 18, removed: 9)
-        ])
+        let facts = SecondOpinionAskFacts(origin: .header,
+            answer: .init(subject: .init(kind: .answer, id: "answer:1", text: "Retries now back off.",
+                                        request: "Add retries."), picked: false),
+            files: [.init(root: "/repo", path: "src/RetryPolicy.swift", added: 18, removed: 9)],
+            turns: [.init(fromPerson: true, text: "Add retries."), .init(fromPerson: false, text: "Done.")])
         let lineup = [SecondOpinion.Reviewer(agent: .claudeCode, model: "opus"),
                       SecondOpinion.Reviewer(agent: .codex, model: "gpt-6-astra"),
                       SecondOpinion.Reviewer(agent: .copilot)]
-        for width: CGFloat in [320, 480] {
+        for width: CGFloat in [390, 840] {
             for dark in [false, true] {
                 for reducedMotion in [false, true] {
                     let card = SecondOpinionAskCard(
@@ -193,8 +194,8 @@ struct SecondOpinionAskCardLayoutTests {
                     host.sizingOptions = []
                     let measured = host.sizeThatFits(in: CGSize(width: width, height: 2000))
                     #expect(measured.width == width)
-                    #expect(measured.height > 500)
-                    #expect(measured.height < 1000)
+                    #expect(measured.height > 400)
+                    #expect(measured.height <= ReviewMetrics.askHeight)
                     let window = NSWindow(contentRect: NSRect(origin: .zero, size: measured),
                                           styleMask: [.titled], backing: .buffered, defer: false)
                     window.isReleasedWhenClosed = false
@@ -255,7 +256,7 @@ struct SecondOpinionAskCardLayoutTests {
         }
     }
 
-    @Test func theCardKeepsItsHeightAsTheSubjectChanges() {
+    @Test func everySubjectFitsThePopoverHeight() {
         let answer = ChatSecondOpinion.Subject(kind: .answer, id: "answer:1",
                                                text: String(repeating: "A long answer. ", count: 60), request: "Ask.")
         let files = (0..<12).map { SecondOpinionAskFacts.File(root: "/repo", path: "src/File\($0).swift",
@@ -286,8 +287,8 @@ struct SecondOpinionAskCardLayoutTests {
             heights[stop] = height
         }
         #expect(heights.count == 5)
-        #expect(Set(heights.values).count == 1)
+        #expect(heights.values.allSatisfy { $0 <= ReviewMetrics.askHeight })
         #expect((heights.values.first ?? 0) > 200)
-        #expect((heights.values.first ?? 0) < 480)
+        #expect((heights.values.first ?? 0) <= ReviewMetrics.askHeight)
     }
 }

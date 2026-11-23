@@ -32,6 +32,14 @@ struct SessionSecondOpinionTests {
         #expect(subject.request == "Retry timed-out calls.")
     }
 
+    @Test func supportingConversationExcludesTheSubjectItsRequestAndLaterTurns() {
+        let picked = SessionSecondOpinion.answerSubject(answer, in: session)
+        #expect(SessionSecondOpinion.earlierConversation(for: picked, in: session).isEmpty)
+        let last = SessionSecondOpinion.answerSubject(latest, in: session)
+        #expect(SessionSecondOpinion.earlierConversation(for: last, in: session)
+                == "User: Retry timed-out calls.\n\nAgent: Retries are in.")
+    }
+
     @Test func theAnswerStillBeingWrittenCannotBeJudged() {
         #expect(SessionSecondOpinion.canJudge(latest, in: session, state: .idle))
         #expect(!SessionSecondOpinion.canJudge(latest, in: session, state: .streaming))
@@ -50,6 +58,15 @@ struct SessionSecondOpinionTests {
         var empty = session
         empty.messages = [asked]
         #expect(SessionSecondOpinion.conversationSubject(empty, state: .idle) == nil)
+    }
+
+    @Test func wholeChatKeepsEveryTurnEvenBeyondTheSideQuestionBudget() throws {
+        var session = session
+        session.messages.insert(ChatMessage(role: .assistant, text: String(repeating: "Context. ", count: 6000)), at: 2)
+        let subject = try #require(SessionSecondOpinion.conversationSubject(session, state: .idle))
+        #expect(subject.text.hasPrefix("User: Retry timed-out calls."))
+        #expect(subject.text.contains(String(repeating: "Context. ", count: 5999)))
+        #expect(subject.text.hasSuffix("Agent: Backing off now."))
     }
 
     @Test func theHeaderOpensOnTheLatestAnswerAndMarksIt() {
@@ -107,7 +124,8 @@ struct SessionSecondOpinionTests {
         let lineup = [SecondOpinion.Reviewer(agent: .codex)]
         let choice = SecondOpinionAskChoice(stop: .sinceReview, lineup: lineup, chatFocus: [],
                                             chatReading: .init(), changesFocus: [.bugs],
-                                            designFocus: [], designReading: .init(), note: "Mind the retries")
+                                            designFocus: [], designReading: .init(), note: "Mind the retries",
+                                            scope: .sinceReview(trees: ["/repo": "review-tree"]))
         let navigation = ChangesNavigationMemory()
 
         #expect(SessionSecondOpinion.start(choice, ask: ask, session: session, design: nil,
@@ -118,6 +136,9 @@ struct SessionSecondOpinionTests {
         #expect(navigation.secondOpinionFocus == [.bugs])
         #expect(navigation.secondOpinionNote == "Mind the retries")
         #expect(navigation.secondOpinionServers == nil)
+        #expect(navigation.secondOpinionChoice?.scope == .sinceReview(trees: ["/repo": "review-tree"]))
+        #expect(navigation.compareRefs.isEmpty)
+        #expect(navigation.lastCommitCompares.isEmpty)
     }
 
     @Test func aDesignReviewWithoutADesignStartsNothing() throws {

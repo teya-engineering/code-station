@@ -281,9 +281,6 @@ struct SessionView: View {
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
                 installed: runner.catalog.availableAgents, author: session.agent))
             .onChange(of: tab) { secondOpinion.close() }
-            .task(id: secondOpinion.ask?.id) {
-                await secondOpinion.readSinceReviewFiles(reviews: runner.reviews, sessionID: sessionID)
-            }
             // Clicks deep in the transcript that act outside the window, such as revealing
             // a file or opening a link, leave their note on the rail like the header's own.
             .environment(\.showExternalNote, railNoteAction)

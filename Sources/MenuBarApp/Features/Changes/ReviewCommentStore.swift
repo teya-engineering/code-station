@@ -300,6 +300,9 @@ final class ReviewCommentStore {
                 patches = patches.filter { $0.root == root && $0.path == path }
             }
             guard !Task.isCancelled else { return }
+            if let index = self?.runs[sessionID]?.firstIndex(where: { $0.reviewer == reviewer }) {
+                self?.runs[sessionID]?[index].reviewedFiles = SecondOpinionContext.files(in: patches)
+            }
             self?.setActivity("Reading \(counted(patches.count, "changed file"))", reviewer: reviewer, in: sessionID)
             let outcome: Result<[ReviewComment], SecondOpinion.Failure>
             if patches.isEmpty {

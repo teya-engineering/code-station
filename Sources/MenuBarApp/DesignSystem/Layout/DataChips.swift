@@ -58,6 +58,7 @@ struct FileBarRow: View {
     var lit = true
     // The line count that fills the whole bar, shared by every row in one list.
     var scale: Int
+    var nameWidth: CGFloat = Self.nameWidth
 
     static let nameWidth: CGFloat = 168
 
@@ -65,7 +66,7 @@ struct FileBarRow: View {
         HStack(spacing: Space.md) {
             Text(name).font(Typography.data).lineLimit(1).truncationMode(.middle)
                 .foregroundStyle(lit ? Color.primary : Color.secondary)
-                .frame(width: Self.nameWidth, alignment: .leading)
+                .frame(width: nameWidth, alignment: .leading)
             GeometryReader { proxy in
                 let unit = proxy.size.width / CGFloat(max(scale, 1))
                 HStack(spacing: Space.xxs) {

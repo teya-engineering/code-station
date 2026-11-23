@@ -772,6 +772,7 @@ struct SecondOpinionRun: Equatable, Identifiable {
     // The last few things it did, oldest first, ending with the activity.
     var recent = ["Gathering the changes"]
     var request: SecondOpinionRequest
+    var reviewedFiles: [SecondOpinionAskFacts.File]?
 
     var agent: AgentKind { reviewer.agent }
     var id: SecondOpinion.Reviewer { reviewer }

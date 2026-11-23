@@ -31,6 +31,9 @@ final class SessionSecondOpinion {
         // What the Changes screen last read for each project root, which holds the
         // branch's changes from its base while that screen compares with one.
         var compared: [String: GitSnapshot] = [:]
+        var compareRefs: [String: String] = [:]
+        var headRoots: Set<String> = []
+        var showsChanges = false
     }
 
     // The reviewers last asked from this session, whatever they were asked about.
@@ -39,7 +42,6 @@ final class SessionSecondOpinion {
     var ask: Ask?
     var anchor: CGRect?
     var lanesOpen = false
-    private(set) var sinceReviewFiles: Set<String>?
 
     // MARK: - Subjects
 
@@ -63,8 +65,23 @@ final class SessionSecondOpinion {
         guard let latest = latestAnswer(in: session, state: state) else { return nil }
         let asked = session.messages.filter { $0.role == .user && !$0.text.isBlank }.map(\.text.trimmed)
         return ChatSecondOpinion.Subject(kind: .conversation, id: "conversation:" + latest.id.uuidString,
-                                         text: SideQuestion.recentChat(session.messages),
+                                         text: conversationText(session.messages),
                                          request: asked.joined(separator: "\n\n"))
+    }
+
+    static func conversationText(_ messages: [ChatMessage]) -> String {
+        messages.compactMap { message in
+            guard (message.role == .user || message.role == .assistant), !message.text.isBlank else { return nil }
+            return (message.role == .user ? "User: " : "Agent: ") + message.text.trimmed
+        }.joined(separator: "\n\n")
+    }
+
+    static func earlierConversation(for subject: ChatSecondOpinion.Subject, in session: ChatSession) -> String {
+        let answerIndex = session.messages.firstIndex { "answer:" + $0.id.uuidString == subject.id }
+            ?? session.messages.endIndex
+        let before = session.messages[..<answerIndex]
+        let requestIndex = before.lastIndex { $0.role == .user } ?? answerIndex
+        return conversationText(Array(session.messages[..<requestIndex]))
     }
 
     // An answer can be judged once it is whole: not while its turn is still writing it.
@@ -92,6 +109,13 @@ final class SessionSecondOpinion {
         let chatSubject = picked ?? pendingPlan ?? latest.map { answerSubject($0, in: session) }
 
         var facts = SecondOpinionAskFacts(origin: origin)
+        facts.repositories = store.workingDirectories(for: session).map {
+            ReviewRepository(root: $0, name: ($0 as NSString).lastPathComponent)
+        }
+        facts.compareRefs = screen.compareRefs
+        facts.headRoots = screen.headRoots
+        facts.showsChanges = screen.showsChanges
+        facts.reviewTrees = runner.reviews.latestTrees(session.id) ?? [:]
         facts.answer = chatSubject.map { .init(subject: $0, picked: picked != nil) }
         func files(_ snapshot: GitSnapshot, root: String) -> [SecondOpinionAskFacts.File] {
             snapshot.files.map { change in
@@ -103,24 +127,29 @@ final class SessionSecondOpinion {
         // files to the branch, the way a run reads it.
         var branchFiles: [SecondOpinionAskFacts.File] = []
         var bases: [String] = []
+        var branchBases: [String: String] = [:]
         for root in store.workingDirectories(for: session) {
-            let uncommitted = gitStats.snapshot(at: root).map { files($0, root: root) }
+            let uncommitted = (gitStats.snapshot(at: root) ?? screen.compared[root]?.againstLastCommit)
+                .map { files($0, root: root) }
             facts.files += uncommitted ?? []
             if let compared = screen.compared[root], compared.comparedToRemote, let base = compared.remoteBase {
                 bases.append(base.ref)
+                branchBases[root] = base.ref
+                facts.compareRefs[root] = base.ref
                 branchFiles += files(compared, root: root)
             } else {
                 branchFiles += uncommitted ?? []
             }
         }
-        if !bases.isEmpty && branchFiles != facts.files {
-            facts.branch = .init(base: Set(bases).count == 1 ? bases[0] : "each project's base", files: branchFiles)
+        if !bases.isEmpty {
+            facts.branch = .init(base: Set(bases).count == 1 ? bases[0] : "each project's base",
+                                 files: branchFiles, bases: branchBases)
         }
         let pickable = facts.branch?.files ?? facts.files
         if let file {
             facts.file = pickable.first { $0.path == file.path && ($0.root == file.root || pickable.count(where: { $0.path == file.path }) == 1) }
         } else if let picked = screen.selectedChange {
-            facts.file = pickable.first { $0.path == picked.path }
+            facts.file = pickable.first { $0.path == picked.path && $0.root == picked.root }
         }
         facts.canReadSince = runner.reviews.latestTrees(session.id) != nil
         if let design = screen.design,
@@ -144,7 +173,7 @@ final class SessionSecondOpinion {
         var seen = Set<AgentKind>()
         let reviewers = (lineup ?? Preferences.secondOpinionLineup()).map(\.agent)
             .filter { installed.contains($0) && seen.insert($0).inserted }
-        return SecondOpinionAsk.proposal(SecondOpinionAsk.initialStop(built.facts), facts: built.facts,
+        return SecondOpinionAsk.proposal(SecondOpinionAsk.initialStop(built.facts, defaults: Preferences.secondOpinionDefaults()), facts: built.facts,
                                          reviewers: reviewers)
     }
 
@@ -161,7 +190,7 @@ final class SessionSecondOpinion {
         let origin = origin ?? (picked != nil ? .answer : .header)
         let built = Self.facts(session, picked: picked, origin: origin, file: file, screen: screen,
                                runner: runner, gitStats: gitStats)
-        guard var stop = SecondOpinionAsk.initialStop(built.facts) else { return false }
+        guard var stop = SecondOpinionAsk.initialStop(built.facts, defaults: Preferences.secondOpinionDefaults()) else { return false }
         if wholeConversation, SecondOpinionAsk.stops(built.facts).contains(.conversation) { stop = .conversation }
         lanesOpen = false
         // The header tracks its own place; anything else was recorded as it was pressed.
@@ -192,22 +221,6 @@ final class SessionSecondOpinion {
         }
     }
 
-    // What changed after the last review, so the preview lights only those files.
-    func readSinceReviewFiles(reviews: ReviewCommentStore, sessionID: UUID) async {
-        if sinceReviewFiles != nil { sinceReviewFiles = nil }
-        guard let ask, ask.facts.canReadSince,
-              let trees = reviews.latestTrees(sessionID) else { return }
-        var ids = Set<String>()
-        for (root, tree) in trees {
-            guard let changed = await TreeSnapshots.shared.patch(since: tree, at: root) else { continue }
-            for patch in SecondOpinion.split(changed.text, root: changed.root) {
-                ids.insert(SecondOpinionAskFacts.File(root: patch.root, path: patch.path, added: 0, removed: 0).id)
-            }
-        }
-        guard !Task.isCancelled else { return }
-        sinceReviewFiles = ids
-    }
-
     // MARK: - Requests
 
     // Sends what the card settled on to where that kind of subject is reviewed: an answer
@@ -233,7 +246,7 @@ final class SessionSecondOpinion {
                 ChatSecondOpinion.Request(subject: subject, focus: choice.chatFocus, note: choice.note,
                                           reading: choice.chatReading,
                                           conversation: choice.chatReading.conversation
-                                            ? SideQuestion.recentChat(session.messages) : "",
+                                            ? earlierConversation(for: subject, in: session) : "",
                                           directories: store.workingDirectories(for: session),
                                           executable: "", servers: servers),
                 reviewers: choice.lineup, executables: executables,
@@ -244,6 +257,7 @@ final class SessionSecondOpinion {
             navigation.secondOpinionFocus = choice.changesFocus
             navigation.secondOpinionNote = choice.note
             navigation.secondOpinionServers = servers
+            navigation.secondOpinionChoice = choice
             navigation.secondOpinionScope = switch choice.stop {
             case .file: .file
             case .sinceReview: .sinceReview

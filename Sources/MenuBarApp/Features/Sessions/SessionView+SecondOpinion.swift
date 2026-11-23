@@ -86,6 +86,7 @@ extension SessionView {
     private func hasOpinionSubject(_ session: ChatSession) -> Bool {
         SessionSecondOpinion.latestAnswer(in: session, state: runner.state(session.id)) != nil
             || workingTreeChanges(session) != nil || reviewableDesign(session) != nil
+            || (tab == .changes && !store.workingDirectories(for: session).isEmpty)
             || store.workingDirectories(for: session).contains { root in
                 changesNavigation.snapshots[root].map { $0.comparedToRemote && !$0.files.isEmpty } == true
             }
@@ -96,7 +97,10 @@ extension SessionView {
         SessionSecondOpinion.Screen(selectedChange: tab == .changes ? selectedChange(session) : nil,
                                     design: reviewableDesign(session),
                                     showsDesign: shownDesign(session) != nil,
-                                    compared: changesNavigation.snapshots)
+                                    compared: changesNavigation.snapshots,
+                                    compareRefs: changesNavigation.compareRefs,
+                                    headRoots: changesNavigation.lastCommitCompares,
+                                    showsChanges: tab == .changes)
     }
 
     func askForSecondOpinion(_ session: ChatSession, on picked: ChatSecondOpinion.Subject? = nil,
@@ -123,7 +127,7 @@ extension SessionView {
                 }
                 if let ask = secondOpinion.ask {
                     let anchor = ask.anchor ?? headerOpinionFrame
-                    opinionCard(ask, session: session)
+                    opinionCard(ask, session: session, maxHeight: max(0, proxy.size.height - Space.md * 2))
                         .frame(width: min(SecondOpinionAskCard.width, max(0, proxy.size.width - Space.md * 2)))
                         .onGeometryChange(for: CGSize.self) { $0.size } action: { opinionCardSize = $0 }
                         .offset(Self.place(opinionCardSize, under: anchor, in: proxy.size,
@@ -164,7 +168,7 @@ extension SessionView {
         return CGSize(width: x, height: y)
     }
 
-    private func opinionCard(_ ask: SessionSecondOpinion.Ask, session: ChatSession) -> some View {
+    private func opinionCard(_ ask: SessionSecondOpinion.Ask, session: ChatSession, maxHeight: CGFloat) -> some View {
         let installed = runner.catalog.availableAgents
         let author = runner.author(of: session)
         let defaults = Preferences.secondOpinionDefaults()
@@ -173,9 +177,9 @@ extension SessionView {
             stop: Binding(get: { secondOpinion.ask?.stop ?? ask.stop }, set: { secondOpinion.ask?.stop = $0 }),
             author: author, installed: installed,
             running: Set(runner.reviews.runs(session.id).filter(\.isRunning).map(\.reviewer)),
-            sinceReviewFiles: secondOpinion.sinceReviewFiles,
             lineup: secondOpinion.lineup ?? defaults.lineup.filter { installed.contains($0.agent) },
             defaults: defaults,
+            maxHeight: maxHeight,
             ask: { choice in
                 secondOpinion.lineup = choice.lineup
                 secondOpinion.close()

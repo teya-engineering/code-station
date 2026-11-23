@@ -628,7 +628,7 @@ extension ChangesView {
 
     // Each review goes as a round of its own, so Chat can show it as one card and say
     // afterwards what came of each comment. Comments left unticked stay for the next.
-    private func sendReview(_ review: ReviewTarget, comments: [ReviewComment], note: String) {
+    func sendReview(_ review: ReviewTarget, comments: [ReviewComment], note: String) {
         guard !comments.isEmpty else { return }
         let prompt = ReviewPrompt.feedback(comments, projectNames: projectNames, note: note)
         let busy = review.isBusy()

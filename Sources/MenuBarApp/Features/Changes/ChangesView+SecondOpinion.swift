@@ -32,25 +32,33 @@ extension ChangesView {
             ?? list.first { reviewer == nil || $0.raised(by: reviewer!) }
         let dialog = Dialog(
             title: "Findings",
-            content: AnyView(SecondOpinionFindingsView(review: review, selected: first?.id)),
-            actions: [], width: 900, framesItself: true)
+            content: AnyView(SecondOpinionFindingsView(review: review, selected: first?.id, send: { comments in
+                dialogs.dismiss()
+                sendReview(review, comments: comments, note: "")
+            })),
+            actions: [], width: ReviewMetrics.findingsWidth, framesItself: true, fitsWindow: true)
         secondOpinionDialog = dialog.id
         dialogs.show(dialog)
     }
 
     private func askForSecondOpinion(_ review: ReviewTarget, lineup: [SecondOpinion.Reviewer]) {
         let scope: SecondOpinionRequest.Scope
-        switch navigation.secondOpinionScope {
-        case .all: scope = .all
-        case .file: scope = selected.map { .file(root: repoRoot, path: $0.path, base: comparedBases[root]) } ?? .all
-        case .sinceReview: scope = review.reviews.latestTrees(review.sessionID).map { .sinceReview(trees: $0) } ?? .all
-        case .branch: scope = comparedBases.isEmpty ? .all : .branch(bases: comparedBases)
+        if let picked = navigation.secondOpinionChoice?.scope {
+            scope = picked
+        } else {
+            switch navigation.secondOpinionScope {
+            case .all: scope = .all
+            case .file: scope = selected.map { .file(root: repoRoot, path: $0.path, base: comparedBases[root]) } ?? .all
+            case .sinceReview: scope = review.reviews.latestTrees(review.sessionID).map { .sinceReview(trees: $0) } ?? .all
+            case .branch: scope = comparedBases.isEmpty ? .all : .branch(bases: comparedBases)
+            }
         }
         let running = Set(review.reviews.runs(review.sessionID).filter(\.isRunning).map(\.reviewer))
         var seen = Set<SecondOpinion.Reviewer>()
         let chosen = lineup.filter { !running.contains($0) && seen.insert($0).inserted }
         review.reviews.beginSecondOpinion(review.sessionID)
         startSecondOpinion(review, reviewers: chosen, scope: scope)
+        navigation.secondOpinionChoice = nil
     }
 
     private func startSecondOpinion(_ review: ReviewTarget, reviewers: [SecondOpinion.Reviewer],

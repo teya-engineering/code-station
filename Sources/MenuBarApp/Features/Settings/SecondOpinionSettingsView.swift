@@ -23,9 +23,9 @@ struct SecondOpinionSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xxl) {
+            reading.id(SettingsSearchTarget.secondOpinionReading.id)
             reviewers.id(SettingsSearchTarget.secondOpinionReviewers.id)
             lookFor.id(SettingsSearchTarget.secondOpinionFocus.id)
-            reading.id(SettingsSearchTarget.secondOpinionReading.id)
             access.id(SettingsSearchTarget.secondOpinionAccess.id)
         }
         .onAppear {
@@ -256,31 +256,59 @@ struct SecondOpinionSettingsView: View {
     // MARK: They read
 
     private var reading: some View {
-        ChoiceBlock("THEY READ") {
+        ChoiceBlock("REVIEW CONTEXT", note: "Defaults for each ask. Changes made inside an ask apply only to that review.") {
             SettingsCard {
-                SettingsToggleRow(
-                    "Project files, for answers and plans",
-                    detail: "They can open the files an answer talks about to check it. Code changes always read the changes and the project's files.",
-                    isOn: $defaults.chatReading.files)
-                    .padding(Space.lg)
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    Text("Answers & chat").font(Typography.label)
+                    Text("Start with, from the chat toolbar").font(Typography.caption).foregroundStyle(.secondary)
+                    FlowRow(spacing: Space.sm) {
+                        ForEach(SecondOpinionDefaults.ChatSubject.allCases, id: \.self) { subject in
+                            ChoicePill(title: subject.title, selected: defaults.chatSubject == subject) {
+                                defaults.chatSubject = subject
+                            }
+                        }
+                    }
+                    Text("An action under an answer or plan always reviews that answer or plan and its request.")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                    SettingsToggleRow("Project files", detail: "Let reviewers check the code behind the answer.",
+                                      isOn: $defaults.chatReading.files)
+                    if defaults.chatSubject == .conversation {
+                        ToggleChip(fixed: "Earlier conversation included")
+                        Text("Whole chat includes every conversational turn.")
+                            .font(Typography.caption).foregroundStyle(.secondary)
+                    } else {
+                        SettingsToggleRow("Earlier conversation", detail: "Include earlier turns when reviewing a single answer.",
+                                          isOn: $defaults.chatReading.conversation, warns: true)
+                    }
+                }
+                .padding(Space.lg)
+                .motion(Motion.control, value: defaults.chatSubject)
                 SettingsRowDivider()
-                SettingsToggleRow(
-                    "This conversation, for answers and plans",
-                    detail: "Gives them the whole session. It also makes them think like the agent that wrote it, so they catch less.",
-                    isOn: $defaults.chatReading.conversation, warns: true)
-                    .padding(Space.lg)
+                VStack(alignment: .leading, spacing: Space.md) {
+                    Text("Code changes").font(Typography.label)
+                    ForEach(SecondOpinionDefaults.Comparison.allCases, id: \.self) { comparison in
+                        OptionRow(title: comparison.title, detail: comparison.detail,
+                                  selected: defaults.comparison == comparison) {
+                            defaults.comparison = comparison
+                        }
+                    }
+                    Label("Changes and project files are always included. A file action keeps the comparison in Changes.",
+                          systemImage: "lock.fill")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(Space.lg)
                 SettingsRowDivider()
-                SettingsToggleRow(
-                    "HTML, handoff and theme, for designs",
-                    detail: "Every screen is always sent as a picture, light and dark. This adds the files behind it.",
-                    isOn: $defaults.designReading.source)
-                    .padding(Space.lg)
-                SettingsRowDivider()
-                SettingsToggleRow(
-                    "The design conversation",
-                    detail: "Shows them how the design was asked for. Like the session, it pulls them toward the author's view.",
-                    isOn: $defaults.designReading.conversation, warns: true)
-                    .padding(Space.lg)
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    Text("Designs").font(Typography.label)
+                    Text("Every screen in light and dark is always included.")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                    SettingsToggleRow("HTML, handoff and theme", detail: "Include the files behind the design.",
+                                      isOn: $defaults.designReading.source)
+                    SettingsToggleRow("Design conversation", detail: "Include the requests and decisions behind the design.",
+                                      isOn: $defaults.designReading.conversation, warns: true)
+                }
+                .padding(Space.lg)
             }
         }
     }

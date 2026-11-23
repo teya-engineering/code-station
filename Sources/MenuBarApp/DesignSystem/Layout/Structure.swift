@@ -154,9 +154,11 @@ struct FormRow: Layout {
 
 // Two fields share a row while there is room to read both controls.
 struct FormPair: Layout {
+    var minimumWidth: CGFloat = FormMetrics.pairedFieldsWidth
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? FormMetrics.pairedFieldsWidth
-        let stacked = width < FormMetrics.pairedFieldsWidth
+        let stacked = width < minimumWidth
         let fieldWidth = stacked ? width : (width - Space.lg) / 2
         let sizes = subviews.map { $0.sizeThatFits(.init(width: fieldWidth, height: nil)) }
         let height = stacked ? sizes.reduce(0) { $0 + $1.height } + Space.lg
@@ -165,7 +167,7 @@ struct FormPair: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let stacked = bounds.width < FormMetrics.pairedFieldsWidth
+        let stacked = bounds.width < minimumWidth
         let width = stacked ? bounds.width : (bounds.width - Space.lg) / 2
         var point = bounds.origin
         for subview in subviews {

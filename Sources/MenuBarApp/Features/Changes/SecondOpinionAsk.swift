@@ -1,8 +1,7 @@
 import Foundation
 
-// What a second opinion can be about, from the narrowest thing to read to the widest.
-// The ask shows them as stops along one track, and only the stops with something behind
-// them: no "Not committed" when nothing is, no "Whole chat" before there is a chat.
+// Subjects and file scopes share the existing review routes. The ask presents the
+// subject separately from its comparison and supporting context.
 enum SecondOpinionStop: Hashable, CaseIterable {
     case file, answer, sinceReview, uncommitted, branch, design, conversation
 
@@ -34,7 +33,7 @@ struct SecondOpinionAskFacts: Equatable {
         var picked: Bool
     }
 
-    struct File: Equatable, Identifiable {
+    struct File: Equatable, Identifiable, Sendable {
         var root: String
         var path: String
         var added: Int
@@ -50,6 +49,7 @@ struct SecondOpinionAskFacts: Equatable {
         // The base's name, such as origin/main.
         var base: String
         var files: [File]
+        var bases: [String: String] = [:]
     }
 
     struct Turn: Equatable {
@@ -74,6 +74,11 @@ struct SecondOpinionAskFacts: Equatable {
     var turns: [Turn] = []
     // The page in view is the design, so the header's ask is about it.
     var showsDesign = false
+    var showsChanges = false
+    var repositories: [ReviewRepository] = []
+    var compareRefs: [String: String] = [:]
+    var headRoots: Set<String> = []
+    var reviewTrees: [String: String] = [:]
 }
 
 enum SecondOpinionAsk {
@@ -83,13 +88,11 @@ enum SecondOpinionAsk {
         var stops: [SecondOpinionStop] = []
         if facts.file != nil { stops.append(.file) }
         if facts.answer != nil { stops.append(.answer) }
-        if facts.canReadSince && !facts.files.isEmpty { stops.append(.sinceReview) }
-        if !facts.files.isEmpty { stops.append(.uncommitted) }
+        if facts.canReadSince { stops.append(.sinceReview) }
+        if !facts.files.isEmpty || !facts.repositories.isEmpty { stops.append(.uncommitted) }
         if facts.branch?.files.isEmpty == false { stops.append(.branch) }
         if facts.designScreens != nil { stops.append(.design) }
-        // With one answer, the whole chat is that answer and its question, which the
-        // answer's own stop already reads.
-        if facts.turns.count(where: { !$0.fromPerson }) > 1 { stops.append(.conversation) }
+        if facts.turns.contains(where: { !$0.fromPerson }) { stops.append(.conversation) }
         return stops
     }
 
@@ -98,8 +101,12 @@ enum SecondOpinionAsk {
     // waiting on an answer first, then the design when it is on screen, then the changes
     // as the Changes screen compares them: the whole branch when it shows that, else the
     // uncommitted changes, so a review never misses work that is not committed yet.
-    static func initialStop(_ facts: SecondOpinionAskFacts) -> SecondOpinionStop? {
+    static func initialStop(_ facts: SecondOpinionAskFacts, defaults: SecondOpinionDefaults? = nil) -> SecondOpinionStop? {
         let stops = stops(facts)
+        if let defaults, facts.origin == .header, !facts.showsChanges, !facts.showsDesign,
+           facts.answer?.subject.kind != .plan, facts.answer != nil {
+            return defaults.chatSubject == .conversation && stops.contains(.conversation) ? .conversation : .answer
+        }
         let preferred: [SecondOpinionStop] = switch facts.origin {
         case .answer: [.answer]
         case .file: [.file]
@@ -113,7 +120,7 @@ enum SecondOpinionAsk {
 
     // MARK: Words
 
-    // The few words a stop wears on the track.
+    // The short label used when choosing a subject or scope.
     static func stopTitle(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts) -> String {
         switch stop {
         case .file: "This file"
@@ -127,7 +134,7 @@ enum SecondOpinionAsk {
         }
     }
 
-    // The subject's name over the track.
+    // The subject's name in the preview.
     static func title(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts) -> String {
         switch stop {
         case .file: facts.file?.name ?? "This file"

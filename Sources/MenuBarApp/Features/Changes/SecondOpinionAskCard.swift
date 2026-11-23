@@ -12,6 +12,7 @@ struct SecondOpinionAskChoice {
     var note: String
     // The reviewers may use the session's MCP servers.
     var usesServers = false
+    var scope: SecondOpinionRequest.Scope? = nil
 }
 
 struct SecondOpinionAnchorAction {
@@ -36,19 +37,13 @@ extension EnvironmentValues {
     @Entry var askSecondOpinionOnFile: AskSecondOpinionOnFileAction? = nil
 }
 
-// The ask for a second opinion, as a small card hung off the control that opened it. It
-// shows the thing to be reviewed rather than describing it: a picture of it, its name,
-// a track for how much of the work to take, and who reads it. Every other choice waits
-// behind Tune, so the usual ask is one click and Return.
+// The anchored ask keeps subject, context and comparison visible beside a live preview.
 struct SecondOpinionAskCard: View {
     // The coordinate space the session draws the card in.
     nonisolated static let space = "secondOpinionAsk"
-    static let width: CGFloat = 480
-    // The preview keeps one height whatever it shows, so the card does not jump as the
-    // knob moves.
-    static let previewHeight: CGFloat = 140
-    // Lines of the preview's list, and bubbles of its conversation, that fit that height.
-    static let previewRows = 6
+    static let width = ReviewMetrics.askWidth
+    // Text previews stay bounded even when an answer or conversation is long.
+    static let previewHeight = ReviewMetrics.previewHeight
     static let previewTurns = 5
 
     let facts: SecondOpinionAskFacts
@@ -57,13 +52,16 @@ struct SecondOpinionAskCard: View {
     let installed: [AgentKind]
     // Seats already reading the changes, which cannot be asked again until they finish.
     var running: Set<SecondOpinion.Reviewer> = []
-    // The files changed since the last review, once they have been worked out.
-    var sinceReviewFiles: Set<String>?
     // What Settings says an ask starts from. Tune changes only this ask.
     let defaults: SecondOpinionDefaults
     let ask: (SecondOpinionAskChoice) -> Void
     let close: () -> Void
+    let maxHeight: CGFloat
 
+    @State private var context: SecondOpinionContext
+    @State private var keptFocus = false
+    @State private var retry = 0
+    @State private var footerHeight = ControlHeight.lg + Space.pane * 2
     @State private var lineup: [SecondOpinion.Reviewer]
     @State private var usual: [SecondOpinion.Reviewer]
     @State private var chatFocus: Set<ChatSecondOpinion.Focus>
@@ -75,23 +73,27 @@ struct SecondOpinionAskCard: View {
     @State private var note = ""
     @State private var tuning = false
     @FocusState private var tuneFocused: Bool
+    @Environment(DialogPresenter.self) private var dialogs
+    @Environment(MenuPresenter.self) private var menus
     @Environment(SessionRunner.self) private var runner
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(facts: SecondOpinionAskFacts, stop: Binding<SecondOpinionStop>, author: SecondOpinion.Reviewer,
          installed: [AgentKind], running: Set<SecondOpinion.Reviewer> = [],
-         sinceReviewFiles: Set<String>? = nil, lineup: [SecondOpinion.Reviewer],
+         lineup: [SecondOpinion.Reviewer],
          defaults: SecondOpinionDefaults, startsTuning: Bool = false,
+         maxHeight: CGFloat = ReviewMetrics.askHeight,
          ask: @escaping (SecondOpinionAskChoice) -> Void, close: @escaping () -> Void) {
         self.facts = facts
         self._stop = stop
         self.author = author
         self.installed = installed
         self.running = running
-        self.sinceReviewFiles = sinceReviewFiles
         self.ask = ask
         self.close = close
         self.defaults = defaults
+        self.maxHeight = maxHeight
+        _context = State(initialValue: SecondOpinionContext(facts: facts, comparison: facts.origin == .file ? .changesTab : defaults.comparison))
         _lineup = State(initialValue: lineup)
         _usual = State(initialValue: defaults.lineup)
         _chatFocus = State(initialValue: defaults.chatFocus)
@@ -127,33 +129,33 @@ struct SecondOpinionAskCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
-            preview
-            caption
-            if stops.count > 1 {
-                ScopeTrack(label: "How much to review", stops: stops, selection: $stop) {
-                    SecondOpinionAsk.stopTitle($0, facts: facts)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Space.md) {
+                SheetTitle("Second opinion", icon: "eye")
+                Spacer(minLength: 0)
+                GlyphButton(icon: "xmark", action: close)
+                    .appTooltip("Close second opinion")
+                    .accessibilityLabel("Close second opinion")
+            }
+            .padding(.horizontal, Space.pane)
+            .headerBand()
+            MenuContentScrollView(maxHeight: max(0, maxHeight - Theme.headerHeight - footerHeight)) {
+                FormPair(minimumWidth: ReviewMetrics.columnsWidth) {
+                    setup
+                    contextPreview
                 }
+                .padding(Space.pane)
             }
-            seats
-            if tuning {
-                tray.transition(reduceMotion ? .opacity : .fold)
-            }
-            footer
+            footer.padding(Space.pane)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
+                .background(Theme.card)
+                .overlay(alignment: .top) { Divider().overlay(Theme.hairline) }
         }
-        .padding(Space.card)
         .frame(minWidth: 0, idealWidth: Self.width, maxWidth: Self.width, alignment: .leading)
         .floatingCard(cornerRadius: Radius.floating)
         .motion(Motion.reveal, value: tuning)
         .background {
-            Button {
-                if tuning {
-                    tuning = false
-                    tuneFocused = true
-                } else {
-                    close()
-                }
-            } label: { EmptyView() }
+            Button(action: close) { EmptyView() }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 .opacity(0)
@@ -162,14 +164,181 @@ struct SecondOpinionAskCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Ask for a second opinion")
         .accessibilityAddTraits(.isModal)
+        .focusBoundary(active: dialogs.current == nil && menus.entries.isEmpty)
         .onAppear {
-            // Nobody usual is installed, so the most independent agent there is sits
-            // first: one from another maker than the author's.
             if lineup.isEmpty, let agent = installed.first(where: { $0 != author.agent }) ?? installed.first {
                 seat(agent)
             }
         }
         .task { for agent in installed { await runner.catalog.discoverModels(for: agent) } }
+        .task(id: context.refs) { await context.read() }
+        .task(id: retry) { if retry > 0 { await context.read() } }
+    }
+
+    private var setup: some View {
+        VStack(alignment: .leading, spacing: Space.xl) {
+            Text("What should they review?").font(Typography.label)
+            subjectChoices
+            if stop.kind == .changes {
+                comparisonChoices
+            } else {
+                Text("Supporting context").font(Typography.label)
+                FlowRow(spacing: Space.sm) { readingChips }
+            }
+            SectionRule("WHO REVIEWS")
+            seats
+            SectionRule("WHAT TO LOOK FOR")
+            FlowRow(spacing: Space.sm) { focusChips }
+            if keptFocus {
+                Text("Keep one focus or add a note for your reviewers.")
+                    .font(Typography.caption).foregroundStyle(Theme.attentionText)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+            TextField("Anything else to look for", text: $note)
+                .appTextField(size: Typography.Size.detail)
+                .accessibilityLabel("Anything else to look for")
+            if tuning { tray.transition(reduceMotion ? .opacity : .fold) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var subjectChoices: some View {
+        HStack(alignment: .top, spacing: Space.sm) {
+            if facts.answer != nil {
+                SubjectChoice(title: SecondOpinionAsk.stopTitle(.answer, facts: facts),
+                              detail: "The answer and what you asked", icon: "text.bubble",
+                              selected: stop == .answer) { stop = .answer }
+            }
+            if stops.contains(.conversation) {
+                SubjectChoice(title: "Whole chat", detail: "Every turn in this conversation", icon: "bubble.left.and.bubble.right",
+                              selected: stop == .conversation) { stop = .conversation }
+            }
+            if stops.contains(where: { $0.kind == .changes }) {
+                SubjectChoice(title: "Changes", detail: "The code in your comparison", icon: "plus.forwardslash.minus",
+                              selected: stop.kind == .changes) { stop = .uncommitted }
+            }
+            if stops.contains(.design) {
+                SubjectChoice(title: "Design", detail: "Every screen, light and dark", icon: "rectangle.on.rectangle",
+                              selected: stop == .design) { stop = .design }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Review subject")
+    }
+
+    private var comparisonChoices: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text("Compare changes to").font(Typography.label)
+            Text(stop == .sinceReview ? "From your last review" : context.inheritsComparison
+                 ? "From your Changes tab" : "For this review only")
+                .font(Typography.caption).foregroundStyle(Theme.accent)
+                .contentTransition(.opacity)
+            if stop == .sinceReview {
+                Label("Last review snapshot", systemImage: "clock")
+                    .font(Typography.label).padding(Space.lg).frame(maxWidth: .infinity, alignment: .leading)
+                    .cardSurface()
+            } else {
+                FlowRow(spacing: Space.sm) {
+                    ChoicePill(title: "HEAD", selected: !context.usesBranch) { context.comparison = .head }
+                    ChoicePill(title: context.baseTitle, selected: context.usesBranch) { context.comparison = .branch }
+                }
+                Text(context.usesBranch ? "Committed and uncommitted work since the branch point."
+                     : "Uncommitted edits since the latest commit.")
+                    .font(Typography.caption).foregroundStyle(.secondary)
+                ForEach(facts.repositories, id: \.root) { repository in
+                    if let refs = context.branches[repository.root], !refs.isEmpty {
+                        SeatPill {
+                            Text(facts.repositories.count > 1 ? repository.name : "Base branch")
+                            Text(context.refs[repository.root] ?? context.snapshots[repository.root]?.remoteBase?.ref ?? "Choose")
+                                .font(Typography.data).lineLimit(1).truncationMode(.middle)
+                        }
+                        .appMenu {
+                            refs.map { ref in
+                                MenuEntry.item(ref, checked: context.refs[repository.root] == ref) {
+                                    context.refs[repository.root] = ref
+                                    context.comparison = .branch
+                                }
+                            }
+                        }
+                        .accessibilityLabel("Comparison branch for \(repository.name)")
+                    }
+                }
+            }
+            FlowRow(spacing: Space.sm) {
+                ChoicePill(title: "All changes", selected: stop == .uncommitted || stop == .branch) { stop = .uncommitted }
+                if facts.file != nil {
+                    ChoicePill(title: "This file", selected: stop == .file) { stop = .file }
+                }
+                if facts.canReadSince {
+                    ChoicePill(title: "Since last review", selected: stop == .sinceReview) { stop = .sinceReview }
+                }
+            }
+            .accessibilityLabel("Files to review")
+        }
+        .motion(Motion.control, value: context.comparison)
+        .motion(Motion.reveal, value: stop)
+    }
+
+    private var contextPreview: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            Text("What they’ll receive").font(Typography.label)
+            Label(previewTitle, systemImage: stop.kind == .changes ? "plus.forwardslash.minus"
+                  : stop == .conversation ? "bubble.left.and.bubble.right" : stop == .design ? "rectangle.on.rectangle" : "text.bubble")
+                .font(Typography.title)
+                .contentTransition(.opacity)
+            if stop.kind == .changes {
+                ComparisonRange(base: stop == .sinceReview ? "Review snapshot" : context.usesBranch ? context.baseTitle : "HEAD",
+                                includesCommits: context.usesBranch, snapshot: stop == .sinceReview)
+                    .id(stop == .sinceReview ? "snapshot" : context.usesBranch ? context.baseTitle : "HEAD")
+                filesPreview
+            } else {
+                preview
+                if stop == .answer, let request = facts.answer?.subject.request, !request.isBlank {
+                    Text("Your request").font(Typography.label)
+                    Text(Self.plain(request)).font(Typography.detail).foregroundStyle(.secondary).lineLimit(4)
+                }
+                if stop == .conversation {
+                    Text("Every conversational turn is included (\(facts.turns.count) messages).")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                }
+            }
+            SectionRule("ALSO INCLUDED")
+            if stop.kind == .changes {
+                contextLine("Project files to check the surrounding code", included: true)
+                contextLine("Conversation", included: false)
+            } else if stop.kind == .chat {
+                contextLine("Project files", included: chatReading.files)
+                contextLine("Earlier conversation", included: stop == .conversation || chatReading.conversation)
+            } else {
+                contextLine("HTML, handoff and theme", included: designReading.source)
+                contextLine("Design conversation", included: designReading.conversation)
+            }
+            contextLine("Read-only MCP tools", included: usesServers)
+            Label("Reviewers read and report. Findings come to you first.", systemImage: "lock.shield")
+                .font(Typography.caption).foregroundStyle(Theme.plan)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Space.card)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.sunken))
+        .motion(Motion.control, value: context.comparison)
+        .motion(Motion.reveal, value: stop)
+        .motion(Motion.control, value: chatReading)
+        .motion(Motion.control, value: designReading)
+        .motion(Motion.control, value: usesServers)
+    }
+
+    private var previewTitle: String {
+        if stop.kind != .changes { return SecondOpinionAsk.title(stop, facts: facts) }
+        if stop == .file { return facts.file?.name ?? "This file" }
+        if stop == .sinceReview { return "Since your last review" }
+        return "Changes from " + (context.usesBranch ? context.baseTitle : "HEAD")
+    }
+
+    private func contextLine(_ title: String, included: Bool) -> some View {
+        Label(included ? title : title + " not included", systemImage: included ? "checkmark" : "minus")
+            .font(Typography.caption).foregroundStyle(included ? Theme.accent : Theme.secondaryText)
+            .contentTransition(.opacity)
     }
 
     // MARK: Preview
@@ -195,26 +364,46 @@ struct SecondOpinionAskCard: View {
     }
 
     private var filesPreview: some View {
-        let lit = SecondOpinionAsk.litFiles(stop, facts: facts, sinceReview: sinceReviewFiles) ?? []
-        let files = SecondOpinionAsk.files(stop, facts: facts)
-        // Files in scope lead, so a narrow scope is never below the fold.
-        let ordered = files.filter { lit.contains($0.id) } + files.filter { !lit.contains($0.id) }
-        let fits = ordered.count > Self.previewRows ? Self.previewRows - 1 : Self.previewRows
+        let files = context.files(for: stop)
         let scale = files.map { $0.added + $0.removed }.max() ?? 1
-        return VStack(alignment: .leading, spacing: Space.sm) {
-            if stop == .sinceReview && sinceReviewFiles == nil {
-                Text("Working out what changed since the review…")
-                    .font(Typography.caption).foregroundStyle(.secondary)
-            }
-            ForEach(ordered.prefix(fits)) { file in
-                FileBarRow(name: file.name, added: file.added, removed: file.removed,
-                           lit: lit.contains(file.id), scale: scale)
-            }
-            if ordered.count > fits {
-                Text("and \(counted(ordered.count - fits, "more file"))")
-                    .font(Typography.caption).foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: Space.md) {
+            if context.loading {
+                ChangesProgressLabel(title: "Reading the comparison…")
+            } else if let reason = context.blockedReason(for: stop) {
+                Text(reason).font(Typography.detail).foregroundStyle(.secondary)
+                if context.failure != nil {
+                    InlineLink(title: "Try again") { retry += 1 }
+                } else if !context.usesBranch && stop != .sinceReview {
+                    InlineLink(title: "Compare to \(context.baseTitle)") { context.comparison = .branch }
+                }
+            } else {
+                HStack(spacing: Space.sm) {
+                    Text(counted(files.count, "file") + " in this review").font(Typography.label)
+                    Spacer(minLength: 0)
+                    DiffPair(added: files.reduce(0) { $0 + $1.added }, removed: files.reduce(0) { $0 + $1.removed })
+                }
+                ForEach(files) { file in
+                    Button { showFile(file) } label: {
+                        FileBarRow(name: file.name, added: file.added, removed: file.removed,
+                                   scale: scale, nameWidth: ReviewMetrics.fileNameWidth)
+                            .motion(Motion.draw, value: file)
+                            .padding(.vertical, Space.sm)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .hoverFill(cornerRadius: Radius.inset)
+                    .appTooltip(file.path)
+                    .accessibilityLabel("Open \(file.path), \(file.added) added, \(file.removed) removed")
+                }
             }
         }
+        .contentTransition(.opacity)
+    }
+
+    private func showFile(_ file: SecondOpinionAskFacts.File) {
+        dialogs.show(Dialog(title: file.name,
+                            content: AnyView(SecondOpinionFilePreview(file: file, scope: context.fileScope(file, for: stop))),
+                            actions: [], width: FormMetrics.sheetWidth, framesItself: true, fitsWindow: true))
     }
 
     private var answerPreview: some View {
@@ -263,34 +452,6 @@ struct SecondOpinionAskCard: View {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         let text = (try? AttributedString(markdown: markdown, options: options)).map { String($0.characters) } ?? markdown
         return text.trimmed
-    }
-
-    // MARK: Caption
-
-    private var caption: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.md) {
-            Text(SecondOpinionAsk.title(stop, facts: facts))
-                .font(Typography.title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .accessibilityAddTraits(.isHeader)
-            if let fact = SecondOpinionAsk.fact(stop, facts: facts) {
-                Text(fact).font(Typography.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            if let lines = codeLines {
-                DiffPair(added: lines.added, removed: lines.removed)
-            }
-            Spacer(minLength: 0)
-        }
-        .contentTransition(.opacity)
-        .motion(Motion.reveal, value: stop)
-    }
-
-    private var codeLines: (added: Int, removed: Int)? {
-        guard let lit = SecondOpinionAsk.litFiles(stop, facts: facts, sinceReview: sinceReviewFiles),
-              stop != .sinceReview else { return nil }
-        let files = SecondOpinionAsk.files(stop, facts: facts).filter { lit.contains($0.id) }
-        return (files.reduce(0) { $0 + $1.added }, files.reduce(0) { $0 + $1.removed })
     }
 
     // MARK: Seats
@@ -357,19 +518,6 @@ struct SecondOpinionAskCard: View {
 
     private var tray: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            FormRow {
-                trayLabel("Look for")
-                VStack(alignment: .leading, spacing: Space.sm) {
-                    FlowRow(spacing: Space.sm) { focusChips }
-                    TextField("Anything else to look for", text: $note)
-                        .appTextField(size: Typography.Size.detail)
-                        .accessibilityLabel("Anything else to look for")
-                }
-            }
-            FormRow {
-                trayLabel("They read")
-                FlowRow(spacing: Space.sm) { readingChips }
-            }
             FormRow {
                 trayLabel("They can use")
                 VStack(alignment: .leading, spacing: Space.xs) {
@@ -461,10 +609,10 @@ struct SecondOpinionAskCard: View {
         case .answer:
             ToggleChip(fixed: facts.answer?.subject.kind == .plan ? "The plan and your ask" : "The answer and your ask")
             ToggleChip("Project files", isOn: $chatReading.files)
-            ToggleChip("This conversation", isOn: $chatReading.conversation, warns: true)
+            ToggleChip("Earlier conversation", isOn: $chatReading.conversation, warns: true)
                 .appTooltip("Makes them think like \(author.agent.title)")
         case .conversation:
-            ToggleChip(fixed: "The conversation")
+            ToggleChip(fixed: "Earlier conversation included")
             ToggleChip("Project files", isOn: $chatReading.files)
         case .file, .sinceReview, .uncommitted, .branch:
             ToggleChip(fixed: "The changes")
@@ -483,7 +631,14 @@ struct SecondOpinionAskCard: View {
 
     private func member<Item: Hashable>(_ item: Item, of set: Binding<Set<Item>>) -> Binding<Bool> {
         Binding(get: { set.wrappedValue.contains(item) },
-                set: { on in if on { set.wrappedValue.insert(item) } else { set.wrappedValue.remove(item) } })
+                set: { on in
+                    guard on || set.wrappedValue.count > 1 || !note.isBlank else {
+                        keptFocus = true
+                        return
+                    }
+                    keptFocus = false
+                    if on { set.wrappedValue.insert(item) } else { set.wrappedValue.remove(item) }
+                })
     }
 
     private func modelMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
@@ -538,6 +693,7 @@ struct SecondOpinionAskCard: View {
     private var footer: some View {
         let title = SecondOpinionAsk.askTitle(lineup: asked, hasFocus: hasFocus)
         let blockedReason = SecondOpinionAsk.blockedReason(lineup: asked, hasFocus: hasFocus)
+            ?? context.blockedReason(for: stop)
         return HStack(spacing: Space.md) {
             if let blockedReason {
                 Text(blockedReason)
@@ -553,7 +709,8 @@ struct SecondOpinionAskCard: View {
                     chatReading: stop == .conversation ? .init(files: chatReading.files, conversation: false) : chatReading,
                     changesFocus: changesFocus,
                     designFocus: DesignSecondOpinion.Focus.allCases.filter(designFocus.contains),
-                    designReading: designReading, note: note.trimmed, usesServers: usesServers))
+                    designReading: designReading, note: note.trimmed, usesServers: usesServers,
+                    scope: stop.kind == .changes ? context.scope(for: stop) : nil))
             }
             .disabled(blockedReason != nil)
             .accessibilityHint(blockedReason ?? "")
