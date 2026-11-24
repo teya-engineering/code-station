@@ -80,7 +80,7 @@ def trace_exit(pattern):
         "-o", "settings set target.disable-aslr false",
         "-o", "settings set target.env-vars " + environment,
         "-o", "breakpoint set --shlib libsystem_c.dylib --name exit",
-        "-o", "run", "-o", "thread backtrace all", "-o", "continue",
+        "-o", "process launch --shell-expand-args false", "-o", "thread backtrace all", "-o", "continue",
         "--", str(helper), "--test-bundle-path", str(bundle),
         "--testing-library", "swift-testing", "--no-parallel", "--filter", pattern,
     ], timeout=300)
@@ -90,6 +90,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run one share of the Swift test suites serially.")
     parser.add_argument("shard", type=int)
     parser.add_argument("count", type=int)
+    parser.add_argument("--trace-batch", type=int)
     args = parser.parse_args()
     command = [
         "./Scripts/swiftpm.sh", "test", "--disable-sandbox", "--disable-index-store",
@@ -103,6 +104,9 @@ def main():
     _, expected = select_tests(tests, args.shard, args.count)
     print(f"Shard {args.shard + 1}/{args.count}: {len(expected)} of {len(tests)} tests", flush=True)
     batches = test_batches(expected)
+    if args.trace_batch is not None:
+        trace_exit(batches[args.trace_batch][0])
+        return
     with tempfile.TemporaryDirectory(prefix="code-station-ci-tests-", dir="/private/tmp") as scratch:
         for index, (pattern, batch) in enumerate(batches):
             print(f"Batch {index + 1}/{len(batches)}: {len(batch)} tests", flush=True)
