@@ -55,6 +55,7 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `brand`, `listen...` | The app itself. Lime on screen means the microphone is open. |
 | `showcase`, `snooze...` | A Design session going all out, and a snoozed item. |
 | `projectTint(for:)` | A project's own colour. The same one wherever the project shows up. |
+| `RailTint` | Which tool this is, while it is pointed at. Each header rail shortcut has one, set by its `RailTool`, and it shows only under the pointer or keyboard focus, as a wash behind the seat, the glyph's ink and a square dot in the tooltip. The colour follows the tool into the panel it opens: the glyph at the head of that panel takes `RailTool.mark`. An open seat keeps the accent, since green means chosen. |
 | `chartSeries` | Chart lines, in a fixed order. |
 
 Where a colour has a `...Text` twin, use the twin for words and the plain one for dots and fills. The twins are tuned to be readable, and `WarningContrastTests` checks them.
@@ -185,6 +186,8 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 | `Motion.stagger` | The step between rows that arrive together, such as the files of a folder opening. Add it as a delay per row, and stop counting after a few rows so a long list does not keep the last one waiting. |
 | `Motion.ring` | A ring spreading out from a mark that has just landed. |
 | `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
+| `Motion.rail...`, `Motion.flood` | The header rail's signatures: each shortcut's act and loop lengths, the hand-off between seats, and the wash flooding in from where the pointer came. |
+| `Motion.popCurve`, `Motion.controlCurve` | `Motion.pop` and `Motion.control` for Core Animation. |
 | `Motion.brandOrbitDuration`, `Motion.brandGleamDuration`, `Motion.wordmarkPeriod` | The brand's finite dot orbit, one entry gleam and repeating hover colour flow. Core Animation plays them without a frame clock. `BrandLayerView` cancels playback when the window loses focus or becomes hidden; another pointer entry is needed to start again. Exit returns to rest on `Motion.leaveDuration`. |
 
 - Animate with `.motion(_:value:)`, so it turns off under Reduce Motion. Every transition takes `reduceMotion` and falls back to a plain fade.
@@ -195,6 +198,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 - Words put into a text field by a pick, such as a slash command chosen from the menu, are marked where they land with `TextWash.play(over:in:colour:)` (`Motion/TextWash.swift`): a short wash of the colour that fades on `Motion.washDuration`. Core Animation plays it, so the text is not drawn again, and an edit clears it. Leave it out under Reduce Motion.
 - A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
+- A header rail shortcut gives its seat a `tool:` (`Motion/RailSignature.swift`). Its glyph is drawn as layers by `RailGlyph` and plays a short act while pointed at, never at rest. One wash per rail (`.railWash()` on the row, `.railSeat` on each seat) floods in from where the pointer came, slides from seat to seat and leaves on `Motion.leave`. The seat's hint slides with it: a `Tooltip` with `glides: true` waits `Motion.railHandoff` for the next source and moves there on `Motion.control` instead of fading out and in. Keyboard focus shows the colour without the act. Under Reduce Motion the colour and wash stay as a plain fade, with no act, slide or flood.
 - Motion confirms what the person did and never makes them wait. The brand wordmark's colour flow is decorative and runs only while hovered; other motion answers an action or shows work in progress.
 
 The full motion rules are in `CLAUDE.md`.
@@ -284,7 +288,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A group of settings | `ChoiceBlock` holding a `SettingsCard`, with `SettingsRowDivider` between rows |
 | A row that opens and closes | `DisclosureHeader` |
 | Tabs in a header | `HeaderTabDeck`, `HeaderTabToggle` |
-| Buttons in a header | `HeaderRailButton`, `HeaderRailMenuButton`, `HeaderSplitButton` |
+| Buttons in a header | `HeaderRailButton`, `HeaderRailMenuButton`, `HeaderDockSeat`, `HeaderSplitButton`. Give each shortcut its `tool:` so it takes its colour and act. |
 | The bottom of a sheet | `SheetFooter` |
 
 **Showing data**

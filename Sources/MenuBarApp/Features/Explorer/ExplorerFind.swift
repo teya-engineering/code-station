@@ -199,7 +199,7 @@ struct ExplorerFindDialog: View {
         return HStack(spacing: Space.md) {
             Image(systemName: "magnifyingglass")
                 .font(Typography.label)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(RailTool.find.mark)
                 .accessibilityHidden(true)
             TextField(placeholder, text: $model.query)
                 .textFieldStyle(.plain)

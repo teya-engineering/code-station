@@ -16,7 +16,7 @@ struct FindBar: View {
             HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass")
                     .font(Typography.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(RailTool.find.mark)
                 TextField(placeholder, text: $query)
                     .textFieldStyle(.plain)
                     .font(Typography.detail)

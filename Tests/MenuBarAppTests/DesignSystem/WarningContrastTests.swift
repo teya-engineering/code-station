@@ -172,4 +172,47 @@ struct WarningContrastTests {
             }
         }
     }
+
+    // A rail shortcut's glyph takes its tool's ink while pointed at. It sits on the band the
+    // rail is drawn on, and on the tool's own wash over that band.
+    @Test func everyRailToolIsReadableInBothAppearances() throws {
+        let tools: [RailTool] = [.opinion, .preview, .terminal, .find, .export, .recap, .ask, .more]
+        for appearance in try appearances() {
+            let band = try swatch(Theme.statusBand, in: appearance)
+            for tool in tools {
+                let tint = tool.tint
+                let wash = try swatch(tint.wash, in: appearance).over(band)
+                let ink = try swatch(tint.ink, in: appearance).over(wash)
+                #expect(ink.contrast(against: wash) >= 4.5,
+                        "\(tool) on its wash on \(appearance.name.rawValue)")
+                // The terminal's ink is made for its dark wash and never shows on the bare band.
+                if tool != .terminal {
+                    #expect(ink.contrast(against: band) >= 4.5,
+                            "\(tool) on the band on \(appearance.name.rawValue)")
+                }
+            }
+        }
+    }
+
+    // A tool's colour follows it into the panel it opens, as the glyph at the head of the
+    // panel: on a field for find and preview, on the drawer's card for the terminal, and on
+    // the tool's own wash for the recap and ask cards.
+    @Test func everyRailToolMarksItsPanelInBothAppearances() throws {
+        for appearance in try appearances() {
+            let card = try swatch(Theme.card, in: appearance)
+            let field = try swatch(Theme.field, in: appearance).over(card)
+            let surfaces: [(RailTool, Swatch)] = [
+                (.find, field),
+                (.preview, field),
+                (.terminal, card),
+                (.recap, try swatch(RailTool.recap.tint.wash, in: appearance).over(card)),
+                (.ask, try swatch(RailTool.ask.tint.wash, in: appearance).over(card))
+            ]
+            for (tool, surface) in surfaces {
+                let mark = try swatch(tool.mark, in: appearance).over(surface)
+                #expect(mark.contrast(against: surface) >= 3,
+                        "\(tool) panel glyph on \(appearance.name.rawValue)")
+            }
+        }
+    }
 }

@@ -355,6 +355,7 @@ struct SecondOpinionLineupButton: View {
     let open: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(RailWash.self) private var wash: RailWash?
     @State private var hovering = false
     @State private var deals = 0
     @State private var squashes = 0
@@ -405,9 +406,15 @@ struct SecondOpinionLineupButton: View {
         .buttonStyle(.plain)
         .disabled(shown == .rest && !canAsk)
         .onPointerHover { hovering = $0 }
+        // Only the resting lineup takes the tool's colour. Once a run starts, the chip's
+        // own colours say how it is going.
+        .railSeat("opinion", tool: .opinion, radius: Radius.card,
+                  active: hovering && shown == .rest && canAsk)
         .appTooltip {
             Tooltip(title: shown == .rest ? "Ask for a second opinion" : "Second opinion",
-                    subtitle: tooltipWords)
+                    subtitle: tooltipWords,
+                    tint: shown == .rest ? RailTool.opinion.tint.colour : nil,
+                    glides: true)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
@@ -496,7 +503,8 @@ struct SecondOpinionLineupButton: View {
         let shape = RoundedRectangle(cornerRadius: Radius.card)
         switch shown {
         case .rest:
-            if hovering && canAsk { shape.fill(Theme.field) }
+            // Inside a rail, the rail's wash stands in for the hover fill.
+            if hovering && canAsk && wash == nil { shape.fill(Theme.field) }
         case .reviewing, .settled:
             shape.fill(hovering ? Theme.field : Theme.card).overlay(shape.strokeBorder(Theme.border))
         case .failed:

@@ -44,6 +44,11 @@ struct TerminalDrawer: View {
 
     private var strip: some View {
         HStack(spacing: Space.sm) {
+            // The terminal shortcut's colour, so the drawer reads as the one it opened.
+            Image(systemName: "terminal")
+                .font(Typography.caption.weight(.semibold))
+                .foregroundStyle(RailTool.terminal.mark)
+                .accessibilityHidden(true)
             ForEach(open) { terminal in
                 tab(terminal)
                     .transition(.asymmetric(insertion: .fadeIn, removal: .fold))

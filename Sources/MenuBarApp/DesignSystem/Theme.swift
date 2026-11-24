@@ -281,6 +281,62 @@ enum Theme {
 
     static func monogram(for name: String) -> Color { projectTint(for: name).ink }
 
+    // Which tool a shortcut on the header rail is, while it is pointed at. The rail is grey
+    // at rest, so nothing asks for the eye until a hand reaches for it. Each tool takes one
+    // colour from the project wheel, leaving out red and amber so no tool reads as
+    // `deletion` or `attention`. The wash and its edge follow the project tile's rule. The
+    // ink is the wheel's ink on paper and a lifted colour on charcoal, so the glyph carries
+    // on its wash in both appearances; WarningContrastTests measures each pair.
+    struct RailTint {
+        // The tool's own colour, for the square dot in its tooltip. Nil for a shortcut
+        // with no colour of its own.
+        let colour: Color?
+        let ink: Color
+        let wash: Color
+        let edge: Color
+
+        static let opinion = wheel(0xBC44BC, ink: 0x832F83, dark: 0xD259D1, darkInk: 0xDE7BDD)
+        static let preview = wheel(0x2F7FD9, ink: 0x1E5493, dark: 0x4594F0, darkInk: 0x6FAEF5)
+        static let find = wheel(0x12A0A8, ink: 0x0B6B70, dark: 0x2BB8BF, darkInk: 0x45C6CC)
+        static let export = wheel(0x5661D9, ink: 0x363F99, dark: 0x6B7AF5, darkInk: 0x8E99F8)
+        static let ask = wheel(0xD93D77, ink: 0x99254F, dark: 0xEC5C8F, darkInk: 0xF07FA6)
+
+        // The terminal borrows the shell's own surface rather than a new hue: the seat
+        // goes dark like the drawer it opens.
+        static let terminal = RailTint(
+            colour: adaptive(light: rgb(0x8A8F1C), dark: rgb(0xDDE048)),
+            ink: Theme.terminalText,
+            wash: Theme.terminal,
+            edge: adaptive(light: .clear, dark: NSColor(white: 1, alpha: 0.14)))
+
+        // A recap is the app speaking for itself, so it lights in the brand's lime with a
+        // gold glyph that stays readable on it.
+        static let recap = RailTint(
+            colour: Theme.brand,
+            ink: adaptive(light: rgb(0x7A5C1F), dark: rgb(0xDECC7A)),
+            wash: adaptive(light: rgb(0xDDE048, alpha: 0.36), dark: rgb(0xDDE048, alpha: 0.18)),
+            edge: adaptive(light: rgb(0x85870F, alpha: 0.4), dark: rgb(0xDDE048, alpha: 0.34)))
+
+        // For a shortcut that is no particular tool, such as the overflow.
+        static let plain = RailTint(colour: nil, ink: .primary, wash: Theme.field, edge: .clear)
+
+        private static func wheel(_ light: UInt32, ink: UInt32,
+                                  dark: UInt32, darkInk: UInt32) -> RailTint {
+            let colour = adaptive(light: rgb(light), dark: rgb(dark))
+            return RailTint(colour: colour,
+                            ink: adaptive(light: rgb(ink), dark: rgb(darkInk)),
+                            wash: colour.opacity(0.15),
+                            edge: colour.opacity(0.3))
+        }
+
+        private static func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
+            NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                    green: CGFloat((hex >> 8) & 0xFF) / 255,
+                    blue: CGFloat(hex & 0xFF) / 255,
+                    alpha: alpha)
+        }
+    }
+
     // The eight series slots a chart draws from, in a fixed order: the first series in a
     // chart takes slot one, the second slot two, and so on. They are the project wheel
     // above stepped for each surface, leaving out red and amber so a series can never be
