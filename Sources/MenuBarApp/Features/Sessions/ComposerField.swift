@@ -205,7 +205,13 @@ struct TextArea: NSViewRepresentable {
 
         // Only when the model moved on its own, e.g. the draft cleared after a send.
         // Writing back what the user just typed would drop the insertion point.
-        if textView.string != text {
+        // Text still being composed, such as the accent a dead key holds until the next
+        // key or a word an input method is building, is in the field but not yet in the
+        // model, since AppKit reports the text only once it is committed. Writing the
+        // model over it would throw the keystroke away, so it is kept unless the model
+        // has changed since the field last matched it.
+        let composing = textView.hasMarkedText() && text == context.coordinator.syncedText
+        if textView.string != text, !composing {
             TextWash.clear(in: textView)
             textView.string = text
             // A prompt arriving from elsewhere is there to be worked on, so the caret
@@ -213,6 +219,7 @@ struct TextArea: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
             context.coordinator.reportHeight(of: textView)
         }
+        context.coordinator.syncedText = text
         link?.textView = textView
         link?.applyPendingCaret()
         link?.applyPendingWash()
@@ -257,8 +264,14 @@ struct TextArea: NSViewRepresentable {
         var claimedFocus = false
         // Set while SwiftUI hands the field new state, when its own state cannot change.
         var updating = false
+        // The text the field and the model last agreed on, which tells a change the model
+        // made itself apart from text the field holds but has not reported yet.
+        var syncedText: String
 
-        init(_ parent: TextArea) { self.parent = parent }
+        init(_ parent: TextArea) {
+            self.parent = parent
+            syncedText = parent.text
+        }
 
         // The box the field draws in. Separate from makeNSView so a test can stand one
         // up without a SwiftUI context.
@@ -307,6 +320,7 @@ struct TextArea: NSViewRepresentable {
             // A wash waiting for words a pick put in is stale once the person edits.
             parent.link?.dropPendingWash()
             parent.text = textView.string
+            syncedText = textView.string
             reportHeight(of: textView)
             reportCaret(of: textView)
         }

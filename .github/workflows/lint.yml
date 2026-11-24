@@ -61,6 +61,8 @@ jobs:
         run: |
           shellcheck --version
           shellcheck Scripts/*.sh build-app.sh
+      - name: Test CI sharding and result checks
+        run: python3 Scripts/test-ci-tests.py
 
   design-rules:
     runs-on: ubuntu-24.04

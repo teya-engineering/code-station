@@ -17,11 +17,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  test-shard:
     # The only image with Xcode 27. It is still a preview, so if it misbehaves,
     # go back to macos-26 and set .xcode-version to a 26.x release it carries.
     runs-on: xcode-27
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
     env:
       SWIFTPM_MODULECACHE_OVERRIDE: /private/tmp/code-station-ci-module-cache
     steps:
@@ -31,11 +35,56 @@ jobs:
       - name: Select Xcode
         run: ./Scripts/ci-select-xcode.sh
       - name: Toolchain
-        run: swift --version && xcodebuild -version
-      - name: Test
+        id: toolchain
+        run: |
+          { swift --version; xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } \
+            | tee "$RUNNER_TEMP/toolchain.txt"
+          printf 'key=%s\n' "$(shasum -a 256 "$RUNNER_TEMP/toolchain.txt" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift build
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build
+            /private/tmp/teya-swiftpm-cache
+            /private/tmp/code-station-ci-module-cache
+          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh', 'Scripts/TestMain.swift') }}-${{ github.sha }}
+          restore-keys: |
+            swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh', 'Scripts/TestMain.swift') }}-
+
+      - name: Build tests
         run: >-
-          ./Scripts/swiftpm.sh test --disable-sandbox --no-parallel
+          ./Scripts/swiftpm.sh build --build-tests --disable-sandbox --disable-index-store
           --force-resolved-versions
           --cache-path /private/tmp/teya-swiftpm-cache
           --config-path /private/tmp/code-station-ci-configuration
           --security-path /private/tmp/code-station-ci-security
+
+      # A test failure must not make the next run rebuild every dependency.
+      - name: Save Swift build
+        if: matrix.shard == 0 && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build
+            /private/tmp/teya-swiftpm-cache
+            /private/tmp/code-station-ci-module-cache
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      - name: Test
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: python3 Scripts/ci-tests.py "$SHARD" 2
+
+  # Keep one required check for the whole suite, regardless of the number of runners.
+  test:
+    if: always()
+    needs: test-shard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every shard to pass
+        env:
+          RESULT: ${{ needs.test-shard.result }}
+        run: test "$RESULT" = success
