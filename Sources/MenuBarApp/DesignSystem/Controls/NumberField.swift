@@ -1,18 +1,23 @@
 import SwiftUI
 
-// A count of days typed or stepped, held to a range. Old session cleanup, the new
-// workspace sheet and Stats all ask in days, so they share one field.
-struct DayField: View {
-    @Binding var days: Int
-    var range = OldSessions.dayRange
-    var accessibilityLabel = "Old session age in days"
+// A whole number typed or stepped, held to a range, with its unit beside it. Anything the
+// person sets as a count, such as days or lines, uses this one field.
+struct NumberField: View {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var step = 1
+    // The unit after the number, singular then plural.
+    let unit: (one: String, many: String)
+    // Wide enough for the longest number the range allows.
+    var width: CGFloat = NumberFieldMetrics.compactWidth
+    let accessibilityLabel: String
     var validatesEntry = false
     var onValidityChange: (Bool) -> Void = { _ in }
 
     @State private var draft: String?
     @FocusState private var focused: Bool
 
-    static func validDays(_ text: String, in range: ClosedRange<Int>) -> Int? {
+    static func validNumber(_ text: String, in range: ClosedRange<Int>) -> Int? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }),
               let value = Int(text), range.contains(value) else { return nil }
@@ -20,22 +25,27 @@ struct DayField: View {
     }
 
     private var invalid: Bool {
-        validatesEntry && draft.map { Self.validDays($0, in: range) == nil } == true
+        validatesEntry && draft.map { Self.validNumber($0, in: range) == nil } == true
     }
 
     private var correction: String {
-        "Use \(range.lowerBound) to \(range.upperBound) whole days."
+        "Use \(range.lowerBound.formatted()) to \(range.upperBound.formatted()) whole \(unit.many)."
+    }
+
+    private func stepLabel(_ direction: String) -> String {
+        "\(accessibilityLabel): \(step == 1 ? "one" : step.formatted()) \(direction) \(step == 1 ? unit.one : unit.many)"
     }
 
     private func commit() {
-        guard let draft, let value = Self.validDays(draft, in: range) else { return }
-        days = value
+        guard let draft, let typed = Self.validNumber(draft, in: range) else { return }
+        value = typed
         self.draft = nil
     }
 
     @ViewBuilder private var entry: some View {
         if validatesEntry {
-            TextField("Days", text: Binding(get: { draft ?? String(days) }, set: { draft = $0 }))
+            TextField(unit.many.capitalized,
+                      text: Binding(get: { draft ?? String(value) }, set: { draft = $0 }))
                 .focused($focused)
                 .onSubmit { commit() }
                 .onChange(of: focused) { _, active in if !active { commit() } }
@@ -44,21 +54,21 @@ struct DayField: View {
                     focused = false
                     return .handled
                 }
-                .onChange(of: days) { _, _ in draft = nil }
+                .onChange(of: value) { _, _ in draft = nil }
                 .accessibilityHint(invalid ? correction : "Enter a whole number from \(range.lowerBound) to \(range.upperBound).")
         } else {
-            TextField("Days", value: value, format: .number)
+            TextField(unit.many.capitalized, value: clamped, format: .number)
         }
     }
 
-    private func resolved(_ value: Int) -> Int {
-        min(max(value, range.lowerBound), range.upperBound)
+    private func resolved(_ candidate: Int) -> Int {
+        min(max(candidate, range.lowerBound), range.upperBound)
     }
 
-    private var value: Binding<Int> {
+    private var clamped: Binding<Int> {
         Binding(
-            get: { days },
-            set: { days = resolved($0) }
+            get: { value },
+            set: { value = resolved($0) }
         )
     }
 
@@ -70,21 +80,21 @@ struct DayField: View {
                     .font(Typography.body.weight(.semibold))
                     .monospacedDigit()
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 36)
+                    .frame(width: width)
                     .accessibilityLabel(accessibilityLabel)
-                Text(days == 1 ? "day" : "days")
+                Text(value == 1 ? unit.one : unit.many)
                     .font(Typography.body.weight(.medium))
                     .foregroundStyle(.secondary)
                 VStack(spacing: 0) {
-                    DayStepButton(icon: "chevron.up", label: "\(accessibilityLabel): one more day",
-                                  enabled: days < range.upperBound) {
+                    NumberStepButton(icon: "chevron.up", label: stepLabel("more"),
+                                     enabled: value < range.upperBound) {
                         draft = nil
-                        days = resolved(days + 1)
+                        value = resolved(value + step)
                     }
-                    DayStepButton(icon: "chevron.down", label: "\(accessibilityLabel): one less day",
-                                  enabled: days > range.lowerBound) {
+                    NumberStepButton(icon: "chevron.down", label: stepLabel(step == 1 ? "less" : "fewer"),
+                                     enabled: value > range.lowerBound) {
                         draft = nil
-                        days = resolved(days - 1)
+                        value = resolved(value - step)
                     }
                 }
             }
@@ -116,7 +126,27 @@ struct DayField: View {
     }
 }
 
-private struct DayStepButton: View {
+// A count of days, held to a range. Old session cleanup, the new workspace sheet and
+// Stats all ask in days, so they share one field.
+struct DayField: View {
+    @Binding var days: Int
+    var range = OldSessions.dayRange
+    var accessibilityLabel = "Old session age in days"
+    var validatesEntry = false
+    var onValidityChange: (Bool) -> Void = { _ in }
+
+    static func validDays(_ text: String, in range: ClosedRange<Int>) -> Int? {
+        NumberField.validNumber(text, in: range)
+    }
+
+    var body: some View {
+        NumberField(value: $days, range: range, unit: (one: "day", many: "days"),
+                    accessibilityLabel: accessibilityLabel, validatesEntry: validatesEntry,
+                    onValidityChange: onValidityChange)
+    }
+}
+
+private struct NumberStepButton: View {
     let icon: String
     let label: String
     let enabled: Bool

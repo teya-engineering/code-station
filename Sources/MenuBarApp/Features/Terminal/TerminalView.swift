@@ -145,6 +145,16 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         font = NSFont.monospacedSystemFont(ofSize: Self.baseFontSize * scale, weight: .regular)
     }
 
+    // SwiftTerm takes a scrollback size but keeps no way to read it back, so the one the
+    // app last asked for is held here.
+    private(set) var scrollbackLines = 0
+
+    func setScrollback(_ lines: Int) {
+        guard lines != scrollbackLines else { return }
+        scrollbackLines = lines
+        changeScrollback(lines)
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame,
                    font: NSFont.monospacedSystemFont(ofSize: Self.baseFontSize, weight: .regular))

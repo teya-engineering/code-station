@@ -40,12 +40,14 @@ final class TerminalSession: Identifiable {
     }()
 
     init(directory: String, name: String, registry: ShellRegistry = .shared,
+         scrollback: Int = Preferences.terminalScrollback.read(),
          onExit: ((TerminalSession) -> Void)? = nil) {
         self.directory = directory
         self.name = name
         self.registry = registry
         self.onExit = onExit
         surface = TerminalSurface(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        surface.setScrollback(scrollback)
         surface.terminalDelegate = self
         surface.onClear = { [weak self] in self?.clear() }
     }

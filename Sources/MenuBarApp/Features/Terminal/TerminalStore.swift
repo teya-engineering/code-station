@@ -34,6 +34,17 @@ final class TerminalStore {
     private var heights: [TerminalScope: CGFloat] = [:]
     @ObservationIgnored private let registry: ShellRegistry
 
+    // Held here as well as in the settings, so a tab opened later starts at the same depth
+    // as the ones already open. A shallower size drops the oldest lines of every tab.
+    @ObservationIgnored var scrollback = Preferences.terminalScrollback.read() {
+        didSet {
+            guard scrollback != oldValue else { return }
+            for terminal in terminals.values.joined() {
+                terminal.surface.setScrollback(scrollback)
+            }
+        }
+    }
+
     init(registry: ShellRegistry = .shared) {
         self.registry = registry
     }
@@ -124,7 +135,8 @@ final class TerminalStore {
     @discardableResult
     func add(to scope: TerminalScope, directory: String) -> TerminalSession {
         let terminal = TerminalSession(directory: directory, name: nextName(in: scope),
-                                       registry: registry) { [weak self] terminal in
+                                       registry: registry,
+                                       scrollback: scrollback) { [weak self] terminal in
             self?.removeExited(terminal, from: scope)
         }
         terminal.start()
