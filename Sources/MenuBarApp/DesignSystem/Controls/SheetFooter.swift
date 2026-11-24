@@ -20,9 +20,8 @@ struct SheetAction {
     let action: () -> Void
 }
 
-// macOS puts the button that closes a window at the bottom right, so every sheet ends
-// with this bar instead of parking its closing action in the title area where it reads
-// like part of the toolbar. Escape triggers the same action.
+// Standard sheets close from the bottom right, and Escape does the same thing. A
+// reader with its own close control in the header can hide the footer's dismiss button.
 //
 // A sheet that edits something puts its action next to Cancel. The action only lights
 // up while there is something for it to do. A sheet with two ways forward, such as
@@ -32,6 +31,7 @@ struct SheetAction {
 struct SheetFooter<Leading: View>: View {
     var horizontalInset: CGFloat = Space.pane
     var verticalInset: CGFloat = Space.lg
+    var showsDismiss = true
 
     private let title: String?
     private let primary: SheetAction?
@@ -78,7 +78,7 @@ struct SheetFooter<Leading: View>: View {
                                  keyboardShortcut: secondary.shortcut, action: secondary.action)
                         .disabled(!secondary.enabled)
                 }
-                if primaryLast { dismissButton }
+                if primaryLast && showsDismiss { dismissButton }
                 if let primary {
                     ActionButton(title: primary.title, tone: primary.tone ?? .green, size: Typography.Size.body,
                                  icon: primary.icon, shortcut: primary.hint,
@@ -99,7 +99,7 @@ struct SheetFooter<Leading: View>: View {
                         .overlay { blockedCatcher(for: primary) }
                         .accessibilityHint(primary.enabled ? "" : primary.blockedReason ?? "")
                 }
-                if !primaryLast { dismissButton }
+                if !primaryLast && showsDismiss { dismissButton }
             }
             .padding(.horizontal, horizontalInset)
             .padding(.vertical, verticalInset)

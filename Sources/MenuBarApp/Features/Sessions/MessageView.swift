@@ -10,8 +10,7 @@ struct MessageView: View, Equatable {
     let textScale: CGFloat
     var openChange: (String) -> Void = { _ in }
     var runInShell: (String) -> Void = { _ in }
-    // Answers whether the link was taken into the app's explorer. Anything it turns down
-    // goes to Finder.
+    // Answers whether the file was taken into this session's Explorer.
     var showInExplorer: (URL) -> Bool = { _ in false }
     // Answers whether a link to a server on this machine was opened in the session's
     // preview. Anything it turns down goes to the browser.
@@ -29,7 +28,12 @@ struct MessageView: View, Equatable {
     // Opens the second opinion ask dialog on this answer, from its hover actions. Nil where
     // the answer is not one to judge, such as one still being written.
     var secondOpinion: (@MainActor () -> Void)?
+    var showsFileReferences = true
 
+    @Environment(DialogPresenter.self) private var dialogs: DialogPresenter?
+    @Environment(MenuPresenter.self) private var menus: MenuPresenter?
+    @Environment(\.explorerRoots) private var explorerRoots
+    @State private var referenceAnchor = FrameAnchor()
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.showExternalNote) private var showExternalNote
 
@@ -42,12 +46,14 @@ struct MessageView: View, Equatable {
         a.message == b.message && a.projectPath == b.projectPath
             && a.textScale == b.textScale && a.availableWidth == b.availableWidth
             && a.arriving == b.arriving && a.bubble == b.bubble
-            && a.timestamps == b.timestamps
+            && a.timestamps == b.timestamps && a.showsFileReferences == b.showsFileReferences
             && (a.secondOpinion == nil) == (b.secondOpinion == nil)
     }
 
     var body: some View {
         content
+            .environment(\.fileReferenceAction, fileReferenceAction)
+            .background(FrameAnchorView(anchor: referenceAnchor))
             .environment(\.transcriptMessageID, message.id)
             .environment(\.transcriptTimestamps, timestamps)
             .motion(Motion.reveal, value: timestamps)
@@ -249,29 +255,84 @@ struct MessageView: View, Equatable {
                         .transition(.fadeIn)
                 }
             }
+            if showsFileReferences, let menus, dialogs != nil, !referencedFiles.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Space.md) {
+                        Text("Referenced files").font(Typography.caption).foregroundStyle(.secondary)
+                        ForEach(referencedFiles, id: \.self) { reference in
+                            Label(reference.name, systemImage: "doc.text")
+                                .font(Typography.caption)
+                                .foregroundStyle(Theme.accent)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .padding(.horizontal, Space.md)
+                                .frame(height: ControlHeight.lg)
+                                .frame(maxWidth: FileReferenceMetrics.chipWidth)
+                                .cardSurface(cornerRadius: Radius.control)
+                                .appMenu(showsFocusRing: true) {
+                                    fileActions(reference)?.entries { menus.subjectAnchor.frame() } ?? []
+                                }
+                                .hoverLift(amount: Motion.smallLift)
+                                .appTooltip(reference.url.path)
+                        }
+                    }
+                }
+                .transition(.fadeIn)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .environment(\.openURL, transcriptOpenURL)
+    }
+
+    private var referencedFiles: [FileReference] {
+        var seen = Set<FileReference>()
+        return MessageSegment.split(message.text).filter { !$0.isCode }.flatMap { segment in
+            AttributedString.inlineMarkdown(segment.text).runs.compactMap { run -> FileReference? in
+                guard let url = run.link,
+                      let reference = TranscriptLink.fileReference(for: url, relativeTo: projectPath),
+                      seen.insert(reference).inserted else { return nil }
+                return reference
+            }
+        }
+    }
+
+    private var fileReferenceAction: FileReferenceAction? {
+        guard dialogs != nil, menus != nil else { return nil }
+        return FileReferenceAction(
+            accepts: { TranscriptLink.fileReference(for: $0, relativeTo: projectPath) != nil },
+            perform: showFileMenu)
+    }
+
+    private func fileActions(_ reference: FileReference) -> FileReferenceActions? {
+        guard let dialogs else { return nil }
+        return FileReferenceActions(reference: reference, roots: explorerRoots, dialogs: dialogs,
+                             textScale: textScale, openExplorer: showInExplorer,
+                             note: { showExternalNote.show?($0, $1) })
+    }
+
+    private func showFileMenu(_ url: URL, _ frame: CGRect?) {
+        guard let reference = TranscriptLink.fileReference(for: url, relativeTo: projectPath),
+              let menus, let actions = fileActions(reference),
+              let anchor = frame ?? referenceAnchor.frame() else { return }
+        menus.show(actions.entries { menus.subjectAnchor.frame() },
+                   at: CGPoint(x: anchor.minX, y: anchor.maxY + Space.sm),
+                   width: FileReferenceMetrics.menuWidth,
+                   verticalAttachment: .control(edge: .bottom, oppositeY: anchor.minY - Space.sm))
     }
 
     private var transcriptOpenURL: OpenURLAction {
         let note = showExternalNote.show
         return OpenURLAction { url in
             if TranscriptLink.isLocalServer(url), openPreview(url) { return .handled }
-            guard let file = TranscriptLink.finderTarget(for: url) else {
+            guard let reference = TranscriptLink.fileReference(for: url, relativeTo: projectPath) else {
                 let web = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
                 note?(web ? "Opened the link in your browser" : "Opened the link", "arrow.up.forward.app")
                 return .systemAction
             }
-            if showInExplorer(url) { return .handled }
-            if FileManager.default.fileExists(atPath: file.path) {
-                NSWorkspace.shared.activateFileViewerSelecting([file])
-                note?("Revealed \(file.lastPathComponent) in Finder", "folder")
-            } else {
-                NSWorkspace.shared.selectFile(
-                    nil,
-                    inFileViewerRootedAtPath: file.deletingLastPathComponent().path)
-                note?("Opened the folder in Finder", "folder")
+            if dialogs != nil, menus != nil {
+                showFileMenu(url, nil)
+            } else if !showInExplorer(reference.destination) {
+                reference.reveal(note: { note?($0, $1) })
             }
             return .handled
         }

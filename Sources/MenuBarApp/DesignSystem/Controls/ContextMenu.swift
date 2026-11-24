@@ -16,6 +16,7 @@ enum MenuEntry {
     case cards([MenuCardItem])
     case icons([MenuItem])
     case separator
+    case fileSubject(String)
 
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
@@ -34,6 +35,7 @@ enum MenuEntry {
                      detail: String? = nil,
                      detailColour: Color? = nil,
                      disabled: Bool = false,
+                     help: String? = nil,
                      action: @escaping () -> Void) -> MenuEntry {
         .item(MenuItem(label: label, kind: kind, projectTint: projectTint,
                        icon: icon, iconTint: iconTint, meter: meter, image: image,
@@ -42,7 +44,7 @@ enum MenuEntry {
                        badge: badge, badgeTint: badgeTint, subtitle: subtitle,
                        monospacedSubtitle: monospacedSubtitle,
                        detail: detail, detailColour: detailColour,
-                       isDisabled: disabled,
+                       isDisabled: disabled, help: help,
                        handler: disabled ? nil : action))
     }
 
@@ -87,7 +89,7 @@ struct MenuCardItem {
 }
 
 struct MenuItem {
-    enum Kind { case plain, destructive }
+    enum Kind { case plain, primary, destructive }
     enum ImageShape { case circle, tile }
 
     let label: String
@@ -126,6 +128,7 @@ struct MenuItem {
     // Kept in the menu but faded and inert, so the rows around it do not move when the
     // action has nothing to act on.
     var isDisabled = false
+    var help: String?
     var handler: (() -> Void)? = nil
 
     func matches(_ filter: String) -> Bool {
@@ -155,6 +158,11 @@ final class MenuPresenter {
     // A refresh can replace an open menu without opening a new generation. Its own key
     // lets the host animate any size change while keeping the same anchor and focus.
     private(set) var contentRevision = 0
+    private weak var previousResponder: NSResponder?
+    private weak var owner: NSWindow?
+    private(set) var subjectAnchor = FrameAnchor()
+
+    var hasFileSubject: Bool { entries.contains { if case .fileSubject = $0 { true } else { false } } }
 
     var isOpen: Bool { !entries.isEmpty }
 
@@ -162,6 +170,9 @@ final class MenuPresenter {
     func show(_ entries: [MenuEntry], at point: CGPoint, width: CGFloat? = nil,
               trailingAnchor: CGFloat? = nil,
               verticalAttachment: MenuVerticalAttachment = .point) -> Int {
+        previousResponder = NSApp.keyWindow?.firstResponder
+        owner = NSApp.keyWindow
+        subjectAnchor = FrameAnchor()
         self.entries = entries
         origin = point
         self.width = width.map { max($0, menuMinimumWidth) }
@@ -178,13 +189,25 @@ final class MenuPresenter {
         contentRevision += 1
     }
 
-    func dismiss() { entries = [] }
+    func dismiss() {
+        let restores = hasFileSubject
+        entries = []
+        if restores { restoreFocus() }
+    }
+
+    private func restoreFocus() {
+        if let previousResponder { owner?.makeFirstResponder(previousResponder) }
+        previousResponder = nil
+        owner = nil
+    }
 
     // The item runs after the menu is gone, so an action that opens a dialog is not
     // left sitting behind a menu.
     func run(_ item: MenuItem) {
         guard let handler = item.handler else { return }
+        let restores = hasFileSubject
         entries = []
+        if restores { restoreFocus() }
         handler()
     }
 
@@ -229,6 +252,7 @@ private struct AppContextMenu: ViewModifier {
 
 private struct AppMenuButton: ViewModifier {
     @Environment(MenuPresenter.self) private var presenter
+    @Environment(DialogPresenter.self) private var dialogs: DialogPresenter?
     let edge: VerticalEdge
     let matchWidth: Bool
     let showsFocusRing: Bool
@@ -265,7 +289,7 @@ private struct AppMenuButton: ViewModifier {
         }
         .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
         .onChange(of: isOpen) { wasOpen, nowOpen in
-            if wasOpen && !nowOpen && !presenter.isOpen { triggerFocused = true }
+            if wasOpen && !nowOpen && !presenter.isOpen && dialogs?.current == nil { triggerFocused = true }
         }
     }
 
@@ -273,10 +297,12 @@ private struct AppMenuButton: ViewModifier {
     // the host can use the other side when the menu does not fit.
     private func open() {
         guard let frame = anchor.frame() else { return }
+        let items = entries()
+        let fileMenu = items.contains { if case .fileSubject = $0 { true } else { false } }
         let generation = presenter.show(
-            entries(),
+            items,
             at: CGPoint(x: frame.minX, y: edge == .bottom ? frame.maxY + 4 : frame.minY - 4),
-            width: matchWidth ? frame.width : nil,
+            width: matchWidth ? frame.width : fileMenu ? FileReferenceMetrics.menuWidth : nil,
             trailingAnchor: frame.maxX,
             verticalAttachment: .control(
                 edge: edge, oppositeY: edge == .bottom ? frame.minY - 4 : frame.maxY + 4))
@@ -374,7 +400,7 @@ struct ContextMenuHost: View {
     private var content: some View {
         GeometryReader { geometry in
             let controlFrame = controlAnchor.map { geometry[$0] }
-            let width = presenter.width.map { max(menuMinimumWidth, controlFrame?.width ?? $0) }
+            let width = presenter.width.map { max(menuMinimumWidth, presenter.hasFileSubject ? $0 : controlFrame?.width ?? $0) }
             ZStack(alignment: .topLeading) {
                 // Swallows the click that dismisses the menu so it does not also
                 // land on whatever is underneath.
@@ -428,7 +454,7 @@ struct ContextMenuHost: View {
             case .item(let item): [item]
             case .searchable(let searchable): searchable.items
             case .icons(let icons): icons
-            case .cards, .separator: []
+            case .cards, .separator, .fileSubject: []
             }
         }
         let hasChecks = items.contains(where: \.checked)
@@ -463,8 +489,15 @@ struct ContextMenuHost: View {
                                 iconColumn: hasIcons,
                                 tintColumn: hasTints,
                                 usesSharedMarkColumn: usesSharedMarkColumn,
-                                action: item.handler == nil ? nil : { presenter.run(item) })
+                                action: item.handler == nil ? nil : { presenter.run(item) },
+                                compact: presenter.hasFileSubject)
                         .focused($focusedItem, equals: index)
+                        .overlay {
+                            if presenter.hasFileSubject {
+                                FocusRingStroke(focused: focusedItem == index)
+                                    .padding(.horizontal, Space.xs)
+                            }
+                        }
                         .accessibilityAddTraits(item.checked ? .isSelected : [])
                         .transition(.fadeIn)
                 case .searchable(let searchable):
@@ -479,6 +512,16 @@ struct ContextMenuHost: View {
                         .transition(.fadeIn)
                 case .icons(let items):
                     MenuIconGrid(items: items) { presenter.run($0) }
+                case .fileSubject(let path):
+                    HStack(spacing: Space.md) {
+                        FileReferenceMark()
+                            .background(FrameAnchorView(anchor: presenter.subjectAnchor))
+                        FileReferenceSubject(path: path)
+                    }
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.sm)
+                    Divider().overlay(Theme.hairline).padding(.horizontal, Space.md)
+                        .padding(.bottom, Space.xs)
                 case .separator:
                     Divider()
                         .overlay(Theme.hairline)
@@ -492,7 +535,7 @@ struct ContextMenuHost: View {
         .onAppear {
             guard presenter.entries.allSatisfy({
                 switch $0 {
-                case .item, .separator: true
+                case .item, .separator, .fileSubject: true
                 default: false
                 }
             }) else { return }
@@ -503,6 +546,17 @@ struct ContextMenuHost: View {
                 if case .item(let item) = $0 { return item.handler != nil }
                 return false
             }
+        }
+        .onKeyPress(.tab) {
+            guard presenter.hasFileSubject else { return .ignored }
+            presenter.dismiss()
+            return .ignored
+        }
+        .onKeyPress(.return) {
+            guard presenter.hasFileSubject, let index = focusedItem,
+                  case .item(let item) = presenter.entries[index] else { return .ignored }
+            presenter.run(item)
+            return .handled
         }
         .onKeyPress(characters: .alphanumerics) { press in
             guard presenter.entries.allSatisfy({
@@ -881,6 +935,7 @@ private struct MenuItemRow: View {
     let tintColumn: Bool
     let usesSharedMarkColumn: Bool
     let action: (() -> Void)?
+    var compact = false
 
     @State private var hovering = false
 
@@ -889,12 +944,19 @@ private struct MenuItemRow: View {
             if let action {
                 Button(action: action) { row }
                     .buttonStyle(.plain)
+            } else if item.isDisabled {
+                Button(action: {}) { row }
+                    .buttonStyle(.plain)
+                    .disabled(true)
             } else {
                 row
             }
         }
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
+        .appTooltip(item.help)
+        .accessibilityHint(item.help ?? "")
+        .accessibilityRespondsToUserInteraction(!item.isDisabled)
     }
 
     private var row: some View {
@@ -965,12 +1027,14 @@ private struct MenuItemRow: View {
                                      ?? AnyShapeStyle(.tertiary))
             }
         }
-        .foregroundStyle(item.kind == .destructive ? Theme.deletion : Color.primary)
+        .foregroundStyle(item.kind == .destructive ? Theme.deletion : item.kind == .primary ? Theme.accent : Color.primary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Space.lg)
-        .padding(.vertical, item.subtitle == nil ? 6 : 8)
+        .padding(.vertical, compact ? 0 : item.subtitle == nil ? Space.sm : Space.md)
+        .frame(minHeight: compact ? ControlHeight.lg : nil)
         .background(RoundedRectangle(cornerRadius: Radius.inset)
-            .fill(action != nil && hovering ? Color.primary.opacity(0.05) : .clear)
+            .fill(action != nil && hovering ? (compact ? Theme.field : Color.primary.opacity(0.05))
+                  : item.kind == .primary ? Theme.wash(Theme.accentNSColor, light: 0.10, dark: 0.16) : .clear)
             .padding(.horizontal, Space.xs))
         .opacity(item.isDisabled ? 0.38 : 1)
         .contentShape(Rectangle())

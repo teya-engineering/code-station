@@ -198,15 +198,17 @@ struct MarkdownProse<Code: View>: View {
     var lazy = false
     // Draws HTML blocks rather than printing their tags. See MarkdownBlock.parse.
     var html = false
+    var navigable = false
     let codeBlock: (MessageSegment) -> Code
 
-    init(text: String, projectPath: String, textScale: CGFloat, lazy: Bool = false, html: Bool = false,
+    init(text: String, projectPath: String, textScale: CGFloat, lazy: Bool = false, html: Bool = false, navigable: Bool = false,
          @ViewBuilder codeBlock: @escaping (MessageSegment) -> Code) {
         self.text = text
         self.projectPath = projectPath
         self.textScale = textScale
         self.lazy = lazy
         self.html = html
+        self.navigable = navigable
         self.codeBlock = codeBlock
     }
 
@@ -233,6 +235,7 @@ struct MarkdownProse<Code: View>: View {
 
         for (offset, block) in parsed.enumerated() {
             let isLast = offset == parsed.count - 1
+            if navigable, case .heading = block.kind { flush() }
             if block.sharesATextView, !isLast, !holdsImages(block) {
                 shared.append(block)
             } else {
@@ -283,11 +286,15 @@ struct MarkdownProse<Code: View>: View {
                 let blocks = document[segment.id]
                     ?? (settled ? MarkdownBlock.parse(settled: segment.text) : MarkdownBlock.parse(segment.text))
                 ForEach(proseRuns(blocks)) { run in
-                    ProseRunView(run: run,
-                                 projectPath: projectPath,
-                                 textScale: textScale)
-                        .equatable()
-                        .transition(.fadeIn)
+                    let prose = ProseRunView(run: run, projectPath: projectPath, textScale: textScale).equatable()
+                    Group {
+                        if navigable {
+                            prose.id(MarkdownLocation(segment: segment.id, block: run.id))
+                        } else {
+                            prose
+                        }
+                    }
+                    .transition(.fadeIn)
                 }
             }
         }

@@ -72,6 +72,7 @@ struct SessionView: View {
     @State var attachingProject = false
     @State var composerBarWidth: CGFloat = 340
     @State var exportingDesignMaterials = false
+    @State private var fileReferenceReturn = false
     @State var transcriptWindow = TranscriptWindow()
     @State var transcriptPinnedToBottom = true
     // Held by the pane rather than by any one message, since the whole point of it is
@@ -185,14 +186,20 @@ struct SessionView: View {
                 RetainedPane(hidden: terminals.isMaximized(terminalScope)) {
                     // The group hands the transition to each page, so whichever one is chosen
                     // lifts in under the tab that chose it.
-                    Group {
-                        switch tab {
-                        case .conversation:
+                    if tab == .conversation || fileReferenceReturn {
+                        RetainedPane(hidden: tab != .conversation) {
                             if session.isActivelyDesigning {
                                 DesignView(sessionID: session.id)
                             } else {
                                 conversation(session: session, project: project)
                             }
+                        }
+                        .transition(.headerPage(reduceMotion: reduceMotion))
+                    }
+                    Group {
+                        switch tab {
+                        case .conversation:
+                            EmptyView()
                         case .design:
                             if let design = store.designSession(for: session.id) {
                                 DesignView(sessionID: design.id) { tab = .conversation }
@@ -240,21 +247,34 @@ struct SessionView: View {
                                 if reviewingEnding != nil { returnToHandoff() }
                             }
                         case .explorer:
-                            ExplorerView(root: explorerDirectory, reveal: $explorerReveal,
-                                         command: $explorerCommand,
-                                         showHidden: $explorerShowsHidden,
-                                         openFolders: $explorerOpenFolders,
-                                         refreshed: { showRailNote("Refreshed \(counted($0, "item"))", icon: "checkmark") },
-                                         repositories: workspaceRepositories(session) + (explorerDesignFilesURL.map {
-                                             [ChangesRepository(root: $0.path, name: "Design files")]
-                                         } ?? []),
-                                         designFilesRoot: explorerDesignFilesURL?.path,
-                                         collapsedProjects: $collapsedExplorerProjects,
-                                         selectRoot: { root in
-                                             explorerShowsDesignFiles = root == explorerDesignFilesURL?.path
-                                             if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
-                                         })
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            VStack(spacing: 0) {
+                                if fileReferenceReturn {
+                                    HStack(spacing: Space.md) {
+                                        InlineLink(title: "Back to session", icon: "arrow.uturn.backward") {
+                                            tab = .conversation
+                                            fileReferenceReturn = false
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, Space.pane)
+                                    .headerBand(height: Theme.subHeaderHeight)
+                                }
+                                ExplorerView(root: explorerDirectory, reveal: $explorerReveal,
+                                             command: $explorerCommand,
+                                             showHidden: $explorerShowsHidden,
+                                             openFolders: $explorerOpenFolders,
+                                             refreshed: { showRailNote("Refreshed \(counted($0, "item"))", icon: "checkmark") },
+                                             repositories: workspaceRepositories(session) + (explorerDesignFilesURL.map {
+                                                 [ChangesRepository(root: $0.path, name: "Design files")]
+                                             } ?? []),
+                                             designFilesRoot: explorerDesignFilesURL?.path,
+                                             collapsedProjects: $collapsedExplorerProjects,
+                                             selectRoot: { root in
+                                                 explorerShowsDesignFiles = root == explorerDesignFilesURL?.path
+                                                 if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
+                                             })
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
                         }
                     }
                     .transition(.headerPage(reduceMotion: reduceMotion))
@@ -285,6 +305,7 @@ struct SessionView: View {
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
                 installed: runner.catalog.availableAgents, author: session.agent))
             .onChange(of: tab) {
+                if tab != .explorer { fileReferenceReturn = false }
                 secondOpinion.close()
                 // Choosing a tab asks to see it, so a maximized terminal gives the room back.
                 terminals.setMaximized(false, for: terminalScope)
@@ -568,6 +589,7 @@ struct SessionView: View {
             selectedProjectID = checkout.projectID
         }
         explorerReveal = ExplorerReveal(path: target.path, line: target.line)
+        if tab == .conversation { fileReferenceReturn = true }
         tab = .explorer
         return true
     }

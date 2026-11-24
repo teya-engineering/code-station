@@ -144,6 +144,8 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
+`FileReferenceMetrics` supplies the compact file menu, reader, outline and reading widths. `FileReferenceSubject` keeps a filename and optional path readable with middle truncation, while `FileReferenceMark` is the plain document mark used in menus and flights. `DocumentLoading` shows a reading skeleton with a `LoopSpinner` while a file arrives. A `.fileSubject(path)` menu entry gives file actions their 256-point menu and 32-point rows; `MenuItem.help` carries a disabled action's tooltip and accessible reason.
+
 `DispatchMetrics` supplies the sizes of the Dispatch sheet: the request list, the address card, a parameter row and its columns, and the response header.
 
 `SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
@@ -296,7 +298,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A row that opens and closes | `DisclosureHeader` |
 | Tabs in a header | `HeaderTabDeck`, `HeaderTabToggle` |
 | Buttons in a header | `HeaderRailButton`, `HeaderRailMenuButton`, `HeaderDockSeat`, `HeaderSplitButton`. Give each shortcut its `tool:` so it takes its colour and act. |
-| The bottom of a sheet | `SheetFooter` |
+| The bottom of a sheet | `SheetFooter`. A reader with its close action in the header sets `showsDismiss` to false. |
 | Give a page's room to another pane without losing drafts or scroll position | `RetainedPane(hidden:)` keeps the page mounted at its last visible size, clips it out of the layout and disables its controls while hidden. |
 
 **Showing data**

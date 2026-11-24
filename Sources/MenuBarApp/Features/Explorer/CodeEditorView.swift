@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// The Explorer's file pane: one text view, always editable, with line numbers beside it
+// A source pane: one text view, with line numbers beside it
 // and syntax colour on whatever is on screen.
 //
 // SwiftUI can do either half of that but not both at once. A Text draws colour and can sit
@@ -18,6 +18,8 @@ struct CodeEditorView: NSViewRepresentable {
     var findQuery = ""
     // A 1-based line to scroll to and select. Applied once for each new value or file.
     var revealLine: Int?
+    var isEditable = true
+    var textScale: CGFloat = 1
     var onFind: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -94,14 +96,14 @@ struct CodeEditorView: NSViewRepresentable {
 
             let textView = CodeDocumentView(frame: .zero, textContainer: container)
             textView.delegate = self
-            textView.isEditable = true
+            textView.isEditable = parent.isEditable
             textView.isRichText = false
             textView.importsGraphics = false
-            textView.allowsUndo = true
+            textView.allowsUndo = parent.isEditable
             textView.drawsBackground = false
             textView.insertionPointColor = NSColor(Theme.accent)
             textView.textContainerInset = NSSize(width: 10, height: 8)
-            textView.typingAttributes = CodeEditorStyle.base
+            textView.typingAttributes = CodeEditorStyle.attributes(scale: parent.textScale)
             textView.turnOffProseHelpers()
             // Height follows the text on its own. Width does not: a non-wrapping view
             // would have to lay the whole file out to find its widest line, so it is
@@ -147,8 +149,10 @@ struct CodeEditorView: NSViewRepresentable {
         // MARK: - From SwiftUI
 
         func apply(_ parent: CodeEditorView) {
+            let scaleChanged = self.parent.textScale != parent.textScale
             self.parent = parent
             guard let textView else { return }
+            textView.isEditable = parent.isEditable
             textView.onFind = parent.onFind
 
             if documentID != parent.documentID {
@@ -156,7 +160,7 @@ struct CodeEditorView: NSViewRepresentable {
                 language = parent.language
                 load(parent.text, into: textView)
                 textView.scrollToTop()
-            } else if textView.string != parent.text {
+            } else if textView.string != parent.text || scaleChanged {
                 // The pane's own text moved under the view, which means a revert. The same
                 // file is still open, so it is left where the reader had it.
                 load(parent.text, into: textView)
@@ -209,17 +213,17 @@ struct CodeEditorView: NSViewRepresentable {
 
         private func load(_ text: String, into textView: CodeDocumentView) {
             textView.string = text
-            textView.typingAttributes = CodeEditorStyle.base
+            textView.typingAttributes = CodeEditorStyle.attributes(scale: parent.textScale)
             // The one place the type and the spacing are set. Everything typed afterwards
             // arrives carrying them, so colouring never has to put them back.
             textView.textStorage?.setAttributes(
-                CodeEditorStyle.base,
+                CodeEditorStyle.attributes(scale: parent.textScale),
                 range: NSRange(location: 0, length: (text as NSString).length))
             if let container = textView.textContainer {
                 textView.layoutManager?.ensureLayout(for: container)
             }
             textView.undoManager?.removeAllActions()
-            textView.setContentWidth(MonoMetrics.width(ofLongestIn: text))
+            textView.setContentWidth(MonoMetrics.width(ofLongestIn: text) * parent.textScale)
             reindex(text)
             states = [.normal]
             changedFrom = nil
@@ -385,6 +389,16 @@ enum CodeEditorStyle {
         .foregroundColor: plain,
         .paragraphStyle: paragraphStyle
     ]
+
+    static func attributes(scale: CGFloat) -> [NSAttributedString.Key: Any] {
+        guard scale != 1 else { return base }
+        var attributes = base
+        attributes[.font] = NSFont.monospacedSystemFont(ofSize: font.pointSize * scale, weight: .regular)
+        let paragraph = paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
+        paragraph.defaultTabInterval *= scale
+        attributes[.paragraphStyle] = paragraph
+        return attributes
+    }
 
     static let match = NSColor(Theme.secret).withAlphaComponent(0.24)
     static let currentMatch = NSColor(Theme.secret).withAlphaComponent(0.52)

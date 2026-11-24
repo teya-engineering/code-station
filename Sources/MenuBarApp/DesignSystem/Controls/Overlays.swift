@@ -33,15 +33,14 @@ private struct AppOverlays: ViewModifier {
         content
             .disabled(holdsFocus)
             .accessibilityHidden(holdsFocus)
-            .overlay { TooltipHost() }
-            // Over the hints, so what is being dragged is never hidden behind one.
             .overlay { CarryHost() }
             .overlay { DialogHost() }
-            // Last, so a menu opened from inside a dialog is not drawn behind it. It
-            // draws nothing at all while closed, so nothing else moves under it.
+            // A menu opened from a dialog must stay above the dialog's card.
             .overlayPreferenceValue(MenuControlAnchorKey.self) { anchors in
                 ContextMenuHost(controlAnchor: anchors[menus.generation])
             }
+            // Dialog controls and disabled menu actions need their hints above the surface.
+            .overlay { TooltipHost() }
             .environment(dialogs)
             .environment(menus)
             .environment(tooltips)

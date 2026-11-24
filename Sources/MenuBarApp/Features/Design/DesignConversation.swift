@@ -435,7 +435,8 @@ struct DesignConversation: View {
                                     availableWidth: width - 28,
                                     arriving: message.isArriving(sentAt: promptSentAt),
                                     bubble: bubble,
-                                    timestamps: appSettings.transcriptTimestamps)
+                                    timestamps: appSettings.transcriptTimestamps,
+                                    showsFileReferences: !(runner.state(sessionID).isBusy && message.id == messages.last?.id))
                             .equatable()
                             .environment(\.runningAgents, runner.runningAgents(sessionID))
                             .environment(\.previewsLocalServers, openPreview != nil)

@@ -83,6 +83,7 @@ struct SelectableText: View {
     @Environment(\.transcriptReply) private var transcriptReply
     @Environment(\.explorerRoots) private var explorerRoots
     @Environment(\.previewsLocalServers) private var previewsLocalServers
+    @Environment(\.fileReferenceAction) private var fileReferenceAction
     @Environment(\.linkHovered) private var linkHovered
     // Optional because a text view can sit in a sheet that has no menu layer of its own.
     @Environment(MenuPresenter.self) private var menus: MenuPresenter?
@@ -239,7 +240,7 @@ struct SelectableText: View {
     private func linkHoverChanged(_ hovered: TranscriptLink.Hovered?) {
         pendingTooltip?.cancel()
         linkHovered?(hovered?.url)
-        guard let hovered, hovered.url.isFileURL
+        guard let hovered, fileReferenceAction?.accepts(hovered.url) == true || hovered.url.isFileURL
                 || (previewsLocalServers && TranscriptLink.isLocalServer(hovered.url)) else {
             tooltipPresenter.hide(owner: tooltipOwner)
             return
@@ -257,13 +258,14 @@ struct SelectableText: View {
             try? await Task.sleep(for: TooltipPresenter.hoverDelay)
             guard !Task.isCancelled else { return }
             tooltipPresenter.show(
-                Tooltip(title: linkToolTip(for: hovered.url)) { openLink(hovered.url) },
+                Tooltip(title: linkToolTip(for: hovered.url)) { openLink(hovered.url, hovered.frame) },
                 from: hovered.frame,
                 owner: owner)
         }
     }
 
     private func linkToolTip(for url: URL) -> String {
+        if fileReferenceAction?.accepts(url) == true { return TranscriptLink.fileActionsToolTip }
         guard url.isFileURL else { return TranscriptLink.previewToolTip }
         return TranscriptLink.explorerTarget(for: url, roots: explorerRoots) == nil
             ? TranscriptLink.finderToolTip
@@ -275,10 +277,14 @@ struct SelectableText: View {
         tooltipPresenter.hide(owner: tooltipOwner)
     }
 
-    private func openLink(_ url: URL) {
+    private func openLink(_ url: URL, _ frame: CGRect?) {
         pendingTooltip?.cancel()
         tooltipPresenter.hideAll()
-        openURL(url)
+        if let fileReferenceAction, fileReferenceAction.accepts(url) {
+            fileReferenceAction.perform(url, frame)
+        } else {
+            openURL(url)
+        }
     }
 
     private var resolvedNSFont: NSFont {
@@ -309,7 +315,7 @@ struct SelectableText: View {
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
 // which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
 private final class LinkTextView: NSTextView {
-    var openLink: ((URL) -> Void)?
+    var openLink: ((URL, CGRect?) -> Void)?
     var linkHoverChanged: ((TranscriptLink.Hovered?) -> Void)?
     var showMenu: (([MenuEntry], CGPoint) -> Void)?
     var reply: ((String) -> Void)?
@@ -376,8 +382,9 @@ private final class LinkTextView: NSTextView {
         self.pressedLink = nil
         linkMouseDown = nil
         let point = convert(event.locationInWindow, from: nil)
-        guard TranscriptLink.hoveredLink(in: self, at: point)?.url == pressedLink else { return }
-        openLink?(pressedLink)
+        guard let link = TranscriptLink.hoveredLink(in: self, at: point), link.url == pressedLink else { return }
+        window?.makeFirstResponder(self)
+        openLink?(pressedLink, windowFrame(for: link.frame))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -642,7 +649,7 @@ private struct LinkAwareText: NSViewRepresentable {
     let selection: TranscriptSelection?
     let find: TranscriptFind?
     let messageID: UUID?
-    let openLink: (URL) -> Void
+    let openLink: (URL, CGRect?) -> Void
     let linkHoverChanged: (TranscriptLink.Hovered?) -> Void
     let showMenu: (([MenuEntry], CGPoint) -> Void)?
     let reply: ((String) -> Void)?
@@ -840,19 +847,27 @@ private struct LinkAwareText: NSViewRepresentable {
             let alignment: TextAlignment
         }
 
-        var openLink: (URL) -> Void
+        var openLink: (URL, CGRect?) -> Void
         // What the view's storage was last built from. Nil until the first update, so a
         // freshly made view always gets its text.
         var applied: Content?
 
-        init(openLink: @escaping (URL) -> Void) {
+        init(openLink: @escaping (URL, CGRect?) -> Void) {
             self.openLink = openLink
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             let url = (link as? URL) ?? (link as? String).flatMap { URL(string: $0) }
             guard let url else { return false }
-            openLink(url)
+            var frame: CGRect?
+            if let layout = textView.layoutManager, let container = textView.textContainer,
+               let content = textView.window?.contentView {
+                let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: charIndex, length: 1), actualCharacterRange: nil)
+                let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                    .offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+                frame = FrameAnchor.fromTop(textView.convert(rect, to: content), in: content)
+            }
+            openLink(url, frame)
             return true
         }
     }
