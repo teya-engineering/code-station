@@ -31,6 +31,7 @@ extension SessionView {
                         },
                         onSuggestionKey: { suggestionKey($0, blocked: blocked) },
                         dictates: true,
+                        fileDragOver: fileDragOver,
                         above: {
                             snoozeStrip(session)
                             runChoices(session, project: project)
