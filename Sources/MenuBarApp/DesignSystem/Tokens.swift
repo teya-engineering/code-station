@@ -166,6 +166,11 @@ enum FormMetrics {
     static let inlineRowWidth: CGFloat = 360
 }
 
+enum NumberFieldMetrics {
+    static let compactWidth: CGFloat = 36
+    static let wideWidth: CGFloat = 60
+}
+
 // Aligned age and action columns in a settings rule table.
 enum SettingsRuleMetrics {
     static let stackedWidth: CGFloat = 520

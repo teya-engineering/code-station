@@ -5,11 +5,11 @@ import Testing
 // How far back a drawer shell can be scrolled, picked in Settings.
 @MainActor
 struct TerminalScrollbackTests {
-    @Test func fiveHundredIsTheDefaultAndThePickIsKeptInRange() throws {
-        let suite = "TerminalScrollbackTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+    @Test func tenThousandIsTheDefaultAndThePickIsKeptInRange() {
+        let defaults = scratchDefaults()
 
+        #expect(Preferences.terminalScrollback.read(in: defaults) == 10_000)
+        Preferences.terminalScrollback.write(500, in: defaults)
         #expect(Preferences.terminalScrollback.read(in: defaults) == 500)
         Preferences.terminalScrollback.write(25_500, in: defaults)
         #expect(Preferences.terminalScrollback.read(in: defaults) == 25_500)
@@ -39,11 +39,8 @@ struct TerminalScrollbackTests {
         #expect(shell.surface.scrollbackLines == 100_000)
     }
 
-    // A number typed past either end lands on that end rather than being refused.
-    @Test func aTypedSizeIsHeldToTheRange() throws {
-        let suite = "TerminalScrollbackTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+    @Test func anAssignedSizeIsHeldToTheRange() {
+        let defaults = scratchDefaults()
         let settings = AppSettings(agentAvatarURL: FileManager.default.temporaryDirectory
                                        .appendingPathComponent(UUID().uuidString),
                                    preferences: defaults)

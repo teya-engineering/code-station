@@ -9,7 +9,7 @@ struct NumberField: View {
     // The unit after the number, singular then plural.
     let unit: (one: String, many: String)
     // Wide enough for the longest number the range allows.
-    var width: CGFloat = 36
+    var width: CGFloat = NumberFieldMetrics.compactWidth
     let accessibilityLabel: String
     var validatesEntry = false
     var onValidityChange: (Bool) -> Void = { _ in }

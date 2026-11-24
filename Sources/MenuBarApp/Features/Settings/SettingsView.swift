@@ -902,15 +902,15 @@ struct SettingsView: View {
         return HStack(alignment: .top, spacing: Space.lg) {
             settingCopy(
                 title: "Terminal scrollback",
-                detail: "How many lines of output a shell in the drawer keeps to scroll back through, from \(TerminalScrollback.range.lowerBound.formatted()) to \(TerminalScrollback.range.upperBound.formatted()). Open tabs change at once, and a smaller number drops their oldest lines.")
+                detail: "Lines kept for each shell in the drawer, from \(TerminalScrollback.range.lowerBound.formatted()) to \(TerminalScrollback.range.upperBound.formatted()). Press Return or leave the field to apply. Lowering the limit removes the oldest lines from open tabs.")
             Spacer(minLength: 0)
-            // Wide enough for the top of the range, digits and separator included.
             NumberField(value: $settings.terminalScrollback,
                         range: TerminalScrollback.range,
                         step: TerminalScrollback.step,
                         unit: (one: "line", many: "lines"),
-                        width: 60,
-                        accessibilityLabel: "Terminal scrollback in lines")
+                        width: NumberFieldMetrics.wideWidth,
+                        accessibilityLabel: "Terminal scrollback in lines",
+                        validatesEntry: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
