@@ -182,7 +182,7 @@ struct WarningContrastTests {
         for appearance in try appearances() {
             let card = try swatch(Theme.card, in: appearance)
             for readiness in readinesses {
-                let tone = PullRequestTone(readiness.map(Self.status))
+                let tone = PullRequestTone(readiness.map(PullRequestStatus.init(readiness:)))
                 let ink = try swatch(tone.ink, in: appearance)
                 let wash = try swatch(tone.wash, in: appearance).over(card)
                 #expect(ink.over(wash).contrast(against: wash) >= 4.5,
@@ -190,18 +190,6 @@ struct WarningContrastTests {
                 #expect(ink.over(card).contrast(against: card) >= 3,
                         "\(tone.word) mark on \(appearance.name.rawValue)")
             }
-        }
-    }
-
-    private static func status(_ readiness: PullRequestStatus.Readiness) -> PullRequestStatus {
-        switch readiness {
-        case .draft: PullRequestStatus(state: .open, title: "", headBranch: "b", isDraft: true)
-        case .inReview: PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .reviewRequired)
-        case .approved: PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .approved)
-        case .changesRequested:
-            PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .changesRequested)
-        case .merged: PullRequestStatus(state: .merged, title: "", headBranch: "b")
-        case .closed: PullRequestStatus(state: .closed, title: "", headBranch: "b")
         }
     }
 

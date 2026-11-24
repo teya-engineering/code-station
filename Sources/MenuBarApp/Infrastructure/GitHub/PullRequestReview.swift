@@ -99,6 +99,4 @@ struct PullRequestStatus: Equatable, Sendable {
             }
         }
     }
-
-    var readinessLabel: String { readiness.label }
 }

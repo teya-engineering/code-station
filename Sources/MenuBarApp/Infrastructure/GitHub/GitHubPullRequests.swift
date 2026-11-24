@@ -28,6 +28,7 @@ enum GitHubPullRequests {
         async let reviewsData = api(endpoint.host, ["\(endpoint.pulls)/reviews", "--paginate", "--slurp"])
         async let commentsData = api(endpoint.host, ["\(endpoint.pulls)/comments", "--paginate", "--slurp"])
         async let threadsData = threads(endpoint)
+        async let decisionData = try? reviewDecision(endpoint)
         guard var status = GitHubReviewParser.status(from: try await statusData) else {
             throw Failure.command("GitHub returned something that is not a pull request.")
         }
@@ -35,10 +36,10 @@ enum GitHubPullRequests {
         let reviewsJSON = joinPages(try await reviewsData)
         var reviews = GitHubReviewParser.reviews(reviews: reviewsJSON,
                                                  comments: joinPages(try await commentsData))
-        let threadsJSON = try await threadsData
-        status.reviewDecision = GitHubReviewParser.reviewDecision(from: threadsJSON)
+        let decisionJSON = await decisionData
+        status.reviewDecision = decisionJSON.flatMap(GitHubReviewParser.reviewDecision(from:))
             ?? GitHubReviewParser.reviewDecision(reviews: reviewsJSON)
-        let states = GitHubReviewParser.threadStates(from: threadsJSON)
+        let states = GitHubReviewParser.threadStates(from: try await threadsData)
         for i in reviews.indices {
             for j in reviews[i].threads.indices {
                 reviews[i].threads[j].isResolved = states[reviews[i].threads[j].id]?.isResolved ?? false
@@ -113,14 +114,11 @@ enum GitHubPullRequests {
         var pulls: String { "repos/\(owner)/\(name)/pulls/\(number)" }
     }
 
-    // The review decision rides along, since REST has no word for it and this query is
-    // already on its way.
     private static func threads(_ endpoint: Endpoint) async throws -> Data {
         try await graphql(endpoint.host, """
         query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
           repository(owner: $owner, name: $repo) {
             pullRequest(number: $number) {
-              reviewDecision
               reviewThreads(first: 100, after: $endCursor) {
                 nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
                 pageInfo { hasNextPage endCursor }
@@ -129,6 +127,17 @@ enum GitHubPullRequests {
           }
         }
         """, fields: ["owner=\(endpoint.owner)", "repo=\(endpoint.name)"], ints: ["number=\(endpoint.number)"], paginate: true)
+    }
+
+    // REST has no word for GitHub's review decision, so it takes a GraphQL query of its
+    // own. It is kept apart from the thread query so that a host which cannot answer it,
+    // such as an older GitHub Enterprise, still loads the review and resolves threads.
+    private static func reviewDecision(_ endpoint: Endpoint) async throws -> Data {
+        try await graphql(endpoint.host, """
+        query($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewDecision } }
+        }
+        """, fields: ["owner=\(endpoint.owner)", "repo=\(endpoint.name)"], ints: ["number=\(endpoint.number)"])
     }
 
     private static func graphql(_ host: String, _ query: String, fields: [String], ints: [String],

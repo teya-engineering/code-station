@@ -122,8 +122,8 @@ struct SessionFactsTests {
         facts.pullRequestStatuses[second.url] = PullRequestStatus(
             state: .merged, title: "Second", headBranch: "topic")
         #expect(facts.pullRequestCountLabel == "1 open")
-        #expect(facts.pullRequestStatuses[first.url]?.readinessLabel == "Draft")
-        #expect(facts.pullRequestStatuses[second.url]?.readinessLabel == "Merged")
+        #expect(facts.pullRequestStatuses[first.url]?.readiness.label == "Draft")
+        #expect(facts.pullRequestStatuses[second.url]?.readiness.label == "Merged")
         #expect(SessionFactsChip.accessibilityLabel(state: .init(tone: .idle),
             facts: facts, showsBranch: true).contains("pull requests: 1 draft, 1 merged"))
     }
@@ -140,6 +140,7 @@ struct SessionFactsTests {
         #expect(facts.leadPullRequest == changes)
         #expect(facts.pullRequestTone(changes).word == "Linked")
         #expect(facts.spokenPullRequestStates == "4 linked")
+        #expect(facts.pullRequestsBesideLead == 3)
 
         facts.pullRequestStatuses = [
             merged.url: PullRequestStatus(state: .merged, title: "", headBranch: "a"),
@@ -149,11 +150,17 @@ struct SessionFactsTests {
         ]
         #expect(facts.leadPullRequest == changes)
         #expect(facts.spokenPullRequestStates == "1 changes requested, 1 in review, 1 approved, 1 merged")
+        // The chip counts what the heading counts: three open, so the lead and two more.
+        #expect(facts.pullRequestCountLabel == "3 open")
+        #expect(facts.pullRequestsBesideLead == 2)
 
         facts.pullRequests = [merged, approved]
         #expect(facts.leadPullRequest == approved)
+        // One open and one merged: the heading says 1 open, so nothing beside the lead.
+        #expect(facts.pullRequestsBesideLead == 0)
         facts.pullRequests = [merged]
         #expect(facts.leadPullRequest == merged)
+        #expect(facts.pullRequestsBesideLead == 0)
         #expect(facts.pullRequestTone(merged).symbol == .merge)
         facts.pullRequests = []
         #expect(facts.leadPullRequest == nil)
@@ -162,19 +169,7 @@ struct SessionFactsTests {
     // Closed sorts under merged, and one not read yet waits under both.
     @Test func ranksPullRequestStatesByHowMuchTheyNeedThePerson() {
         let ranked: [PullRequestStatus.Readiness?] = [.changesRequested, .inReview, .approved, .draft, .merged, .closed, nil]
-        let tones = ranked.map { readiness in
-            PullRequestTone(readiness.map { readiness in
-                switch readiness {
-                case .draft: PullRequestStatus(state: .open, title: "", headBranch: "b", isDraft: true)
-                case .inReview: PullRequestStatus(state: .open, title: "", headBranch: "b")
-                case .approved: PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .approved)
-                case .changesRequested:
-                    PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .changesRequested)
-                case .merged: PullRequestStatus(state: .merged, title: "", headBranch: "b")
-                case .closed: PullRequestStatus(state: .closed, title: "", headBranch: "b")
-                }
-            })
-        }
+        let tones = ranked.map { PullRequestTone($0.map(PullRequestStatus.init(readiness:))) }
         #expect(tones.map(\.readiness) == ranked)
         #expect(tones.map(\.urgency) == Array(0..<ranked.count))
         #expect(tones.map(\.word) == ["Changes requested", "In review", "Approved", "Draft", "Merged", "Closed", "Linked"])

@@ -50,7 +50,7 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `attention`, `attentionText`, `secret` | Stopped and waiting for a look. |
 | `warningText` on `warningBackground` | Something went wrong. |
 | `addition`, `deletion` | Lines added and removed. `deletion` is also the colour of a delete action. Each has an `...NSColor` twin for AppKit text, and a line's band is the same colour, faint. `deletionText` is the red read as words on a red wash. |
-| `merged`, `mergedText` | A merged pull request, in GitHub's merge purple. Nothing else wears it. A pull request's states take their colours from `PullRequestTone`, which the session chip and its card both read: amber in review, green approved, red changes requested or closed, grey draft. |
+| `merged`, `mergedText` | A merged pull request, in GitHub's merge purple. Nothing else wears it. A pull request's states take their colours from `PullRequestTone`, which the session chip and its card both read: amber in review, green approved, red changes requested or closed, grey draft. Each state's badge sits on its own wash: `inReviewWash`, `approvedWash`, `changesRequestedWash`, `mergedWash`, `closedWash`. |
 | `additionEmphasis`, `deletionEmphasis` | The words that changed within an added or removed line: the same colour as the line's band, a step stronger. Each has an `...NSColor` twin. |
 | `plan` | Read only. Nothing will be changed. |
 | `brand`, `listen...` | The app itself. Lime on screen means the microphone is open. |
@@ -326,6 +326,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
+| A pull request and its state | `PullRequestMark` (`Layout/PullRequestMarks.swift`): GitHub's pull, draft, merged and closed marks, in the state's ink. `PullRequestLight` is the state as one dot, the size of a session's light, and an empty ring while the state is not known. Take the colours and the mark from `PullRequestTone`. |
 | A keyboard key | `Keycap` |
 | A key the person may have changed | `KeyCombo.label`, `.compactLabel` or `.parts`, read from `keyBindings` |
 | JSON | `RawJSONView` |

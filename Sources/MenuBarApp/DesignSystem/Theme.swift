@@ -190,6 +190,15 @@ enum Theme {
         })
     }
 
+    // The badges behind a pull request's state. Paper takes less of the green than
+    // charcoal does, or the green words on it fall under 4.5:1. Closed is a shade quieter
+    // than changes requested, since it needs nothing more.
+    static let inReviewWash = wash(NSColor(attention), light: 0.16, dark: 0.16)
+    static let approvedWash = wash(NSColor(dotOn), light: 0.08, dark: 0.26)
+    static let changesRequestedWash = wash(deletionNSColor, light: 0.11, dark: 0.15)
+    static let mergedWash = wash(mergedNSColor, light: 0.12, dark: 0.17)
+    static let closedWash = wash(deletionNSColor, light: 0.08, dark: 0.10)
+
     // A surface that carries a warning: a failed turn, a stalled agent, a configuration
     // that could not be read. Both halves are adaptive, and WarningContrastTests measures
     // the pair in each appearance, so anything drawing a warning must use these rather

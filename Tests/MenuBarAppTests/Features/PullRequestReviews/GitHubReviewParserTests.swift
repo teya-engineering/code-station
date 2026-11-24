@@ -10,10 +10,10 @@ struct GitHubReviewParserTests {
             from: Data(#"{"state":"open","draft":true}"#.utf8)))
         #expect(status.state == .open)
         #expect(status.isDraft)
-        #expect(status.readinessLabel == "Draft")
+        #expect(status.readiness.label == "Draft")
         let merged = try #require(GitHubReviewParser.status(
             from: Data(#"{"state":"closed","merged":true,"draft":true}"#.utf8)))
-        #expect(merged.readinessLabel == "Merged")
+        #expect(merged.readiness.label == "Merged")
     }
 
     // Draft outweighs the reviewers' decision, and merged or closed outweigh both.
@@ -21,7 +21,7 @@ struct GitHubReviewParserTests {
         func label(_ state: PullRequestStatus.State, draft: Bool = false,
                    _ decision: PullRequestStatus.ReviewDecision?) -> String {
             PullRequestStatus(state: state, title: "", headBranch: "b", isDraft: draft,
-                              reviewDecision: decision).readinessLabel
+                              reviewDecision: decision).readiness.label
         }
         #expect(label(.open, nil) == "In review")
         #expect(label(.open, .reviewRequired) == "In review")
@@ -62,6 +62,12 @@ struct GitHubReviewParserTests {
         // A dismissed review takes the reviewer's verdict back.
         #expect(decision([reviewJSON(id: 1, state: "CHANGES_REQUESTED", at: "2026-10-16T10:00:00Z"),
                           reviewJSON(id: 2, state: "DISMISSED", at: "2026-10-17T10:00:00Z")]) == .reviewRequired)
+        // Only people who can write to the repository count, as in GitHub's own decision.
+        #expect(decision([reviewJSON(id: 1, state: "APPROVED", login: "stranger", association: "CONTRIBUTOR")])
+                == .reviewRequired)
+        #expect(decision([reviewJSON(id: 1, state: "CHANGES_REQUESTED", login: "stranger", association: "NONE"),
+                          reviewJSON(id: 2, state: "APPROVED", login: "ana", association: "COLLABORATOR")])
+                == .approved)
     }
 
     @Test func readsThreadStatesAndNodeIDsAcrossAllGraphQLPages() throws {
@@ -102,9 +108,11 @@ struct GitHubReviewParserTests {
     }
 
     private func reviewJSON(id: Int, state: String, body: String = "", login: String = "maria",
-                            type: String = "User", at: String = "2026-10-16T10:00:00Z") -> String {
+                            type: String = "User", at: String = "2026-10-16T10:00:00Z",
+                            association: String = "MEMBER") -> String {
         """
         {"id": \(id), "state": "\(state)", "body": "\(body)", "submitted_at": "\(at)",
+         "author_association": "\(association)",
          "user": {"login": "\(login)", "type": "\(type)", "avatar_url": null}}
         """
     }

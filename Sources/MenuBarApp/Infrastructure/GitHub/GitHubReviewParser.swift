@@ -59,9 +59,8 @@ enum GitHubReviewParser {
         return states
     }
 
-    // GitHub's own summary of the reviews, read off the thread query, which asks for it
-    // alongside. Nil when the repository requires no reviewers, since GitHub then has
-    // nothing to sum up.
+    // GitHub's own summary of the reviews. Nil when the repository requires no reviewers,
+    // since GitHub then has nothing to sum up.
     static func reviewDecision(from data: Data) -> PullRequestStatus.ReviewDecision? {
         let value = json(data)
         let pages = value as? [Object] ?? (value as? Object).map { [$0] } ?? []
@@ -80,14 +79,18 @@ enum GitHubReviewParser {
         return nil
     }
 
-    // The same summary worked out from the reviews, for when GitHub gives none. Each
-    // reviewer counts by their latest verdict, and a comment is not one. A dismissal takes
-    // that reviewer's verdict back. Any changes requested outweighs any approval.
+    // The same summary worked out from the reviews, for when GitHub gives none. Like
+    // GitHub's own, it only counts people who can write to the repository, so an
+    // outsider's approval never turns a pull request green. Each of them counts by their
+    // latest verdict, and a comment is not one. A dismissal takes that verdict back. Any
+    // changes requested outweighs any approval.
     static func reviewDecision(reviews data: Data) -> PullRequestStatus.ReviewDecision {
         var latest: [String: (at: Date, state: String)] = [:]
         for case let object as Object in (json(data) as? [Any]) ?? [] {
             guard let state = object["state"] as? String,
                   ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].contains(state),
+                  let association = object["author_association"] as? String,
+                  ["OWNER", "MEMBER", "COLLABORATOR"].contains(association),
                   let login = (object["user"] as? Object)?["login"] as? String else { continue }
             let at = date(object["submitted_at"]) ?? .distantPast
             if let previous = latest[login], previous.at > at { continue }
