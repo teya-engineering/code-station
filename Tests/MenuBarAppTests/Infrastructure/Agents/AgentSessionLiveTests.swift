@@ -55,3 +55,73 @@ struct AgentSessionLiveTests {
         #expect(runner.backgroundTasks(session.id).isEmpty)
     }
 }
+
+// A real Kiro session through the runner, with one of the app's MCP servers: a tiny
+// server whose only tool answers a word nothing else knows. The reply carrying that word
+// shows the server was handed over and reached, and the turn's summary must leave
+// credits on the session. Opt in with CODE_STATION_LIVE_AGENT_TESTS=1 on a Mac signed
+// into Kiro; it spends a few credits.
+@MainActor
+struct KiroLiveTests {
+    private let testPreferences = TestPreferences()
+
+    @Test func aKiroSessionReachesTheAppsMCPServerAndCountsCredits() async throws {
+        guard ProcessInfo.processInfo.environment["CODE_STATION_LIVE_AGENT_TESTS"] == "1" else { return }
+        if let only = ProcessInfo.processInfo.environment["CODE_STATION_LIVE_AGENT"], only != "kiro" { return }
+        let executable = try #require(ProcessManager.resolve(AgentKind.kiro.command))
+        let python = try #require(ProcessManager.resolve("python3"))
+        let scratch = ScratchDirectory(prefix: "kiro-live")
+        let server = scratch.path("ping.py")
+        try Data("""
+        import json, sys
+        for line in sys.stdin:
+            msg = json.loads(line)
+            if msg.get("id") is None: continue
+            method = msg.get("method")
+            if method == "initialize":
+                res = {"protocolVersion": msg["params"].get("protocolVersion", "2025-03-26"),
+                       "capabilities": {"tools": {}}, "serverInfo": {"name": "ping", "version": "1"}}
+            elif method == "tools/list":
+                res = {"tools": [{"name": "ping", "description": "Answers with a secret word.",
+                                  "inputSchema": {"type": "object", "properties": {}}}]}
+            elif method == "tools/call":
+                res = {"content": [{"type": "text", "text": "pong kestrel-42"}]}
+            else:
+                print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "no"}}), flush=True)
+                continue
+            print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": res}), flush=True)
+
+        """.utf8).write(to: server)
+        let config = scratch.path("mcp.json")
+        let entry: [String: Any] = ["command": python, "args": ["-I", server.path]]
+        try JSONSerialization.data(withJSONObject: ["mcpServers": ["ping": entry]]).write(to: config)
+        let configs = ConfigStore(configURL: config)
+        #expect(configs.servers.map(\.name) == ["ping"])
+
+        let store = ProjectStore(preferences: testPreferences.store, storeURL: scratch.path("projects.json"))
+        let project = try TestStore.project(in: store)
+        let session = try store.insertSession(in: project.id, seed: .init(agent: .kiro)).get()
+        let runner = SessionRunner(preferences: testPreferences.store, configs: configs, paths: [.kiro: executable],
+                                   automaticRecapsEnabled: { false },
+                                   automaticTitlesEnabled: { false }, promptSuggestionsEnabled: { false })
+        defer { runner.stopAll() }
+
+        runner.send("Call the ping tool from the ping MCP server, then reply with exactly what it returned.",
+                    sessionID: session.id, store: store)
+        var answered: [String] = []
+        let finished = await waitUntil(timeout: .seconds(180)) {
+            if let question = runner.question(session.id) {
+                answered.append(question.toolName)
+                runner.answer(question, with: .allowOnce, sessionID: session.id, store: store)
+            }
+            return !runner.state(session.id).isBusy
+        }
+        #expect(finished)
+        let transcript = store.transcript(of: session.id)
+        #expect(transcript.contains { $0.text.contains("kestrel-42") },
+                "asked: \(answered); transcript: \(transcript.map(\.text).joined(separator: " | "))")
+        let credits = try #require(store.session(session.id)?.usage?.credits)
+        #expect(credits > 0)
+        print("Kiro live: asked \(answered), credits \(credits)")
+    }
+}
