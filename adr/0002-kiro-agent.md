@@ -19,7 +19,7 @@ Kiro ships as a beta. It works end to end, but it lacks parts the other agents h
 - `AgentKind.isBeta` marks it. Agent menus describe it as "Beta · AWS's coding agent." The session bar shows a `BetaChip` beside its name, with the explanation in the tooltip. The first-run wizard shows the chip on its card.
 - The Kiro section of Settings › Agents carries a BETA badge and one sentence on what beta means: what works, and what is not supported yet.
 
-Kiro leaves beta once the sign-in check has been confirmed against each kind of sign-in, or once Kiro offers a supported way to ask. Importing past sessions is wanted, but it does not hold the label back. Leaving beta means setting `isBeta` to false.
+Kiro leaves beta once the sign-in check has been confirmed against each kind of sign-in, or once Kiro offers a supported way to ask. Kiro in the skills marketplace is wanted, but it does not hold the label back. Leaving beta means setting `isBeta` to false.
 
 Code Station runs Kiro through the official CLI as a session server, `kiro-cli acp --agent-engine v3`. The engine is pinned so that a user's own `acp.agentEngine` setting cannot switch the app onto a protocol it does not speak. The minimum CLI version is 3.5.0.
 
@@ -48,7 +48,7 @@ Kiro sessions get the same transcript, permission card, queue, changes view and 
 
 The app depends on details Kiro may change: the V3 protocol, its extension names, and the layout of its database. A change to the database layout makes the sign-in check fall back to `whoami`, which has read organisation accounts as signed out. A change to the protocol fails sessions visibly rather than silently.
 
-Kiro cannot take a prompt during a turn, so mid-turn prompts queue, as they do for Copilot. The app does not yet import past Kiro sessions. Kiro counts usage in plan credits, not dollars: each turn's summary reports what it cost, the adapter passes a running total, and sessions show credits where other agents show dollars.
+Kiro cannot take a prompt during a turn, so mid-turn prompts queue, as they do for Copilot. Past Kiro sessions are imported the way Codex's and Copilot's are, through Kiro's own server: `session/list` finds the folder's local sessions, `session/fork` copies the chosen one so the original is never touched, and `session/load` on the copy replays the conversation, marked as replay, into the transcript. Later turns resume the copy. Kiro keeps its history in `~/.kiro` with no setting to move it, so the import offers no history folder for Kiro. Kiro counts usage in plan credits, not dollars: each turn's summary reports what it cost, the adapter passes a running total, and sessions show credits where other agents show dollars.
 
 Servers in Kiro's own configuration load in every Kiro session, and Kiro has no way to switch them off for one session. A session with MCP off is handed none of Code Station's servers, but Kiro's own still load. Kiro reviewers and prompt suggestions run as one-shot chats and get no MCP servers from the app.
 
