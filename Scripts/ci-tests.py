@@ -67,6 +67,7 @@ def test_host(directory):
     host = directory / "code-station-test-host"
     subprocess.run([
         "xcrun", "swiftc", "-parse-as-library", "Scripts/TestMain.swift", "-o", str(host),
+        "-target", os.uname().machine + "-apple-macosx15.0",
         "-module-cache-path", "/private/tmp/code-station-ci-host-module-cache",
         "-F", str(frameworks), "-Xlinker", "-rpath", "-Xlinker", str(frameworks),
     ], check=True)
