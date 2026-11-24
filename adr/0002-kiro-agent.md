@@ -19,7 +19,7 @@ Kiro ships as a beta. It works end to end, but it lacks parts the other agents h
 - `AgentKind.isBeta` marks it. Agent menus describe it as "Beta · AWS's coding agent." The session bar shows a `BetaChip` beside its name, with the explanation in the tooltip. The first-run wizard shows the chip on its card.
 - The Kiro section of Settings › Agents carries a BETA badge and one sentence on what beta means: what works, and what is not supported yet.
 
-Kiro leaves beta once the sign-in check has been confirmed against each kind of sign-in, or once Kiro offers a supported way to ask. Kiro in the skills marketplace is wanted, but it does not hold the label back. Leaving beta means setting `isBeta` to false.
+Kiro leaves beta once the sign-in check has been confirmed against each kind of sign-in, or once Kiro offers a supported way to ask. Leaving beta means setting `isBeta` to false.
 
 Code Station runs Kiro through the official CLI as a session server, `kiro-cli acp --agent-engine v3`. The engine is pinned so that a user's own `acp.agentEngine` setting cannot switch the app onto a protocol it does not speak. The minimum CLI version is 3.5.0.
 
@@ -37,6 +37,8 @@ Code Station's MCP servers reach Kiro per session, not through Kiro's own config
 Signing in runs plain `kiro-cli login`, in the same terminal sheet as the other agents. The app keeps no sign-in fields of its own, because Kiro's menu covers every way in.
 
 The Agents pane decides whether someone is signed in from two sources. It reads the key names in the `auth_kv` table of `~/Library/Application Support/kiro-cli/data.sqlite3`, read-only and never the values: `kirocli:social:token` is a GitHub or Google sign-in, `kirocli:odic:token` an organisation's, and an empty table is a sign-out. It also asks `kiro-cli whoami --format json`, which names the account when it knows it. A token in the database counts as a sign-in whatever `whoami` said. When neither can be read, the pane shows what the CLI said instead of guessing.
+
+The skills marketplace installs into Kiro by copying files, because `kiro-cli` has no plugin command that takes the marketplace's packages. `kiro-cli powers install` takes a folder with a root `plugin.json`, but the v3 engine does not load installed powers. It does load every `~/.kiro/skills/<name>/SKILL.md`, as a skill and a slash command. So installing a package copies the folders under its `skills/` there, from the app's own copy of the marketplace, each with a `.code-station-package.json` marker naming the package, its marketplace and its version. The marker is how the installed list is read back, and how an update or uninstall finds the copies without touching a skill the person added themselves. A skill of the same name that the app did not put there stops the install. Only packages kept inside the marketplace's repository can be copied. A package's agents, commands, hooks and MCP servers have no place in Kiro and are left behind.
 
 Titles and prompt suggestions run as one-shot `kiro-cli chat --no-interactive` runs. Second-opinion reviews run the same way, trusting only `fs_read`, `grep` and `glob`. A non-interactive run refuses every untrusted tool, so a review cannot write or run commands.
 
