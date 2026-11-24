@@ -6,13 +6,11 @@ enum Money {
     static func short(_ amount: Double) -> String { String(format: "$%.2f", amount) }
 
     // Plan credits, for an agent that counts in credits rather than dollars. Written the
-    // way the Mac's locale writes numbers, to two places at most; a sliver reads as
-    // under one hundredth rather than as zero.
+    // way Kiro writes them and the way dollars are written here: always two decimals with
+    // a point, so 0.50 reads like $0.50. A sliver under one hundredth reads as such rather
+    // than as zero.
     static func credits(_ amount: Double) -> String {
-        if amount > 0, amount < 0.01 {
-            return "< \(0.01.formatted(.number.precision(.fractionLength(2)))) credits"
-        }
-        let number = amount.formatted(.number.precision(.fractionLength(0...2)))
-        return amount == 1 ? "\(number) credit" : "\(number) credits"
+        if amount > 0, amount < 0.01 { return "< 0.01 credits" }
+        return String(format: "%.2f credits", amount)
     }
 }

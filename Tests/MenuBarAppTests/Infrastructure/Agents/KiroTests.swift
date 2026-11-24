@@ -607,10 +607,12 @@ struct KiroCreditsTests {
     }
 
     @Test func writesCredits() {
-        #expect(Money.credits(1) == "1 credit")
-        #expect(Money.credits(0.004).hasPrefix("< "))
-        #expect(Money.credits(2) == "2 credits")
-        #expect(Money.credits(0.25) == "\(0.25.formatted(.number.precision(.fractionLength(0...2)))) credits")
+        #expect(Money.credits(1) == "1.00 credits")
+        #expect(Money.credits(0.004) == "< 0.01 credits")
+        #expect(Money.credits(0) == "0.00 credits")
+        #expect(Money.credits(0.5) == "0.50 credits")
+        #expect(Money.credits(0.026) == "0.03 credits")
+        #expect(Money.credits(12.345) == "12.35 credits")
     }
 }
 
