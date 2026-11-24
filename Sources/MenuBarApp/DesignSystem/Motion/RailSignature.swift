@@ -547,18 +547,28 @@ private struct RailHop: ViewModifier {
     let delay: TimeInterval
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // The hop itself plays on this count, which follows `trigger` after `delay`. Waiting
+    // outside the keyframes keeps the keyframes to the hop alone: a still keyframe of no
+    // length at the start threw the mark off to one side for the whole hop.
+    @State private var hops = 0
 
     func body(content: Content) -> some View {
         if reduceMotion {
             content
         } else {
-            content.keyframeAnimator(initialValue: CGFloat(0), trigger: trigger) { view, rise in
-                view.offset(y: rise)
-            } keyframes: { _ in
-                LinearKeyframe(0, duration: delay)
-                CubicKeyframe(-2.2, duration: Motion.railHopDuration * 0.45)
-                CubicKeyframe(0, duration: Motion.railHopDuration * 0.55)
-            }
+            content
+                .keyframeAnimator(initialValue: CGFloat(0), trigger: hops) { view, rise in
+                    view.offset(y: rise)
+                } keyframes: { _ in
+                    CubicKeyframe(-2.2, duration: Motion.railHopDuration * 0.45)
+                    CubicKeyframe(0, duration: Motion.railHopDuration * 0.55)
+                }
+                .task(id: trigger) {
+                    guard trigger > 0 else { return }
+                    if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                    guard !Task.isCancelled else { return }
+                    hops += 1
+                }
         }
     }
 }

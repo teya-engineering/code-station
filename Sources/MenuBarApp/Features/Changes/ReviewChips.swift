@@ -20,8 +20,7 @@ struct ReviewAvatar: View {
     var hopDelay: TimeInterval = 0
 
     var body: some View {
-        Image(systemName: agent?.symbol ?? "person.fill")
-            .font(.system(size: size * 0.5, weight: .semibold))
+        AgentMark(agent: agent, size: size)
             .foregroundStyle(ink)
             .modifier(SymbolMove(agent: agent, size: size, trigger: move))
             .railHop(trigger: hop, delay: hopDelay)
@@ -38,7 +37,9 @@ struct ReviewAvatar: View {
     private var ink: Color {
         if hasFindings { return Theme.attentionText }
         guard agent != nil else { return Theme.accent }
-        return muted ? Color.secondary : Theme.onFill
+        // A plain colour rather than `.secondary`: swapping a hierarchy style for a colour
+        // makes SwiftUI draw the symbol again as a new view, which slides in from its corner.
+        return muted ? Theme.secondaryText : Theme.onFill
     }
 
     private var fill: Color {
@@ -50,7 +51,59 @@ struct ReviewAvatar: View {
     private var edge: Color {
         if hasFindings { return Theme.attention }
         guard agent != nil else { return Theme.border }
-        return muted ? Color.secondary : .clear
+        return muted ? Theme.secondaryText : .clear
+    }
+}
+
+// The mark on an agent's tile: a few strokes drawn on a ten point grid, light enough to
+// read at the 15 point the header lineup uses. An agent with no mark of its own, and you,
+// keep the system symbol.
+private struct AgentMark: View {
+    let agent: AgentKind?
+    let size: CGFloat
+
+    var body: some View {
+        switch agent {
+        case .claudeCode:
+            AgentStrokes(path: Self.asterisk).stroke(style: stroke).frame(width: side, height: side)
+        case .codex:
+            AgentStrokes(path: Self.ring).stroke(style: stroke).frame(width: side, height: side)
+        case .copilot, nil:
+            Image(systemName: agent?.symbol ?? "person.fill")
+                .font(.system(size: size * 0.5, weight: .semibold))
+        }
+    }
+
+    private var side: CGFloat { size * 0.6 }
+    private var stroke: StrokeStyle {
+        StrokeStyle(lineWidth: side * 0.22, lineCap: .round, lineJoin: .round)
+    }
+
+    // Three spokes through the middle.
+    private static let asterisk: [[CGPoint]] = [
+        [CGPoint(x: 5, y: 1), CGPoint(x: 5, y: 9)],
+        [CGPoint(x: 1.5, y: 3), CGPoint(x: 8.5, y: 7)],
+        [CGPoint(x: 8.5, y: 3), CGPoint(x: 1.5, y: 7)],
+    ]
+    // An empty ring, drawn as a closed run of points round the middle.
+    private static let ring: [[CGPoint]] = [
+        (0...48).map { step in
+            let angle = Double(step) / 48 * 2 * .pi
+            return CGPoint(x: 5 + 3 * cos(angle), y: 5 + 3 * sin(angle))
+        }
+    ]
+}
+
+private struct AgentStrokes: Shape {
+    let path: [[CGPoint]]
+
+    func path(in rect: CGRect) -> Path {
+        let scale = rect.width / 10
+        var drawn = Path()
+        for run in path {
+            drawn.addLines(run.map { CGPoint(x: rect.minX + $0.x * scale, y: rect.minY + $0.y * scale) })
+        }
+        return drawn
     }
 }
 

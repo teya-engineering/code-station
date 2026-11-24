@@ -200,7 +200,7 @@ struct LineupTiles: View {
                 // The rest of the lineup, in the second opinion's own plum.
                 let plum = Theme.RailTint.opinion.colour ?? Theme.field
                 Text("+\(count)")
-                    .font(.system(size: size * 0.48, weight: .bold))
+                    .font(.system(size: size * 0.53, weight: .semibold))
                     .foregroundStyle(muted ? Color.secondary : Theme.onFill)
                     .frame(width: size, height: size)
                     .background(RoundedRectangle(cornerRadius: size * 0.3).fill(muted ? Theme.statusBand : plum))
