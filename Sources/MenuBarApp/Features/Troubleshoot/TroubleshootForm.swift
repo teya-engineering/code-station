@@ -7,13 +7,12 @@ import SwiftUI
 
 @MainActor
 enum TroubleshootSkills {
-    // Nil for an agent the skills marketplace does not install into yet.
     static func host(for agent: AgentKind) -> SkillHost? {
         switch agent {
         case .claudeCode: .claude
         case .codex: .codex
         case .copilot: .copilot
-        case .kiro: nil
+        case .kiro: .kiro
         }
     }
 

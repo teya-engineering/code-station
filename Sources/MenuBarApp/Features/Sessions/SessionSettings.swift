@@ -44,8 +44,8 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     // What beta means for this agent, in one sentence a person can act on.
     var betaNote: String? {
         guard isBeta else { return nil }
-        return "\(title) support is in beta. Sessions, permissions, models, credits, Code Station's MCP servers "
-            + "and importing past sessions work. Skills from the marketplace are not supported yet."
+        return "\(title) support is in beta. Sessions, permissions, models, credits, Code Station's MCP servers, "
+            + "importing past sessions and marketplace skills work. A marketplace package brings only its skills to \(title)."
     }
 
     var symbol: String {

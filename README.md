@@ -35,7 +35,7 @@ You need:
 - macOS 15 or later
 - Xcode 26 or another Swift 6.2 toolchain
 - Git
-- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in. Kiro support is in beta: skills from the marketplace are not supported yet. Kiro sessions show the plan credits they use rather than dollars. Kiro sessions are handed Code Station's MCP servers when they open, alongside any set up in Kiro itself.
+- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in. Kiro support is in beta. Skills from the marketplace install into `~/.kiro/skills`; a package's agents, commands and hooks do not carry over. Kiro sessions show the plan credits they use rather than dollars. Kiro sessions are handed Code Station's MCP servers when they open, alongside any set up in Kiro itself.
 
 Clone the repository and create a double-clickable app bundle:
 

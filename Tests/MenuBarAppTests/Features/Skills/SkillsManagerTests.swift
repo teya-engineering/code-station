@@ -263,7 +263,8 @@ struct SkillsManagerTests {
         #expect(defaults.object(forKey: "skillsLastRefresh.renamed") == nil)
     }
 
-    @Test(arguments: SkillHost.allCases) func readsInstallationsAcrossMarketplaces(host: SkillHost) {
+    @Test(arguments: SkillHost.allCases.filter { !$0.copiesSkills })
+    func readsInstallationsAcrossMarketplaces(host: SkillHost) {
         let output: String
         switch host {
         case .claude:
@@ -272,6 +273,8 @@ struct SkillsManagerTests {
             output = #"{"installed":[{"pluginId":"shared@first","version":"1"},{"pluginId":"shared@second","version":"2"},{"pluginId":"shared@other","version":"9"}]}"#
         case .copilot:
             output = #"{"plugins":[{"kind":"plugin","name":"shared","source":"marketplace:first","version":"1"},{"kind":"plugin","name":"shared","source":"marketplace:second","version":"2"},{"kind":"plugin","name":"shared","source":"marketplace:other","version":"9"}]}"#
+        case .kiro:
+            return
         }
         let installed = SkillsManager.installedPlugins(from: output, for: host, marketplaces: ["first", "second"])
         #expect(installed == ["shared@first": .init(version: "1", enabled: true),
@@ -302,7 +305,8 @@ struct SkillsManagerTests {
             SkillMarketplace.Plugin(name: "backend-specialist",
                                     description: "Backend help",
                                     version: "1.9.1",
-                                    category: "development")
+                                    category: "development",
+                                    source: "./plugins/backend-specialist")
         ])
     }
 

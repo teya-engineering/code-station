@@ -8,11 +8,33 @@ struct SkillMarketplace: Decodable, Equatable, Sendable {
         let description: String
         let version: String?
         let category: String?
+        // Where the package's files sit, when it is kept in the marketplace's own
+        // repository. A package fetched from elsewhere names an object here and reads nil.
+        var source: String? = nil
 
         var marketplace = ""
 
         enum CodingKeys: String, CodingKey {
-            case name, description, version, category
+            case name, description, version, category, source
+        }
+
+        init(name: String, description: String, version: String?, category: String?,
+             source: String? = nil, marketplace: String = "") {
+            self.name = name
+            self.description = description
+            self.version = version
+            self.category = category
+            self.source = source
+            self.marketplace = marketplace
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            description = try container.decode(String.self, forKey: .description)
+            version = try container.decodeIfPresent(String.self, forKey: .version)
+            category = try container.decodeIfPresent(String.self, forKey: .category)
+            source = try? container.decodeIfPresent(String.self, forKey: .source)
         }
 
         var id: String { marketplace.isEmpty ? name : "\(name)@\(marketplace)" }
@@ -45,12 +67,15 @@ struct SkillMarketplaceConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-// The CLIs that install plugins from the marketplace. All three read the same
-// marketplace format, so one catalogue serves every host; only the commands differ.
+// The agents that install plugins from the marketplace. Claude Code, Codex and Copilot
+// read the same marketplace format through their own plugin commands, so one catalogue
+// serves every host and only the commands differ. Kiro has no plugin command: the app
+// copies a package's skills to where Kiro loads them (see KiroSkillShelf).
 enum SkillHost: String, CaseIterable, Identifiable, Sendable {
     case claude
     case codex
     case copilot
+    case kiro
 
     var id: String { rawValue }
 
@@ -59,10 +84,15 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         case .claude: "Claude Code"
         case .codex: "Codex"
         case .copilot: "Copilot"
+        case .kiro: "Kiro"
         }
     }
 
-    var command: String { rawValue }
+    var command: String { self == .kiro ? AgentKind.kiro.command : rawValue }
+
+    // Installed by copying files rather than through the agent's own commands, so the
+    // argument lists below are never run for it.
+    var copiesSkills: Bool { self == .kiro }
 
     // Copilot's `plugin list` has no JSON form; its `plugins` command lists everything it
     // has configured, plugins included, and does.
@@ -70,6 +100,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude, .codex: ["plugin", "list", "--json"]
         case .copilot: ["plugins", "list", "--json"]
+        case .kiro: []
         }
     }
 
@@ -77,6 +108,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude, .codex: ["plugin", "marketplace", "list", "--json"]
         case .copilot: ["plugin", "marketplace", "list"]
+        case .kiro: []
         }
     }
 
@@ -84,6 +116,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         return switch self {
         case .claude, .copilot: ["plugin", "marketplace", "add", source]
         case .codex: ["plugin", "marketplace", "add", source, "--json"]
+        case .kiro: []
         }
     }
 
@@ -91,6 +124,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         return switch self {
         case .claude, .copilot: ["plugin", "marketplace", "update", name]
         case .codex: ["plugin", "marketplace", "upgrade", name, "--json"]
+        case .kiro: []
         }
     }
 
@@ -100,6 +134,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         case .claude: ["plugin", "install", selector, "--scope", "user"]
         case .codex: ["plugin", "add", selector, "--json"]
         case .copilot: ["plugin", "install", selector]
+        case .kiro: []
         }
     }
 
@@ -109,6 +144,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         case .claude: ["plugin", "uninstall", selector, "--scope", "user"]
         case .codex: ["plugin", "remove", selector, "--json"]
         case .copilot: ["plugin", "uninstall", selector]
+        case .kiro: []
         }
     }
 
@@ -120,6 +156,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         // refreshed marketplace snapshot.
         case .codex: ["plugin", "add", selector, "--json"]
         case .copilot: ["plugin", "update", selector]
+        case .kiro: []
         }
     }
 }
@@ -179,6 +216,7 @@ final class SkillsManager {
     private(set) var catalogueNotice: String?
 
     private let cacheURLOverride: URL?
+    private let kiroShelf: KiroSkillShelf
     @ObservationIgnored private let preferences: UserDefaults
 
     private var configurationRevision = 0
@@ -245,9 +283,11 @@ final class SkillsManager {
     }
 
     init(cacheURL: URL? = nil, preferences: UserDefaults = .standard,
+         kiroShelf: KiroSkillShelf = .standard,
          persistExclusions: (([String]) throws -> Void)? = nil,
          siteSkills: @escaping () -> SiteDefaults.Skills? = { SiteDefaults.current.skills }) {
         cacheURLOverride = cacheURL
+        self.kiroShelf = kiroShelf
         self.preferences = preferences
         self.siteSkills = siteSkills
         self.persistExclusions = persistExclusions ?? { names in
@@ -287,7 +327,7 @@ final class SkillsManager {
         isRefreshing = true
         defer { isRefreshing = false }
         let names = Set(marketplaceConfigurations.map(\.marketplace))
-        for (host, load) in await Self.loadInstallations(marketplaces: names) {
+        for (host, load) in await Self.loadInstallations(marketplaces: names, kiroShelf: kiroShelf) {
             apply(load, to: host)
         }
     }
@@ -430,7 +470,7 @@ final class SkillsManager {
                             preloaded: [String: CatalogueLoad] = [:]) async {
         let configurations = marketplaceConfigurations
         let names = Set(configurations.map(\.marketplace))
-        async let hostLoads = Self.loadInstallations(marketplaces: names)
+        async let hostLoads = Self.loadInstallations(marketplaces: names, kiroShelf: kiroShelf)
         let loads = await withTaskGroup(of: (String, CatalogueLoad).self) { group in
             for configuration in configurations {
                 let cache = cacheURL(source: configuration.source)
@@ -481,7 +521,10 @@ final class SkillsManager {
         defer { actionProgress[action] = nil }
 
         let result: CommandResult
-        if installed {
+        if host.copiesSkills {
+            actionProgress[action] = installed ? .installing : .uninstalling
+            result = await shelve(plugin, installed: installed)
+        } else if installed {
             let ready = await prepareMarketplace(for: host, plugin: plugin, action: action)
             if ready.ok {
                 actionProgress[action] = .installing
@@ -512,9 +555,13 @@ final class SkillsManager {
         actionFailures[action] = nil
         defer { actionProgress[action] = nil }
 
-        let ready = await prepareMarketplace(for: host, plugin: plugin, action: action)
+        let ready = host.copiesSkills ? CommandResult(status: 0)
+            : await prepareMarketplace(for: host, plugin: plugin, action: action)
         let result: CommandResult
-        if ready.ok {
+        if host.copiesSkills {
+            actionProgress[action] = .updating
+            result = await shelve(plugin, installed: true)
+        } else if ready.ok {
             actionProgress[action] = .updating
             result = await Self.run(host.command,
                                     host.updateArguments(plugin: plugin.name,
@@ -545,8 +592,46 @@ final class SkillsManager {
         }
     }
 
+    // Kiro's copies come from the app's own copy of the marketplace, which the catalogue
+    // refresh keeps current, so the version installed is the one the list shows.
+    private func shelve(_ plugin: SkillMarketplace.Plugin, installed: Bool) async -> CommandResult {
+        let shelf = kiroShelf
+        guard installed else {
+            return Self.shelfResult { try shelf.remove(package: plugin.name, marketplace: plugin.marketplace) }
+        }
+        guard let configuration = marketplaceConfigurations.first(where: { $0.marketplace == plugin.marketplace }) else {
+            return CommandResult(errorText: "No skills marketplace is set up.", status: 1)
+        }
+        let root = Self.marketplaceRoot(configuration, cache: cacheURL(source: configuration.source))
+        return await Task.detached {
+            Self.shelfResult {
+                let folder = try KiroSkillShelf.packageFolder(source: plugin.source, marketplaceRoot: root)
+                try shelf.install(package: plugin.name, marketplace: plugin.marketplace,
+                                  version: plugin.version, from: folder)
+            }
+        }.value
+    }
+
+    // A package's source is relative to the marketplace's root: the repository for a
+    // cloned one, and the folder holding `.claude-plugin/` for a local file.
+    nonisolated static func marketplaceRoot(_ configuration: SkillMarketplaceConfiguration, cache: URL) -> URL {
+        guard configuration.isLocalFile else { return cache }
+        let folder = URL(fileURLWithPath: configuration.source).deletingLastPathComponent()
+        return folder.lastPathComponent == ".claude-plugin" ? folder.deletingLastPathComponent() : folder
+    }
+
+    private nonisolated static func shelfResult(_ work: () throws -> Void) -> CommandResult {
+        do {
+            try work()
+            return CommandResult(status: 0)
+        } catch {
+            return CommandResult(errorText: error.localizedDescription, status: 1)
+        }
+    }
+
     private func refreshInstallations(for host: SkillHost) async {
-        apply(await Self.loadInstallations(for: host, marketplaces: Set(marketplaceConfigurations.map(\.marketplace))), to: host)
+        apply(await Self.loadInstallations(for: host, marketplaces: Set(marketplaceConfigurations.map(\.marketplace)),
+                                           kiroShelf: kiroShelf), to: host)
     }
 
     func apply(_ load: InstallationLoad, to host: SkillHost) {
@@ -809,11 +894,14 @@ final class SkillsManager {
         return Set(rows.compactMap { $0["name"] as? String })
     }
 
-    private nonisolated static func loadInstallations(marketplaces: Set<String>) async
+    private nonisolated static func loadInstallations(marketplaces: Set<String>,
+                                                      kiroShelf: KiroSkillShelf) async
         -> [SkillHost: InstallationLoad] {
         await withTaskGroup(of: (SkillHost, InstallationLoad).self) { group in
             for host in SkillHost.allCases {
-                group.addTask { (host, await loadInstallations(for: host, marketplaces: marketplaces)) }
+                group.addTask {
+                    (host, await loadInstallations(for: host, marketplaces: marketplaces, kiroShelf: kiroShelf))
+                }
             }
             var loads: [SkillHost: InstallationLoad] = [:]
             for await (host, load) in group { loads[host] = load }
@@ -822,10 +910,15 @@ final class SkillsManager {
     }
 
     private nonisolated static func loadInstallations(for host: SkillHost,
-                                                      marketplaces: Set<String>) async
+                                                      marketplaces: Set<String>,
+                                                      kiroShelf: KiroSkillShelf) async
         -> InstallationLoad {
         guard !marketplaces.isEmpty, ProcessManager.resolve(host.command) != nil else {
             return InstallationLoad(installations: [:], failure: nil)
+        }
+        if host.copiesSkills {
+            return InstallationLoad(installations: kiroShelf.installations(marketplaces: marketplaces),
+                                    failure: nil)
         }
         let result = await run(host.command, host.listArguments)
         guard result.ok else {

@@ -229,6 +229,9 @@ struct SkillsView: View {
         .padding(.vertical, Space.lg)
     }
 
+    // One column per agent. Narrow enough that four leave the package names room.
+    private let hostColumnWidth: CGFloat = 160
+
     private var columnHeadings: some View {
         HStack(spacing: Space.lg) {
             Text("PACKAGE")
@@ -240,7 +243,7 @@ struct SkillsView: View {
                         .frame(width: 6, height: 6)
                     Text(hostHeading(host))
                 }
-                .frame(width: 190, alignment: .leading)
+                .frame(width: hostColumnWidth, alignment: .leading)
             }
         }
         .font(Typography.caps)
@@ -283,7 +286,7 @@ struct SkillsView: View {
 
                 ForEach(SkillHost.allCases) { host in
                     hostControl(plugin, host: host)
-                        .frame(width: 190)
+                        .frame(width: hostColumnWidth)
                 }
             }
 
