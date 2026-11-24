@@ -853,6 +853,10 @@ struct SettingsView: View {
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
                 SettingsRowDivider()
+                terminalScrollback
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
+                SettingsRowDivider()
                 openIn
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
@@ -889,6 +893,24 @@ struct SettingsView: View {
             OptionMenu(value: value) { terminalMenu }
                 .fixedSize(horizontal: true, vertical: false)
                 .accessibilityLabel("Terminal: \(value)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var terminalScrollback: some View {
+        @Bindable var settings = settings
+        return HStack(alignment: .top, spacing: Space.lg) {
+            settingCopy(
+                title: "Terminal scrollback",
+                detail: "How many lines of output a shell in the drawer keeps to scroll back through, from \(TerminalScrollback.range.lowerBound.formatted()) to \(TerminalScrollback.range.upperBound.formatted()). Open tabs change at once, and a smaller number drops their oldest lines.")
+            Spacer(minLength: 0)
+            // Wide enough for the top of the range, digits and separator included.
+            NumberField(value: $settings.terminalScrollback,
+                        range: TerminalScrollback.range,
+                        step: TerminalScrollback.step,
+                        unit: (one: "line", many: "lines"),
+                        width: 60,
+                        accessibilityLabel: "Terminal scrollback in lines")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

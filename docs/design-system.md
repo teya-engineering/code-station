@@ -270,7 +270,8 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A number in a range | `AppSlider` |
 | Text | `.appTextField()`, `AppTextEditor` |
 | One line of text the machine reads, with some words tinted | `TintedLineField` (`Controls/TintedLineField.swift`): pass a `Mark` for each stretch to tint, such as the `{{property}}` and `:name` parts of an address, and `lit:` for one to light up for a moment. The tint is painted over the text and is never part of the value. Return submits and Tab moves on. |
-| A count of days | `DayField`. Use `validatesEntry: true` to keep invalid text visible with a correction; Return or leaving the field saves a valid whole number, and Escape restores the saved value. |
+| A whole number, typed or stepped | `NumberField` (`Controls/NumberField.swift`): a range, a step for the arrows, and the unit beside it. A number typed past either end lands on that end. Use `validatesEntry: true` to keep invalid text visible with a correction instead; Return or leaving the field saves a valid whole number, and Escape restores the saved value. |
+| A count of days | `DayField`, a `NumberField` in days. |
 | A file or folder | `FilePicker` |
 | A label over a field | `LabeledField` |
 | A key beside its value | `LabeledRow` |

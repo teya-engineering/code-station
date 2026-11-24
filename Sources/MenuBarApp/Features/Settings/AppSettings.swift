@@ -122,6 +122,18 @@ final class AppSettings {
 
     var opensTerminalInDrawer: Bool { terminalBundleID == nil }
 
+    // How far back the drawer's shells can be scrolled. Open tabs take a new size at once.
+    var terminalScrollback: Int {
+        didSet {
+            let resolved = TerminalScrollback.resolved(terminalScrollback)
+            guard resolved == terminalScrollback else {
+                terminalScrollback = resolved
+                return
+            }
+            Preferences.terminalScrollback.write(terminalScrollback, in: preferences)
+        }
+    }
+
     var appearance: Appearance {
         didSet {
             Preferences.appearance.write(appearance, in: preferences)
@@ -273,6 +285,7 @@ final class AppSettings {
         projectSort = Preferences.projectSort.read(in: preferences)
         projectGrouping = Preferences.projectGrouping.read(in: preferences)
         terminalBundleID = Preferences.terminalBundleID(in: preferences)
+        terminalScrollback = Preferences.terminalScrollback.read(in: preferences)
         appearance = Preferences.appearance.read(in: preferences)
         sunlightEnabled = Preferences.sunlightEnabled.read(in: preferences)
         sunlightMode = Preferences.sunlightMode.read(in: preferences)
