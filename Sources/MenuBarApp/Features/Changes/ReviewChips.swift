@@ -3,7 +3,7 @@ import SwiftUI
 // The pieces a review is drawn with, shared by both diff layouts, the review list, the
 // send dialog and the cards in Chat, so a comment looks the same wherever it turns up.
 
-// Who left a comment: you, or the reviewer's mark on a quiet tile.
+// Who left a comment: you on a quiet tile, or the reviewer's mark on its own colour.
 struct ReviewAvatar: View {
     // Nil for you.
     let agent: AgentKind?
@@ -12,19 +12,54 @@ struct ReviewAvatar: View {
     var hasFindings = false
     // Counts up each time the reviewer's symbol should play its own move.
     var move = 0
+    // Grey and outlined, for a lineup resting on the header rail, where nothing takes a
+    // colour until it is pointed at.
+    var muted = false
+    // Counts up each time the mark should give one small hop, after `hopDelay`.
+    var hop = 0
+    var hopDelay: TimeInterval = 0
 
     var body: some View {
         Image(systemName: agent?.symbol ?? "person.fill")
             .font(.system(size: size * 0.5, weight: .semibold))
-            .foregroundStyle(hasFindings ? Theme.attentionText : agent == nil ? Theme.accent : Color.secondary)
+            .foregroundStyle(ink)
             .modifier(SymbolMove(agent: agent, size: size, trigger: move))
+            .railHop(trigger: hop, delay: hopDelay)
             .frame(width: size, height: size)
             // A symbol that flies out of its tile leaves through the edge, not over its neighbour.
             .clipped()
-            .background(RoundedRectangle(cornerRadius: size * 0.3)
-                .fill(hasFindings ? Theme.attention.opacity(0.16) : agent == nil ? Theme.userMessage : Theme.field))
-            .overlay(RoundedRectangle(cornerRadius: size * 0.3).stroke(hasFindings ? Theme.attention : Theme.border))
+            .background(RoundedRectangle(cornerRadius: size * 0.3).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.3).strokeBorder(edge, lineWidth: muted ? 1.3 : 1))
             .accessibilityHidden(true)
+    }
+
+    private var ink: Color {
+        if hasFindings { return Theme.attentionText }
+        guard agent != nil else { return Theme.accent }
+        return muted ? Color.secondary : Theme.onFill
+    }
+
+    private var fill: Color {
+        if hasFindings { return Theme.attention.opacity(0.16) }
+        guard let agent else { return Theme.userMessage }
+        return muted ? Theme.statusBand : agent.tint
+    }
+
+    private var edge: Color {
+        if hasFindings { return Theme.attention }
+        guard agent != nil else { return Theme.border }
+        return muted ? Color.secondary : .clear
+    }
+}
+
+extension AgentKind {
+    // The agent's own colour, behind its symbol wherever it speaks.
+    var tint: Color {
+        switch self {
+        case .claudeCode: Theme.agentClaudeCode
+        case .codex: Theme.agentCodex
+        case .copilot: Theme.agentCopilot
+        }
     }
 }
 

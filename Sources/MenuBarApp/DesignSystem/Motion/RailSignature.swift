@@ -544,6 +544,7 @@ final class RailGlyphView: LoopLayerView {
 // It moves by an offset only, since the button around it carries AppKit-backed parts.
 private struct RailHop: ViewModifier {
     let trigger: Int
+    let delay: TimeInterval
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -554,6 +555,7 @@ private struct RailHop: ViewModifier {
             content.keyframeAnimator(initialValue: CGFloat(0), trigger: trigger) { view, rise in
                 view.offset(y: rise)
             } keyframes: { _ in
+                LinearKeyframe(0, duration: delay)
                 CubicKeyframe(-2.2, duration: Motion.railHopDuration * 0.45)
                 CubicKeyframe(0, duration: Motion.railHopDuration * 0.55)
             }
@@ -562,8 +564,9 @@ private struct RailHop: ViewModifier {
 }
 
 extension View {
-    func railHop(trigger: Int) -> some View {
-        modifier(RailHop(trigger: trigger))
+    // `delay` lets a row of marks hop in turn.
+    func railHop(trigger: Int, delay: TimeInterval = 0) -> some View {
+        modifier(RailHop(trigger: trigger, delay: delay))
     }
 }
 

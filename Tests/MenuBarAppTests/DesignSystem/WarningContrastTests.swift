@@ -215,4 +215,18 @@ struct WarningContrastTests {
             }
         }
     }
+
+    // An agent's symbol sits on a tile of its own colour wherever it speaks, and the rest
+    // of a lineup on the second opinion's plum. Each mark has to read on its tile.
+    @Test func everyAgentTileIsReadableInBothAppearances() throws {
+        let tiles: [(String, Color)] = AgentKind.allCases.map { ("\($0)", $0.tint) }
+            + [("more", try #require(Theme.RailTint.opinion.colour))]
+        for appearance in try appearances() {
+            let mark = try swatch(Theme.onFill, in: appearance)
+            for (name, tile) in tiles {
+                #expect(mark.contrast(against: try swatch(tile, in: appearance)) >= 3,
+                        "\(name) on \(appearance.name.rawValue)")
+            }
+        }
+    }
 }

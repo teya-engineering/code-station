@@ -281,6 +281,14 @@ enum Theme {
 
     static func monogram(for name: String) -> Color { projectTint(for: name).ink }
 
+    // Each agent's own colour: the tile behind its symbol wherever it speaks, so a
+    // finding, a reviewer or a lineup says who it came from before its name is read.
+    // Taken from the project wheel, and far enough apart on it to tell apart side by side.
+    // The symbol sits on the tile in `onFill`; WarningContrastTests measures each pair.
+    static let agentClaudeCode = Color(red: 0.878, green: 0.416, blue: 0.122)
+    static let agentCodex = Color(red: 0.184, green: 0.639, blue: 0.333)
+    static let agentCopilot = Color(red: 0.541, green: 0.333, blue: 0.851)
+
     // Which tool a shortcut on the header rail is, while it is pointed at. The rail is grey
     // at rest, so nothing asks for the eye until a hand reaches for it. Each tool takes one
     // colour from the project wheel, leaving out red and amber so no tool reads as

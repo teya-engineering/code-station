@@ -55,6 +55,7 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `brand`, `listen...` | The app itself. Lime on screen means the microphone is open. |
 | `showcase`, `snooze...` | A Design session going all out, and a snoozed item. |
 | `projectTint(for:)` | A project's own colour. The same one wherever the project shows up. |
+| `agentClaudeCode`, `agentCodex`, `agentCopilot` | An agent's own colour, as the tile behind its symbol wherever it speaks (`ReviewAvatar`, `LineupTiles`). The rest of a lineup sits on the second opinion's plum. On the header rail the lineup stays grey until pointed at. |
 | `RailTint` | Which tool this is, while it is pointed at. Each header rail shortcut has one, set by its `RailTool`, and it shows only under the pointer or keyboard focus, as a wash behind the seat, the glyph's ink and a square dot in the tooltip. The colour follows the tool into the panel it opens: the glyph at the head of that panel takes `RailTool.mark`. An open seat keeps the accent, since green means chosen. |
 | `chartSeries` | Chart lines, in a fixed order. |
 

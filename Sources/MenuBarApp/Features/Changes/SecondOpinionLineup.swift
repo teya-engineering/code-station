@@ -110,8 +110,16 @@ struct LineupTiles: View {
     var deals = 0
     var squashes = 0
     var shakes = 0
+    // Grey outlines with no colour, for a lineup resting on the header rail. Pointed at,
+    // each tile takes its agent's colour.
+    var muted = false
+    // Counts up each time the marks should hop, one after another.
+    var hops = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // The gap between two marks hopping, so the lineup reads left to right.
+    private static let hopStep: TimeInterval = 0.06
 
     private var nodding: Bool { !reduceMotion && marks.values.contains(.working) }
 
@@ -125,6 +133,7 @@ struct LineupTiles: View {
                 }
             }
         }
+        .motion(Motion.hover, value: muted)
         .accessibilityHidden(true)
     }
 
@@ -171,14 +180,19 @@ struct LineupTiles: View {
         Group {
             switch tile {
             case .agent(let agent):
-                ReviewAvatar(agent: agent, size: size, hasFindings: mark == .findings, move: deals)
+                ReviewAvatar(agent: agent, size: size, hasFindings: mark == .findings, move: deals,
+                             muted: muted, hop: hops, hopDelay: Double(index) * Self.hopStep)
             case .more(let count):
+                // The rest of the lineup, in the second opinion's own plum.
+                let plum = Theme.RailTint.opinion.colour ?? Theme.field
                 Text("+\(count)")
                     .font(.system(size: size * 0.48, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(muted ? Color.secondary : Theme.onFill)
+                    .railHop(trigger: hops, delay: Double(index) * Self.hopStep)
                     .frame(width: size, height: size)
-                    .background(RoundedRectangle(cornerRadius: size * 0.3).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: size * 0.3).stroke(Theme.border))
+                    .background(RoundedRectangle(cornerRadius: size * 0.3).fill(muted ? Theme.statusBand : plum))
+                    .overlay(RoundedRectangle(cornerRadius: size * 0.3)
+                        .strokeBorder(muted ? Color.secondary : .clear, lineWidth: muted ? 1.3 : 1))
             }
         }
         .modifier(TileMoves(size: size, index: index, deals: deals, squashes: squashes,
@@ -357,6 +371,7 @@ struct SecondOpinionLineupButton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(RailWash.self) private var wash: RailWash?
     @State private var hovering = false
+    @State private var hops = 0
     @State private var deals = 0
     @State private var squashes = 0
     @State private var shakes = 0
@@ -405,7 +420,10 @@ struct SecondOpinionLineupButton: View {
         }
         .buttonStyle(.plain)
         .disabled(shown == .rest && !canAsk)
-        .onPointerHover { hovering = $0 }
+        .onPointerHover { inside in
+            hovering = inside
+            if inside && shown == .rest && canAsk { hops += 1 }
+        }
         // Only the resting lineup takes the tool's colour. Once a run starts, the chip's
         // own colours say how it is going.
         .railSeat("opinion", tool: .opinion, radius: Radius.card,
@@ -442,7 +460,11 @@ struct SecondOpinionLineupButton: View {
                         fanned: hovering && shown == .rest && canAsk,
                         gathered: shown == .settled,
                         marks: shown == .rest ? [:] : SecondOpinionLineup.marks(runs: runs, status: status),
-                        deals: deals, squashes: squashes, shakes: shakes)
+                        deals: deals, squashes: squashes, shakes: shakes,
+                        // The rail is grey at rest. Pointed at, each reviewer steps
+                        // forward in its own colour and its mark hops, one after another.
+                        muted: shown == .rest && !(hovering && canAsk),
+                        hops: hops)
                 .padding(.horizontal, Space.xxs)
             words
         }
