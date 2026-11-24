@@ -5,6 +5,31 @@ import Testing
 
 @MainActor
 struct SessionScrollTests {
+    @Test(arguments: [false, true])
+    func restoringTheTerminalPreservesTheTranscriptReadingPosition(reduceMotion: Bool) async throws {
+        let pane = try Pane(reduceMotion: reduceMotion)
+        defer { pane.close() }
+        let scope = TerminalScope.session(pane.harness.session.id)
+        pane.terminals.reveal(scope, directory: pane.harness.scratch.url.path)
+        let scroll = try await pane.transcript()
+        pane.scroll(scroll, awayFromBottom: 500)
+        await pane.settle()
+        #expect(pane.distanceFromBottom(scroll) > 100)
+        let distance = pane.distanceFromBottom(scroll)
+        let size = scroll.frame.size
+        pane.terminals.setMaximized(true, for: scope)
+        await pane.settle()
+        #expect(scroll.frame.size == size)
+        pane.terminals.setMaximized(false, for: scope)
+        await pane.settle()
+        let restored = try #require(pane.views.compactMap { $0 as? NSScrollView }.first {
+            !($0.documentView is NSTextView)
+                && $0.contentView.documentRect.height > $0.documentVisibleRect.height + 1000
+        })
+        #expect(restored === scroll)
+        #expect(abs(pane.distanceFromBottom(restored) - distance) < 1)
+    }
+
     @Test func findRefreshesWhenTextStreamsIntoAnExistingMessage() async throws {
         let find = TranscriptFind()
         let pane = try Pane(find: find)
@@ -175,11 +200,12 @@ struct SessionScrollTests {
     @MainActor
     private final class Pane {
         let harness: RunnerHarness
+        let terminals = TerminalStore(registry: ShellRegistry(directory: ShellNotes.scratch()))
         let window: NSWindow
         let view: NSView
 
         init(includesAgent: Bool = false, find: TranscriptFind = TranscriptFind(),
-             width: CGFloat = 1000) throws {
+             width: CGFloat = 1000, reduceMotion: Bool = false) throws {
             harness = try RunnerHarness(agent: .claudeCode, script: """
             IFS= read -r input
             printf '%s\n' '{"type":"system","subtype":"init","session_id":"scroll-fixture"}'
@@ -204,9 +230,10 @@ struct SessionScrollTests {
                                        preferences: preferences)
             let hosting = NSHostingController(rootView:
                 SessionView(sessionID: harness.session.id, transcriptFind: find)
+                    .environment(\._accessibilityReduceMotion, reduceMotion)
                     .environment(harness.store)
                     .environment(harness.runner)
-                    .environment(TerminalStore())
+                    .environment(terminals)
                     .environment(settings)
                     .environment(GitStatsCache())
                     .environment(PullRequestReviewStore())
@@ -228,6 +255,7 @@ struct SessionScrollTests {
         }
 
         func close() {
+            terminals.stopEverything()
             window.close()
             window.contentViewController = nil
             harness.tearDown()

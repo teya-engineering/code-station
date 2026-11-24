@@ -9,6 +9,7 @@ final class WindowKeyMonitor {
     // Says which window the control is in. This is what tells one control's stroke from
     // another's when several are listening for the same chord.
     weak var anchor: NSView?
+    var isEnabled = true
 
     // Can change while the monitor runs, when the person picks another key for it. Nil
     // leaves the monitor listening for nothing.
@@ -55,7 +56,7 @@ final class WindowKeyMonitor {
     }
 
     private func take(_ pressed: KeyCombo?) -> Bool {
-        guard let pressed, pressed == keys, let handle, let window = anchor?.window else { return false }
+        guard isEnabled, let pressed, pressed == keys, let handle, let window = anchor?.window else { return false }
         return Self.routes(to: window, frontmost: Self.frontmostWindow) ? handle() : false
     }
 
@@ -79,14 +80,19 @@ final class WindowKeyMonitor {
 // Names the window its monitor is in. Only there for that, so it takes no clicks of its own.
 struct WindowAnchor: NSViewRepresentable {
     let monitor: WindowKeyMonitor
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeNSView(context: Context) -> NSView {
         let view = AnchorView()
         monitor.anchor = view
+        monitor.isEnabled = isEnabled
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) { monitor.anchor = view }
+    func updateNSView(_ view: NSView, context: Context) {
+        monitor.anchor = view
+        monitor.isEnabled = isEnabled
+    }
 
     private final class AnchorView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -99,6 +105,7 @@ struct WindowAnchor: NSViewRepresentable {
 @MainActor
 final class WindowKeyHandler {
     weak var anchor: NSView?
+    var isEnabled = true
 
     private let handlesTyping: Bool
     // Kept up to date by the anchor, so a handler registered once still answers to a key
@@ -109,8 +116,7 @@ final class WindowKeyHandler {
 
     // Whether the press is the key the person has for the command right now.
     func pressed(_ command: AppCommand, _ event: NSEvent) -> Bool {
-        guard let keys = keyBindings.keys(for: command) else { return false }
-        return keys.matches(event)
+        keyBindings.held(by: command).contains { $0.matches(event) }
     }
 
     private var token: Any?
@@ -121,7 +127,10 @@ final class WindowKeyHandler {
         guard token == nil else { return }
         token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             nonisolated(unsafe) let event = event
-            return MainActor.assumeIsolated { self.take(event) } ? nil : event
+            let handled = MainActor.assumeIsolated {
+                self.take(event, from: event.window, frontmost: WindowKeyMonitor.frontmostWindow)
+            }
+            return handled ? nil : event
         }
     }
 
@@ -131,10 +140,10 @@ final class WindowKeyHandler {
         handle = nil
     }
 
-    private func take(_ event: NSEvent) -> Bool {
-        guard let handle, let window = anchor?.window,
-              WindowKeyMonitor.routes(to: window, frontmost: WindowKeyMonitor.frontmostWindow),
-              event.window === window,
+    func take(_ event: NSEvent, from eventWindow: NSWindow?, frontmost: NSWindow?) -> Bool {
+        guard isEnabled, let handle, let window = anchor?.window,
+              WindowKeyMonitor.routes(to: window, frontmost: frontmost),
+              eventWindow === window,
               handlesTyping || !Self.isTyping(window.firstResponder) else { return false }
         return handle(event)
     }
@@ -149,17 +158,20 @@ struct WindowKeyAnchor: NSViewRepresentable {
     let handler: WindowKeyHandler
 
     @Environment(\.keyBindings) private var keyBindings
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeNSView(context: Context) -> NSView {
         let view = AnchorView()
         handler.anchor = view
         handler.keyBindings = keyBindings
+        handler.isEnabled = isEnabled
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
         handler.anchor = view
         handler.keyBindings = keyBindings
+        handler.isEnabled = isEnabled
     }
 
     private final class AnchorView: NSView {

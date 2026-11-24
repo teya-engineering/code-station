@@ -40,12 +40,12 @@ struct KeyCombo: Hashable, Codable, Sendable {
         } else {
             // A dead key, such as the backtick on a Brazilian or international layout,
             // types nothing on its own, so AppKit leaves its plain character empty. Held
-            // with Control alone it still types its own mark, which is the key it is.
-            // With Option, Shift or Command it types whatever that composes instead, which
-            // would name a different key, so those are left unread.
+            // with Control, alone or with Shift, it still types its own mark, which is the
+            // key it is. With Option or Command it types whatever that composes instead,
+            // which would name a different key, so those are left unread.
             let plain = event.charactersIgnoringModifiers ?? ""
-            let controlAlone = modifiers == .control
-            guard let characters = plain.isEmpty && controlAlone ? event.characters : plain,
+            let withControl = modifiers == .control || modifiers == [.control, .shift]
+            guard let characters = plain.isEmpty && withControl ? event.characters : plain,
                   characters.count == 1,
                   let scalar = characters.unicodeScalars.first,
                   !CharacterSet.controlCharacters.contains(scalar),
