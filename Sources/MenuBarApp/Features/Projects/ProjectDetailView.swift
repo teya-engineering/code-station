@@ -43,9 +43,7 @@ struct ProjectDetailView: View {
                 header(project)
                 statusStrip(project)
                 if store.isMissing(project) { missingFolder(project) }
-                // A maximized terminal takes the page's room. The page goes at once and
-                // lifts back in when the terminal gives the room back.
-                if !terminals.isMaximized(terminalScope) {
+                RetainedPane(hidden: terminals.isMaximized(terminalScope)) {
                     // The group hands the transition to each page, so whichever one is
                     // chosen lifts in under the tab that chose it.
                     Group { content(project) }

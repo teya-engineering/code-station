@@ -7,6 +7,7 @@ import SwiftUI
 // of the app.
 struct TerminalScreen: View {
     @Environment(\.textScale) private var textScale
+    @Environment(\.isEnabled) private var isEnabled
     // A dialog and a menu are drawn inside the window and answer the keyboard
     // themselves, so the shell stands back while one is up. Both are optional because a
     // shell can also be hosted by a sheet that carries no overlays of its own.
@@ -25,7 +26,7 @@ struct TerminalScreen: View {
 
     var body: some View {
         TerminalHost(surface: terminal.surface, isFocused: $isFocused, textScale: textScale,
-                     claimsKeys: dialogs?.current == nil && menus?.isOpen != true,
+                     claimsKeys: isEnabled && dialogs?.current == nil && menus?.isOpen != true,
                      drawerKeys: onDrawerKey == nil ? nil : keyBindings.keys(for: .terminal),
                      onDrawerKey: onDrawerKey,
                      maximizeKeys: onMaximizeKey == nil ? [] : maximizeKeys,

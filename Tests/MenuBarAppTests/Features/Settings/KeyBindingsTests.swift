@@ -80,6 +80,26 @@ struct KeyBindingsTests {
         #expect(KeyBindings().problem(with: KeyCombo("k"), for: .commandPalette) == nil)
     }
 
+    @Test func theMaximizeLayoutAliasIsReleasedWithItsDefaultKey() {
+        var bindings = KeyBindings()
+        let alias = KeyCombo("~", [.control, .shift])
+        #expect(bindings.held(by: .maximizeTerminal).contains(alias))
+        #expect(bindings.problem(with: alias, for: .newSession) != nil)
+
+        bindings.set(nil, for: .maximizeTerminal)
+        #expect(bindings.held(by: .maximizeTerminal).isEmpty)
+        #expect(bindings.problem(with: alias, for: .newSession) == nil)
+
+        let replacement = KeyCombo("m", [.command, .option])
+        bindings.set(replacement, for: .maximizeTerminal)
+        #expect(bindings.held(by: .maximizeTerminal) == [replacement])
+        #expect(bindings.problem(with: alias, for: .newSession) == nil)
+
+        bindings.reset(.maximizeTerminal)
+        #expect(bindings.held(by: .maximizeTerminal).contains(alias))
+        #expect(bindings.problem(with: alias, for: .newSession) != nil)
+    }
+
     // A pane key caught by a monitor is asked before the window's own keys and wins
     // there, so the window may share it, the way Back shares ⌘[ with the preview.
     @Test func aWindowKeyMayShareAPaneKeyThatIsAskedFirst() {
@@ -233,7 +253,7 @@ struct KeyBindingsTests {
             isARepeat: false, keyCode: 50))
         let maximize = AppCommand.maximizeTerminal.info
         #expect(KeyCombo(event: deadBacktick) == maximize.keys)
-        #expect(maximize.alsoKeys.contains { $0.matches(usBacktick) })
+        #expect(KeyBindings().held(by: .maximizeTerminal).contains { $0.matches(usBacktick) })
         #expect(AppCommand.terminal.info.keys?.matches(deadBacktick) == false)
     }
 

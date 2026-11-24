@@ -8,6 +8,9 @@ import SwiftUI
 struct TerminalDrawer: View {
     @Environment(TerminalStore.self) private var terminals
     @Environment(\.keyBindings) private var keyBindings
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(DialogPresenter.self) private var dialogs: DialogPresenter?
+    @Environment(MenuPresenter.self) private var menus: MenuPresenter?
     let scope: TerminalScope
     let directory: String
     @Binding var focusTerminal: Bool
@@ -21,14 +24,15 @@ struct TerminalDrawer: View {
     @State private var dragHeight: CGFloat?
     // Height at the moment the drag began; the translation is measured from there.
     @State private var dragStartHeight: CGFloat?
-    // The drawer holds the maximize key, so it only answers while there is a drawer to grow.
-    @State private var maximizeMonitor = WindowKeyMonitor(AppCommand.maximizeTerminal.info.keys)
-    @State private var maximizeAlsoMonitor = WindowKeyMonitor(AppCommand.maximizeTerminal.info.alsoKeys.first)
+    // SwiftUI drops Shift from symbol shortcuts, so a handler keeps this distinct from
+    // the drawer's open/close key and follows both readings of the configured chord.
+    @State var maximizeHandler = WindowKeyHandler(handlesTyping: true)
 
     private var open: [TerminalSession] { terminals.sessions(for: scope) }
     private var current: TerminalSession? { terminals.selection(for: scope) }
     private var height: CGFloat { dragHeight ?? terminals.height(for: scope) }
     private var maximized: Bool { terminals.isMaximized(scope) }
+    private var canMaximize: Bool { isEnabled && dialogs?.current == nil && menus?.isOpen != true }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,7 +42,7 @@ struct TerminalDrawer: View {
             if let current {
                 TerminalScreen(terminal: current, isFocused: $focusTerminal,
                                onDrawerKey: putAway,
-                               maximizeKeys: maximizeKeys,
+                               maximizeKeys: keyBindings.held(by: .maximizeTerminal),
                                onMaximizeKey: toggleMaximized)
                     .frame(height: maximized ? nil : height)
                     .frame(maxHeight: maximized ? .infinity : nil)
@@ -48,16 +52,16 @@ struct TerminalDrawer: View {
         // The screen above goes at once, so the drawer grows up into the room it leaves
         // rather than the two being drawn over each other.
         .motion(Motion.reveal, value: maximized)
-        .background(WindowAnchor(monitor: maximizeMonitor).keyMonitor(maximizeMonitor, follows: .maximizeTerminal))
-        .background(WindowAnchor(monitor: maximizeAlsoMonitor))
-        .onAppear {
-            maximizeMonitor.start { toggleMaximized(); return true }
-            maximizeAlsoMonitor.start { toggleMaximized(); return true }
+        .background(WindowKeyAnchor(handler: maximizeHandler))
+        .onChange(of: canMaximize, initial: true) { _, allowed in
+            guard allowed else { maximizeHandler.stop(); return }
+            maximizeHandler.start { event in
+                guard maximizeHandler.pressed(.maximizeTerminal, event) else { return false }
+                toggleMaximized()
+                return true
+            }
         }
-        .onDisappear {
-            maximizeMonitor.stop()
-            maximizeAlsoMonitor.stop()
-        }
+        .onDisappear { maximizeHandler.stop() }
         .onAppear { terminals.setDrawerVisible(true, for: scope) }
         .onDisappear { terminals.setDrawerVisible(false, for: scope) }
     }
@@ -137,15 +141,6 @@ struct TerminalDrawer: View {
 
     private var shortcutHint: String {
         keyBindings.keys(for: .maximizeTerminal).map { " (\($0.label))" } ?? ""
-    }
-
-    // The key as it is set, plus the reading it has on a layout where Shift turns the
-    // backtick into a tilde. The shell is handed both, and two monitors catch them
-    // everywhere else in the window. A SwiftUI shortcut cannot hold the key: it drops
-    // Shift from a symbol, which would leave it the same as the terminal key.
-    private var maximizeKeys: [KeyCombo] {
-        [keyBindings.keys(for: .maximizeTerminal)].compactMap { $0 }
-            + AppCommand.maximizeTerminal.info.alsoKeys
     }
 
     // Closing only puts the drawer away; every shell keeps running.

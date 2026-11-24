@@ -36,9 +36,7 @@ struct TaskDetailView: View {
                 header(task)
                 statusStrip(task)
                 if store.isMissing(task) { missingFolder(task) }
-                // A maximized terminal takes the page's room. The page goes at once and
-                // lifts back in when the terminal gives the room back.
-                if !terminals.isMaximized(terminalScope) {
+                RetainedPane(hidden: terminals.isMaximized(terminalScope)) {
                     // The group hands the transition to each page, so whichever one is
                     // chosen lifts in under the tab that chose it.
                     Group { content(task) }

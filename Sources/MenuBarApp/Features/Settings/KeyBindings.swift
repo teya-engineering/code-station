@@ -71,6 +71,8 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
         var canChange = false
         // Keys that always do the same thing whatever the main key is set to.
         var alsoKeys: [KeyCombo] = []
+        // Other readings of the default chord on different keyboard layouts.
+        var defaultKeyAliases: [KeyCombo] = []
         // How a row that is more than one key is written.
         var label: String?
     }
@@ -111,7 +113,7 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
             Info(title: "Maximize the terminal",
                  detail: "Let the open terminal take the whole screen, or give the room back.",
                  keys: KeyCombo("`", [.control, .shift]), scope: .window, canChange: true,
-                 alsoKeys: [KeyCombo("~", [.control, .shift])])
+                 defaultKeyAliases: [KeyCombo("~", [.control, .shift])])
         case .findInConversation:
             Info(title: "Find in the conversation", detail: "Search what was said in this session. ⌃ F works too.",
                  keys: KeyCombo("f"), scope: .pane(.conversation, firstClaim: true), canChange: true,
@@ -304,7 +306,9 @@ struct KeyBindings: Equatable, Sendable {
 
     // Every key the command answers to right now.
     func held(by command: AppCommand) -> [KeyCombo] {
-        (keys(for: command).map { [$0] } ?? []) + command.info.alsoKeys
+        let keys = keys(for: command)
+        return (keys.map { [$0] } ?? []) + command.info.alsoKeys
+            + (keys == command.info.keys ? command.info.defaultKeyAliases : [])
     }
 
     func isChanged(_ command: AppCommand) -> Bool { changes.keys.contains(command) }

@@ -35,10 +35,8 @@ struct WorkspaceDetailView: View {
             VStack(spacing: 0) {
                 header(workspace)
                 statusStrip(workspace)
-                // A maximized terminal takes the page's room. The page goes at once and
-                // lifts back in when the terminal gives the room back. Without a lead
-                // project there is no drawer, so the page keeps its room.
-                if !terminals.isMaximized(terminalScope) || store.project(workspace.leadProjectID) == nil {
+                RetainedPane(hidden: terminals.isMaximized(terminalScope)
+                             && store.project(workspace.leadProjectID) != nil) {
                     content(workspace)
                         .transition(.headerPage(reduceMotion: reduceMotion))
                 }

@@ -182,9 +182,7 @@ struct SessionView: View {
                     && !terminals.isMaximized(terminalScope) {
                     diagnosisStrip(session)
                 }
-                // A maximized terminal takes the page's room. The page goes at once and
-                // lifts back in when the terminal gives the room back.
-                if !terminals.isMaximized(terminalScope) {
+                RetainedPane(hidden: terminals.isMaximized(terminalScope)) {
                     // The group hands the transition to each page, so whichever one is chosen
                     // lifts in under the tab that chose it.
                     Group {
@@ -684,7 +682,7 @@ struct SessionView: View {
     // find of its own or a pane with no transcript in it.
     private func canFindInChat(_ session: ChatSession) -> Bool {
         tab == .conversation && !session.isActivelyDesigning && !previews.isOpen
-            && dialogs.current == nil
+            && dialogs.current == nil && !terminals.isMaximized(terminalScope)
     }
 
     private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }

@@ -65,6 +65,7 @@ enum DesignConversationLayout {
 // Observe presses without taking them away from the canvas or composer: a press on the
 // folded transcript opens it, and a press outside the panel shrinks it to a small tab.
 struct DesignConversationDismissal: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     let expanded: Bool
     let minimized: Bool
     let footerHeight: CGFloat
@@ -78,7 +79,7 @@ struct DesignConversationDismissal: NSViewRepresentable {
         view.expanded = expanded
         view.minimized = minimized
         view.footerHeight = footerHeight
-        view.enabled = enabled
+        view.enabled = enabled && isEnabled
         view.collapse = collapse
         view.expand = expand
     }

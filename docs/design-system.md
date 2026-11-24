@@ -286,6 +286,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Tabs in a header | `HeaderTabDeck`, `HeaderTabToggle` |
 | Buttons in a header | `HeaderRailButton`, `HeaderRailMenuButton`, `HeaderSplitButton` |
 | The bottom of a sheet | `SheetFooter` |
+| Give a page's room to another pane without losing drafts or scroll position | `RetainedPane(hidden:)` keeps the page mounted at its last visible size, clips it out of the layout and disables its controls while hidden. |
 
 **Showing data**
 

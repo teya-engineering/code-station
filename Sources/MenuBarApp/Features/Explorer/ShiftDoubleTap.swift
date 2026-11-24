@@ -21,6 +21,7 @@ struct ShiftDoubleTapDetector {
 }
 
 struct ExplorerSearchShortcut: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     let onOpen: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onOpen: onOpen) }
@@ -28,12 +29,14 @@ struct ExplorerSearchShortcut: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         context.coordinator.anchor = view
+        context.coordinator.isEnabled = isEnabled
         context.coordinator.start()
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.anchor = view
+        context.coordinator.isEnabled = isEnabled
         context.coordinator.onOpen = onOpen
     }
 
@@ -44,6 +47,7 @@ struct ExplorerSearchShortcut: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         weak var anchor: NSView?
+        var isEnabled = true
         var onOpen: () -> Void
 
         private var detector = ShiftDoubleTapDetector()
@@ -65,7 +69,7 @@ struct ExplorerSearchShortcut: NSViewRepresentable {
         }
 
         private func handle(_ event: NSEvent) -> Bool {
-            guard event.window === anchor?.window else {
+            guard isEnabled, event.window === anchor?.window else {
                 detector.reset()
                 return false
             }
