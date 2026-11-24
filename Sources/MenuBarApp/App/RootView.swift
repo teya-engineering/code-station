@@ -25,9 +25,6 @@ struct RootView: View {
     @State private var sheet: Sheet?
     @State private var settingsTarget: SettingsSearchTarget?
     @State private var dismissedAttention: Attention?
-    // An update being taken is news of its own, so putting the offer away does not also
-    // hide the download it started. Each stage can be dismissed once.
-    @State private var dismissedUpdateStage: AppUpdateInstallState.Stage?
     // Raised by the file being read in the detail pane while it holds Command-F.
     @State private var paneOwnsFindShortcut = false
     @State private var note = TransientNote()
@@ -93,7 +90,7 @@ struct RootView: View {
                                     onDismiss: { withAnimation(Motion.leave) { dismissedAttention = attention } })
                         .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
                 }
-                if let release = updateOnShow {
+                if let release = appUpdates.bannerRelease {
                     AppUpdateBanner(release: release,
                                     state: appUpdates.installState,
                                     canInstallInPlace: appUpdates.canInstallInPlace,
@@ -101,8 +98,13 @@ struct RootView: View {
                                     onRestart: appUpdates.relaunch,
                                     onViewRelease: { withAnimation(Motion.leave) { appUpdates.openReleasePage() } },
                                     onReadNotes: appUpdates.openReleaseNotes,
-                                    onDismiss: { withAnimation(Motion.leave) { dismissUpdateBanner() } })
-                        .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
+                                    onDismiss: {
+                                        withAnimation(reduceMotion ? nil : Motion.leave) {
+                                            appUpdates.dismissBanner()
+                                        }
+                                    })
+                        .transition(.asymmetric(insertion: .fadeIn,
+                                                removal: reduceMotion ? .opacity : .fold))
                 }
                 if let text = note.text {
                     HeaderNote(icon: note.icon, text: text)
@@ -113,6 +115,7 @@ struct RootView: View {
                 }
             }
             .padding(.top, Space.lg)
+            .motion(Motion.reveal, value: appUpdates.manualCheckAnnouncements)
             // The backdrop and the palette come and go as separate layers, the same way a
             // dialog does, so the dimming fades while only the palette rises into place.
             ZStack {
@@ -143,9 +146,6 @@ struct RootView: View {
     // time limit on a slow machine.
     private var window: some View {
         layout
-            .onChange(of: appUpdates.installState.stage) { _, _ in
-                dismissedUpdateStage = nil
-            }
             .onChange(of: appUpdates.releasePageOpenings) { _, _ in
                 showNote("Opened the release page in your browser")
             }
@@ -324,26 +324,8 @@ struct RootView: View {
         return nil
     }
 
-    // Before anything is taken the banner is an announcement, which a person can put away
-    // for good. From the first click it reports on work under way, which stays on offer
-    // even for a version whose announcement was dismissed earlier.
-    private var updateOnShow: AppUpdateRelease? {
-        let stage = appUpdates.installState.stage
-        guard stage != dismissedUpdateStage else { return nil }
-        return stage == .idle ? appUpdates.announcedRelease : appUpdates.availableRelease
-    }
-
     private func showNote(_ text: String) {
         note.show(text, icon: "arrow.up.forward.app")
-    }
-
-    private func dismissUpdateBanner() {
-        let stage = appUpdates.installState.stage
-        if stage == .idle {
-            appUpdates.dismissAnnouncement()
-        } else {
-            dismissedUpdateStage = stage
-        }
     }
 
     private struct SkillsRefreshRule: Equatable {
