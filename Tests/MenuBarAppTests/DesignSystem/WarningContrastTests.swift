@@ -173,26 +173,20 @@ struct WarningContrastTests {
         }
     }
 
-    // A pull request's state is a 10pt word in two places: in caps on the header pill, on
-    // the card at rest and on the sunken fill once open, and as the card's badge on the
-    // state's own wash. The mark in the card has to read as a mark. The pill's rail is the
-    // state's light colour as GitHub draws it, with the word always beside it, so it is
-    // not held to a line of its own.
+    // A pull request's state is a 10pt word on the card's badge, on the state's own wash,
+    // beside a mark in the same ink that has to read as a mark. The chip's light is the
+    // state's colour as GitHub draws it; the card and the chip's spoken label carry the
+    // state in words, so the light is not held to a line of its own.
     @Test func everyPullRequestStateIsReadableInBothAppearances() throws {
         let readinesses: [PullRequestStatus.Readiness?] = PullRequestStatus.Readiness.allCases + [nil]
         for appearance in try appearances() {
             let card = try swatch(Theme.card, in: appearance)
-            let open = try swatch(Theme.sunken, in: appearance).over(card)
             for readiness in readinesses {
                 let tone = PullRequestTone(readiness.map(Self.status))
                 let ink = try swatch(tone.ink, in: appearance)
                 let wash = try swatch(tone.wash, in: appearance).over(card)
                 #expect(ink.over(wash).contrast(against: wash) >= 4.5,
                         "\(tone.word) badge on \(appearance.name.rawValue)")
-                for (surface, backdrop) in [("rest", card), ("open", open)] {
-                    #expect(ink.over(backdrop).contrast(against: backdrop) >= 4.5,
-                            "\(tone.word) word at \(surface) on \(appearance.name.rawValue)")
-                }
                 #expect(ink.over(card).contrast(against: card) >= 3,
                         "\(tone.word) mark on \(appearance.name.rawValue)")
             }

@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-// How a pull request's state is drawn, in GitHub's colours, wherever it shows: the rail
-// and the word on the session chip, the mark and the badge in its card. The two read from
-// here, so a state can never be one colour on the chip and another in the card. One not
-// read from GitHub yet is Linked, outlined and grey, until it is.
+// How a pull request's state is drawn, in GitHub's colours, wherever it shows: the light
+// on the session chip, the mark and the badge in its card. The two read from here, so a
+// state can never be one colour on the chip and another in the card. One not read from
+// GitHub yet is Linked, an empty grey ring, until it is.
 struct PullRequestTone: Hashable {
     let readiness: PullRequestStatus.Readiness?
 
@@ -28,7 +28,8 @@ struct PullRequestTone: Hashable {
         }
     }
 
-    var rail: Color {
+    // The light on the chip.
+    var dot: Color {
         switch readiness {
         case .draft?: Theme.dotOff
         case .inReview?: Theme.attention
@@ -39,8 +40,8 @@ struct PullRequestTone: Hashable {
         }
     }
 
-    // Not read yet, so the rail is an outline, the way a session's waiting rail is.
-    var railLook: StateRail.Look { readiness == nil ? .outlined : .filled }
+    // Not read yet, so the light is an empty ring.
+    var dotIsRing: Bool { readiness == nil }
 
     // The words and the card's mark.
     var ink: Color {
@@ -84,6 +85,25 @@ struct PullRequestTone: Hashable {
     private static let changesWash = Theme.wash(Theme.deletionNSColor, light: 0.11, dark: 0.15)
     private static let mergedWash = Theme.wash(Theme.mergedNSColor, light: 0.12, dark: 0.17)
     private static let closedWash = Theme.wash(Theme.deletionNSColor, light: 0.08, dark: 0.10)
+}
+
+// A pull request's light on the session chip, the size of the session's own light in the
+// card. A new state fills or empties it with a cross-fade, under the caller's motion.
+struct PullRequestLight: View {
+    let tone: PullRequestTone
+    var size: CGFloat = 7
+
+    var body: some View {
+        ZStack {
+            if tone.dotIsRing {
+                Circle().strokeBorder(tone.dot, lineWidth: 1)
+            } else {
+                Circle().fill(tone.dot)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
 }
 
 // GitHub's pull request marks, drawn on a sixteen point grid: two commits joined on the

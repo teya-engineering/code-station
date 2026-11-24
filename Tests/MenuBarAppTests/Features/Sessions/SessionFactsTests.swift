@@ -179,7 +179,7 @@ struct SessionFactsTests {
         #expect(tones.map(\.urgency) == Array(0..<ranked.count))
         #expect(tones.map(\.word) == ["Changes requested", "In review", "Approved", "Draft", "Merged", "Closed", "Linked"])
         #expect(tones.map(\.symbol) == [.pull, .pull, .pull, .draft, .merge, .closed, .pull])
-        #expect(tones.map(\.railLook) == [.filled, .filled, .filled, .filled, .filled, .filled, .outlined])
+        #expect(tones.map(\.dotIsRing) == [false, false, false, false, false, false, true])
     }
 
     // What may still need the person leads, newest first, and the merged and closed ones

@@ -272,8 +272,6 @@ struct SessionFactsChip: View {
     // The card hangs off the pill rather than being placed by a presenter: it belongs to
     // this corner of the band, and nothing above the band can clip it.
     private static let pillHeight = ControlHeight.xl
-    // The branch's glyph and the pull request's mark on the pill's second line.
-    private static let glyphSize: CGFloat = 9
     private static let pillRadius = Radius.card
     private static let cardGap = Space.md
     private static let labelWidth: CGFloat = 62
@@ -458,7 +456,7 @@ struct SessionFactsChip: View {
                         HStack(spacing: Space.xs) {
                             if subject.isBranch {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: Self.glyphSize, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundStyle(.tertiary)
                             }
                             Text(subject.text)
@@ -471,7 +469,7 @@ struct SessionFactsChip: View {
                 }
             }
             if let lead = facts.leadPullRequest {
-                pullRequestBlock(lead).transition(.fadeIn)
+                pullRequestLight(lead).transition(.fadeIn)
             }
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
@@ -489,39 +487,27 @@ struct SessionFactsChip: View {
         .contentShape(shape)
     }
 
-    // The pull request that most needs the person, read like the session beside it: a
-    // rail and a word in its colour, then its number and how many more the card holds. It
-    // never gives up width; the branch does. A new state arrives from a background read,
-    // so it settles in rather than popping.
-    private func pullRequestBlock(_ lead: PullRequest) -> some View {
+    // The pull request that most needs the person, as one light in its colour, and how many
+    // more the card holds. The pull glyph comes first, so the light is never read as the
+    // session's own. A new state arrives from a background read, so it settles in rather
+    // than popping.
+    private func pullRequestLight(_ lead: PullRequest) -> some View {
         let tone = facts.pullRequestTone(lead)
         let more = facts.pullRequests.count - 1
-        return HStack(spacing: Space.md) {
-            StateRail(colour: tone.rail, look: tone.railLook)
-            VStack(alignment: .leading, spacing: 1) {
-                StatusCaps(text: tone.word.uppercased(), tint: tone.ink, size: Typography.Size.micro)
-                    .contentTransition(.opacity)
-                HStack(spacing: Space.xs) {
-                    PullRequestMark(symbol: tone.symbol, size: Self.glyphSize)
-                        .foregroundStyle(.tertiary)
-                    HStack(spacing: Space.xxs) {
-                        Text(verbatim: "#\(lead.number)")
-                            .contentTransition(.numericText())
-                        if more > 0 {
-                            Text(verbatim: "+\(more)")
-                                .foregroundStyle(.secondary)
-                                .contentTransition(.numericText())
-                        }
-                    }
-                    .font(Typography.data)
+        return HStack(spacing: Space.xs) {
+            PullRequestMark(symbol: .pull, size: Typography.Size.micro)
+                .foregroundStyle(.tertiary)
+            PullRequestLight(tone: tone)
+            if more > 0 {
+                Text(verbatim: "+\(more)")
+                    .font(Typography.micro)
                     .monospacedDigit()
-                }
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
             }
         }
         .fixedSize()
-        .layoutPriority(1)
         .motion(Motion.control, value: tone)
-        .motion(Motion.control, value: lead.url)
         .motion(Motion.control, value: more)
         .accessibilityHidden(true)
     }
@@ -1424,42 +1410,25 @@ private struct CappedWidth: Layout {
 // The thin mark at the head of the pill, in the state's colour. It flows while the agent
 // works and is an outline while it waits, the same difference the light's pulse makes
 // elsewhere. The word beside it always says the same thing, so the rail is never the
-// only way the state is told. A pull request's block on the pill wears one too.
+// only way the state is told.
 struct StateRail: View {
-    enum Look { case filled, outlined, flowing }
-
-    let colour: Color
-    var look: Look = .filled
+    let tone: SessionTone
 
     static let width: CGFloat = 3
     static let height: CGFloat = 22
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(colour: Color, look: Look = .filled) {
-        self.colour = colour
-        self.look = look
-    }
-
-    init(tone: SessionTone) {
-        let look: Look = switch tone {
-        case .waiting: .outlined
-        case .running: .flowing
-        default: .filled
-        }
-        self.init(colour: tone.wordColour, look: look)
-    }
-
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 1.5)
         Group {
-            switch look {
-            case .outlined:
-                shape.strokeBorder(colour, lineWidth: 1)
-            case .flowing where !reduceMotion:
-                FlowingRail(colour: colour).clipShape(shape)
+            switch tone {
+            case .waiting:
+                shape.strokeBorder(tone.wordColour, lineWidth: 1)
+            case .running where !reduceMotion:
+                FlowingRail(colour: tone.wordColour).clipShape(shape)
             default:
-                shape.fill(colour)
+                shape.fill(tone.wordColour)
             }
         }
         .frame(width: Self.width, height: Self.height)
