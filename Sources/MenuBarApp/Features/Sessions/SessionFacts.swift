@@ -547,7 +547,9 @@ struct SessionFactsChip: View {
                 LeftoverHeightStack(available: bodyHeight, floor: Self.pullRequestFloor) {
                     VStack(spacing: 0) {
                         head
-                        if let changes = facts.changes { changesRow(changes) }
+                        if let changes = facts.changes {
+                            changesRow(changes).transition(.fadeIn)
+                        }
                         pullRequestsHeading
                     }
                     pullRequestList
@@ -555,10 +557,39 @@ struct SessionFactsChip: View {
                 }
             }
         }
+        .smoothlyResizes(when: arrivals)
         .frame(width: layout.width, alignment: .leading)
         .floatingCard(cornerRadius: Self.radius)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Session details")
+    }
+
+    // What the card is made of, as opposed to the readings in it. Git, GitHub and the
+    // account's limits each answer a moment after the card opens, so the card grows into
+    // what they bring rather than jumping. A meter or a cost that only moves is left out,
+    // since it has motion of its own and a running session moves it all the time.
+    private var arrivals: CardArrivals {
+        let usage = usageMonitor.flatMap { $0.supports(facts.agent) ? $0 : nil }
+        return CardArrivals(
+            model: facts.model,
+            changes: facts.changes,
+            pullRequests: facts.pullRequests.map { "\($0.url) \(facts.pullRequestTone($0).word)" },
+            hasContext: facts.context != nil,
+            hasCost: facts.cost != nil,
+            usageChecking: usage?.refreshing.contains(facts.agent) ?? false,
+            usageWindows: usage?.usage[facts.agent]?.windows.map(\.id) ?? [],
+            usageProblem: usage?.problems[facts.agent])
+    }
+
+    private struct CardArrivals: Equatable {
+        var model: String?
+        var changes: SessionFacts.Changes?
+        var pullRequests: [String]
+        var hasContext: Bool
+        var hasCost: Bool
+        var usageChecking: Bool
+        var usageWindows: [String]
+        var usageProblem: String?
     }
 
     private var previewHeading: some View {
@@ -571,6 +602,7 @@ struct SessionFactsChip: View {
                     .font(Font.system(size: Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .contentTransition(.opacity)
             }
             Spacer(minLength: Space.xs)
             if let attachProject {
@@ -616,7 +648,9 @@ struct SessionFactsChip: View {
         HStack {
             Text("Pull requests").fontWeight(.semibold)
             Spacer()
-            Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
+            Text(facts.pullRequestCountLabel)
+                .foregroundStyle(.secondary)
+                .contentTransition(reduceMotion ? .opacity : .numericText())
         }
         .font(Typography.caption)
         .padding(.horizontal, Space.lg)
@@ -633,6 +667,7 @@ struct SessionFactsChip: View {
                 .padding(.top, Space.md + Space.xxs)
                 .padding(.bottom, Space.md + Space.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.fadeIn)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.xxs) {
@@ -642,6 +677,7 @@ struct SessionFactsChip: View {
                 .padding(.bottom, Space.sm)
             }
             .scrollIndicators(.visible)
+            .transition(.fadeIn)
         }
     }
 
@@ -652,7 +688,7 @@ struct SessionFactsChip: View {
             if let usageMonitor, usageMonitor.supports(facts.agent) {
                 usageRow(usageMonitor)
             }
-            if let context = facts.context { contextRow(context) }
+            if let context = facts.context { contextRow(context).transition(.fadeIn) }
             if let usageMonitor, usageMonitor.supports(facts.agent) {
                 Text("\(facts.agent.title) account usage")
                     .font(Font.system(size: Typography.Size.micro))
@@ -661,13 +697,14 @@ struct SessionFactsChip: View {
                     .padding(.horizontal, Space.lg)
                 if !usageMonitor.refreshing.contains(facts.agent),
                    usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
-                    usageNote(usageMonitor)
+                    usageNote(usageMonitor).transition(.fadeIn)
                 }
                 ForEach(usageMonitor.usage[facts.agent]?.windows ?? []) { window in
                     usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
+                        .transition(.fadeIn)
                 }
             }
-            if let cost = facts.cost { costRow(cost) }
+            if let cost = facts.cost { costRow(cost).transition(.fadeIn) }
         }
         .background(Theme.sunken)
     }
@@ -790,13 +827,17 @@ struct SessionFactsChip: View {
             CardLink(action: acting(openChanges)) { _ in
                 HStack(spacing: Space.sm) {
                     if changes.files == 0 && changes.added == 0 && changes.removed == 0 {
-                        Text("No changes").font(Typography.detail)
+                        Text("No changes").font(Typography.detail).transition(.fadeIn)
                     } else if changes.files > 0 {
                         Text(counted(changes.files, "changed file"))
                             .font(Typography.detail.weight(.medium))
+                            .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(changes.files)))
+                            .transition(.fadeIn)
                     }
                     if changes.added != 0 || changes.removed != 0 {
                         DiffPair(added: changes.added, removed: changes.removed, size: Typography.Size.caption)
+                            .contentTransition(reduceMotion ? .opacity : .numericText())
+                            .transition(.fadeIn)
                     }
                 }
                 .lineLimit(1)
@@ -828,6 +869,7 @@ struct SessionFactsChip: View {
                 Text(tone.word)
                     .font(Font.system(size: Typography.Size.micro, weight: .medium))
                     .foregroundStyle(tone.ink)
+                    .contentTransition(.opacity)
                     .padding(.horizontal, Space.xs)
                     .padding(.vertical, Space.xxs)
                     .background(RoundedRectangle(cornerRadius: Radius.tag).fill(tone.wash))
@@ -835,6 +877,7 @@ struct SessionFactsChip: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
+        .transition(.fadeIn)
         .accessibilityLabel("\(repository) pull request \(pullRequest.number), \(tone.word.lowercased()). Opens in the browser.")
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.xs)
