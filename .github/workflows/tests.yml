@@ -17,36 +17,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  trace-test-exit:
-    runs-on: xcode-27
-    timeout-minutes: 10
-    env:
-      SWIFTPM_MODULECACHE_OVERRIDE: /private/tmp/code-station-ci-module-cache
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./Scripts/ci-select-xcode.sh
-      - name: Toolchain
-        id: toolchain
-        run: |
-          { swift --version; xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } \
-            | tee "$RUNNER_TEMP/toolchain.txt"
-          printf 'key=%s\n' "$(shasum -a 256 "$RUNNER_TEMP/toolchain.txt" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-      - name: Restore compiled tests for diagnostics
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build
-            /private/tmp/teya-swiftpm-cache
-            /private/tmp/code-station-ci-module-cache
-          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh') }}-${{ github.sha }}
-          restore-keys: |
-            swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh') }}-
-      - name: Trace the interrupted batch
-        run: python3 Scripts/ci-tests.py 1 2 --trace-batch 3
-
   test-shard:
     # The only image with Xcode 27. It is still a preview, so if it misbehaves,
     # go back to macos-26 and set .xcode-version to a 26.x release it carries.
@@ -70,7 +40,6 @@ jobs:
           { swift --version; xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } \
             | tee "$RUNNER_TEMP/toolchain.txt"
           printf 'key=%s\n' "$(shasum -a 256 "$RUNNER_TEMP/toolchain.txt" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-          ulimit -a
 
       - name: Restore Swift build
         id: cache
@@ -80,9 +49,9 @@ jobs:
             .build
             /private/tmp/teya-swiftpm-cache
             /private/tmp/code-station-ci-module-cache
-          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh') }}-${{ github.sha }}
+          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh', 'Scripts/TestMain.swift') }}-${{ github.sha }}
           restore-keys: |
-            swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh') }}-
+            swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.key }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Scripts/swiftpm.sh', 'Scripts/TestMain.swift') }}-
 
       - name: Build tests
         run: >-
@@ -107,22 +76,6 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
         run: python3 Scripts/ci-tests.py "$SHARD" 2
-
-      - name: Show test failure diagnostics
-        if: failure()
-        run: |
-          /usr/bin/log show --last 30m --style compact \
-            --predicate 'process == "swiftpm-testing-helper" OR process == "xctest" OR process == "MenuBarAppTests"' \
-            | tail -n 200
-          python3 - <<'PY'
-          from pathlib import Path
-          for directory in [Path.home() / "Library/Logs/DiagnosticReports", Path("/Library/Logs/DiagnosticReports")]:
-              reports = [path for path in directory.glob("*.ips")
-                         if any(name in path.name for name in ["swiftpm", "xctest", "MenuBarApp", "WebKit"])]
-              for report in sorted(reports, key=lambda path: path.stat().st_mtime)[-5:]:
-                  print(report.name, flush=True)
-                  print(report.read_text()[:100000], flush=True)
-          PY
 
   # Keep one required check for the whole suite, regardless of the number of runners.
   test:

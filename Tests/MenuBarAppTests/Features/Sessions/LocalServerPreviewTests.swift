@@ -467,8 +467,9 @@ struct LocalServerPreviewPageTests {
         func click(_ point: CGPoint, holding modifiers: NSEvent.ModifierFlags = []) throws {
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 window.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point,
-                    modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
-                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+                    modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                    clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
             }
         }
 
@@ -628,9 +629,14 @@ struct LocalServerPreviewPageTests {
         _ = try await page.evaluateJavaScript(export)
         try #require(await waitUntil { asked.count == 4 }, "Save requests: \(asked)")
         _ = try await page.evaluateJavaScript("\(export); \(export)")
+        var loading: [Bool] = []
+        let observation = page.observe(\.isLoading) { page, _ in
+            MainActor.assumeIsolated { loading.append(page.isLoading) }
+        }
         _ = try await page.evaluateJavaScript("location.href = '\(report)'")
-        try await pane.settle()
-        try #require(await waitUntil { !page.isLoading && !pane.preview.coordinator.provisional })
+        // The cancelled HTTP load must finish before a person's next click starts one.
+        try #require(await waitUntil { loading.contains(true) && loading.last == false })
+        observation.invalidate()
         #expect(asked.count == 4)
         try pane.click(page: CGPoint(x: 100, y: 40))
         try #require(await waitUntil { asked.count == 5 }, "Save requests: \(asked)")
