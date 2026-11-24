@@ -163,6 +163,41 @@ enum Theme {
     static let deletionEmphasisNSColor = adaptiveNSColor(
         light: deletionLight.withAlphaComponent(0.24), dark: deletionDark.withAlphaComponent(0.30))
     static let deletionEmphasis = Color(nsColor: deletionEmphasisNSColor)
+    // `deletion` read as words rather than as a mark. Charcoal sinks the red under 4.5:1 on
+    // its own tint, so the dark side is lifted; paper keeps the same red.
+    static let deletionText = adaptive(
+        light: deletionLight,
+        dark: NSColor(srgbRed: 0.918, green: 0.482, blue: 0.447, alpha: 1))
+
+    // A merged pull request, in GitHub's merge purple. Only a pull request wears it.
+    static let mergedNSColor = adaptiveNSColor(
+        light: NSColor(srgbRed: 0.510, green: 0.314, blue: 0.875, alpha: 1),
+        dark: NSColor(srgbRed: 0.639, green: 0.443, blue: 0.969, alpha: 1))
+    static let merged = Color(nsColor: mergedNSColor)
+    static let mergedText = adaptive(
+        light: NSColor(srgbRed: 0.400, green: 0.224, blue: 0.729, alpha: 1),
+        dark: NSColor(srgbRed: 0.745, green: 0.612, blue: 0.980, alpha: 1))
+
+    // A colour laid faintly behind words of the same colour, as a badge's fill. Charcoal
+    // swallows a tint that paper shows, so each side takes its own share of it.
+    static func wash(_ colour: NSColor, light: CGFloat, dark: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            var resolved = colour
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = colour.usingColorSpace(.sRGB) ?? colour
+            }
+            return resolved.withAlphaComponent(isDark(appearance) ? dark : light)
+        })
+    }
+
+    // The badges behind a pull request's state. Paper takes less of the green than
+    // charcoal does, or the green words on it fall under 4.5:1. Closed is a shade quieter
+    // than changes requested, since it needs nothing more.
+    static let inReviewWash = wash(NSColor(attention), light: 0.16, dark: 0.16)
+    static let approvedWash = wash(NSColor(dotOn), light: 0.08, dark: 0.26)
+    static let changesRequestedWash = wash(deletionNSColor, light: 0.11, dark: 0.15)
+    static let mergedWash = wash(mergedNSColor, light: 0.12, dark: 0.17)
+    static let closedWash = wash(deletionNSColor, light: 0.08, dark: 0.10)
 
     // A surface that carries a warning: a failed turn, a stalled agent, a configuration
     // that could not be read. Both halves are adaptive, and WarningContrastTests measures

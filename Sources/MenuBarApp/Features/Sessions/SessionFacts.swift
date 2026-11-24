@@ -60,6 +60,32 @@ struct SessionFacts: Equatable {
         return pullRequestCountKnown ? "\(pullRequestCount) open" : "\(pullRequests.count) linked"
     }
 
+    func pullRequestTone(_ pullRequest: PullRequest) -> PullRequestTone {
+        PullRequestTone(pullRequestStatuses[pullRequest.url])
+    }
+
+    // The pull request the chip names: the one that most needs the person, and of two that
+    // need them as much, the one the card lists first.
+    var leadPullRequest: PullRequest? {
+        orderedPullRequests.map { ($0, pullRequestTone($0).urgency) }.min { $0.1 < $1.1 }?.0
+    }
+
+    // How many more the chip counts beside its lead. It counts what the card's heading
+    // counts, so the two never disagree: the open ones once every state is known, and
+    // every linked one until then. A merged or closed lead means none are open.
+    var pullRequestsBesideLead: Int {
+        max((pullRequestCountKnown ? pullRequestCount : pullRequests.count) - 1, 0)
+    }
+
+    // "1 changes requested, 2 in review", most pressing first, so VoiceOver hears the mix
+    // the card holds without opening it.
+    var spokenPullRequestStates: String {
+        Dictionary(grouping: pullRequests.map(pullRequestTone), by: { $0 })
+            .sorted { $0.key.urgency < $1.key.urgency }
+            .map { "\($0.value.count) \($0.key.word.lowercased())" }
+            .joined(separator: ", ")
+    }
+
     // The pull requests that may still need the person come first, right under the count
     // that counts them, and the merged and closed ones follow. Each group runs newest
     // first. One whose state is not known yet might still need them, so it waits with the
@@ -396,7 +422,7 @@ struct SessionFactsChip: View {
         if showsBranch, let branch = facts.namedBranch { parts.append("branch \(branch)") }
         parts.append("session details")
         if !facts.pullRequests.isEmpty {
-            parts.append("\(facts.pullRequestCountLabel) pull requests")
+            parts.append("pull requests: \(facts.spokenPullRequestStates)")
         }
         if let context = facts.context {
             let window = facts.agent.asksPermissions ? "context" : "window"
@@ -449,15 +475,8 @@ struct SessionFactsChip: View {
                     }
                 }
             }
-            if !facts.pullRequests.isEmpty {
-                HStack(spacing: Space.xxs) {
-                    Image(systemName: "arrow.triangle.pull")
-                    Text("\(facts.pullRequestCountKnown ? facts.pullRequestCount : facts.pullRequests.count)")
-                        .contentTransition(.numericText())
-                }
-                .font(Font.system(size: Typography.Size.micro, weight: .medium))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            if let lead = facts.leadPullRequest {
+                pullRequestLight(lead)
             }
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
@@ -472,6 +491,28 @@ struct SessionFactsChip: View {
         .background(shape.fill(isOpen ? Theme.sunken : .clear))
         .overlay(shape.strokeBorder(isOpen ? Theme.border : .clear))
         .contentShape(shape)
+    }
+
+    // The pull request that most needs the person, as one light in its colour, and how many
+    // more the card's heading counts. The pull glyph comes first, so the light is never
+    // read as the session's own. A new state arrives from a background read, which the
+    // person did not cause, so it takes its place without motion.
+    private func pullRequestLight(_ lead: PullRequest) -> some View {
+        let tone = facts.pullRequestTone(lead)
+        let more = facts.pullRequestsBesideLead
+        return HStack(spacing: Space.xs) {
+            PullRequestMark(symbol: .pull, size: Typography.Size.micro)
+                .foregroundStyle(.tertiary)
+            PullRequestLight(colour: tone.dot, isRing: tone.dotIsRing)
+            if more > 0 {
+                Text(verbatim: "+\(more)")
+                    .font(Typography.micro)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize()
+        .accessibilityHidden(true)
     }
 
     private func elapsedLabel(_ text: String) -> some View {
@@ -766,30 +807,35 @@ struct SessionFactsChip: View {
     }
 
     // Pull requests are stacked one to a row and share the label, which is what keeps a
-    // list of them reading as one fact about the session.
+    // list of them reading as one fact about the session. The mark and the badge take the
+    // state's colour, and the badge spells the state out.
     private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
-        let status = facts.pullRequestStatuses[pullRequest.url]
+        let tone = facts.pullRequestTone(pullRequest)
+        let repository = pullRequest.repository ?? "Repository unavailable"
         return CardLink(action: acting {
             guard let url = URL(string: pullRequest.url) else { return }
             NSWorkspace.shared.open(url)
             showNote("Opened \(pullRequest.repository.map { "\($0) " } ?? "")#\(pullRequest.number) in the browser")
         }) { _ in
             HStack(spacing: Space.sm) {
-                Image(systemName: "arrow.triangle.pull").foregroundStyle(Theme.accent)
-                Text(pullRequest.repository ?? "Repository unavailable")
+                PullRequestMark(symbol: tone.symbol, size: Typography.Size.detail)
+                    .foregroundStyle(tone.ink)
+                Text(repository)
                     .font(Typography.detail)
                     .lineLimit(1)
-                Spacer(minLength: 4)
+                Spacer(minLength: Space.xs)
                 Text(verbatim: "#\(pullRequest.number)").font(Typography.data)
-                Text(status?.readinessLabel ?? "Linked")
+                Text(tone.word)
                     .font(Font.system(size: Typography.Size.micro, weight: .medium))
+                    .foregroundStyle(tone.ink)
                     .padding(.horizontal, Space.xs)
                     .padding(.vertical, Space.xxs)
-                    .background(RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field))
+                    .background(RoundedRectangle(cornerRadius: Radius.tag).fill(tone.wash))
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
+        .accessibilityLabel("\(repository) pull request \(pullRequest.number), \(tone.word.lowercased()). Opens in the browser.")
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.xs)
     }

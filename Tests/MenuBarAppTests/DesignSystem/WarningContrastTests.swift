@@ -173,6 +173,26 @@ struct WarningContrastTests {
         }
     }
 
+    // A pull request's state is a 10pt word on the card's badge, on the state's own wash,
+    // beside a mark in the same ink that has to read as a mark. The chip's light is the
+    // state's colour as GitHub draws it; the card and the chip's spoken label carry the
+    // state in words, so the light is not held to a line of its own.
+    @Test func everyPullRequestStateIsReadableInBothAppearances() throws {
+        let readinesses: [PullRequestStatus.Readiness?] = PullRequestStatus.Readiness.allCases + [nil]
+        for appearance in try appearances() {
+            let card = try swatch(Theme.card, in: appearance)
+            for readiness in readinesses {
+                let tone = PullRequestTone(readiness.map(PullRequestStatus.init(readiness:)))
+                let ink = try swatch(tone.ink, in: appearance)
+                let wash = try swatch(tone.wash, in: appearance).over(card)
+                #expect(ink.over(wash).contrast(against: wash) >= 4.5,
+                        "\(tone.word) badge on \(appearance.name.rawValue)")
+                #expect(ink.over(card).contrast(against: card) >= 3,
+                        "\(tone.word) mark on \(appearance.name.rawValue)")
+            }
+        }
+    }
+
     // A rail shortcut's glyph takes its tool's ink while pointed at. It sits on the band the
     // rail is drawn on, and on the tool's own wash over that band.
     @Test func everyRailToolIsReadableInBothAppearances() throws {
