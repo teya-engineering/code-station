@@ -2,10 +2,12 @@ import AppKit
 import SwiftUI
 
 // A real shell in the folder behind the current project or session. It shares the screen
-// with the main content rather than replacing it. Dragging the tab strip resizes it.
-// Closing it leaves every shell running, so a build survives being put away.
+// with the main content rather than replacing it, until it is maximized and takes the
+// whole screen below the header. Dragging the tab strip resizes it. Closing it leaves
+// every shell running, so a build survives being put away.
 struct TerminalDrawer: View {
     @Environment(TerminalStore.self) private var terminals
+    @Environment(\.keyBindings) private var keyBindings
     let scope: TerminalScope
     let directory: String
     @Binding var focusTerminal: Bool
@@ -19,10 +21,14 @@ struct TerminalDrawer: View {
     @State private var dragHeight: CGFloat?
     // Height at the moment the drag began; the translation is measured from there.
     @State private var dragStartHeight: CGFloat?
+    // The drawer holds the maximize key, so it only answers while there is a drawer to grow.
+    @State private var maximizeMonitor = WindowKeyMonitor(AppCommand.maximizeTerminal.info.keys)
+    @State private var maximizeAlsoMonitor = WindowKeyMonitor(AppCommand.maximizeTerminal.info.alsoKeys.first)
 
     private var open: [TerminalSession] { terminals.sessions(for: scope) }
     private var current: TerminalSession? { terminals.selection(for: scope) }
     private var height: CGFloat { dragHeight ?? terminals.height(for: scope) }
+    private var maximized: Bool { terminals.isMaximized(scope) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,11 +37,27 @@ struct TerminalDrawer: View {
             Divider().overlay(Theme.hairline)
             if let current {
                 TerminalScreen(terminal: current, isFocused: $focusTerminal,
-                               onDrawerKey: putAway)
-                    .frame(height: height)
+                               onDrawerKey: putAway,
+                               maximizeKeys: maximizeKeys,
+                               onMaximizeKey: toggleMaximized)
+                    .frame(height: maximized ? nil : height)
+                    .frame(maxHeight: maximized ? .infinity : nil)
             }
         }
         .background(Theme.card)
+        // The screen above goes at once, so the drawer grows up into the room it leaves
+        // rather than the two being drawn over each other.
+        .motion(Motion.reveal, value: maximized)
+        .background(WindowAnchor(monitor: maximizeMonitor).keyMonitor(maximizeMonitor, follows: .maximizeTerminal))
+        .background(WindowAnchor(monitor: maximizeAlsoMonitor))
+        .onAppear {
+            maximizeMonitor.start { toggleMaximized(); return true }
+            maximizeAlsoMonitor.start { toggleMaximized(); return true }
+        }
+        .onDisappear {
+            maximizeMonitor.stop()
+            maximizeAlsoMonitor.stop()
+        }
         .onAppear { terminals.setDrawerVisible(true, for: scope) }
         .onDisappear { terminals.setDrawerVisible(false, for: scope) }
     }
@@ -65,7 +87,17 @@ struct TerminalDrawer: View {
             .appTooltip("New shell")
             .cursorOnHover(.arrow)
 
-            Spacer(minLength: 12)
+            Spacer(minLength: Space.lg)
+
+            GlyphButton(icon: maximized
+                            ? "arrow.down.right.and.arrow.up.left"
+                            : "arrow.up.left.and.arrow.down.right",
+                        side: ControlHeight.sm,
+                        action: toggleMaximized)
+                .appTooltip(maximized
+                    ? "Restore the terminal\(shortcutHint)"
+                    : "Maximize the terminal\(shortcutHint)")
+                .cursorOnHover(.arrow)
 
             closeButton
             .appTooltip("Hide the terminal (^`)")
@@ -79,7 +111,7 @@ struct TerminalDrawer: View {
         .background(Theme.card)
         .contentShape(Rectangle())
         // The strip doubles as the resize handle, which is where the hand naturally
-        // goes when the drawer is the wrong size.
+        // goes when the drawer is the wrong size. A maximized drawer has no size to set.
         .gesture(
             DragGesture(coordinateSpace: .global)
                 .onChanged { value in
@@ -91,8 +123,29 @@ struct TerminalDrawer: View {
                     if let dragHeight { terminals.setHeight(dragHeight, for: scope) }
                     dragHeight = nil
                     dragStartHeight = nil
-                })
-        .cursorOnHover(.resizeUpDown)
+                },
+            including: maximized ? .subviews : .all)
+        .cursorOnHover(maximized ? .arrow : .resizeUpDown)
+    }
+
+    // MARK: - Maximizing
+
+    private func toggleMaximized() {
+        terminals.setMaximized(!maximized, for: scope)
+        focusTerminal = true
+    }
+
+    private var shortcutHint: String {
+        keyBindings.keys(for: .maximizeTerminal).map { " (\($0.label))" } ?? ""
+    }
+
+    // The key as it is set, plus the reading it has on a layout where Shift turns the
+    // backtick into a tilde. The shell is handed both, and two monitors catch them
+    // everywhere else in the window. A SwiftUI shortcut cannot hold the key: it drops
+    // Shift from a symbol, which would leave it the same as the terminal key.
+    private var maximizeKeys: [KeyCombo] {
+        [keyBindings.keys(for: .maximizeTerminal)].compactMap { $0 }
+            + AppCommand.maximizeTerminal.info.alsoKeys
     }
 
     // Closing only puts the drawer away; every shell keeps running.

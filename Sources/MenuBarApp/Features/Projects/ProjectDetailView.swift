@@ -43,15 +43,19 @@ struct ProjectDetailView: View {
                 header(project)
                 statusStrip(project)
                 if store.isMissing(project) { missingFolder(project) }
-                // The group hands the transition to each page, so whichever one is chosen
-                // lifts in under the tab that chose it.
-                Group { content(project) }
-                    .transition(.headerPage(reduceMotion: reduceMotion))
-                if let openRun = shortcuts.output(for: shortcutScope) {
-                    ShortcutOutputDrawer(run: openRun) {
-                        shortcuts.showOutput(nil, for: shortcutScope)
+                // A maximized terminal takes the page's room. The page goes at once and
+                // lifts back in when the terminal gives the room back.
+                if !terminals.isMaximized(terminalScope) {
+                    // The group hands the transition to each page, so whichever one is
+                    // chosen lifts in under the tab that chose it.
+                    Group { content(project) }
+                        .transition(.headerPage(reduceMotion: reduceMotion))
+                    if let openRun = shortcuts.output(for: shortcutScope) {
+                        ShortcutOutputDrawer(run: openRun) {
+                            shortcuts.showOutput(nil, for: shortcutScope)
+                        }
+                        .transition(.drawer(from: .bottom, reduceMotion: reduceMotion))
                     }
-                    .transition(.drawer(from: .bottom, reduceMotion: reduceMotion))
                 }
                 if terminals.isOpen(terminalScope) {
                     TerminalDrawer(scope: terminalScope,
@@ -63,6 +67,8 @@ struct ProjectDetailView: View {
             .background(Theme.background)
             .motion(terminals.isOpen(terminalScope) ? Motion.reveal : Motion.leave,
                     value: terminals.isOpen(terminalScope))
+            // Choosing a tab asks to see it, so a maximized terminal gives the room back.
+            .onChange(of: tab) { terminals.setMaximized(false, for: terminalScope) }
             .headerNote(note, top: Theme.headerHeight + Space.md, trailing: Space.xxxl)
             .environment(\.showExternalNote, ExternalNote { text, icon in note.show(text, icon: icon) })
             .environment(\.openShell, OpenShell { directory in

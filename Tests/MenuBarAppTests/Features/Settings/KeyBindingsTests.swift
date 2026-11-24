@@ -219,6 +219,24 @@ struct KeyBindingsTests {
         #expect(KeyCombo(event: composed) == nil)
     }
 
+    // Shift on top of Control still leaves a dead key typing its own mark, so the key
+    // beside the terminal key reads as backtick there, and as the tilde Shift makes on a
+    // layout where the key is not dead. The maximize key answers to both.
+    @Test func aDeadKeyWithControlAndShiftReadsAsTheMarkItTypes() throws {
+        let deadBacktick = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .shift], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "`", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: 50))
+        let usBacktick = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .shift], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "`", charactersIgnoringModifiers: "~",
+            isARepeat: false, keyCode: 50))
+        let maximize = AppCommand.maximizeTerminal.info
+        #expect(KeyCombo(event: deadBacktick) == maximize.keys)
+        #expect(maximize.alsoKeys.contains { $0.matches(usBacktick) })
+        #expect(AppCommand.terminal.info.keys?.matches(deadBacktick) == false)
+    }
+
     @Test func labelsReadTheWayMacMenusWriteThem() {
         let keys = KeyCombo("a", [.shift, .command, .control])
 

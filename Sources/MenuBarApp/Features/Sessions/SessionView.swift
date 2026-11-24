@@ -178,90 +178,95 @@ struct SessionView: View {
                 if store.designHasUpdated(for: session) {
                     designUpdateStrip(session)
                 }
-                if session.isTroubleshooting && tab == .conversation && !session.isActivelyDesigning {
+                if session.isTroubleshooting && tab == .conversation && !session.isActivelyDesigning
+                    && !terminals.isMaximized(terminalScope) {
                     diagnosisStrip(session)
                 }
-                // The group hands the transition to each page, so whichever one is chosen
-                // lifts in under the tab that chose it.
-                Group {
-                    switch tab {
-                    case .conversation:
-                        if session.isActivelyDesigning {
-                            DesignView(sessionID: session.id)
-                        } else {
-                            conversation(session: session, project: project)
-                        }
-                    case .design:
-                        if let design = store.designSession(for: session.id) {
-                            DesignView(sessionID: design.id) { tab = .conversation }
-                        } else if session.sourceDesignSessionID != nil {
-                            DesignReferenceView(sessionID: session.id)
-                        } else {
-                            Color.clear
+                // A maximized terminal takes the page's room. The page goes at once and
+                // lifts back in when the terminal gives the room back.
+                if !terminals.isMaximized(terminalScope) {
+                    // The group hands the transition to each page, so whichever one is chosen
+                    // lifts in under the tab that chose it.
+                    Group {
+                        switch tab {
+                        case .conversation:
+                            if session.isActivelyDesigning {
+                                DesignView(sessionID: session.id)
+                            } else {
+                                conversation(session: session, project: project)
+                            }
+                        case .design:
+                            if let design = store.designSession(for: session.id) {
+                                DesignView(sessionID: design.id) { tab = .conversation }
+                            } else if session.sourceDesignSessionID != nil {
+                                DesignReferenceView(sessionID: session.id)
+                            } else {
+                                Color.clear
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .task { openDesign(for: session) }
+                            }
+                        case .troubleshoot:
+                            TroubleshootTabView(sessionID: session.id) { tab = .conversation }
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .task { openDesign(for: session) }
-                        }
-                    case .troubleshoot:
-                        TroubleshootTabView(sessionID: session.id) { tab = .conversation }
+                        case .evidence:
+                            TroubleshootEvidenceView(session: session) { messageID, toolID in
+                                showInConversation(messageID, toolID: toolID, in: session)
+                            }
+                            .environment(\.askAgent, askAgent)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .evidence:
-                        TroubleshootEvidenceView(session: session) { messageID, toolID in
-                            showInConversation(messageID, toolID: toolID, in: session)
-                        }
-                        .environment(\.askAgent, askAgent)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .reviews:
-                        PullRequestReviewsView(sessionID: session.id, openChanges: { tab = .changes })
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .changes:
-                        VStack(spacing: 0) {
-                            WorkspaceChangesView(session: session, initialRoot: requestedChange?.root ?? projectDirectory,
-                                                 initialPath: requestedChange?.path,
-                                                 selectedRoot: Binding(get: { projectDirectory }, set: { root in
-                                                     selectWorkspaceRoot(root, in: session)
-                                                 }), navigation: changesNavigation,
-                                                 reviewSent: {
-                                                     tab = .conversation
-                                                     previews.hide()
-                                                 })
-                            if let reviewingEnding,
-                               reviewingEnding == runner.lastTurnEnding(sessionID)?.ended,
-                               !runner.state(sessionID).isBusy {
-                                TurnReviewFooter(back: returnToHandoff, viewed: changesNavigation.viewedTally) {
-                                    reviewedEnding = reviewingEnding
-                                    returnToHandoff()
+                        case .reviews:
+                            PullRequestReviewsView(sessionID: session.id, openChanges: { tab = .changes })
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        case .changes:
+                            VStack(spacing: 0) {
+                                WorkspaceChangesView(session: session, initialRoot: requestedChange?.root ?? projectDirectory,
+                                                     initialPath: requestedChange?.path,
+                                                     selectedRoot: Binding(get: { projectDirectory }, set: { root in
+                                                         selectWorkspaceRoot(root, in: session)
+                                                     }), navigation: changesNavigation,
+                                                     reviewSent: {
+                                                         tab = .conversation
+                                                         previews.hide()
+                                                     })
+                                if let reviewingEnding,
+                                   reviewingEnding == runner.lastTurnEnding(sessionID)?.ended,
+                                   !runner.state(sessionID).isBusy {
+                                    TurnReviewFooter(back: returnToHandoff, viewed: changesNavigation.viewedTally) {
+                                        reviewedEnding = reviewingEnding
+                                        returnToHandoff()
+                                    }
                                 }
                             }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onExitCommand {
-                            if reviewingEnding != nil { returnToHandoff() }
-                        }
-                    case .explorer:
-                        ExplorerView(root: explorerDirectory, reveal: $explorerReveal,
-                                     command: $explorerCommand,
-                                     showHidden: $explorerShowsHidden,
-                                     openFolders: $explorerOpenFolders,
-                                     refreshed: { showRailNote("Refreshed \(counted($0, "item"))", icon: "checkmark") },
-                                     repositories: workspaceRepositories(session) + (explorerDesignFilesURL.map {
-                                         [ChangesRepository(root: $0.path, name: "Design files")]
-                                     } ?? []),
-                                     designFilesRoot: explorerDesignFilesURL?.path,
-                                     collapsedProjects: $collapsedExplorerProjects,
-                                     selectRoot: { root in
-                                         explorerShowsDesignFiles = root == explorerDesignFilesURL?.path
-                                         if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
-                                     })
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .onExitCommand {
+                                if reviewingEnding != nil { returnToHandoff() }
+                            }
+                        case .explorer:
+                            ExplorerView(root: explorerDirectory, reveal: $explorerReveal,
+                                         command: $explorerCommand,
+                                         showHidden: $explorerShowsHidden,
+                                         openFolders: $explorerOpenFolders,
+                                         refreshed: { showRailNote("Refreshed \(counted($0, "item"))", icon: "checkmark") },
+                                         repositories: workspaceRepositories(session) + (explorerDesignFilesURL.map {
+                                             [ChangesRepository(root: $0.path, name: "Design files")]
+                                         } ?? []),
+                                         designFilesRoot: explorerDesignFilesURL?.path,
+                                         collapsedProjects: $collapsedExplorerProjects,
+                                         selectRoot: { root in
+                                             explorerShowsDesignFiles = root == explorerDesignFilesURL?.path
+                                             if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
+                                         })
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
                     }
-                }
-                .transition(.headerPage(reduceMotion: reduceMotion))
+                    .transition(.headerPage(reduceMotion: reduceMotion))
 
-                if let openRun = shortcuts.output(for: shortcutScope) {
-                    ShortcutOutputDrawer(run: openRun) {
-                        shortcuts.showOutput(nil, for: shortcutScope)
+                    if let openRun = shortcuts.output(for: shortcutScope) {
+                        ShortcutOutputDrawer(run: openRun) {
+                            shortcuts.showOutput(nil, for: shortcutScope)
+                        }
+                        .transition(.drawer(from: .bottom, reduceMotion: reduceMotion))
                     }
-                    .transition(.drawer(from: .bottom, reduceMotion: reduceMotion))
                 }
 
                 if terminals.isOpen(terminalScope) {
@@ -281,7 +286,11 @@ struct SessionView: View {
             })
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
                 installed: runner.catalog.availableAgents, author: session.agent))
-            .onChange(of: tab) { secondOpinion.close() }
+            .onChange(of: tab) {
+                secondOpinion.close()
+                // Choosing a tab asks to see it, so a maximized terminal gives the room back.
+                terminals.setMaximized(false, for: terminalScope)
+            }
             // Clicks deep in the transcript that act outside the window, such as revealing
             // a file or opening a link, leave their note on the rail like the header's own.
             .environment(\.showExternalNote, railNoteAction)

@@ -36,10 +36,14 @@ struct TaskDetailView: View {
                 header(task)
                 statusStrip(task)
                 if store.isMissing(task) { missingFolder(task) }
-                // The group hands the transition to each page, so whichever one is chosen
-                // lifts in under the tab that chose it.
-                Group { content(task) }
-                    .transition(.headerPage(reduceMotion: reduceMotion))
+                // A maximized terminal takes the page's room. The page goes at once and
+                // lifts back in when the terminal gives the room back.
+                if !terminals.isMaximized(terminalScope) {
+                    // The group hands the transition to each page, so whichever one is
+                    // chosen lifts in under the tab that chose it.
+                    Group { content(task) }
+                        .transition(.headerPage(reduceMotion: reduceMotion))
+                }
                 if terminals.isOpen(terminalScope) {
                     TerminalDrawer(scope: terminalScope,
                                    directory: task.path,
@@ -48,6 +52,8 @@ struct TaskDetailView: View {
                 }
             }
             .background(Theme.background)
+            // Choosing a tab asks to see it, so a maximized terminal gives the room back.
+            .onChange(of: tab) { terminals.setMaximized(false, for: terminalScope) }
             .background(TerminalShortcut(scope: terminalScope, directory: task.path,
                                          focusTerminal: $terminalFocused)
                             .disabled(store.isMissing(task)))
