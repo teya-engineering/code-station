@@ -842,11 +842,12 @@ struct LocalServerPreviewWebContent: NSViewRepresentable {
         }
         // A page that keeps sending files must not trap the person behind save panels.
         var declinedAt: ContinuousClock.Instant?
+        var now: () -> ContinuousClock.Instant = { .now }
         private var personsLoad = false
         private var asking = false
 
         private func holdsBackFiles(_ webView: WKWebView) -> Bool {
-            let resting = declinedAt.map { ContinuousClock.now - $0 < .seconds(2) } ?? false
+            let resting = declinedAt.map { now() - $0 < .seconds(2) } ?? false
             return resting || webView.window == nil
         }
 
@@ -1013,7 +1014,7 @@ struct LocalServerPreviewWebContent: NSViewRepresentable {
             let destination = saveDownload(suggestedFilename)
             asking = false
             guard let destination else {
-                declinedAt = .now
+                declinedAt = now()
                 completionHandler(nil)
                 return
             }

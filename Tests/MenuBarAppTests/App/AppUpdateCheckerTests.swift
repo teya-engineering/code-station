@@ -14,14 +14,14 @@ struct AppUpdateCheckerTests {
         #expect(AppVersion("1..0") == nil)
     }
 
-    @Test func waitsADayBetweenAutomaticChecks() {
+    @Test func waitsSixHoursBetweenAutomaticChecks() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
         #expect(AppUpdateChecker.shouldCheck(lastCheck: nil, now: now))
         #expect(!AppUpdateChecker.shouldCheck(
-            lastCheck: now.addingTimeInterval(-86_400 + 1), now: now))
+            lastCheck: now.addingTimeInterval(-21_600 + 1), now: now))
         #expect(AppUpdateChecker.shouldCheck(
-            lastCheck: now.addingTimeInterval(-86_400), now: now))
+            lastCheck: now.addingTimeInterval(-21_600), now: now))
     }
 
     @MainActor
@@ -79,7 +79,7 @@ struct AppUpdateCheckerTests {
     }
 
     @MainActor
-    @Test func anAnswerWithNoUsableReleaseStillWaitsADay() async throws {
+    @Test func anAnswerWithNoUsableReleaseStillWaitsForTheNextCheck() async throws {
         let (preferences, suite) = try preferences()
         defer { preferences.removePersistentDomain(forName: suite) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -99,6 +99,149 @@ struct AppUpdateCheckerTests {
     }
 
     @MainActor
+    @Test func checkingByHandSkipsTheWaitAndAnnouncesADismissedVersionAgain() async throws {
+        let (preferences, suite) = try preferences()
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        Preferences.setAppUpdateLastCheck(now.addingTimeInterval(-60), in: preferences)
+        Preferences.dismissedAppUpdateVersion.write("1.3.0", in: preferences)
+        AppUpdateURLProtocol.prepare(status: 200, body: release(version: "v1.3.0"))
+        let checker = AppUpdateChecker(installedVersion: "1.2.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       now: { now },
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!)
+
+        await checker.checkIfNeeded()
+        #expect(AppUpdateURLProtocol.requestCount == 0)
+
+        #expect(await checker.checkNow() == .available("1.3.0"))
+        #expect(AppUpdateURLProtocol.requestCount == 1)
+        #expect(checker.announcedRelease?.version == "1.3.0")
+        #expect(checker.bannerRelease == checker.announcedRelease)
+        #expect(checker.lastCheck == now)
+        #expect(Preferences.dismissedAppUpdateVersion.read(in: preferences) == nil)
+    }
+
+    @MainActor
+    @Test func checkingByHandReportsUpToDateAndFailure() async throws {
+        let (preferences, suite) = try preferences()
+        defer { preferences.removePersistentDomain(forName: suite) }
+        AppUpdateURLProtocol.prepare(status: 200, body: release(version: "v1.2.0"))
+        let checker = AppUpdateChecker(installedVersion: "1.2.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!)
+
+        #expect(await checker.checkNow() == .upToDate)
+
+        AppUpdateURLProtocol.prepare(status: 503, body: Data())
+        #expect(await checker.checkNow() == .failed)
+    }
+
+    @MainActor
+    @Test(arguments: [false, true])
+    func checkingByHandReportsMalformedRepliesAsFailures(hasCachedUpdate: Bool) async throws {
+        let preferences = scratchDefaults()
+        let cached = hasCachedUpdate ? AppUpdateChecker.decodeRelease(release(version: "v1.3.0")) : nil
+        Preferences.setCachedAppUpdateRelease(cached, in: preferences)
+        AppUpdateURLProtocol.prepare(status: 200, body: Data("{}".utf8))
+        let checker = AppUpdateChecker(installedVersion: "1.2.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!)
+
+        #expect(await checker.checkNow() == .failed)
+        #expect(checker.availableRelease == cached)
+        #expect(Preferences.cachedAppUpdateRelease(in: preferences) == cached)
+    }
+
+    @MainActor
+    @Test(arguments: [false, true])
+    func checkingByHandRestoresADismissedInstallBanner(installationFails: Bool) async throws {
+        let preferences = scratchDefaults()
+        let imageURL = URL(string: "https://github.com/t/c/releases/download/v1.3.0/app.dmg")!
+        let latest = release(version: "v1.3.0", downloadURL: imageURL)
+        let update = try #require(AppUpdateChecker.decodeRelease(latest))
+        Preferences.setCachedAppUpdateRelease(update, in: preferences)
+        AppUpdateURLProtocol.prepare(routes: [
+            "/latest": (200, latest),
+            imageURL.path: (200, Data("test image".utf8))
+        ])
+        let failure = AppUpdateInstall.Failure(reason: "Install failed")
+        let expectedState: AppUpdateInstallState = installationFails ? .failed(failure.reason) : .ready
+        let checker = AppUpdateChecker(installedVersion: "1.2.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!,
+                                       installTarget: { URL(fileURLWithPath: "/unused/Test.app") },
+                                       install: { _, _, _ in
+                                           if installationFails { throw failure }
+                                       })
+
+        checker.installUpdate()
+        try #require(await waitUntil { checker.installState == expectedState })
+        checker.dismissBanner()
+        #expect(checker.bannerRelease == nil)
+
+        await checker.checkIfNeeded()
+        #expect(checker.bannerRelease == nil)
+
+        AppUpdateURLProtocol.prepare(status: 503, body: Data())
+        #expect(await checker.checkNow() == .failed)
+        #expect(checker.bannerRelease == nil)
+
+        AppUpdateURLProtocol.prepare(status: 200, body: latest)
+        #expect(await checker.checkNow() == .available("1.3.0"))
+        #expect(checker.bannerRelease == update)
+        #expect(checker.installState == expectedState)
+        #expect(checker.canInstallInPlace)
+
+        checker.dismissBanner()
+        #expect(checker.bannerRelease == nil)
+    }
+
+    @MainActor
+    @Test func checkingByHandRestoresAnInstallInProgress() async throws {
+        let preferences = scratchDefaults()
+        let imageURL = URL(string: "https://github.com/t/c/releases/download/v1.3.0/app.dmg")!
+        let latest = release(version: "v1.3.0", downloadURL: imageURL)
+        let update = try #require(AppUpdateChecker.decodeRelease(latest))
+        Preferences.setCachedAppUpdateRelease(update, in: preferences)
+        let completion = AsyncStream<Void>.makeStream()
+        defer { completion.continuation.finish() }
+        AppUpdateURLProtocol.prepare(routes: [
+            "/latest": (200, latest),
+            imageURL.path: (200, Data("test image".utf8))
+        ])
+        let checker = AppUpdateChecker(installedVersion: "1.2.0",
+                                       preferences: preferences,
+                                       session: stubSession(),
+                                       releaseEndpoint: URL(string: "https://example.test/latest")!,
+                                       installTarget: { URL(fileURLWithPath: "/unused/Test.app") },
+                                       install: { _, _, _ in
+                                           for await _ in completion.stream { break }
+                                       })
+
+        checker.dismissBanner()
+        #expect(checker.bannerRelease == nil)
+        checker.installUpdate()
+        #expect(checker.bannerRelease == update)
+        checker.dismissBanner()
+        try #require(await waitUntil { checker.installState == .installing })
+        #expect(checker.bannerRelease == nil)
+
+        #expect(await checker.checkNow() == .available("1.3.0"))
+        #expect(checker.bannerRelease == update)
+        #expect(checker.installState == .installing)
+
+        checker.dismissBanner()
+        completion.continuation.yield()
+        try #require(await waitUntil { checker.installState == .ready })
+        #expect(checker.bannerRelease == update)
+    }
+
+    @MainActor
     @Test func dismissalSurvivesRelaunchButTheUpdateRemainsAvailable() async throws {
         let (preferences, suite) = try preferences()
         defer { preferences.removePersistentDomain(forName: suite) }
@@ -108,11 +251,12 @@ struct AppUpdateCheckerTests {
         Preferences.setCachedAppUpdateRelease(update, in: preferences)
         let checker = AppUpdateChecker(installedVersion: "1.9.0", preferences: preferences)
 
-        checker.dismissAnnouncement()
+        checker.dismissBanner()
         let relaunched = AppUpdateChecker(installedVersion: "1.9.0", preferences: preferences)
 
         #expect(relaunched.availableRelease == update)
         #expect(relaunched.announcedRelease == nil)
+        #expect(relaunched.bannerRelease == nil)
         #expect(Preferences.dismissedAppUpdateVersion.read(in: preferences) == "2.0.0")
     }
 
@@ -262,13 +406,15 @@ struct AppUpdateCheckerTests {
         return URLSession(configuration: configuration)
     }
 
-    private func release(version: String) -> Data {
-        Data("""
-        {
-          "tag_name": "\(version)",
-          "html_url": "https://github.com/teya-engineering/code-station/releases/tag/\(version)"
+    private func release(version: String, downloadURL: URL? = nil) -> Data {
+        var payload: [String: Any] = [
+            "tag_name": version,
+            "html_url": "https://github.com/teya-engineering/code-station/releases/tag/\(version)"
+        ]
+        if let downloadURL {
+            payload["assets"] = [["name": "app.dmg", "browser_download_url": downloadURL.absoluteString]]
         }
-        """.utf8)
+        return try! JSONSerialization.data(withJSONObject: payload)
     }
 }
 

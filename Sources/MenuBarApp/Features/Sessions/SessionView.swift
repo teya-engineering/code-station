@@ -58,6 +58,7 @@ struct SessionView: View {
     @State var tab: Tab = .conversation
     @State private var terminalFocused = false
     @State var composerFocused = false
+    @State var fileDragOver = false
     @State var selectedProjectID: UUID?
     @State private var collapsedExplorerProjects: Set<String> = []
     @State var changesNavigation = ChangesNavigationMemory()

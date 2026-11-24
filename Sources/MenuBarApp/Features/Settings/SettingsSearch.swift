@@ -65,6 +65,8 @@ enum SettingsSearchIndex {
                "system open folder editor app finder cursor vscode jetbrains add remove"),
         result("Start at login", .general, .generalSystem,
                "system launch log in startup"),
+        result("Check for updates", .general, .generalSystem,
+               "system update upgrade new version release install latest"),
         result("Sessions shown", .general, .generalSidebar,
                "sidebar recent project workspace see more limit"),
         result("Skills refresh", .general, .generalSkills,

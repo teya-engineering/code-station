@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var settings
     @Environment(DialogPresenter.self) private var dialogs
+    @Environment(AppUpdateChecker.self) private var appUpdates
     @Environment(\.dismiss) private var dismiss
 
     let skills: SkillsManager
@@ -859,6 +860,10 @@ struct SettingsView: View {
                 startAtLogin
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.lg)
+                SettingsRowDivider()
+                updates
+                    .padding(.horizontal, Space.lg)
+                    .padding(.vertical, Space.lg)
             }
         }
     }
@@ -1064,6 +1069,54 @@ struct SettingsView: View {
                 .font(Typography.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // The app looks on its own every few hours, so a release that has only just come out
+    // can be asked for here instead of waited for.
+    private var updates: some View {
+        let installed = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return HStack(alignment: .top, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("Updates")
+                    .font(Typography.body.weight(.semibold))
+                Group {
+                    if let release = appUpdates.availableRelease {
+                        Text("Version \(release.version) is available. You have \(installed ?? "a development build").")
+                    } else if let lastCheck = appUpdates.lastCheck {
+                        Text("You have version \(installed ?? "unknown"). Last checked ")
+                            + Text(lastCheck, format: .relative(presentation: .named)) + Text(".")
+                    } else {
+                        Text("You have version \(installed ?? "unknown"). The app looks for a new one every few hours.")
+                    }
+                }
+                .font(Typography.detail)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+            }
+            Spacer(minLength: 0)
+            InlineLink(title: appUpdates.isChecking ? "Checking…" : "Check now") {
+                guard !appUpdates.isChecking else { return }
+                Task { await checkForUpdates() }
+            }
+            .disabled(installed == nil)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .motion(Motion.control, value: appUpdates.isChecking)
+        .motion(Motion.reveal, value: appUpdates.availableRelease?.version)
+    }
+
+    private func checkForUpdates() async {
+        switch await appUpdates.checkNow() {
+        case .available(let version):
+            showNote("Version \(version) is available - see the banner in the window",
+                     icon: "arrow.down.circle")
+        case .upToDate:
+            showNote("Teya Code Station is up to date", icon: "checkmark")
+        case .failed:
+            showNote("Could not check for updates - try again later", icon: "exclamationmark.triangle")
         }
     }
 
