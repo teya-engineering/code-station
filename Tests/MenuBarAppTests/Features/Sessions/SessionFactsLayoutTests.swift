@@ -6,6 +6,13 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SessionFactsLayoutTests {
+    init() {
+        let app = NSApplication.shared
+        // A command-line host can start prohibited, but restoring that policy would
+        // prevent later UI tests from creating windows.
+        if app.activationPolicy() == .prohibited { app.setActivationPolicy(.accessory) }
+    }
+
     @Test(arguments: [false, true])
     func sessionDetailsFitAndDismiss(reduceMotion: Bool) async throws {
         let app = NSApplication.shared
