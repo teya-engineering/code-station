@@ -13,7 +13,7 @@ struct RootView: View {
     @Environment(ShortcutStore.self) private var shortcuts
     @Environment(SessionRunner.self) private var runner
     @Environment(MobileAccessController.self) private var mobileAccess
-    @Environment(OrphanedWorktreeMonitor.self) private var orphanedWorktrees
+    @Environment(CleanupCoordinator.self) private var cleanup
     @Environment(PullRequestReviewStore.self) private var pullRequestReviews
     @Environment(AppUpdateChecker.self) private var appUpdates
     @Environment(AccountUsageMonitor.self) private var accountUsage
@@ -23,17 +23,11 @@ struct RootView: View {
     // Only ever one at a time, and a second one asked for while the first is up would
     // replace it rather than stack, so which one is showing is a single choice.
     @State private var sheet: Sheet?
-    @State private var sessionCleanupError: String?
-    @State private var orphanCleanupError: String?
-    @State private var cleanup = OldSessionSweep.Status()
+    @State private var settingsTarget: SettingsSearchTarget?
     @State private var dismissedAttention: Attention?
-    // An update being taken is news of its own, so putting the offer away does not also
-    // hide the download it started. Each stage can be dismissed once.
-    @State private var dismissedUpdateStage: AppUpdateInstallState.Stage?
     // Raised by the file being read in the detail pane while it holds Command-F.
     @State private var paneOwnsFindShortcut = false
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     var body: some View {
         window
@@ -46,6 +40,9 @@ struct RootView: View {
             // sheet gets one of its own to ask its own questions in.
             .sheet(item: $sheet) { sheet in
                 sheetContent(sheet).background(QuitConfirmation()).appOverlays()
+            }
+            .onChange(of: sheet) { _, now in
+                if now != .settings { settingsTarget = nil }
             }
             // Outermost, so the sheets see the person's keys as well.
             .environment(\.keyBindings, settings.keyBindings)
@@ -60,7 +57,6 @@ struct RootView: View {
             HStack(spacing: 0) {
                 AppSidebar(skills: skills,
                            tools: tools,
-                           cleanup: cleanup,
                            onReviewOldSessions: { sheet = .oldSessions },
                            onReviewCleanup: { sheet = $0 == .goes ? .cleanupGoing : .cleanupWaiting },
                            paneOwnsFindShortcut: paneOwnsFindShortcut)
@@ -85,6 +81,7 @@ struct RootView: View {
             ScheduledTaskConfirmation()
             SnoozeReminder()
             AppUpdateRestartPrompt()
+            TitleFailureNotice()
             QuitConfirmation(isFront: sheet == nil)
             VStack(spacing: Space.md) {
                 if let attention, attention != dismissedAttention {
@@ -93,7 +90,7 @@ struct RootView: View {
                                     onDismiss: { withAnimation(Motion.leave) { dismissedAttention = attention } })
                         .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
                 }
-                if let release = updateOnShow {
+                if let release = appUpdates.bannerRelease {
                     AppUpdateBanner(release: release,
                                     state: appUpdates.installState,
                                     canInstallInPlace: appUpdates.canInstallInPlace,
@@ -101,11 +98,16 @@ struct RootView: View {
                                     onRestart: appUpdates.relaunch,
                                     onViewRelease: { withAnimation(Motion.leave) { appUpdates.openReleasePage() } },
                                     onReadNotes: appUpdates.openReleaseNotes,
-                                    onDismiss: { withAnimation(Motion.leave) { dismissUpdateBanner() } })
-                        .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
+                                    onDismiss: {
+                                        withAnimation(reduceMotion ? nil : Motion.leave) {
+                                            appUpdates.dismissBanner()
+                                        }
+                                    })
+                        .transition(.asymmetric(insertion: .fadeIn,
+                                                removal: reduceMotion ? .opacity : .fold))
                 }
-                if let note {
-                    HeaderNote(icon: "arrow.up.forward.app", text: note)
+                if let text = note.text {
+                    HeaderNote(icon: note.icon, text: text)
                         .transition(.asymmetric(
                             insertion: (reduceMotion ? AnyTransition.opacity : .opacity.combined(with: .offset(y: -6)))
                                 .animation(Motion.reveal),
@@ -113,6 +115,7 @@ struct RootView: View {
                 }
             }
             .padding(.top, Space.lg)
+            .motion(Motion.reveal, value: appUpdates.manualCheckAnnouncements)
             // The backdrop and the palette come and go as separate layers, the same way a
             // dialog does, so the dimming fades while only the palette rises into place.
             ZStack {
@@ -143,9 +146,6 @@ struct RootView: View {
     // time limit on a slow machine.
     private var window: some View {
         layout
-            .onChange(of: appUpdates.installState.stage) { _, _ in
-                dismissedUpdateStage = nil
-            }
             .onChange(of: appUpdates.releasePageOpenings) { _, _ in
                 showNote("Opened the release page in your browser")
             }
@@ -183,7 +183,6 @@ struct RootView: View {
                 for: NSApplication.didBecomeActiveNotification)) { _ in
                 store.applicationDidBecomeActive()
             }
-            .task { await resumePendingSessionRemovals() }
             .task { await appUpdates.keepChecking() }
             // Only Claude's own report counts: another agent's would merge Claude's older
             // windows back over a newer read of the account.
@@ -193,8 +192,6 @@ struct RootView: View {
                 }
             }
             .task(id: skillsRefreshRule) { await refreshSkillsAutomatically() }
-            .task(id: sweepRule) { await deleteOldSessionsAutomatically() }
-            .task { await discoverOrphanedWorktrees() }
             .task { await pullRequestReviews.keepReading(store: store) }
     }
 
@@ -267,20 +264,20 @@ struct RootView: View {
         case .servers: ConfigManagerView()
         case .skills: SkillsView(manager: skills)
         case .docker: DockerView()
-        case .settings: SettingsView(skills: skills)
+        case .settings: SettingsView(skills: skills, initialTarget: settingsTarget)
         case .dispatch: DispatchView()
         case .shortcuts: ShortcutsView()
         case .oldSessions:
-            OldSessionsView(sessions: OldSessions.reviewable(days: settings.oldSessionDays,
+            OldSessionsView(sessions: OldSessions.reviewable(rule: settings.cleanupRule,
                                                              store: store, runner: runner))
         // Each list links to the other, so splitting them hides nothing. Swapping the
         // item lets the old sheet go before the new one arrives.
         case .cleanupGoing:
-            CleanupCountdownView(status: cleanup) { self.sheet = .cleanupWaiting }
+            CleanupCountdownView(status: cleanup.status) { self.sheet = .cleanupWaiting }
         case .cleanupWaiting:
-            CleanupReviewView(status: cleanup) { self.sheet = .cleanupGoing }
+            CleanupReviewView(status: cleanup.status) { self.sheet = .cleanupGoing }
         case .onboarding:
-            FirstRunWizard(initialAgent: runner.agent,
+            FirstRunWizard(initialAgent: runner.catalog.agent,
                            onSiteConfigurationLoaded: applySiteConfiguration) {
                 settings.completeOnboarding()
                 self.sheet = nil
@@ -302,6 +299,7 @@ struct RootView: View {
         [configs.loadError, configs.saveError,
          store.loadError, store.transcriptLoadErrors.values.first, store.saveError,
          runner.reviews.loadError, runner.reviews.saveError,
+         runner.reviews.viewed.loadError, runner.reviews.viewed.saveError,
          dispatch.loadError, dispatch.saveError,
          dispatchAuth.loadError, dispatchAuth.saveError,
          shortcuts.loadError, shortcuts.saveError]
@@ -317,55 +315,17 @@ struct RootView: View {
             return Attention(title: "Site configuration needs attention",
                              message: siteDefaultsFailure)
         }
-        if let sessionCleanupError {
+        if let sessionCleanupError = cleanup.sessionCleanupError {
             return Attention(title: "Session cleanup needs attention", message: sessionCleanupError)
         }
-        if let orphanCleanupError {
+        if let orphanCleanupError = cleanup.orphanCleanupError {
             return Attention(title: "Worktree cleanup needs attention", message: orphanCleanupError)
         }
         return nil
     }
 
-    // Before anything is taken the banner is an announcement, which a person can put away
-    // for good. From the first click it reports on work under way, which stays on offer
-    // even for a version whose announcement was dismissed earlier.
-    private var updateOnShow: AppUpdateRelease? {
-        let stage = appUpdates.installState.stage
-        guard stage != dismissedUpdateStage else { return nil }
-        return stage == .idle ? appUpdates.announcedRelease : appUpdates.availableRelease
-    }
-
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
-    }
-
-    private func dismissUpdateBanner() {
-        let stage = appUpdates.installState.stage
-        if stage == .idle {
-            appUpdates.dismissAnnouncement()
-        } else {
-            dismissedUpdateStage = stage
-        }
-    }
-
-    private func resumePendingSessionRemovals() async {
-        let failures = await SessionLifecycle.resumePendingRemovals(in: store)
-        sessionCleanupError = failures.isEmpty
-            ? nil
-            : failures.map(\.message).joined(separator: "\n")
-    }
-
-    private struct SweepRule: Equatable {
-        let rule: CleanupRule
-        let days: Int
+        note.show(text, icon: "arrow.up.forward.app")
     }
 
     private struct SkillsRefreshRule: Equatable {
@@ -376,62 +336,6 @@ struct RootView: View {
     private var skillsRefreshRule: SkillsRefreshRule {
         SkillsRefreshRule(interval: settings.skillsRefreshInterval,
                           onboardingComplete: settings.hasCompletedOnboarding)
-    }
-
-    private var sweepRule: SweepRule {
-        SweepRule(rule: settings.cleanupRule, days: settings.oldSessionDays)
-    }
-
-    // Age is the only thing that makes a session sweepable, and age only moves with the
-    // clock, so this runs on a timer rather than off a change in the store.
-    private func deleteOldSessionsAutomatically() async {
-        let sweep = sweepRule
-        cleanup = OldSessionSweep.Status()
-        guard sweep.rule.deletesOnItsOwn else { return }
-        var buffer = OldSessionSweep.EligibilityBuffer()
-        var swept = 0
-
-        while !Task.isCancelled {
-            let now = Date()
-            let deleted = await OldSessionSweep.run(
-                days: sweep.days, rule: sweep.rule, store: store, runner: runner,
-                buffer: &buffer, now: now,
-                orphans: orphanedWorktrees.cleanupCandidates(now: now),
-                pruneOrphans: pruneOrphanedWorktrees)
-            guard !Task.isCancelled else { return }
-            if deleted > 0 { swept = deleted }
-            let status = buffer.status(swept: swept)
-            if cleanup != status { cleanup = status }
-            do {
-                try await Task.sleep(for: OldSessionSweep.monitorInterval)
-            } catch {
-                return
-            }
-        }
-    }
-
-    private func pruneOrphanedWorktrees(_ worktrees: [OrphanedWorktree]) async -> Int {
-        let result = await orphanedWorktrees.prune(worktrees, in: store)
-        orphanCleanupError = result.failures.isEmpty
-            ? nil
-            : result.failures.map(\.message).joined(separator: "\n")
-        if !result.failures.isEmpty {
-            SessionLog.note("orphan worktree sweep failed count=\(result.failures.count)")
-        }
-        return result.removed.count
-    }
-
-    // Looked for once an hour. Taking them is the sweep's job, under the same rule and
-    // countdown as old sessions.
-    private func discoverOrphanedWorktrees() async {
-        while !Task.isCancelled {
-            _ = await orphanedWorktrees.refresh(in: store)
-            do {
-                try await Task.sleep(for: .seconds(OrphanedWorktreeSweep.discoveryInterval))
-            } catch {
-                return
-            }
-        }
     }
 
     private func refreshSkillsAutomatically() async {
@@ -495,7 +399,10 @@ struct RootView: View {
     }
 
     private var home: some View {
-        HomeView()
+        HomeView(openStatsSettings: {
+            settingsTarget = .generalStats
+            sheet = .settings
+        })
             .transition(.headerPage(reduceMotion: reduceMotion))
     }
 }
@@ -570,10 +477,27 @@ private struct AppUpdateRestartPrompt: View {
     }
 
     private var message: String {
-        let busy = store.sessions.count { $0.designSourceSessionID == nil && runner.isBusy($0.id, store: store) }
+        let busy = runner.runningSessions().count
         guard busy > 0 else { return "Restarting the app finishes the update." }
         return "Restarting the app finishes the update and stops "
             + "\(counted(busy, "session")) still running."
+    }
+}
+
+// Draws nothing. A title the person asked for is generated in the background, so when it
+// fails there is nothing on screen to say so unless it is said here.
+private struct TitleFailureNotice: View {
+    @Environment(DialogPresenter.self) private var dialogs
+    @Environment(SessionRunner.self) private var runner
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: runner.titleFailure) { _, failure in
+                guard let failure else { return }
+                dialogs.show(.notice("Could not generate a session title",
+                                     message: "\(failure.reason)\n\nYou can still rename “\(failure.sessionTitle)” by hand."))
+            }
     }
 }
 

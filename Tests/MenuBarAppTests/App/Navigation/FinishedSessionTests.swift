@@ -58,8 +58,8 @@ struct FinishedSessionTests {
     // instead of reading IDLE, and says it is done once it is.
     @Test func aRunningSecondOpinionNamesItselfAndMarksTheSessionWhenItEnds() async {
         let preferences = TestPreferences()
-        let runner = SessionRunner(preferences: preferences.store, paths: [:])
-        runner.opinions.onSettled = { [store] in runner.secondOpinionSettled($0, store: store) }
+        let runner = SessionRunner(store: store, preferences: preferences.store, paths: [:])
+        runner.opinions.onSettled = { [store] in runner.secondOpinionSettled($0) }
         let background = store.newSession(in: project.id)
         let open = store.newSession(in: project.id)
         store.selection = .session(open.id)

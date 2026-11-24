@@ -122,11 +122,11 @@ struct DictationControllerTests {
     private let speech = ScriptedSpeech()
 
     init() {
-        runner = SessionRunner(preferences: testPreferences.store, persistentAgentSessions: false, paths: [:])
+        runner = SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, persistentAgentSessions: false, paths: [:])
     }
 
     private func makeDictation() -> Dictation {
-        Dictation(engine: speech, preferences: UserDefaults(suiteName: "DictationTests-\(UUID())")!)
+        Dictation(engine: speech, preferences: scratchDefaults())
     }
 
     private func start(_ dictation: Dictation, caret: Int) async {

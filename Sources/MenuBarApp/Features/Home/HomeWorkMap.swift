@@ -16,7 +16,7 @@ struct HomeLive: Identifiable {
     var finished = false
 
     var id: UUID { session.id }
-    var containerID: UUID { session.workspaceID ?? session.projectID }
+    var containerID: UUID { session.containerID }
     var needsAttention: Bool { tone == .needsYou }
 
     var status: String {
@@ -310,9 +310,9 @@ private struct HomeBoard: View {
             if !needsYou.isEmpty {
                 VStack(spacing: Space.sm) {
                     ForEach(needsYou) { live in
-                        HomeMapActionRow(live: live, hasChanges: hasChanges(live), showsProject: true,
+                        HomeMapActionRow(live: live, hasChanges: hasChanges(live),
                                          open: { open(live, $0) }, answer: { answer(live, $0) })
-                            .frame(height: 46)
+                            .frame(height: HomeMapActionRow.height)
                     }
                 }
             }
@@ -495,10 +495,14 @@ struct MapConnector: Shape {
 struct HomeMapActionRow: View {
     let live: HomeLive
     let hasChanges: Bool
-    // The board lists sessions from every project in one place, so each row names its own.
-    var showsProject = false
     let open: (SessionDestination) -> Void
     let answer: (PermissionAnswer) -> Void
+
+    // Tall enough for the title and its request line, and the same on every row, so the
+    // action buttons line up down the list.
+    static let height: CGFloat = 46
+    // A fixed project column keeps every session title starting on one line.
+    static let projectWidth: CGFloat = 150
 
     @State private var hovering = false
 
@@ -506,17 +510,16 @@ struct HomeMapActionRow: View {
         let needs = live.needsAttention
         let shape = RoundedRectangle(cornerRadius: Radius.floating)
         HStack(spacing: Space.lg) {
-            if showsProject {
-                HStack(spacing: Space.sm) {
-                    SidebarIdentityTile(avatar: live.avatar, name: live.containerName, tint: live.tint,
-                                        stacked: live.session.workspaceID != nil, side: 18)
-                        .accessibilityHidden(true)
-                    Text(live.containerName)
-                        .font(Typography.label)
-                        .lineLimit(1)
-                }
-                .frame(width: 150, alignment: .leading)
+            // The board lists sessions from every project in one place, so each row names its own.
+            HStack(spacing: Space.sm) {
+                SidebarIdentityTile(avatar: live.avatar, name: live.containerName, tint: live.tint,
+                                    stacked: live.session.workspaceID != nil, side: ControlHeight.xs)
+                    .accessibilityHidden(true)
+                Text(live.containerName)
+                    .font(Typography.label)
+                    .lineLimit(1)
             }
+            .frame(width: Self.projectWidth, alignment: .leading)
             MapLight(tone: live.tone)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(live.session.title)
@@ -530,7 +533,7 @@ struct HomeMapActionRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(showsProject ? age : "\(live.session.agent.title) · \(age)")
+            Text(age)
                 .font(Typography.data)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
@@ -570,17 +573,12 @@ struct HomeMapActionRow: View {
         let primary = live.primaryAction(hasChanges: hasChanges)
         HStack(spacing: Space.sm) {
             if !quick.isEmpty {
-                if !showsProject {
-                    ActionButton(title: "Open session", tone: .outlined, height: ControlHeight.sm, size: Typography.Size.detail) {
-                        open(live.destination)
-                    }
-                }
                 ForEach(quick.indices, id: \.self) { index in
                     ActionButton(title: quick[index].title, tone: index == 0 ? .green : .outlined,
                                  height: ControlHeight.sm, size: Typography.Size.detail) { answer(quick[index].answer) }
                 }
             } else {
-                let title = showsProject && live.permission?.isQuestion == true ? "Answer" : primary.title
+                let title = live.permission?.isQuestion == true ? "Answer" : primary.title
                 ActionButton(title: title, tone: live.needsAttention ? .green : .outlined,
                              height: ControlHeight.sm, size: Typography.Size.detail) { open(primary.destination) }
             }

@@ -1,11 +1,9 @@
 import Foundation
 
-// Clearing old sessions without being asked each time. This is the only place in the app
-// that deletes a session nobody chose, so it only ever takes what loses nothing and has
-// been seen, after a full warning hour, and only sessions that are neither open nor
-// running. Anything old with a reason on the "ask me first" list waits for a yes instead,
-// however old it gets. Orphaned worktrees follow the same rule when the person has asked
-// for that: a clean one goes with the countdown, one with changes waits.
+// The only place that deletes sessions nobody chose. Every matching rule must allow
+// deletion, the longest age must have passed, and a full warning hour must finish.
+// Open, running, pinned and deferred sessions stay out. Clean orphaned worktrees keep
+// their own opt-in under the default rule; those with changes always wait for review.
 @MainActor
 enum OldSessionSweep {
     static let monitorInterval: Duration = .seconds(1)
@@ -61,6 +59,7 @@ enum OldSessionSweep {
         // How much the last sweep in this run took, so an empty card can say it is empty
         // because the sweep just ran rather than because nothing was ever old.
         var swept = 0
+        var costs: [UUID: SessionRemovalCost] = [:]
 
         func goes(_ id: UUID) -> Bool { cohort.contains(id) }
 
@@ -95,7 +94,8 @@ enum OldSessionSweep {
 
         func status(swept: Int) -> Status {
             Status(deletion: deletion, cohort: cohort, worktreeCohort: worktreeCohort,
-                   parked: parked, swept: swept)
+                   parked: parked, swept: swept,
+                   costs: settled.filter { cohort.contains($0.key) })
         }
 
         var isArmed: Bool { deadline != nil }
@@ -130,12 +130,6 @@ enum OldSessionSweep {
             cohort = []
             worktreeCohort = []
             deadline = nil
-        }
-
-        mutating func clearParked() {
-            parked = []
-            settled = [:]
-            orphanHasChanges = [:]
         }
 
         func cost(of id: UUID) -> SessionRemovalCost? { settled[id] }
@@ -184,32 +178,30 @@ enum OldSessionSweep {
     }
 
     @discardableResult
-    static func run(days: Int, rule: CleanupRule,
+    static func run(rule: CleanupRule,
                     store: ProjectStore, runner: SessionRunner,
                     buffer: inout EligibilityBuffer, now: Date = Date(),
                     orphans: [OrphanedWorktree] = [],
                     worktreeOperations: WorktreeOperations = .live,
                     inspect: SessionCost.Inspect = SessionCost.live,
                     pruneOrphans: PruneOrphans = { _ in 0 }) async -> Int {
-        guard rule.deletesOnItsOwn else {
-            buffer.disarm()
-            buffer.clearParked()
-            return 0
-        }
-
-        let isBusy = { (id: UUID) in runner.isBusy(id, store: store) }
+        let isBusy = { (id: UUID) in runner.isBusy(id) }
         let isOpen = { (id: UUID) in store.selection == .session(id) }
         let snoozedUntil = { (session: ChatSession) in store.snoozeDeadline(for: session) }
-        let orphans = rule.includesOrphans ? orphans : []
+        let orphans = rule.includesOrphans && rule.deletesOnItsOwn ? orphans : []
 
-        var old = due(days: days, in: store.sidebarSessions, now: now,
+        var old = due(days: rule.minimumDays, in: store.sidebarSessions, now: now,
                       isBusy: isBusy, isOpen: isOpen, snoozedUntil: snoozedUntil)
         buffer.keepSettled(Set(old.map(\.id)), worktrees: Set(orphans.map(\.id)))
         let known = settle(&buffer, old: old, orphans: orphans, rule: rule, store: store,
                            now: now)
 
         if buffer.canArm(now: now), !old.isEmpty || !orphans.isEmpty {
-            for session in old.prefix(batchLimit) {
+            // A younger condition can put many candidates ahead of sessions whose
+            // costs are still unknown. Inspect those too, even when the first batch waits.
+            for session in old.sorted(by: {
+                (buffer.cost(of: $0.id) == nil ? 0 : 1) < (buffer.cost(of: $1.id) == nil ? 0 : 1)
+            }).prefix(batchLimit) {
                 guard !Task.isCancelled else { return 0 }
                 buffer.settle(session.id, await cost(of: session, in: store, inspect: inspect))
             }
@@ -219,7 +211,7 @@ enum OldSessionSweep {
             }
             guard !Task.isCancelled else { return 0 }
             // Reading git takes time, and the store may have moved on while it did.
-            old = due(days: days, in: store.sidebarSessions, now: now,
+            old = due(days: rule.minimumDays, in: store.sidebarSessions, now: now,
                       isBusy: isBusy, isOpen: isOpen, snoozedUntil: snoozedUntil)
             let goes = settle(&buffer, old: old, orphans: orphans, rule: rule, store: store,
                               now: now)
@@ -244,7 +236,7 @@ enum OldSessionSweep {
             guard let session = store.session(sessionID) else { return false }
             return !OldSessions.isKept(session, now: now)
                 && store.selection != .session(sessionID)
-                && !runner.isBusy(sessionID, store: store)
+                && !runner.isBusy(sessionID)
                 && !ProjectSnooze.isActive(store.snoozeDeadline(for: session), now: now)
         }
 
@@ -257,9 +249,11 @@ enum OldSessionSweep {
             // matters more than the count on the strip holding still.
             let cost = await cost(of: session, in: store, inspect: inspect)
             buffer.settle(sessionID, cost)
-            guard cost.canSelect,
-                  rule.held(reasons(of: session, cost: cost, store: store, now: now)).isEmpty,
-                  stillStale(sessionID) else { continue }
+            guard !Task.isCancelled, cost.canSelect, stillStale(sessionID),
+                  let current = store.session(sessionID) else { continue }
+            let matching = reasons(of: current, cost: cost, store: store, now: now)
+            guard rule.isOld(current, reasons: matching, now: now),
+                  rule.automaticallyDeletes(matching) else { continue }
 
             SessionLog.note("auto deletion started outcome=\(cost.label)", session: sessionID)
             let result = await SessionLifecycle.remove(
@@ -290,13 +284,13 @@ enum OldSessionSweep {
         // The cohort has had its turn either way. Anything it could not take is offered
         // again by the next one, which starts its own hour rather than inheriting this.
         buffer.disarm()
-        let afterwards = due(days: days, in: store.sidebarSessions, now: now,
+        let afterwards = due(days: rule.minimumDays, in: store.sidebarSessions, now: now,
                              isBusy: isBusy, isOpen: isOpen, snoozedUntil: snoozedUntil)
         settle(&buffer, old: afterwards, orphans: orphans.filter { orphan in
             !cleanOrphans.contains { $0.id == orphan.id }
         }, rule: rule, store: store, now: now)
         if deleted > 0 {
-            SessionLog.note("old session sweep deleted count=\(deleted) days=\(days)")
+            SessionLog.note("old session sweep deleted count=\(deleted)")
         }
         return deleted
     }
@@ -314,10 +308,13 @@ enum OldSessionSweep {
         var goes: [UUID] = []
         for session in old {
             let cost = buffer.cost(of: session.id)
-            let held = rule.held(reasons(of: session, cost: cost, store: store, now: now))
-            if !held.isEmpty {
-                parked.append(Parked(item: .session(session.id), reasons: held))
-            } else if let cost, cost.canSelect {
+            let matching = reasons(of: session, cost: cost, store: store, now: now)
+            // Unknown worktree conditions may have a longer age, so they cannot be
+            // offered for review or deletion until the inspection has finished.
+            guard let cost, cost.canSelect, rule.isOld(session, reasons: matching, now: now) else { continue }
+            if !rule.automaticallyDeletes(matching) {
+                parked.append(Parked(item: .session(session.id), reasons: rule.held(matching)))
+            } else {
                 goes.append(session.id)
             }
         }

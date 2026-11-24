@@ -97,7 +97,13 @@ struct GitBranchesTests {
         #expect(result.failed)
         #expect(result.recovery != nil)
         #expect(await GitBranches.continueOperation(at: repo.path).failed)
-        #expect(await GitActions.commitAll(message: "Must not bypass recovery", at: repo.path) != nil)
+        let conflicted = GitChange(path: "README.md", originalPath: nil, kind: .conflicted,
+                                   isStaged: false, isUnstaged: true,
+                                   added: nil, removed: nil, isBinary: false)
+        // A partial commit fails during a merge anyway, so only the guard's own message proves it ran.
+        let blocked = await GitActions.commitSelected(message: "Must not bypass recovery",
+                                                      files: [conflicted], at: repo.path)
+        #expect(blocked?.contains("Finish or abort the current operation in Branches") == true)
         let versions = await GitBranches.contents(path: "README.md", at: repo.path)
         #expect(versions.current == "current\n")
         #expect(versions.incoming == "incoming\n")
@@ -194,6 +200,12 @@ struct GitBranchesTests {
         #expect(await GitBranches.delete(occupied, force: true, at: repo.path).failed)
         #expect(await GitBranches.switchBranch(try await preview("isolated", repo), consent: false, at: repo.path).failed)
         #expect(try repo.git("branch", "--show-current") == "main")
+    }
+
+    @Test func nameProblemAcceptsANewNameAndRejectsATakenOne() async throws {
+        let repo = try GitRepo()
+        #expect(await GitBranches.nameProblem("feature/login", at: repo.path) == nil)
+        #expect(await GitBranches.nameProblem("main", at: repo.path) != nil)
     }
 
     @Test func unmergedBranchNeedsExplicitForceDeletion() async throws {

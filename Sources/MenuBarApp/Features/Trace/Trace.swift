@@ -223,32 +223,6 @@ struct Trace: Equatable, Sendable {
         return counts
     }
 
-    // The rows still showing once the given spans are folded: everything beneath a folded
-    // span is hidden, the span itself stays.
-    func visibleRows(collapsed: Set<String>) -> [Row] {
-        var shown: [Row] = []
-        var hiddenBelow: Int?
-        for row in rows {
-            if let depth = hiddenBelow {
-                if row.depth > depth { continue }
-                hiddenBelow = nil
-            }
-            shown.append(row)
-            if collapsed.contains(row.id) { hiddenBelow = row.depth }
-        }
-        return shown
-    }
-
-    // Where a span's bar sits on the trace's own time axis, as fractions of its width. A
-    // span too short to see still gets a sliver.
-    func bar(for span: Span, minimumWidth: Double = 0.002) -> (offset: Double, width: Double) {
-        let total = Double(max(durationNanos, 1))
-        let offset = min(max(Double(span.startNanos - startNanos) / total, 0), 1)
-        let width = min(max(Double(span.durationNanos) / total, minimumWidth),
-                        max(1 - offset, minimumWidth))
-        return (offset, width)
-    }
-
     // 850µs, 4.2ms, 412ms, 1.24s: as few digits as still tell two spans apart.
     static func durationText(_ nanos: Int64) -> String {
         if abs(nanos) < 1_000_000 { return "\(nanos / 1_000)µs" }

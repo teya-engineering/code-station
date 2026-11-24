@@ -187,10 +187,10 @@ struct OldSessionsSheetTests {
         let settings = AppSettings(
             agentAvatarURL: store.storeURL.deletingLastPathComponent()
                 .appendingPathComponent("avatar.png"),
-            preferences: UserDefaults(suiteName: "snooze-\(UUID().uuidString)") ?? .standard)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+            preferences: scratchDefaults())
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let view = OldSessionsView(sessions: OldSessions.reviewable(
-            days: settings.oldSessionDays, store: store, runner: runner))
+            rule: settings.cleanupRule, store: store, runner: runner))
             .environment(store)
             .environment(runner)
             .environment(DialogPresenter())
@@ -286,10 +286,10 @@ struct OldSessionsSheetSizeTests {
         let settings = AppSettings(
             agentAvatarURL: store.storeURL.deletingLastPathComponent()
                 .appendingPathComponent("avatar.png"),
-            preferences: UserDefaults(suiteName: "size-\(UUID().uuidString)") ?? .standard)
-        let runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+            preferences: scratchDefaults())
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         let view = OldSessionsView(sessions: OldSessions.reviewable(
-            days: settings.oldSessionDays, store: store, runner: runner))
+            rule: settings.cleanupRule, store: store, runner: runner))
             .environment(store)
             .environment(runner)
             .environment(DialogPresenter())
@@ -314,6 +314,7 @@ struct OldSessionsSheetSizeTests {
         let (store, _) = TestStore.make()
         let alpha = try TestStore.project(in: store, named: "alpha")
         agedSessions(3, in: alpha, store: store)
+        _ = store.newSession(in: alpha.id)
 
         #expect(firstPassHeight(store) > firstPassHeight(empty))
     }

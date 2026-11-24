@@ -3,6 +3,32 @@ import Foundation
 // What an ask for a second opinion starts from, set on its own Settings tab. Tune can
 // still change any of it for one ask, and that change stays with the ask.
 struct SecondOpinionDefaults: Equatable {
+    enum ChatSubject: String, Codable, CaseIterable {
+        case answer, conversation
+
+        var title: String { self == .answer ? "Last answer" : "Whole chat" }
+    }
+
+    enum Comparison: String, Codable, CaseIterable {
+        case changesTab, head, branch
+
+        var title: String {
+            switch self {
+            case .changesTab: "Follow the Changes tab"
+            case .head: "Always start with HEAD"
+            case .branch: "Always start with the base branch"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .changesTab: "Use the comparison selected in Changes."
+            case .head: "Only uncommitted edits since the latest commit."
+            case .branch: "Committed and uncommitted work since the branch point, using the selected remote branch."
+            }
+        }
+    }
+
     // A usual reviewer. One left unticked keeps its model and effort, so ticking it
     // again brings back the same seat.
     struct Seat: Equatable, Codable {
@@ -16,6 +42,8 @@ struct SecondOpinionDefaults: Equatable {
     var designFocus = Set(DesignSecondOpinion.Focus.standard)
     var chatReading = ChatSecondOpinion.Reading()
     var designReading = DesignSecondOpinion.Reading()
+    var chatSubject = ChatSubject.answer
+    var comparison = Comparison.changesTab
     // Off unless the person turns it on: a tool on an MCP server can act, not only read.
     var usesServers = false
 
@@ -61,6 +89,7 @@ extension SecondOpinionDefaults: Codable {
     private enum CodingKeys: String, CodingKey {
         case seats, chatFocus, changesFocus, designFocus
         case chatFiles, chatConversation, designSource, designConversation, usesServers
+        case chatSubject, comparison
     }
 
     init(from decoder: Decoder) throws {
@@ -85,6 +114,8 @@ extension SecondOpinionDefaults: Codable {
             conversation: (try? values.decodeIfPresent(Bool.self, forKey: .designConversation))
                 ?? fresh.designReading.conversation)
         usesServers = (try? values.decodeIfPresent(Bool.self, forKey: .usesServers)) ?? fresh.usesServers
+        chatSubject = (try? values.decodeIfPresent(ChatSubject.self, forKey: .chatSubject)) ?? fresh.chatSubject
+        comparison = (try? values.decodeIfPresent(Comparison.self, forKey: .comparison)) ?? fresh.comparison
     }
 
     func encode(to encoder: Encoder) throws {
@@ -98,5 +129,7 @@ extension SecondOpinionDefaults: Codable {
         try values.encode(designReading.source, forKey: .designSource)
         try values.encode(designReading.conversation, forKey: .designConversation)
         try values.encode(usesServers, forKey: .usesServers)
+        try values.encode(chatSubject, forKey: .chatSubject)
+        try values.encode(comparison, forKey: .comparison)
     }
 }

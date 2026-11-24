@@ -44,6 +44,8 @@ struct NewWorkspaceSessionView: View {
     // a click anywhere while git works could only start the same work twice.
     @State private var pulling = false
     @State private var showsWhy = false
+    @State private var branchName = ""
+    @State private var branchAccepted = true
 
     init(workspace: ProjectWorkspace, onCreate: @escaping (WorkspaceSessionChoice) -> Void) {
         self.workspace = workspace
@@ -84,11 +86,19 @@ struct NewWorkspaceSessionView: View {
                         guard let project = store.project(id) else { return nil }
                         let usesWorktree = project.isGitRepository && worktrees.contains(id)
                         let plan = GitWorktree.plan(projectName: project.name, projectID: id,
-                                                    sessionID: sessionID)
+                                                    sessionID: sessionID, branch: chosenBranch)
                         return .init(name: project.name,
                                      branch: usesWorktree ? plan.branch : GitHead.branch(at: project.path),
                                      path: usesWorktree ? plan.path.abbreviatedPath : project.collapsedPath)
-                    })
+                    }) {
+                        if let first = worktreeProjects.first {
+                            SessionBranchField(
+                                placeholder: GitWorktree.plan(projectName: first.name, projectID: first.id,
+                                                              sessionID: sessionID).branch,
+                                name: $branchName, projects: worktreeProjects, accepted: $branchAccepted)
+                                .transition(cardTransition)
+                        }
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Text("Worktrees are isolated checkouts. Deleting this session removes its worktrees.")
                         .font(Typography.detail)
@@ -96,6 +106,7 @@ struct NewWorkspaceSessionView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(Space.pane)
+                .smoothlyResizes(when: worktreeProjects.isEmpty)
             }
             .frame(maxHeight: 470)
 
@@ -104,7 +115,7 @@ struct NewWorkspaceSessionView: View {
                              fetching: activeFetches > 0,
                              retrying: retryingNames,
                              updating: pulling ? "checkouts" : nil,
-                             ready: hasEnoughProjects,
+                             ready: canCreate,
                              selectedAgent: $selectedAgent,
                              selectedAvatarName: $selectedAvatarName,
                              create: create,
@@ -160,6 +171,20 @@ struct NewWorkspaceSessionView: View {
 
     private var gitProjects: [Project] {
         projectIDs.compactMap { store.project($0) }.filter(\.isGitRepository)
+    }
+
+    private var worktreeProjects: [Project] {
+        gitProjects.filter { worktrees.contains($0.id) }
+    }
+
+    private var chosenBranch: String? {
+        let name = branchName.trimmed
+
+        return name.isEmpty ? nil : name
+    }
+
+    private var canCreate: Bool {
+        hasEnoughProjects && (worktreeProjects.isEmpty || branchAccepted)
     }
 
     private func check(_ projects: [Project]) async {
@@ -232,7 +257,7 @@ struct NewWorkspaceSessionView: View {
             startPoints[$0] == .updateCheckout && freshness[$0]?.canUpdateCheckout == true
                 || fastForwardsDefaultBranch($0)
         }.count
-        let trees = gitProjects.filter { worktrees.contains($0.id) }.count
+        let trees = worktreeProjects.count
         let impact = SessionCreationImpact(updates: updates, worktrees: trees).text
         return hasEnoughProjects ? impact : "Attach at least two projects to create a workspace session. " + impact
     }
@@ -286,13 +311,14 @@ struct NewWorkspaceSessionView: View {
     }
 
     private var chosenAgent: AgentKind? {
-        runner.agentForNewSession(selected: selectedAgent)
+        runner.catalog.agentForNewSession(selected: selectedAgent)
     }
 
     // The updates the user asked for run here, while the sheet is still up, one checkout
     // after another. On failure the session is not created, so the sheet stays for
     // another try or a cancel.
     private func create() {
+        guard canCreate else { return }
         let updates = projectIDs.compactMap { id -> (project: Project, branch: String,
                                                       report: GitFreshness.Report)? in
             guard startPoints[id] == .updateCheckout, let report = freshness[id],
@@ -352,9 +378,10 @@ struct NewWorkspaceSessionView: View {
         }
         onCreate(WorkspaceSessionChoice(sessionID: sessionID, projects: choices,
                                         agent: agent,
-                                        model: runner.defaults(for: agent).model,
+                                        model: runner.catalog.defaults(for: agent).model,
                                         agentAvatarName: selectedAvatarName,
-                                        mode: .chat))
+                                        mode: .chat,
+                                        branch: worktreeProjects.isEmpty ? nil : chosenBranch))
         dismiss()
     }
 }
@@ -366,6 +393,7 @@ struct WorkspaceSessionChoice: Equatable {
     var model: String? = nil
     var agentAvatarName: String? = nil
     var mode: SessionMode = .chat
+    var branch: String? = nil
 }
 
 struct WorkspaceProjectChoice: Equatable {

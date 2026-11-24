@@ -20,14 +20,30 @@ func waitUntil(timeout: Duration = .seconds(30),
 }
 
 final class TestPreferences {
-    private let name = "code-station-tests-\(UUID().uuidString)"
-    let store: UserDefaults
+    let store: UserDefaults = scratchDefaults()
+}
 
-    init() {
-        store = UserDefaults(suiteName: name)!
-    }
+// Defaults for one test, kept in memory. A named suite goes through the system's
+// preferences service, which writes a plist into ~/Library/Preferences for every suite a
+// test has ever written to and puts it back if it is deleted. Use a named suite only
+// where the test is about what reaches disk.
+func scratchDefaults() -> UserDefaults { MemoryDefaults() }
 
-    deinit { store.removePersistentDomain(forName: name) }
+// UserDefaults reads and writes every typed value through these three, so overriding
+// them is enough to keep the whole store off disk.
+private final class MemoryDefaults: UserDefaults, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+    private let lock = NSLock()
+
+    init() { super.init(suiteName: nil)! }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not coded") }
+
+    override func object(forKey key: String) -> Any? { lock.withLock { values[key] } }
+    override func set(_ value: Any?, forKey key: String) { lock.withLock { values[key] = value } }
+    override func removeObject(forKey key: String) { lock.withLock { values[key] = nil } }
+    override func dictionaryRepresentation() -> [String: Any] { lock.withLock { values } }
 }
 
 // A throwaway folder under the temp directory, removed when the value goes away.
@@ -207,7 +223,7 @@ final class RunnerHarness {
         store = ProjectStore(preferences: scratch.preferences.store, storeURL: scratch.path("projects.json"))
         let project = try #require(store.addProject(at: scratch.path("project")))
         session = try store.insertSession(in: project.id, seed: .init(agent: agent)).get()
-        runner = SessionRunner(preferences: scratch.preferences.store, persistentAgentSessions: persistentAgentSessions, paths: [agent: executable.path],
+        runner = SessionRunner(store: store, preferences: scratch.preferences.store, persistentAgentSessions: persistentAgentSessions, paths: [agent: executable.path],
                                stalledAfter: stalledAfter,
                                stallCheckInterval: stallCheckInterval,
                                waitingStaleAfter: waitingStaleAfter,
@@ -261,4 +277,24 @@ enum TestRepository {
         }
         return url
     }()
+}
+
+// A loopback port nothing is listening on. Asking the system beats a fixed number, which
+// fails when the developer has something on it or another test picked the same one.
+func freeLoopbackPort() throws -> UInt16 {
+    let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+    guard descriptor >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+    defer { close(descriptor) }
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_addr.s_addr = inet_addr("127.0.0.1")
+    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let bound = withUnsafeMutablePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { generic in
+            bind(descriptor, generic, length) == 0 && getsockname(descriptor, generic, &length) == 0
+        }
+    }
+    guard bound else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+    return UInt16(bigEndian: address.sin_port)
 }

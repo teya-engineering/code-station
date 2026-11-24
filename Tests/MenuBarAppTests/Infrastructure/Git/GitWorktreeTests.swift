@@ -56,6 +56,19 @@ struct GitWorktreeTests {
         #expect(plan.branch == "code-station/4f2ab8c1")
     }
 
+    @Test func aChosenBranchKeepsTheFolderNamedAfterTheSession() {
+        let projectID = UUID(uuidString: "AABBCCDD-0000-0000-0000-000000000000")!
+        let single = GitWorktree.plan(projectName: "Project A", sessionID: sessionID,
+                                      branch: "feature/login")
+        let workspace = GitWorktree.plan(projectName: "Project A", projectID: projectID,
+                                         sessionID: sessionID, branch: "feature/login")
+
+        #expect(single.branch == "feature/login")
+        #expect(single.path.hasSuffix("/Project-A-4f2ab8c1"))
+        #expect(workspace.branch == "feature/login")
+        #expect(workspace.path.hasSuffix("/4f2ab8c1/Project-A-aabbccdd"))
+    }
+
     @Test func readsRegisteredWorktreePathsAndBranches() {
         let output = [
             "worktree /repo", "HEAD abc", "branch refs/heads/main", "",

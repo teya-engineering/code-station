@@ -447,7 +447,7 @@ struct KiroStreamingRunnerTests {
             kiro_end
             """))
         defer { harness.tearDown() }
-        harness.runner.send("What is in notes.txt?", sessionID: harness.session.id, store: harness.store)
+        harness.runner.send("What is in notes.txt?", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         let reply = try #require(harness.store.transcript(of: harness.session.id).last)
         #expect(reply.text == "Let me look.\n\nIt says hello.")
@@ -626,7 +626,7 @@ struct KiroCreditsRunnerTests {
             """))
         defer { harness.tearDown() }
         for prompt in ["First", "Second"] {
-            harness.runner.send(prompt, sessionID: harness.session.id, store: harness.store)
+            harness.runner.send(prompt, sessionID: harness.session.id)
             #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         }
         let usage = try #require(harness.store.session(harness.session.id)?.usage)

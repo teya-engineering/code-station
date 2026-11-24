@@ -13,9 +13,11 @@ final class PushReviewModel {
     private(set) var incoming: [GitRemoteCommit] = []
     // Origin already has a branch under this name, though this branch does not track it.
     private(set) var nameOnOrigin = false
-    // What origin's branch of the same name holds that this branch does not. Pushing
-    // replaces that branch, so these leave origin.
+    // What origin's branch holds that this branch does not. Pushing replaces that branch,
+    // so these leave origin.
     private(set) var replaced: [GitRemoteCommit] = []
+    // The replaced commits are this branch's own, from before an amend or a rebase.
+    private(set) var rewrote = false
     @ObservationIgnored private var replacedTip: String?
     private(set) var errorTitle = ""
     private(set) var error = ""
@@ -51,6 +53,7 @@ final class PushReviewModel {
         let result = await read()
         guard !Task.isCancelled, request == generation else { return }
         nameOnOrigin = false
+        rewrote = false
         replaced = []
         replacedTip = nil
         switch result {
@@ -68,6 +71,13 @@ final class PushReviewModel {
             nameOnOrigin = true
             replaced = unrelated
             replacedTip = unrelated.isEmpty ? nil : tip
+            phase = .ready
+        case .rewroteUpstream(let commits, let replaced, let tip):
+            self.commits = commits
+            incoming = []
+            rewrote = true
+            self.replaced = replaced
+            replacedTip = tip
             phase = .ready
         case .failed(let error):
             fail("Could not check commits to push", error)

@@ -2,6 +2,12 @@ import Testing
 @testable import MenuBarApp
 
 struct SettingsSearchTests {
+    @Test func findsTranscriptTimestamps() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "timestamp").first)
+        #expect(result.title == "Timestamps")
+        #expect(result.target == .appearanceTimestamps)
+    }
+
     @Test func emptySearchHasNoResults() {
         #expect(SettingsSearchIndex.results(for: "   ").isEmpty)
     }
@@ -41,16 +47,16 @@ struct SettingsSearchTests {
         let result = try #require(SettingsSearchIndex.results(for: "recap summary").first)
 
         #expect(result.title == "Automatic session recaps")
-        #expect(result.tab == .general)
-        #expect(result.target == .generalRecaps)
+        #expect(result.tab == .sessions)
+        #expect(result.target == .sessionsRecaps)
     }
 
     @Test func findsAutomaticSessionTitles() throws {
         let result = try #require(SettingsSearchIndex.results(for: "regenerate title").first)
 
         #expect(result.title == "Automatic session titles")
-        #expect(result.tab == .general)
-        #expect(result.target == .generalTitles)
+        #expect(result.tab == .sessions)
+        #expect(result.target == .sessionsTitles)
     }
 
     @Test func findsTheHeaderButtons() throws {
@@ -66,5 +72,27 @@ struct SettingsSearchTests {
         #expect(result.title == "Current configuration")
         #expect(result.tab == .advanced)
         #expect(result.target == .advancedConfiguration)
+    }
+
+    @Test func sessionBehaviourLivesInTheSessionsTab() {
+        let titles = SettingsSearchIndex.entries.filter { $0.tab == .sessions }.map(\.title)
+        #expect(titles == ["Prompts sent during a turn", "Automatic session recaps",
+                           "Automatic session titles", "Suggest the next prompt",
+                           "Session finished sound", "Session memory"])
+    }
+
+    @Test func findsTheSessionLogInAdvanced() throws {
+        let result = try #require(SettingsSearchIndex.results(for: "session log").first)
+
+        #expect(result.title == "Session log")
+        #expect(result.tab == .advanced)
+        #expect(result.target == .advancedSessionLog)
+    }
+
+    // Every target belongs to exactly one tab, so a link to it always opens the right one.
+    @Test func eachTargetSitsInOneTab() {
+        let tabsByTarget = Dictionary(grouping: SettingsSearchIndex.entries, by: \.target)
+            .mapValues { Set($0.map(\.tab)) }
+        #expect(tabsByTarget.values.allSatisfy { $0.count == 1 })
     }
 }

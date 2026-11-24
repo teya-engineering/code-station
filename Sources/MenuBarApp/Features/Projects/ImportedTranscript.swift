@@ -3,6 +3,10 @@ import Foundation
 struct ImportedTranscript {
     private var messages: [ChatMessage] = []
     private var reply: ChatMessage?
+    // The date a reply takes when its events come with no time of their own. Some
+    // histories only record when a turn started and ended, and giving every step that
+    // same time would make each one look exact when it is not.
+    var undatedReplyDate: Date?
 
     mutating func prompt(_ text: String, at date: Date?) {
         close()
@@ -15,18 +19,30 @@ struct ImportedTranscript {
     }
 
     mutating func apply(_ event: StreamEvent, at date: Date?) {
-        var message = reply ?? ChatMessage(role: .assistant, date: date ?? .distantPast)
+        var message = reply ?? ChatMessage(role: .assistant,
+                                           date: date ?? undatedReplyDate ?? .distantPast)
         switch event {
         case .text(let text):
             if !message.text.isEmpty { message.text += "\n\n" }
+            if let date {
+                message.textMarks = (message.textMarks ?? [])
+                    + [TextMark(offset: message.text.count, date: date)]
+            }
             message.text += text
         case .thinking(let text):
             var thought = ThinkingSegment(text: text)
             thought.textOffset = message.text.count
             thought.toolOffset = message.tools.count
+            thought.date = date
             message.thinking = (message.thinking ?? []) + [thought]
         case .textChunk(let text, let continuing):
-            if !continuing, !message.text.isEmpty { message.text += "\n\n" }
+            if !continuing {
+                if !message.text.isEmpty { message.text += "\n\n" }
+                if let date {
+                    message.textMarks = (message.textMarks ?? [])
+                        + [TextMark(offset: message.text.count, date: date)]
+                }
+            }
             message.text += text
         case .thinkingChunk(let text, let continuing):
             if continuing, var thoughts = message.thinking, !thoughts.isEmpty {
@@ -36,6 +52,7 @@ struct ImportedTranscript {
                 var thought = ThinkingSegment(text: text)
                 thought.textOffset = message.text.count
                 thought.toolOffset = message.tools.count
+                thought.date = date
                 message.thinking = (message.thinking ?? []) + [thought]
             }
         case .toolUse(var tool):
@@ -73,6 +90,10 @@ enum CodexTranscriptImport {
     static func append(_ turn: [String: Any], to transcript: inout ImportedTranscript, fallbackDate: Date?) {
         let start = (turn["startedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? fallbackDate
         let end = (turn["completedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? start
+        // Codex keeps only the turn's start and end, so the steps inside it go undated and
+        // the reply as a whole is dated when the turn ended.
+        transcript.undatedReplyDate = end
+        defer { transcript.undatedReplyDate = nil }
         for var item in turn["items"] as? [[String: Any]] ?? [] {
             switch item["type"] as? String {
             case "userMessage":
@@ -107,10 +128,10 @@ enum CodexTranscriptImport {
             default: break
             }
             for event in StreamEvent.codexEvents(["type": "item.started", "item": item]) {
-                transcript.apply(event, at: start)
+                transcript.apply(event, at: nil)
             }
             for event in StreamEvent.codexEvents(["type": "item.completed", "item": item]) {
-                transcript.apply(event, at: end)
+                transcript.apply(event, at: nil)
             }
         }
         transcript.close()

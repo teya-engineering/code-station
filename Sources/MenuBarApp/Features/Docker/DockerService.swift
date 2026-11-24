@@ -232,10 +232,34 @@ struct DockerDiskUsage: Sendable, Equatable {
     var buildCache: Int64 = 0
     var buildCacheReclaimable: Int64 = 0
     var buildCacheEntries = 0
+    // Set when the engine could not measure itself, so the figures above were added up from
+    // the lists instead. Podman, for one, fails the whole `system df` when a single container
+    // has a broken layer.
+    var failure: String?
+    var unknown: Set<Part> = []
+
+    enum Part: Sendable { case images, containers, volumes, buildCache }
 
     var total: Int64 { images + containers + volumes + buildCache }
 
     init() {}
+
+    // The lists know nothing of the build cache, and a layer shared by two images is counted
+    // once for each, so this runs high when images share a base.
+    init(estimatingFrom imageList: [DockerImage], containers containerList: [DockerContainer],
+         volumeSizes: [String: Int64], failure: String) {
+        self.failure = failure
+        var imageSizes: [String: Int64] = [:]
+        for image in imageList { imageSizes[image.imageID] = image.bytes ?? 0 }
+        images = imageSizes.values.reduce(0, +)
+        let containerSizes = containerList.compactMap(\.bytes)
+        containers = containerSizes.reduce(0, +)
+        volumes = volumeSizes.values.reduce(0, +)
+        unknown = [.buildCache]
+        if imageList.isEmpty == false, imageSizes.values.allSatisfy({ $0 == 0 }) { unknown.insert(.images) }
+        if containerList.isEmpty == false, containerSizes.isEmpty { unknown.insert(.containers) }
+        if volumeSizes.isEmpty { unknown.insert(.volumes) }
+    }
 
     init(text: String) {
         for line in text.split(separator: "\n") {
@@ -444,8 +468,8 @@ final class DockerService {
         guard sizes, containers.failure == nil else { return }
         async let diskResult = runner(Self.diskUsage)
         async let volumeSizeResult = runner(Self.verboseDiskUsage)
-        applyDisk(await diskResult)
         applyVolumeSizes(await volumeSizeResult)
+        applyDisk(await diskResult)
     }
 
     func refreshContainers() async {
@@ -477,10 +501,6 @@ final class DockerService {
         await refreshContainers()
         if verb == .remove { await refreshDisk() }
         return result.ok ? nil : result.failureMessage
-    }
-
-    func stop(_ containers: [DockerContainer]) async -> String? {
-        await perform(.stop, on: containers)
     }
 
     // Compose knows the order its services depend on each other, so a whole project is
@@ -581,8 +601,9 @@ final class DockerService {
     }
 
     private func applyDisk(_ result: Output) {
-        guard result.ok else { return }
-        disk = DockerDiskUsage(text: result.text)
+        disk = result.ok ? DockerDiskUsage(text: result.text)
+            : DockerDiskUsage(estimatingFrom: images.items, containers: containers.items,
+                              volumeSizes: volumeSizes, failure: result.failureMessage)
     }
 
     // The verbose form is one object rather than a line per kind, and only its volume

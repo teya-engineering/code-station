@@ -13,7 +13,9 @@ enum GitHubReviewParser {
             title: object["title"] as? String ?? "",
             headBranch: (object["head"] as? Object)?["ref"] as? String ?? "",
             headRepositoryURL: ((object["head"] as? Object)?["repo"] as? Object)?["html_url"] as? String,
-            isDraft: object["draft"] as? Bool ?? false)
+            baseBranch: (object["base"] as? Object)?["ref"] as? String ?? "",
+            isDraft: object["draft"] as? Bool ?? false,
+            createdAt: date(object["created_at"]))
     }
 
     // `/pulls/{n}/reviews` lists the submissions; `/pulls/{n}/comments` lists every line

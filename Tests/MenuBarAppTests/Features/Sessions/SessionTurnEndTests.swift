@@ -21,13 +21,13 @@ struct SessionTurnEndTests {
     @Test func reportsATurnThatEndedEvenWhenItFailed() async throws {
         let project = try TestStore.project(in: store)
         let session = store.newSession(in: project.id, seed: .init(agent: .codex))
-        let runner = SessionRunner(preferences: testPreferences.store, persistentAgentSessions: false,
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, persistentAgentSessions: false,
                                    paths: [.codex: "/usr/bin/false"])
         defer { runner.stopAll() }
         var ended: [UUID] = []
         runner.onTurnEnded = { ended.append($0) }
 
-        runner.send("Fix the bug", sessionID: session.id, store: store)
+        runner.send("Fix the bug", sessionID: session.id)
 
         #expect(await waitUntil { ended == [session.id] })
     }
@@ -43,7 +43,7 @@ struct SessionTurnEndTests {
         """, promptSuggestionsEnabled: { true })
         defer { harness.tearDown() }
         let id = harness.session.id
-        harness.runner.send("Fix the bug", sessionID: id, store: harness.store)
+        harness.runner.send("Fix the bug", sessionID: id)
         #expect(await waitUntil { harness.runner.state(id) == .streaming })
         #expect(harness.runner.completionActivity(id) == nil)
 

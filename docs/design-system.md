@@ -82,6 +82,8 @@ Roles come from `Typography` (`Tokens.swift`). A role fixes the size and the fac
 - **Icons follow their text.** An SF Symbol beside a label takes the label's size and weight. A glyph that stands alone, such as a small chevron or a large empty-state mark, may set its own size.
 - **Reading text scales.** The transcript, tool output, diffs and the terminal follow the size the person picked. Use `.scaledText`, `.scaledMono` and `.scaledSerif` there, with a size from `Typography.Size`. The chrome around them stays fixed.
 - `Font.logo` is only for the wordmark.
+- `BrandWordmark` draws the Code Station name in Sora, in `Theme.accent` at rest. Pass the brand bar's hover state and pointer position to flow green, teal and gold through the fixed text mask on hover. It keeps the text's size and accessibility label, uses `Theme.wordmarkColours` for both appearances and follows the reading scale. Reduce Motion gives hover a still gradient. Keyboard focus never starts playback.
+- `BrandMetrics` keeps the sidebar lockup's drawing size, layout size, owner label and gap fixed. The mark uses the original nine-dot geometry from `AppMark`; only its dots move during the hover orbit. The tile and text container stay anchored.
 
 ### Space
 
@@ -133,11 +135,27 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 | `lg` | 32 | The standard: a sheet footer, a form, a text field, a button on its own. `ActionButton` uses this. |
 | `xl` | 36 | The one action an empty pane or a whole form is there to offer. |
 
-`FormMetrics` supplies the width, guidance editor height and stacking breakpoint for compact dialog forms. `FormPair` places two fields side by side and stacks them when the dialog is narrow.
+`FormMetrics` supplies `dialogWidth` for compact forms, `sheetWidth` for project sheets, the guidance editor height and stacking breakpoint. `FormPair` places two fields side by side and stacks them when the dialog is narrow. Pass `minimumWidth` when pairing larger sections, such as a form and its preview. `ReviewMetrics` supplies the ask, preview, receipt and findings dimensions.
 
 `FormRow` places a label in a 68-point column beside flexible content. Below 360 points it stacks the label above the content. Give it one child for content that shares the same inset without a label.
 
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
+
+`SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
+
+### Scroll cap
+
+A block that scrolls inside a taller page, such as tool output, log lines or a trace in the transcript, grows with its content up to a cap from `ScrollCap` (`Tokens.swift`) and then scrolls.
+
+| Step | Points | Use |
+| --- | --- | --- |
+| `short` | 220 | A few readings or the tail of a command's output. |
+| `medium` | 320 | Log lines, or a document to read before answering. |
+| `tall` | 460 | A whole trace waterfall. |
+
+Set it with `.scrollCap(_:)` on the `ScrollView` (`Layout/ScrollCap.swift`), never with `.frame(maxHeight:)`. The modifier scales the cap with the text, and it keeps the block at its own height when the page offers less. A block that gives way makes the page measure shorter than it draws, and the end of the page can no longer be scrolled into view.
+
+A list inside a card that already scrolls, such as the files in the second opinion receipt, uses `MenuContentScrollView` with a `maxHeight` instead, since it stops at its own edge rather than the page's. Pass `fade:` with the surface behind it and the bottom edge fades while more of the list is below. The receipt's height is `ReviewMetrics.receiptListHeight`: nine and a half rows, so the half row also says there is more.
 
 ### Depth
 
@@ -164,15 +182,20 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 | `Motion.draw` | A line drawing itself. |
 | `Motion.leave` | Anything put away. Leaving is always faster than arriving. |
 | `Motion.flightAcross`, `Motion.flightDown` | A small mark carried across the window. Across eases out and down eases in, which bends the path into a curve. Going home uses `Motion.flightHomeDuration`, which is shorter. |
+| `Motion.stagger` | The step between rows that arrive together, such as the files of a folder opening. Add it as a delay per row, and stop counting after a few rows so a long list does not keep the last one waiting. |
 | `Motion.ring` | A ring spreading out from a mark that has just landed. |
+| `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
+| `Motion.brandOrbitDuration`, `Motion.brandGleamDuration`, `Motion.wordmarkPeriod` | The brand's finite dot orbit, one entry gleam and repeating hover colour flow. Core Animation plays them without a frame clock. `BrandLayerView` cancels playback when the window loses focus or becomes hidden; another pointer entry is needed to start again. Exit returns to rest on `Motion.leaveDuration`. |
 
 - Animate with `.motion(_:value:)`, so it turns off under Reduce Motion. Every transition takes `reduceMotion` and falls back to a plain fade.
 - Buttons and pills use `.hoverLift`. Rows use `.hoverFill`. Track the pointer with `.onPointerHover`.
 - Both also tell `PointerOverControl` when the pointer is on them. A surface that reacts to a press anywhere on itself checks it, so a press meant for a button inside goes only to that button.
 - Transitions: `.headerPage` for a tab page, `.popover` for a panel from a button, `.drawer(from:)` for a panel from an edge, `.fadeIn` for plain new content, `.fold` for content that closes.
 - A mark carried from one place to another, such as a tile dropped into a group, is a `FlightView` drawn in an overlay above both places (`Motion/Flight.swift`). The flying view must be plain SwiftUI, since it is scaled on the way. Where it lands, `.landingRings(_:colour:cornerRadius:)` sends out two rings in its colour. Under Reduce Motion neither is drawn: the flight lands at once.
+- Words put into a text field by a pick, such as a slash command chosen from the menu, are marked where they land with `TextWash.play(over:in:colour:)` (`Motion/TextWash.swift`): a short wash of the colour that fades on `Motion.washDuration`. Core Animation plays it, so the text is not drawn again, and an edit clears it. Leave it out under Reduce Motion.
+- A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
-- Motion confirms what the person did. It never makes them wait and never plays for something they did not cause.
+- Motion confirms what the person did and never makes them wait. The brand wordmark's colour flow is decorative and runs only while hovered; other motion answers an action or shows work in progress.
 
 The full motion rules are in `CLAUDE.md`.
 
@@ -229,13 +252,16 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | Pick one from a list | `.appMenu`, or `OptionMenu` for the ready-made dropdown |
 | Pick one of a few, all visible | `ChoicePill`s in an `HStack` |
+| Pick one of a few as a segmented track, such as the subject of a review | `ChoicePill`s with `icon:` and a shared `thumb:` namespace, in an `HStack` on a `Theme.field` track. The fill slides to the pick on `Motion.control`. |
+| A choice in that row that carries a value of its own, such as which branch to compare with | `MenuChoicePill` (`Controls/MenuChoicePill.swift`), beside the `ChoicePill`s. The words pick the choice; the chevron opens an `.appMenu` of values, and so do the words once the choice is picked. Pass `monospaced: true` for a value the machine made, such as a branch. |
 | Pick how much, from narrow to wide | `ScopeTrack` (`Controls/ScopeTrack.swift`): stops in order, a knob that slides to the one picked, arrow keys to move along it |
 | Turn on any number of a few, all visible | `ToggleChip`: a tick and a tint when on. `ToggleChip(fixed:)` for something always included, shown with a lock. Pass `warns: true` for a choice with a cost. |
 | Pick one, each with a sentence | `OptionRow` |
 | On or off | `.toggleStyle(.appSwitch)`, `.toggleStyle(.appCheckbox)`, `SettingsToggleRow`. Use `.appSwitch(warns: true)` or `SettingsToggleRow(warns: true)` for a switch with a cost, which turns the attention colour when on. |
+| Tick off a changed file as read | `ViewedToggle` (`Controls/ViewedToggle.swift`): an outlined pill with a `CheckboxMark` and "Viewed". `ControlHeight.md` in a pane's header, `.sm` in a card's own header. Pass `edited: true` for a file changed since it was ticked, which gives the pill an amber edge. Kept apart from a row's commit checkbox so the two never read as one. |
 | A number in a range | `AppSlider` |
 | Text | `.appTextField()`, `AppTextEditor` |
-| A date | `DayField` |
+| A count of days | `DayField`. Use `validatesEntry: true` to keep invalid text visible with a correction; Return or leaving the field saves a valid whole number, and Escape restores the saved value. |
 | A file or folder | `FilePicker` |
 | A label over a field | `LabeledField` |
 | A key beside its value | `LabeledRow` |
@@ -244,7 +270,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Sort a sidebar by dragging its rows, or drop one row into another | `.sidebarDrag(_:reorders:drags:drag:onMove:)` (`App/Navigation/SidebarReorder.swift`), with one `SidebarDrag` state per list. It draws the line where the row will land. Set `reorders` to false on rows the dragged one may not sit beside. |
 | Sort a stacked list where the order itself means something | `.liveReorder(_:in:spacing:enabled:cornerRadius:state:onDrop:)` (`Controls/LiveReorder.swift`), with one `LiveReorder` state per list. The row follows the pointer after 5 points, so a click still reaches it, and the rows it passes make room at once on `Motion.control`. Read `state.preview(_:)` to show the order before the drop, such as the name on a button. Turn it off while the list is filtered, and give every drag a keyboard and menu twin (Move up, Move down). |
 | Mark the first place of an ordered list that has a job of its own | `LeadSlot`: a dashed accent frame with a caption, drawn as a top-aligned background of the list. Leave `LeadSlot.topRoom` above the first row and `LeadSlot.inset` on each side. |
-| Say whether a shortcut is a command or a prompt | `KindTile`: the terminal fill for a command, the leaf `userMessage` fill for a prompt. Pair it with the verb (Run or Insert), so the kind never rests on colour alone. |
+| Say whether a shortcut is a command or a prompt | `KindTile`: the terminal fill for a command, the leaf `userMessage` fill for a prompt. Pair it with the verb (Run or Ask), so the kind never rests on colour alone. |
 
 **Structure**
 
@@ -252,6 +278,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | The name of a sheet, dialog or screen | `SheetTitle`: a `TitleMark`, the name and a `CountBadge`, with room for actions on the right |
 | A count beside a name | `CountBadge`. Lands with `Motion.pop` and fades out at zero. |
+| When a transcript entry happened | `TimeStamp(date:step:)` (`Layout/TimeStamp.swift`): a tertiary mono caption in the format picked in Settings → Appearance, with the full day and second on hover. It reads `\.transcriptTimestamps` and draws nothing when stamps are off, when the date is unknown, or, for a step, when the person chose messages only. A row that puts something next to the stamp, such as a `·`, checks `stamps.shows(date, step:)` first, so the two never disagree. The day the stamps count from comes from `CalendarDay`, so "today" turns into "yesterday" at midnight. |
 | An explanation kept out of the way | `WhyButton`: a question mark `GlyphButton` that opens the words in a `.popover` panel |
 | A section heading | `SectionRule`. In a form, `SectionLabel`. |
 | A group of settings | `ChoiceBlock` holding a `SettingsCard`, with `SettingsRowDivider` between rows |
@@ -267,15 +294,32 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A small tag or value | `MonoChip` |
 | Something offered before it is supported in full | `BetaChip` beside its name. A settings group says it with `ChoiceBlock(badge: "BETA")` and a note on what beta means. |
 | Lines added and removed | `DiffPair` |
-| Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. |
+| Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. Pass `nameWidth` for compact previews. |
+| Lines added and removed as bars in a list whose names need the room | `DiffBar`: two short bars on a fixed length (`ReviewMetrics.receiptBarWidth`), on a `scale` the rows share. |
+| The shape of a whole change at a glance | `ChangeMap` (`Layout/ChangeMap.swift`): one slice per file, as wide as its lines changed, green over red, with a wider gap between groups and a group's name under it when it is wide enough. Hovering a slice names it and clicking opens it. Pass a `focus` to light one group or file and dim the rest, and use `hover` to light the matching row in the list beside it. It draws in left to right with `Motion.draw` through a mask. It is one image to assistive tech and not a tab stop, so the list beside it must carry the same facts. |
+| The range a review covers | `ComparisonRange`: the base, HEAD and working tree, or the previous review snapshot. It draws the included range without inventing commit counts. Pass `compact: true` for a 30-point strip with no card, at the head of a card that already names the range. |
 | State in a status band | `StatusCaps`, `StatusValue`, `StatusDot`, `StatusRule` |
 | How full something is | `Meter` |
+| How far through a short list the person is | `ProgressRing` (`Layout/ProgressRing.swift`): a 14-point ring beside a count such as "3 of 7 viewed". The arc draws round with `Motion.draw`. The words carry the count, so the ring stays out of the accessibility tree. |
+| A few readings on one slim line, each with a closer look | A row of cells, each a dot, a name, the reading and a `ChangeFigure`. Resting on a cell opens a `ReadingPeek` (`Layout/StatParts.swift`) above it, as the content of a hanging `Tooltip` with `side: .above`: the name, the reading, how it moved in words ("18% less than yesterday"), and a `Sparkline` that draws itself out from the left. The figures roll with `.numericText` when the reading moves. |
+| A run of readings, as a line | `Sparkline`. Pass a long run through `Sparkline.thinned` first, so it keeps its shape at a small size. |
+| A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means; pass `icon:` to lead with an `IconBadge` |
+| One thing's share of a whole, beside others | `ShareBarRow`, one per thing, sharing one `scale`. The bar draws out with `Motion.draw` when the row arrives. |
+| A count by weekday and hour | `HeatGrid`: hovering a cell says what it holds on the line under the grid, with a less-to-more key beside it |
+| What a number measures, as a mark | `IconBadge`: a symbol on a soft square (or `round: true` circle) of the reading's own colour |
+| How a number moved, beside the number | `ChangeFigure`: a small coloured figure with an arrow, green when the move is the good way and amber when not (`lowerIsBetter` for waits and costs). `ChangeFigure.words` says the move as "18% more" or "18% less". |
+| A record worth celebrating | `RecordBadge`: an `IconBadge` on a round, the caps label, the reading, and a line under it, on a faint wash of its colour |
+| A whole split into a few parts along one line | `ShareStrip`: one segmented bar with a key under it; pass the rest as an "Other" part in `Theme.dotOff` |
+| A whole split into a few parts, as a ring | `ShareDonut`: the parts round a ring with the leading share in the middle and a key beside it |
+| A note set apart inside a card, such as a tip | `.washSurface(tint:)`: a faint wash of the note's colour with an edge in the same colour |
+| Work the person is waiting on, with how far it has got | `ProgressCard`: a `LoopSpinner`, a title, a sentence and a `Meter` with "120 of 412 sessions". On its own in an empty pane for a first load; `compact: true` for a tinted strip over content already on screen while more arrives. |
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
 | A keyboard key | `Keycap` |
 | A key the person may have changed | `KeyCombo.label`, `.compactLabel` or `.parts`, read from `keyBindings` |
-| Code or JSON | `CodeTextView`, `RawJSONView` |
+| JSON | `RawJSONView` |
+| A text view that holds code | Call `turnOffProseHelpers()` and paint it with `paintCode`, both in `CodeTextView.swift` |
 
 **Over the window**
 
@@ -286,8 +330,9 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Say what an action already did, with a way back | `Dialog.receipt` (`Controls/ReceiptDialog.swift`): the impact card with a deck on top showing the group and the new member landing in it, a plus row for what came in, tick rows for what stays, an optional choice, and Undo in the footer. Return, Escape and a click outside all close it, since the action is already done. Use it for a cheap action that is fully undone, instead of asking first. |
 | A right-click menu | `.appContextMenu` |
 | A hint on hover | `.appTooltip` |
-| A click that did its work outside the window | `HeaderNote` |
+| A click that did its work outside the window | `HeaderNote`, shown for a moment by a `TransientNote`. The view holds one in `@State`, calls `show(_:icon:)` on the click and draws it with `.headerNote(_:alignment:top:trailing:)`. A second note takes the place of the first. Pass a `duration` only when the note must stay shorter or longer than usual. |
 | Mark what a floating card is about | `.subjectRail(_:)`: a line drawn down the leading edge of the thing while the card is open |
+| Keep keyboard focus inside a floating surface | `.focusBoundary(active:)`: contains Tab and Shift-Tab in the surface and restores focus on dismissal. Pause it while a child menu or dialog is open. |
 
 The system file chooser (`NSOpenPanel`, `NSSavePanel`) is the only native surface allowed. Never use `NSAlert`, `.alert`, `.confirmationDialog`, `.contextMenu`, `Menu`, `Picker`, the built-in button and toggle styles, or `.textFieldStyle(.roundedBorder)`.
 

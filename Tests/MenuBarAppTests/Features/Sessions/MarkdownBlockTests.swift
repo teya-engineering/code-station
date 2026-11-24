@@ -81,6 +81,11 @@ struct MarkdownBlockTests {
         #expect(kinds("## Closed ##") == [.heading(level: 2, text: "Closed")])
     }
 
+    @Test func readsAnUnderlinedHeading() {
+        #expect(kinds("Title\n---") == [.heading(level: 2, text: "Title")])
+        #expect(kinds("Big **title**\n===") == [.heading(level: 1, text: "Big **title**")])
+    }
+
     @Test func leavesHashesThatAreNotAHeadingAlone() {
         #expect(kinds("#nospace") == [.paragraph("#nospace")])
         #expect(kinds("####### seven") == [.paragraph("####### seven")])
@@ -138,26 +143,26 @@ struct MarkdownBlockTests {
         #expect(kinds(text).last == .paragraph("After the list."))
     }
 
-    @Test func keepsOrderedMarkersAsWritten() {
-        let text = "1. first\n2) second"
-        guard case .list(let items) = kinds(text).first else {
+    @Test func numbersOrderedItemsFromTheFirstAndKeepsTheirDelimiter() {
+        guard case .list(let items) = kinds("3) first\n3) second").first else {
             Issue.record("expected a list")
             return
         }
-        #expect(items.map(\.marker) == ["1.", "2)"])
+        #expect(items.map(\.marker) == ["3)", "4)"])
         #expect(items.map(\.text) == ["first", "second"])
+        // Another delimiter starts another list.
+        #expect(kinds("1. first\n2) second").count == 2)
     }
 
     @Test func readsOnlyWellFormedListMarkers() {
-        #expect(kinds("1234. not a list") == [.paragraph("1234. not a list")])
+        #expect(kinds("1234567890. not a list") == [.paragraph("1234567890. not a list")])
         #expect(kinds("-no space") == [.paragraph("-no space")])
         #expect(kinds("1.no space") == [.paragraph("1.no space")])
-        guard case .list(let items) = kinds("-   wide\n123) third").first else {
-            Issue.record("expected a list")
-            return
-        }
-        #expect(items.map(\.marker) == ["•", "123)"])
-        #expect(items.map(\.text) == ["wide", "third"])
+        let lists = kinds("-   wide\n\n123) third")
+        #expect(lists == [
+            .list([MarkdownListItem(depth: 0, marker: "•", text: "wide")]),
+            .list([MarkdownListItem(depth: 0, marker: "123)", text: "third")]),
+        ])
     }
 
     @Test func splitsLinesAsFoundationDoes() {
@@ -202,12 +207,21 @@ struct MarkdownBlockTests {
         | a | b |
         |---|---|
         | 1 | 2 |
+
         After the table.
         """
         let parsed = kinds(text)
         #expect(parsed.count == 3)
         #expect(parsed.first == .paragraph("Before the table."))
         #expect(parsed.last == .paragraph("After the table."))
+    }
+
+    @Test func aLineStraightAfterATableIsOneOfItsRows() {
+        guard case .table(let table) = kinds("| a | b |\n|---|---|\n| 1 | 2 |\nmore").first else {
+            Issue.record("expected a table")
+            return
+        }
+        #expect(table.rows == [["1", "2"], ["more", ""]])
     }
 
     @Test func givesEveryBlockItsOwnIdentity() {

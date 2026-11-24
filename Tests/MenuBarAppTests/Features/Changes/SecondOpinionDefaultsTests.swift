@@ -10,7 +10,7 @@ struct SecondOpinionDefaultsTests {
     private let claude = SecondOpinion.Reviewer(agent: .claudeCode, model: "opus")
 
     private func store() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "second-opinion-\(UUID().uuidString)"))
+        scratchDefaults()
     }
 
     @Test func freshDefaultsKeepTodaysAsk() {
@@ -69,6 +69,8 @@ struct SecondOpinionDefaultsTests {
         defaults.chatReading = .init(files: false, conversation: true)
         defaults.designReading = .init(source: false, conversation: true)
         defaults.usesServers = true
+        defaults.chatSubject = .conversation
+        defaults.comparison = .head
         Preferences.setSecondOpinionDefaults(defaults, in: store)
         #expect(Preferences.secondOpinionDefaults(in: store) == defaults)
     }
@@ -79,6 +81,8 @@ struct SecondOpinionDefaultsTests {
         #expect(defaults.chatFocus == [.risks])
         #expect(defaults.changesFocus == Set(SecondOpinion.Focus.standard))
         #expect(defaults.usesServers)
+        #expect(defaults.chatSubject == .answer)
+        #expect(defaults.comparison == .changesTab)
     }
 
     @Test func theLastThingToLookForCannotBeTurnedOff() {

@@ -109,6 +109,20 @@ final class ChangesNavigationMemory {
     var historyFilter = ""
     // Narrows the changed files by name.
     var fileFilter = ""
+    // Leaves the files already marked viewed out of the list.
+    var hideViewed = false
+    // Each project's chosen comparison, including committed work and viewed identities.
+    // The shared Git cache holds only uncommitted work.
+    var snapshots: [String: GitSnapshot] = [:]
+    // How far through the changed files the reviewer is, read by the turn's footer, which
+    // sits outside the screen that counts them.
+    var viewedTally: ViewedTally?
+    // The remote branch each project's files were last compared with, picked from the
+    // header. A project with none picked compares with its pull request's base.
+    var compareRefs: [String: String] = [:]
+    // Projects set back to comparing with the last commit. A session's Changes otherwise
+    // opens against the remote branch, so the choice is kept for the next visit.
+    var lastCommitCompares: Set<String> = []
     // Files whose comments are folded away, and files showing their resolved ones too,
     // keyed by repository and path.
     var foldedNotes: Set<String> = []
@@ -119,6 +133,7 @@ final class ChangesNavigationMemory {
     var secondOpinionFocus = Set(SecondOpinion.Focus.standard)
     var secondOpinionScope = SecondOpinionScopeChoice.all
     var secondOpinionNote = ""
+    var secondOpinionChoice: SecondOpinionAskChoice?
     // The MCP servers the next ask's reviewers may use. Nil keeps them away from all.
     var secondOpinionServers: SecondOpinion.ServerAccess?
     // An ask settled in the session's dialog, or a click on a run under way, from the
@@ -309,6 +324,27 @@ struct ChangesRepository: Identifiable {
     }
 }
 
+// A pull request the session works on, as Changes needs it: the branch it is made from,
+// so it can be matched to a checkout, and the branch it merges into, to compare with.
+struct PullRequestBase: Equatable, Sendable {
+    var number: Int
+    var headBranch: String
+    var baseBranch: String
+    var owner: String?
+    var repository: String?
+    var headRepositoryURL: String? = nil
+
+    static func matching(_ candidates: [Self], branch: String, remotes: GitRemoteBranches) -> Self? {
+        let repositories = Set(remotes.urls.values.compactMap(GitRemoteBranches.slug))
+        return candidates.first { candidate in
+            guard candidate.headBranch == branch, !candidate.baseBranch.isEmpty else { return false }
+            let base = candidate.owner.flatMap { owner in candidate.repository.map { (owner + "/" + $0).lowercased() } }
+            let head = candidate.headRepositoryURL.flatMap(GitRemoteBranches.slug)
+            return [base, head].compactMap { $0 }.contains { repositories.contains($0) }
+        }
+    }
+}
+
 // Where comments left on a diff go: the session whose changes these are, and its agent.
 // A project's own Changes screen has no agent to answer them, so it takes none.
 struct ReviewTarget {
@@ -360,6 +396,8 @@ struct CommentDraft: Equatable {
 @Observable
 final class ChangesCommitDraft {
     var message = ""
+    // Files the next commit leaves out. Tracking the exclusions rather than the picks
+    // means a file that appears between refreshes starts selected, like everything else.
     var excluded: Set<GitChange.ID> = []
     var amend = false
     var messageBeforeAmend = ""

@@ -18,7 +18,7 @@ enum KiroHistoryReader {
         let reading = try await run(Exchange(folder: candidate.cwd, root: root, candidate: candidate),
                                     executable: executable, timeout: .seconds(90))
         guard !reading.messages.isEmpty else {
-            throw AgentHistoryReader.Failure(message: "The session has no readable conversation.")
+            throw AgentFailure(message: "The session has no readable conversation.")
         }
         return reading
     }
@@ -26,7 +26,7 @@ enum KiroHistoryReader {
     private static func run(_ exchange: Exchange, executable: String?,
                             timeout: Duration) async throws -> AgentHistoryReader.Reading {
         guard let path = executable ?? ProcessManager.resolve(AgentKind.kiro.command) else {
-            throw AgentHistoryReader.Failure(message: "Kiro is not installed.")
+            throw AgentFailure(message: "Kiro is not installed.")
         }
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = ProcessManager.searchPath
@@ -60,7 +60,7 @@ enum KiroHistoryReader {
         private var promptID: String?
         private var promptText = ""
         private var promptDate: Date?
-        private var failure: AgentHistoryReader.Failure?
+        private var failure: AgentFailure?
         private var complete = false
 
         init(folder: String, root: URL, candidate: ExternalSessionCandidate?) {
@@ -69,7 +69,7 @@ enum KiroHistoryReader {
             self.candidate = candidate
         }
 
-        var result: Result<AgentHistoryReader.Reading, AgentHistoryReader.Failure> {
+        var result: Result<AgentHistoryReader.Reading, AgentFailure> {
             lock.withLock {
                 if let failure { return .failure(failure) }
                 guard complete else {
@@ -204,7 +204,7 @@ enum KiroHistoryReader {
         }
 
         private func fail(_ message: String) -> CommandRunner.OutputLineAction {
-            failure = AgentHistoryReader.Failure(message: message)
+            failure = AgentFailure(message: message)
             return .finishProcess
         }
     }

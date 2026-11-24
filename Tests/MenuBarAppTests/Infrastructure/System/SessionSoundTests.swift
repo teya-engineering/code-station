@@ -13,27 +13,27 @@ struct SessionSoundTests {
     }
 
     @Test func playsTheStandardSoundBeforeAnyoneChoosesOne() {
-        #expect(Preferences.sessionFinishedSound(in: freshStore()) == .standard)
+        #expect(Preferences.sessionFinishedSound.read(in: freshStore()) == .standard)
     }
 
     @Test func keepsTheChosenSound() {
         let store = freshStore()
-        Preferences.setSessionFinishedSound(.submarine, in: store)
-        #expect(Preferences.sessionFinishedSound(in: store) == .submarine)
+        Preferences.sessionFinishedSound.write(.submarine, in: store)
+        #expect(Preferences.sessionFinishedSound.read(in: store) == .submarine)
     }
 
     // Silence is a real choice rather than an absent one, so it must survive the round
     // trip instead of reading back as the standard sound.
     @Test func keepsSilence() {
         let store = freshStore()
-        Preferences.setSessionFinishedSound(.off, in: store)
-        #expect(Preferences.sessionFinishedSound(in: store) == .off)
+        Preferences.sessionFinishedSound.write(.off, in: store)
+        #expect(Preferences.sessionFinishedSound.read(in: store) == .off)
     }
 
     @Test func fallsBackWhenTheStoredNameIsNotOneWeKnow() {
         let store = freshStore()
         store.set("Trumpet", forKey: "sessionFinishedSound")
-        #expect(Preferences.sessionFinishedSound(in: store) == .standard)
+        #expect(Preferences.sessionFinishedSound.read(in: store) == .standard)
     }
 
     // Every name other than the silent one has to match a file in /System/Library/Sounds,

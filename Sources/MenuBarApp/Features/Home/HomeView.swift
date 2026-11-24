@@ -5,6 +5,8 @@ import SwiftUI
 // pitch - the case for the app is only made once, on the empty state, when there is no
 // status to report yet.
 struct HomeView: View {
+    let openStatsSettings: () -> Void
+
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(AppSettings.self) private var appSettings
@@ -96,8 +98,7 @@ struct HomeView: View {
                         // shows has had its chance, so an orbit that only appears later,
                         // when work starts in the background, arrives already built.
                         .onAppear { mapOpened = true }
-                    timeSpent(standing)
-                    dailyTotals(standing)
+                    glance(standing)
                     resume(standing)
                 }
                 .padding(Space.xxxl)
@@ -137,26 +138,7 @@ struct HomeView: View {
     // Answered from Home exactly as the session's own card would answer it.
     private func answer(_ live: HomeLive, _ answer: PermissionAnswer) {
         guard let request = live.permission else { return }
-        runner.answer(request, with: answer, sessionID: live.liveID, store: store)
-    }
-
-    private func dailyTotals(_ standing: Standing) -> some View {
-        FlowRow(spacing: Space.xxl) {
-            HStack(spacing: Space.md) {
-                if scanned(standing) {
-                    DiffPair(added: standing.addedToday, removed: standing.removedToday, size: Typography.Size.body)
-                } else {
-                    Text("Counting…").font(Typography.detail).foregroundStyle(.secondary)
-                }
-                Text("lines changed today").font(Typography.detail).foregroundStyle(.secondary)
-            }
-            .appTooltip(changedNote(standing))
-            Text("\(counted(standing.sessionsToday, "session")) today")
-                .font(Typography.detail).foregroundStyle(.secondary)
-            Text("\(counted(standing.worktrees.count, "worktree"))")
-                .font(Typography.detail).foregroundStyle(.secondary)
-                .appTooltip("Across \(counted(standing.worktreeSessions, "session"))")
-        }
+        runner.answer(request, with: answer, sessionID: live.liveID)
     }
 
     // What today's turns wrote, rather than everything the sessions that ran today have
@@ -174,17 +156,24 @@ struct HomeView: View {
         standing.timeRequests.allSatisfy { sessionTimes.hasScanned($0.id) }
     }
 
-    // MARK: - Where the day went
+    // MARK: - Where the time went
 
-    private func timeSpent(_ standing: Standing) -> some View {
-        DayRibbonSection(
-            ribbon: DayRibbon.build(standing.timeline,
-                                    spans: sessionTimes.spans(for:),
-                                    now: Date()),
+    private func glance(_ standing: Standing) -> some View {
+        GlanceSection(
+            timeline: standing.timeline,
+            spans: sessionTimes.spans(for:),
             scanned: scanned(standing),
+            today: GlanceToday(added: standing.addedToday,
+                               removed: standing.removedToday,
+                               sessions: standing.sessionsToday,
+                               worktrees: standing.worktrees.count,
+                               worktreeSessions: standing.worktreeSessions,
+                               measured: scanned(standing),
+                               changedNote: changedNote(standing)),
             onOpen: { id in
                 if let live = standing.sessions.first(where: { $0.id == id }) { open(live) }
-            })
+            },
+            openStatsSettings: openStatsSettings)
             .task(id: standing.timeRequests) {
                 sessionTimes.refresh(standing.timeRequests)
             }
@@ -258,7 +247,8 @@ struct HomeView: View {
                     RibbonSession(id: session.id,
                                   title: session.title,
                                   subject: RibbonSubject(name: identity.name,
-                                                         tint: identity.tint),
+                                                         tint: identity.tint,
+                                                         subjectID: session.containerID),
                                   sources: sources,
                                   isOpen: busy))
                 standing.timeRequests.append(

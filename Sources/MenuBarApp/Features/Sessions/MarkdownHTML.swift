@@ -1,4 +1,5 @@
 import Foundation
+import Markdown
 
 // HTML that a Markdown document carries as blocks of its own, the way a README opens
 // with a centred logo and title. A document preview draws it instead of printing the
@@ -6,9 +7,8 @@ import Foundation
 // paragraphs, lists, line breaks, emphasis and centring. Any other tag gives up its
 // markup and keeps its text, and comments, scripts and styles go entirely.
 //
-// Block boundaries follow CommonMark: a block tag opens an HTML block anywhere, an
-// inline tag only on a line that holds nothing but tags, and either runs to the next
-// blank line. A comment, a script or a style runs to its closing mark instead.
+// swift-markdown finds where each HTML block starts and ends. This turns its tags into
+// blocks of the app's own.
 enum MarkdownHTML {
     private static let blockTags: Set<String> = [
         "address", "article", "aside", "blockquote", "body", "caption", "center", "dd",
@@ -27,41 +27,6 @@ enum MarkdownHTML {
     // closing tag never came.
     private static let leafTags: Set<String> = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "summary", "dt", "td", "th"]
 
-    // The line after the last one of the HTML block that starts at `start`, or nil when
-    // that line does not open one. A block made of inline tags cannot interrupt a paragraph.
-    static func blockEnd(_ lines: [String], from start: Int, inParagraph: Bool) -> Int? {
-        let line = lines[start]
-        guard line.prefix(while: { $0 == " " }).count < 4 else { return nil }
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("<") else { return nil }
-
-        func through(_ closing: String, searchingFrom offset: Int) -> Int {
-            var index = start
-            var from = trimmed.index(trimmed.startIndex, offsetBy: offset)
-            var text = trimmed
-            while index < lines.count {
-                if text.range(of: closing, options: .caseInsensitive, range: from..<text.endIndex) != nil {
-                    return index + 1
-                }
-                index += 1
-                if index < lines.count { text = lines[index]; from = text.startIndex }
-            }
-            return lines.count
-        }
-        func toBlankLine() -> Int {
-            var index = start + 1
-            while index < lines.count, !lines[index].trimmed.isEmpty { index += 1 }
-            return index
-        }
-
-        if trimmed.hasPrefix("<!--") { return through("-->", searchingFrom: 4) }
-        guard let name = tagName(at: trimmed) else { return nil }
-        if hiddenTags.contains(name), !trimmed.hasPrefix("</") { return through("</\(name)>", searchingFrom: 1) }
-        if blockTags.contains(name) { return toBlankLine() }
-        if inlineTags.contains(name), !inParagraph, holdsOnlyTags(trimmed) { return toBlankLine() }
-        return nil
-    }
-
     // The lowercased name of the tag that `text` opens with, if it is written as one.
     private static func tagName(at text: String) -> String? {
         var rest = text.dropFirst()
@@ -71,13 +36,6 @@ enum MarkdownHTML {
         let after = rest.dropFirst(name.count)
         guard after.isEmpty || after.first == ">" || after.first!.isWhitespace || after.hasPrefix("/>") else { return nil }
         return name.lowercased()
-    }
-
-    private static func holdsOnlyTags(_ line: String) -> Bool {
-        tokens(line).allSatisfy { token in
-            if case .text(let text) = token { return text.allSatisfy(\.isWhitespace) }
-            return true
-        }
     }
 
     // MARK: - Reading
@@ -206,54 +164,45 @@ enum MarkdownHTML {
 
     // MARK: - Building blocks
 
-    // The text with its HTML comment blocks taken out, leaving code fences alone. It runs
-    // before the text is split at its fences, so a fence inside a comment, such as code
-    // commented out, stays hidden with the rest of the comment. Anything written after
-    // the comment's end stays. Between paragraphs a blank line takes the comment's place,
-    // so they stay apart. Inside an HTML block nothing does, since a blank line would end
-    // the block and split the element the comment sits in.
+    // The text with the comments of its HTML blocks taken out. It runs before the text is
+    // split at its fences, so a fence inside a comment, such as code commented out, stays
+    // hidden with the rest of the comment. Anything written after the comment's end
+    // stays. A comment that is a block of its own leaves an empty line, so the paragraphs
+    // around it stay apart. One inside an element takes its lines with it, since a blank
+    // line would end the element.
     static func removingComments(_ text: String) -> String {
-        guard text.contains("<!--") else { return text }
-        var lines = text.components(separatedBy: "\n")
-        var kept: [String] = []
-        var fence: Fence?
-        var inParagraph = false
-        // The line that ends the HTML block being read.
-        var blockStop = 0
-        var index = 0
-        while index < lines.count {
-            let line = lines[index]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if let open = fence {
-                if let close = Fence(line), open.isClosed(by: close) { fence = nil }
-            } else if let opened = Fence(line), opened.opens {
-                fence = opened
-            } else if line.prefix(while: { $0 == " " }).count < 4, trimmed.hasPrefix("<!--"),
-                      let end = blockEnd(lines, from: index, inParagraph: false) {
-                let inBlock = index < blockStop
-                if !inBlock { kept.append("") }
-                let closing = end - 1 == index ? trimmed.dropFirst(4) : lines[end - 1][...]
-                let rest = closing.range(of: "-->").map { String(closing[$0.upperBound...]).trimmed } ?? ""
-                if rest.isEmpty {
-                    index = end
-                } else {
-                    index = end - 1
-                    lines[index] = rest
-                }
-                // A blank line inside the comment did not end the block around it.
-                if inBlock, index >= blockStop {
-                    blockStop = lines[index...].firstIndex { $0.trimmed.isEmpty } ?? lines.count
-                }
-                inParagraph = false
-                continue
-            } else if index >= blockStop, let end = blockEnd(lines, from: index, inParagraph: inParagraph) {
-                blockStop = end
-            }
-            inParagraph = fence == nil && index >= blockStop && !trimmed.isEmpty && Fence(line) == nil
-            kept.append(line)
-            index += 1
+        var text = text
+        // Taking a comment out can change the blocks around it, so each pass reads again.
+        while text.contains("<!--"), let comment = firstComment(in: text) {
+            text.removeSubrange(comment)
         }
-        return kept.joined(separator: "\n")
+        return text
+    }
+
+    private static func firstComment(in text: String) -> Range<String.Index>? {
+        let source = MarkdownSource(text)
+        for block in htmlBlocks(in: source.document) {
+            guard let range = block.range, let lines = source.lines(of: block) else { continue }
+            let start = source.index(range.lowerBound)
+            let blockEnd = source.index(SourceLocation(line: lines.upperBound, column: Int.max / 2, source: nil))
+            guard start < blockEnd, let open = text.range(of: "<!--", range: start..<blockEnd) else { continue }
+            let end = text.range(of: "-->", range: open.upperBound..<text.endIndex)?.upperBound ?? text.endIndex
+            guard open.lowerBound > start else { return open.lowerBound..<end }
+
+            let lineStart = text[..<open.lowerBound].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
+            let lineEnd = text[end...].firstIndex(of: "\n") ?? text.endIndex
+            guard text[lineStart..<open.lowerBound].allSatisfy(\.isWhitespace),
+                  text[end..<lineEnd].allSatisfy(\.isWhitespace) else { return open.lowerBound..<end }
+            return lineStart..<(lineEnd < text.endIndex ? text.index(after: lineEnd) : lineEnd)
+        }
+        return nil
+    }
+
+    private static func htmlBlocks(in markup: Markup) -> [HTMLBlock] {
+        markup.children.flatMap { child -> [HTMLBlock] in
+            if let html = child as? HTMLBlock { return [html] }
+            return htmlBlocks(in: child)
+        }
     }
 
     // Reads the HTML blocks of one document in order. Containers stay open from one

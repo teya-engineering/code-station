@@ -9,15 +9,17 @@ import SwiftUI
 struct AppSwitchStyle: ToggleStyle {
     // A switch for a choice with a cost wears the attention colour once it is on.
     var warns = false
+    var leading = false
 
     func makeBody(configuration: Configuration) -> some View {
-        AppSwitch(configuration: configuration, warns: warns)
+        AppSwitch(configuration: configuration, warns: warns, leading: leading)
     }
 }
 
 private struct AppSwitch: View {
     let configuration: ToggleStyleConfiguration
     let warns: Bool
+    let leading: Bool
 
     private static let trackWidth: CGFloat = 34
     private static let trackHeight: CGFloat = 20
@@ -26,13 +28,14 @@ private struct AppSwitch: View {
     private static var travel: CGFloat { trackWidth - knob - inset * 2 }
 
     @State private var hovering = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         Button {
             configuration.isOn.toggle()
         } label: {
             HStack(spacing: Space.lg) {
-                configuration.label
+                if !leading { configuration.label }
                 Capsule()
                     .fill(configuration.isOn ? (warns ? Theme.attention : Theme.accentFill) : Theme.dotOff)
                     .frame(width: Self.trackWidth, height: Self.trackHeight)
@@ -49,12 +52,16 @@ private struct AppSwitch: View {
                     // Only the switch lifts. A label that grew with it would drag the
                     // sentence beside it around every time the pointer crossed the row.
                     .hoverLift(hovering, amount: Motion.smallLift)
+                if leading { configuration.label }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
         .motion(Motion.control, value: configuration.isOn)
+        .focused($focused)
+        .overlay { FocusRingStroke(focused: focused, cornerRadius: Radius.control) }
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }
 
@@ -123,7 +130,9 @@ struct CheckboxMark: View {
 
 extension ToggleStyle where Self == AppSwitchStyle {
     static var appSwitch: AppSwitchStyle { AppSwitchStyle() }
-    static func appSwitch(warns: Bool) -> AppSwitchStyle { AppSwitchStyle(warns: warns) }
+    static func appSwitch(warns: Bool, leading: Bool = false) -> AppSwitchStyle {
+        AppSwitchStyle(warns: warns, leading: leading)
+    }
 }
 
 extension ToggleStyle where Self == AppCheckboxStyle {

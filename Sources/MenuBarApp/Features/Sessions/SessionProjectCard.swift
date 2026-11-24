@@ -91,24 +91,28 @@ struct SessionProjectCard: View {
     }
 }
 
-struct SessionCheckoutPaths: View {
-    struct Entry {
-        let name: String
-        let branch: String?
-        let path: String
-    }
+struct SessionCheckoutPath {
+    let name: String
+    let branch: String?
+    let path: String
+}
 
-    let entries: [Entry]
+struct SessionCheckoutPaths<BranchField: View>: View {
+    let entries: [SessionCheckoutPath]
+    @ViewBuilder let branchField: BranchField
     @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
+        VStack(alignment: .leading, spacing: 0) {
             DisclosureHeader(isExpanded: $expanded, show: "Show branch and checkout paths",
                              hide: "Hide branch and checkout paths") {
                 Text("Branch and checkout paths").font(Typography.detail)
             }
+            .foregroundStyle(.secondary)
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-            if expanded {
+            // Keep the field mounted so closing the section does not cancel branch validation.
+            VStack(alignment: .leading, spacing: Space.md) {
+                branchField
                 VStack(alignment: .leading, spacing: Space.md) {
                     ForEach(entries.indices, id: \.self) { index in
                         let entry = entries[index]
@@ -123,11 +127,65 @@ struct SessionCheckoutPaths: View {
                         .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .transition(.fold)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.top, Space.md)
+            .frame(height: expanded ? nil : 0, alignment: .top)
+            .opacity(expanded ? 1 : 0)
+            .clipped()
+            .disabled(!expanded)
+            .allowsHitTesting(expanded)
+            .accessibilityHidden(!expanded)
+        }
+        .smoothlyResizes(when: expanded)
+    }
+}
+
+// `accepted` stays false until every project has checked the typed name.
+struct SessionBranchField: View {
+    private static let typingPause: Duration = .milliseconds(250)
+
+    let placeholder: String
+    @Binding var name: String
+    let projects: [Project]
+    @Binding var accepted: Bool
+
+    @State private var problem: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        LabeledField("Branch") {
+            TextField(placeholder, text: $name).appTextField()
+            if let problem {
+                Text(problem)
+                    .font(Typography.detail)
+                    .foregroundStyle(Theme.warningText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
             }
         }
-        .foregroundStyle(.secondary)
-        .smoothlyResizes(when: expanded)
+        .motion(Motion.reveal, value: problem)
+        .task(id: [name.trimmed] + projects.map(\.path)) { await check(name.trimmed) }
+    }
+
+    private func check(_ branch: String) async {
+        accepted = false
+        guard !branch.isEmpty else {
+            problem = nil
+            accepted = true
+            return
+        }
+        guard (try? await Task.sleep(for: Self.typingPause)) != nil else { return }
+        var found: String?
+        for project in projects {
+            if let message = await GitBranches.nameProblem(branch, at: project.path) {
+                found = projects.count > 1 ? "\(project.name): \(message)" : message
+                break
+            }
+        }
+        guard !Task.isCancelled else { return }
+        problem = found
+        accepted = found == nil
     }
 }
 

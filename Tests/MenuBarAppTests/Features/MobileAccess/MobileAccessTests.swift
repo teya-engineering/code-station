@@ -161,29 +161,25 @@ struct MobileAccessTests {
     }
 
     @Test func mobileAccessStaysOffUntilItIsEnabled() throws {
-        let suite = "mobile-access-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
-        #expect(!Preferences.mobileAccessEnabled(in: defaults))
+        #expect(!Preferences.mobileAccessEnabled.read(in: defaults))
         defaults.set(true, forKey: "mobileAccessEnabled")
-        #expect(Preferences.mobileAccessEnabled(in: defaults))
+        #expect(Preferences.mobileAccessEnabled.read(in: defaults))
     }
 
     @Test func aCodeLastsThirtyMinutesUntilAnotherLengthIsChosen() throws {
-        let suite = "mobile-access-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = scratchDefaults()
 
-        #expect(Preferences.mobilePairingLifetime(in: defaults) == .thirtyMinutes)
+        #expect(Preferences.mobilePairingLifetime.read(in: defaults) == .thirtyMinutes)
         #expect(MobilePairingLifetime.thirtyMinutes.duration == .seconds(1_800))
 
-        Preferences.setMobilePairingLifetime(.untilStopped, in: defaults)
-        #expect(Preferences.mobilePairingLifetime(in: defaults) == .untilStopped)
+        Preferences.mobilePairingLifetime.write(.untilStopped, in: defaults)
+        #expect(Preferences.mobilePairingLifetime.read(in: defaults) == .untilStopped)
         #expect(MobilePairingLifetime.untilStopped.duration == nil)
 
         defaults.set(42, forKey: "mobilePairingLifetime")
-        #expect(Preferences.mobilePairingLifetime(in: defaults) == .thirtyMinutes)
+        #expect(Preferences.mobilePairingLifetime.read(in: defaults) == .thirtyMinutes)
     }
 
     @Test func everyCodeLengthIsOfferedOnce() {
@@ -217,41 +213,55 @@ struct MobileAccessTests {
         #expect(LANAddress.preferredIPv4(from: candidates) == nil)
     }
 
-    // This is the example from RFC 6455. A mismatch here means browsers will refuse the
-    // upgrade before the mobile protocol gets a chance to authenticate.
-    @Test func acceptsAWebSocketUpgrade() {
-        #expect(WebSocketHandshake.accept(for: "dGhlIHNhbXBsZSBub25jZQ==")
-                == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+    // The browser's side of a pairing: the socket opens under its pairing id, carries text
+    // both ways, and takes a message far past a single small frame, since files from the
+    // phone travel inside a prompt.
+    @Test func carriesMessagesBothWaysOverTheSocket() async throws {
+        let received = AsyncStream.makeStream(of: String.self)
+        let opened = AsyncStream.makeStream(of: (LANWebSocketServer.ConnectionID, String).self)
+        let server = LANWebSocketServer(page: Data(),
+                                        onOpen: { opened.continuation.yield(($0, $1)) },
+                                        onMessage: { received.continuation.yield($1) },
+                                        onClose: { _ in })
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let pairing = UUID().uuidString
+        let socket = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:\(port)/socket/\(pairing)")!)
+        socket.maximumMessageSize = LANWebSocketServer.maximumMessageSize
+        socket.resume()
+        defer { socket.cancel(with: .normalClosure, reason: nil) }
+
+        var openings = opened.stream.makeAsyncIterator()
+        let (connection, openedPairing) = try #require(await openings.next())
+        #expect(openedPairing == pairing)
+
+        let large = String(repeating: "a", count: 3 * 1024 * 1024)
+        try await socket.send(.string("hello"))
+        try await socket.send(.string(large))
+        var messages = received.stream.makeAsyncIterator()
+        #expect(await messages.next() == "hello")
+        #expect(await messages.next()?.count == large.count)
+
+        server.send("from the Mac", to: connection)
+        guard case .string(let reply) = try await socket.receive() else {
+            Issue.record("Expected a text message.")
+            return
+        }
+        #expect(reply == "from the Mac")
     }
 
-    @Test func readsAMaskedBrowserFrame() throws {
-        var decoder = WebSocketFrameDecoder()
-        let mask: [UInt8] = [0x37, 0xFA, 0x21, 0x3D]
-        let text = Data("hello".utf8)
-        let masked = text.enumerated().map { $0.element ^ mask[$0.offset % mask.count] }
-        let frame = Data([0x81, 0x80 | UInt8(text.count)] + mask + masked)
+    @Test func refusesASocketThatDoesNotNameAPairing() async throws {
+        let server = LANWebSocketServer(page: Data(), onOpen: { _, _ in Issue.record("Opened") },
+                                        onMessage: { _, _ in }, onClose: { _ in })
+        let port = try await server.start()
+        defer { server.stop() }
 
-        #expect(try decoder.append(frame) == [.text("hello")])
-    }
-
-    @Test func waitsForAWholeFrame() throws {
-        var decoder = WebSocketFrameDecoder()
-        let first = Data([0x81, 0x82, 0x01, 0x02])
-        let second = Data([0x03, 0x04, 0x68 ^ 0x01, 0x69 ^ 0x02])
-
-        #expect(try decoder.append(first).isEmpty)
-        #expect(try decoder.append(second) == [.text("hi")])
-    }
-
-    @Test func readsManyFramesAndRetainsAPartialFrame() throws {
-        var decoder = WebSocketFrameDecoder()
-        let frame = Data([0x81, 0x82, 1, 2, 3, 4, 0x68 ^ 1, 0x69 ^ 2])
-        var batch = Data()
-        for _ in 0..<1_000 { batch.append(frame) }
-        batch.append(frame.prefix(3))
-
-        #expect(try decoder.append(batch) == Array(repeating: .text("hi"), count: 1_000))
-        #expect(try decoder.append(frame.dropFirst(3)) == [.text("hi")])
+        let socket = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:\(port)/socket/not-a-pairing")!)
+        socket.resume()
+        defer { socket.cancel(with: .normalClosure, reason: nil) }
+        await #expect(throws: (any Error).self) { try await socket.receive() }
+        #expect((socket.response as? HTTPURLResponse)?.statusCode == 404)
     }
 
     @Test func decodesTheVersionedMobileCommands() throws {

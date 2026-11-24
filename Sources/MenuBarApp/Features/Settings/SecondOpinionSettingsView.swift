@@ -18,14 +18,14 @@ struct SecondOpinionSettingsView: View {
     @State private var seatMotion = Motion.reveal
 
     private var installed: [AgentKind] {
-        AgentKind.allCases.filter { runner.executable(for: $0) != nil }
+        runner.catalog.availableAgents
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xxl) {
+            reading.id(SettingsSearchTarget.secondOpinionReading.id)
             reviewers.id(SettingsSearchTarget.secondOpinionReviewers.id)
             lookFor.id(SettingsSearchTarget.secondOpinionFocus.id)
-            reading.id(SettingsSearchTarget.secondOpinionReading.id)
             access.id(SettingsSearchTarget.secondOpinionAccess.id)
         }
         .onAppear {
@@ -34,7 +34,7 @@ struct SecondOpinionSettingsView: View {
         }
         // A reset empties the lineup, and the rows to tick come straight back.
         .onChange(of: defaults.seats.isEmpty) { seatInstalledAgents() }
-        .task { for agent in installed { await runner.discoverModels(for: agent) } }
+        .task { for agent in installed { await runner.catalog.discoverModels(for: agent) } }
     }
 
     // Every installed agent gets a row to tick, unticked until the person picks it. A
@@ -52,7 +52,7 @@ struct SecondOpinionSettingsView: View {
         ChoiceBlock("USUAL REVIEWERS", note: "The ask opens with these seats ticked. Change them for one ask under Tune.") {
             SettingsCard {
                 if defaults.seats.isEmpty {
-                    Text(SecondOpinionLineup.installHint(author: runner.agent))
+                    Text(SecondOpinionLineup.installHint(author: runner.catalog.agent))
                         .font(Typography.detail).foregroundStyle(.secondary)
                         .padding(Space.lg)
                 }
@@ -130,7 +130,7 @@ struct SecondOpinionSettingsView: View {
                     installed.map { agent in
                         MenuEntry.item(agent.title, subtitle: "Starts on a model no seat of it uses yet") {
                             seatMotion = Motion.reveal
-                            defaults.addSeat(agent, models: runner.modelOptions(for: agent).map(\.id), effort: nil)
+                            defaults.addSeat(agent, models: runner.catalog.modelOptions(for: agent).map(\.id), effort: nil)
                             settingsNote("Added a \(agent.title) seat", "plus")
                         }
                     }
@@ -149,14 +149,14 @@ struct SecondOpinionSettingsView: View {
     }
 
     private func modelMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let title = seat.model.map { runner.modelTitle($0) } ?? "Default"
+        let title = seat.model.map { runner.catalog.modelTitle($0) } ?? "Default"
         return SeatPill { Text(title) }
             .appMenu {
-                runner.modelOptions(for: seat.agent).map { option in
+                runner.catalog.modelOptions(for: seat.agent).map { option in
                     MenuEntry.item(option.title, checked: seat.model == option.id, subtitle: option.detail) {
                         guard defaults.seats.indices.contains(index) else { return }
                         defaults.seats[index].reviewer.model = option.id
-                        defaults.seats[index].reviewer.effort = runner.validEffort(seat.effort, for: seat.agent,
+                        defaults.seats[index].reviewer.effort = runner.catalog.validEffort(seat.effort, for: seat.agent,
                                                                                    model: option.id)
                     }
                 }
@@ -166,8 +166,8 @@ struct SecondOpinionSettingsView: View {
     }
 
     private func effortMenu(_ seat: SecondOpinion.Reviewer, at index: Int) -> some View {
-        let levels = runner.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
-        let title = seat.effort.map { runner.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
+        let levels = runner.catalog.effortOptions(for: seat.agent, model: seat.model).compactMap(\.id)
+        let title = seat.effort.map { runner.catalog.effortTitle($0, for: seat.agent, model: seat.model) } ?? "Default"
         func pick(_ effort: String?) {
             guard defaults.seats.indices.contains(index) else { return }
             defaults.seats[index].reviewer.effort = effort
@@ -181,7 +181,7 @@ struct SecondOpinionSettingsView: View {
                             subtitle: "Whatever \(seat.agent.title) is set to use",
                             detail: "about \(SecondOpinion.minutes(for: nil)) min") { pick(nil) },
              .separator] + levels.map { level in
-                MenuEntry.item(runner.effortTitle(level, for: seat.agent, model: seat.model),
+                MenuEntry.item(runner.catalog.effortTitle(level, for: seat.agent, model: seat.model),
                                meter: EffortMeter.lit(for: level, among: levels),
                                checked: seat.effort == level,
                                detail: "about \(SecondOpinion.minutes(for: level)) min") { pick(level) }
@@ -257,31 +257,59 @@ struct SecondOpinionSettingsView: View {
     // MARK: They read
 
     private var reading: some View {
-        ChoiceBlock("THEY READ") {
+        ChoiceBlock("REVIEW CONTEXT", note: "Defaults for each ask. Changes made inside an ask apply only to that review.") {
             SettingsCard {
-                SettingsToggleRow(
-                    "Project files, for answers and plans",
-                    detail: "They can open the files an answer talks about to check it. Code changes always read the changes and the project's files.",
-                    isOn: $defaults.chatReading.files)
-                    .padding(Space.lg)
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    Text("Answers & chat").font(Typography.label)
+                    Text("Start with, from the chat toolbar").font(Typography.caption).foregroundStyle(.secondary)
+                    FlowRow(spacing: Space.sm) {
+                        ForEach(SecondOpinionDefaults.ChatSubject.allCases, id: \.self) { subject in
+                            ChoicePill(title: subject.title, selected: defaults.chatSubject == subject) {
+                                defaults.chatSubject = subject
+                            }
+                        }
+                    }
+                    Text("An action under an answer or plan always reviews that answer or plan and its request.")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                    SettingsToggleRow("Project files", detail: "Let reviewers check the code behind the answer.",
+                                      isOn: $defaults.chatReading.files)
+                    if defaults.chatSubject == .conversation {
+                        ToggleChip(fixed: "Earlier conversation included")
+                        Text("Whole chat includes every conversational turn.")
+                            .font(Typography.caption).foregroundStyle(.secondary)
+                    } else {
+                        SettingsToggleRow("Earlier conversation", detail: "Include earlier turns when reviewing a single answer.",
+                                          isOn: $defaults.chatReading.conversation, warns: true)
+                    }
+                }
+                .padding(Space.lg)
+                .motion(Motion.control, value: defaults.chatSubject)
                 SettingsRowDivider()
-                SettingsToggleRow(
-                    "This conversation, for answers and plans",
-                    detail: "Gives them the whole session. It also makes them think like the agent that wrote it, so they catch less.",
-                    isOn: $defaults.chatReading.conversation, warns: true)
-                    .padding(Space.lg)
+                VStack(alignment: .leading, spacing: Space.md) {
+                    Text("Code changes").font(Typography.label)
+                    ForEach(SecondOpinionDefaults.Comparison.allCases, id: \.self) { comparison in
+                        OptionRow(title: comparison.title, detail: comparison.detail,
+                                  selected: defaults.comparison == comparison) {
+                            defaults.comparison = comparison
+                        }
+                    }
+                    Label("Changes and project files are always included. A file action keeps the comparison in Changes.",
+                          systemImage: "lock.fill")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(Space.lg)
                 SettingsRowDivider()
-                SettingsToggleRow(
-                    "HTML, handoff and theme, for designs",
-                    detail: "Every screen is always sent as a picture, light and dark. This adds the files behind it.",
-                    isOn: $defaults.designReading.source)
-                    .padding(Space.lg)
-                SettingsRowDivider()
-                SettingsToggleRow(
-                    "The design conversation",
-                    detail: "Shows them how the design was asked for. Like the session, it pulls them toward the author's view.",
-                    isOn: $defaults.designReading.conversation, warns: true)
-                    .padding(Space.lg)
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    Text("Designs").font(Typography.label)
+                    Text("Every screen in light and dark is always included.")
+                        .font(Typography.caption).foregroundStyle(.secondary)
+                    SettingsToggleRow("HTML, handoff and theme", detail: "Include the files behind the design.",
+                                      isOn: $defaults.designReading.source)
+                    SettingsToggleRow("Design conversation", detail: "Include the requests and decisions behind the design.",
+                                      isOn: $defaults.designReading.conversation, warns: true)
+                }
+                .padding(Space.lg)
             }
         }
     }

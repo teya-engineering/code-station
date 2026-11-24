@@ -87,6 +87,27 @@ struct WorkingTreeWatchTests {
         #expect(!watch.hasInspected(unwatched.url.path))
     }
 
+    // A failed read says nothing about the tree, so the mark it already earned stays and
+    // the tree is read again on the next pass rather than after the next file event.
+    @Test func keepsTheLastAnswerAndRetriesWhenGitFails() async throws {
+        let folder = ScratchDirectory(prefix: "working-tree-watch")
+        let path = folder.url.path
+        let answers = ScriptedAnswers([3, nil, 0])
+        let watch = WorkingTreeWatch { _ in await answers.next() }
+
+        watch.refresh([path])
+        try await eventually { answers.asked == 1 && watch.isDirty(path) }
+
+        watch.noteChanged([path])
+        try await eventually { answers.asked == 2 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(watch.isDirty(path))
+        #expect(watch.uncommittedFileCount(at: path) == 3)
+
+        watch.refresh([path])
+        try await eventually { answers.asked == 3 && !watch.isDirty(path) }
+    }
+
     @Test func noticesLinkedWorktreeEditsStagingCommitsAndDeletion() async throws {
         let repo = try GitRepo()
         let scratch = ScratchDirectory(prefix: "working-tree-watch")
@@ -179,13 +200,30 @@ struct WorkingTreeWatchTests {
         }
     }
 
+    private final class ScriptedAnswers: @unchecked Sendable {
+        private let lock = NSLock()
+        private var answers: [Int?]
+        private var count = 0
+
+        init(_ answers: [Int?]) { self.answers = answers }
+
+        var asked: Int { lock.withLock { count } }
+
+        func next() async -> Int? {
+            lock.withLock {
+                count += 1
+                return answers.isEmpty ? 0 : answers.removeFirst()
+            }
+        }
+    }
+
     private final class RepositoryInspections: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
 
         var value: Int { lock.withLock { count } }
 
-        func inspect(_ path: String) async -> Int {
+        func inspect(_ path: String) async -> Int? {
             let result = await GitInspector.uncommittedFileCount(at: path)
             lock.withLock { count += 1 }
             return result

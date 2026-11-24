@@ -23,6 +23,26 @@ struct DiffPair: View {
     }
 }
 
+// Lines added and removed as two short bars on a fixed length, measured on a scale the
+// rows beside it share, for a list whose names take the room a `FileBarRow` gives its bar.
+struct DiffBar: View {
+    let added: Int
+    let removed: Int
+    // The line count that fills the whole length.
+    let scale: Int
+    var length: CGFloat = ReviewMetrics.receiptBarWidth
+
+    var body: some View {
+        let unit = length / CGFloat(max(scale, 1))
+        HStack(spacing: Space.xxs) {
+            if added > 0 { Capsule().fill(Theme.addition).frame(width: max(Space.xxs, unit * CGFloat(added))) }
+            if removed > 0 { Capsule().fill(Theme.deletion).frame(width: max(Space.xxs, unit * CGFloat(removed))) }
+        }
+        .frame(width: length, height: Space.xs, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+}
+
 // A small run of mono capitals on a quiet fill: a worktree badge, a git summary, the
 // kind of thing that qualifies the name beside it. Its room and corners grow with the
 // type, so the same chip carries a 13pt command part as well as a 9pt badge. A bordered
@@ -67,6 +87,7 @@ struct FileBarRow: View {
     var lit = true
     // The line count that fills the whole bar, shared by every row in one list.
     var scale: Int
+    var nameWidth: CGFloat = Self.nameWidth
 
     static let nameWidth: CGFloat = 168
 
@@ -74,7 +95,7 @@ struct FileBarRow: View {
         HStack(spacing: Space.md) {
             Text(name).font(Typography.data).lineLimit(1).truncationMode(.middle)
                 .foregroundStyle(lit ? Color.primary : Color.secondary)
-                .frame(width: Self.nameWidth, alignment: .leading)
+                .frame(width: nameWidth, alignment: .leading)
             GeometryReader { proxy in
                 let unit = proxy.size.width / CGFloat(max(scale, 1))
                 HStack(spacing: Space.xxs) {

@@ -12,7 +12,7 @@ struct TraceCallView: View {
     var body: some View {
         switch rendering {
         case .trace(_, let trace):
-            TraceWaterfallView(trace: trace, maxHeight: 460)
+            TraceWaterfallView(trace: trace, maxHeight: ScrollCap.tall)
         case .truncated(let call):
             VStack(alignment: .leading, spacing: Space.md) {
                 ToolOutputCard(label: "OUTPUT", text: output, isFailure: false, runInShell: nil)

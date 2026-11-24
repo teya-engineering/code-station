@@ -128,6 +128,136 @@ struct SessionFactsTests {
             facts: facts, showsBranch: true).contains("1 open pull requests"))
     }
 
+    // What may still need the person leads, newest first, and the merged and closed ones
+    // follow, newest first too. A state not known yet counts as one that may need them.
+    @Test func listsOpenPullRequestsFirstAndNewestFirstWithinEach() {
+        let merged = PullRequest(number: 1, url: "https://github.com/team/a/pull/1")
+        let open = PullRequest(number: 2, url: "https://github.com/team/a/pull/2")
+        let unknown = PullRequest(number: 3, url: "https://github.com/team/b/pull/3")
+        let closed = PullRequest(number: 4, url: "https://github.com/team/b/pull/4")
+        let draft = PullRequest(number: 5, url: "https://github.com/team/c/pull/5")
+        let facts = SessionFacts(
+            pullRequests: [merged, open, unknown, closed, draft],
+            pullRequestStatuses: [
+                merged.url: .init(state: .merged, title: "", headBranch: ""),
+                open.url: .init(state: .open, title: "", headBranch: ""),
+                closed.url: .init(state: .closed, title: "", headBranch: ""),
+                draft.url: .init(state: .open, title: "", headBranch: "", isDraft: true)
+            ])
+
+        #expect(facts.orderedPullRequests.map(\.number) == [5, 3, 2, 4, 1])
+    }
+
+    // An open card keeps the order it opened with when a state lands, so nothing moves
+    // under the pointer. One opened meanwhile goes on top, and one that went is dropped.
+    @Test func holdsTheOrderAnOpenCardStartedWith() {
+        let first = PullRequest(number: 1, url: "https://github.com/team/a/pull/1")
+        let second = PullRequest(number: 2, url: "https://github.com/team/a/pull/2")
+        let third = PullRequest(number: 3, url: "https://github.com/team/a/pull/3")
+        var facts = SessionFacts(pullRequests: [first, second])
+        let held = facts.orderedPullRequests.map(\.url)
+        #expect(held == [second.url, first.url])
+
+        facts.pullRequestStatuses[second.url] = .init(state: .merged, title: "", headBranch: "")
+        #expect(facts.orderedPullRequests.map(\.number) == [1, 2])
+        #expect(facts.pullRequests(holding: held).map(\.number) == [2, 1])
+
+        facts.pullRequests = [first, second, third]
+        #expect(facts.pullRequests(holding: held).map(\.number) == [3, 2, 1])
+
+        facts.pullRequests = [first, third]
+        #expect(facts.pullRequests(holding: held).map(\.number) == [3, 1])
+    }
+
+    // A pull request already merged when it is linked to an open card joins the bottom,
+    // under the open ones the person may still need.
+    @Test func putsASettledLateArrivalUnderTheHeldRows() {
+        let first = PullRequest(number: 1, url: "https://github.com/team/a/pull/1")
+        let second = PullRequest(number: 2, url: "https://github.com/team/a/pull/2")
+        let old = PullRequest(number: 3, url: "https://github.com/team/b/pull/3")
+        var facts = SessionFacts(pullRequests: [first, second])
+        let held = facts.orderedPullRequests.map(\.url)
+
+        facts.pullRequests = [old, first, second]
+        facts.pullRequestStatuses[old.url] = .init(state: .merged, title: "", headBranch: "")
+        #expect(facts.pullRequests(holding: held).map(\.number) == [2, 1, 3])
+    }
+
+    // The stored list keeps a pull request found for the branch behind the ones read from
+    // the transcript, whatever its age, so newest is read from when GitHub says each was
+    // opened. One GitHub has not answered for yet counts as the newest.
+    @Test func ordersByWhenGitHubSaysEachWasOpened() {
+        let fromTranscript = PullRequest(number: 9, url: "https://github.com/team/a/pull/9")
+        let fromBranch = PullRequest(number: 4, url: "https://github.com/team/b/pull/4")
+        let unread = PullRequest(number: 12, url: "https://github.com/team/c/pull/12")
+        let day: TimeInterval = 86_400
+        let facts = SessionFacts(
+            pullRequests: [fromTranscript, unread, fromBranch],
+            pullRequestStatuses: [
+                fromTranscript.url: .init(state: .open, title: "", headBranch: "",
+                                          createdAt: Date(timeIntervalSince1970: 3 * day)),
+                fromBranch.url: .init(state: .open, title: "", headBranch: "",
+                                      createdAt: Date(timeIntervalSince1970: day))
+            ])
+
+        #expect(facts.orderedPullRequests.map(\.number) == [12, 9, 4])
+    }
+
+    private func snapshot(branch: String, files: [(added: Int, removed: Int)] = []) -> GitSnapshot {
+        var snapshot = GitSnapshot(state: .ready, branch: branch)
+        snapshot.files = files.enumerated().map { index, counts in
+            GitChange(path: "file-\(index).swift", kind: .modified, isStaged: false, isUnstaged: true,
+                      added: counts.added, removed: counts.removed, isBinary: false)
+        }
+        return snapshot
+    }
+
+    // The transcript's running total stands in only until git has answered.
+    @Test func countsTheTreeOnceGitHasAnswered() {
+        var summary = SessionSummary()
+        #expect(SessionFacts.Changes(snapshots: [], summary: summary) == nil)
+
+        summary.added = 7
+        summary.removed = 2
+        #expect(SessionFacts.Changes(snapshots: [], summary: summary)
+            == .init(files: 0, added: 7, removed: 2))
+
+        #expect(SessionFacts.Changes(snapshots: [snapshot(branch: "main")], summary: summary) == nil)
+        let trees = [snapshot(branch: "main", files: [(3, 1), (4, 0)]),
+                     snapshot(branch: "other", files: [(1, 5)])]
+        #expect(SessionFacts.Changes(snapshots: trees, summary: summary)
+            == .init(files: 3, added: 8, removed: 6))
+    }
+
+    @Test func readsASessionsFactsFromItsLeadCheckout() {
+        var session = ChatSession(projectID: UUID(), agent: .codex)
+        session.worktreeBranch = "made/at-creation"
+        let request = PullRequest(number: 7, url: "https://github.com/a/b/pull/7")
+        session.pullRequests = [request]
+        let status = PullRequestStatus(state: .open, title: "Seven", headBranch: "made/at-creation")
+        let reviews = [PullRequestReviewStore.Loaded(pullRequest: request, status: status, reviews: [])]
+
+        // Git has answered for neither folder: the branch the session was made on stands in.
+        let waiting = SessionFacts(session: session, snapshots: [nil, nil], reviews: reviews,
+                                   modelTitle: { $0 }, showsCost: true)
+        #expect(waiting.branch == "made/at-creation")
+        #expect(waiting.changes == nil)
+        #expect(waiting.pullRequestStatuses == [request.url: status])
+        #expect(waiting.agent == .codex)
+
+        // A clean tree is known to be clean only once every folder has answered.
+        let partial = SessionFacts(session: session, snapshots: [snapshot(branch: "lead"), nil],
+                                   reviews: [], modelTitle: { $0 }, showsCost: true)
+        #expect(partial.branch == "lead")
+        #expect(partial.changes == nil)
+        let clean = SessionFacts(session: session,
+                                 snapshots: [snapshot(branch: "lead"), snapshot(branch: "second")],
+                                 reviews: [], modelTitle: { $0 }, showsCost: true)
+        #expect(clean.changes == .init(files: 0, added: 0, removed: 0))
+        #expect(SessionFacts(session: session, snapshots: [], reviews: [], modelTitle: { $0 },
+                             showsCost: true).changes == nil)
+    }
+
     @Test func distinguishesNewSessionsFromFinishedAndRunningOnes() {
         #expect(SessionStateReading(tone: .idle, isNew: true).spokenWord == "New session")
         #expect(SessionStateReading(tone: .running, isNew: true).spokenWord == "Running")

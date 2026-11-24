@@ -49,7 +49,7 @@ enum TranscriptSearch {
         case .assistant:
             return message.blocks.flatMap { block -> [String] in
                 switch block {
-                case .prose(_, let text):
+                case .prose(_, let text, _):
                     return MessageSegment.split(text).flatMap { segment -> [String] in
                         if segment.isDrawn { return [] }
                         if segment.isCode { return [segment.text] }
@@ -68,7 +68,7 @@ enum TranscriptSearch {
                             }
                         }
                     }
-                case .thinking(_, let text):
+                case .thinking(_, let text, _):
                     return [text.trimmed]
                 case .tools:
                     return []

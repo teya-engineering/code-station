@@ -17,33 +17,6 @@ struct AgentCommandsTests {
         return url
     }
 
-    @Test func aCommandIsOnlyEverTheWholeOfAnUnfinishedPrompt() {
-        #expect(SlashQuery.typed(in: "/rev") == "rev")
-        #expect(SlashQuery.typed(in: "/") == "")
-        #expect(SlashQuery.typed(in: "/code-review") == "code-review")
-        // A name that is settled, so the menu has nothing left to offer.
-        #expect(SlashQuery.typed(in: "/review ") == nil)
-        #expect(SlashQuery.typed(in: "/review the login retry") == nil)
-        // A slash inside a sentence is a path or a date far more often than a command.
-        #expect(SlashQuery.typed(in: "look at src/main") == nil)
-        #expect(SlashQuery.typed(in: "") == nil)
-        #expect(SlashQuery.typed(in: "/review\n") == nil)
-    }
-
-    @Test func matchesPutTheNearestNameFirst() {
-        let commands = ["reviewers", "review", "security-review", "backend:review", "rebase"]
-            .map { AgentCommand(name: $0, summary: "", scope: .user) }
-
-        #expect(SlashQuery.matches("review", in: commands).map(\.name)
-            == ["review", "reviewers", "backend:review", "security-review"])
-        #expect(SlashQuery.matches("re", in: commands).map(\.name)
-            == ["reviewers", "review", "rebase", "backend:review", "security-review"])
-        #expect(SlashQuery.matches("RE", in: commands).map(\.name).first == "reviewers")
-        #expect(SlashQuery.matches("zzz", in: commands).isEmpty)
-        // Nothing typed yet is everything, in the order it was gathered.
-        #expect(SlashQuery.matches("", in: commands).map(\.name) == commands.map(\.name))
-    }
-
     @Test func aFolderOfFilesBecomesCommands() throws {
         _ = try write("""
         ---
@@ -217,6 +190,26 @@ struct AgentCommandsTests {
             == "Run it.")
     }
 
+    @Test func quotedValuesAndCommentsReadTheWayYAMLMeansThem() {
+        #expect(AgentCommands.summary(of: "---\ndescription: \"Say \\\"hi\\\": politely\"\n---\n",
+                                      named: "x") == "Say \"hi\": politely")
+        #expect(AgentCommands.summary(of: "---\ndescription: 'It''s done' # set by the team\n---\n",
+                                      named: "x") == "It's done")
+    }
+
+    // Hand-written front matter often breaks YAML with a colon inside a plain value. The
+    // CLIs still read it, so the menu does too.
+    @Test func aValueThatIsNotValidYAMLIsStillRead() throws {
+        #expect(AgentCommands.summary(of: "---\nname: chart\ndescription: Triggers on: \"chart\", \"plot\"\n---\n",
+                                      named: "chart") == "Triggers on: \"chart\", \"plot\"")
+
+        _ = try write("---\ndescription: Hidden: kept for Claude\nuser-invocable: false\n---\n",
+                      to: "home/.claude/skills/hidden/SKILL.md")
+        let found = AgentCommands.all(for: .claudeCode, workingDirectories: [],
+                                      home: scratch.path("home"), environment: [:])
+        #expect(!found.contains { $0.name == "hidden" })
+    }
+
     // A key indented under another belongs to that key, not to the file.
     @Test func aNestedKeySaysNothingAboutTheFile() throws {
         #expect(AgentCommands.summary(of: "---\nmetadata:\n  description: Nested\n---\nThe prompt.\n",
@@ -349,7 +342,7 @@ struct SlashCommandSendTests {
         try Data("Run the tests and fix what fails.\n".utf8)
             .write(to: prompts.appendingPathComponent("tests.md"))
 
-        fixture.runner.send("/tests quickly", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("/tests quickly", sessionID: fixture.session.id)
 
         #expect(await waitUntil(timeout: .seconds(5)) {
             FileManager.default.fileExists(atPath: fixture.scratch.path("arguments").path)
@@ -373,7 +366,7 @@ struct SlashCommandSendTests {
         try Data("Run the tests.\n".utf8)
             .write(to: commands.appendingPathComponent("tests.md"))
 
-        fixture.runner.send("/tests", sessionID: fixture.session.id, store: fixture.store)
+        fixture.runner.send("/tests", sessionID: fixture.session.id)
 
         #expect(await waitUntil(timeout: .seconds(5)) {
             (try? String(contentsOf: fixture.scratch.path("input"), encoding: .utf8))?

@@ -8,42 +8,7 @@ import SwiftUI
 
 // What a second opinion is asked to read.
 enum SecondOpinionScopeChoice: Hashable {
-    case all, file, sinceReview
-}
-
-// Where the second opinion stands, which is what the header's control says and opens.
-enum SecondOpinionStatus: Equatable {
-    case ask
-    case reviewing(agents: [AgentKind], started: Date, pending: Int)
-    case failed(AgentKind)
-    case ready(agents: [AgentKind], pending: Int)
-    case settled(kept: Int, dismissed: Int)
-
-    @MainActor
-    init(reviews: ReviewCommentStore, sessionID: UUID) {
-        self.init(runs: reviews.runs(sessionID),
-                  findings: reviews.comments(sessionID).filter { $0.reviewer != nil },
-                  dismissed: reviews.dismissedFindings(sessionID).count)
-    }
-
-    init(runs: [SecondOpinionRun], findings: [ReviewComment], dismissed: Int) {
-        let pending = findings.filter(\.isPending)
-        let running = runs.filter(\.isRunning)
-        if !running.isEmpty {
-            self = .reviewing(agents: unique(running.map(\.agent)), started: running.map(\.started).min() ?? Date(),
-                              pending: pending.count)
-        } else if let failed = runs.first(where: { if case .failed = $0.state { true } else { false } }),
-                  pending.isEmpty {
-            self = .failed(failed.agent)
-        } else if !pending.isEmpty {
-            let voices = Set(pending.flatMap(\.reviewers))
-            self = .ready(agents: AgentKind.allCases.filter(voices.contains), pending: pending.count)
-        } else if !runs.isEmpty {
-            self = .settled(kept: findings.count { !$0.isPending }, dismissed: dismissed)
-        } else {
-            self = .ask
-        }
-    }
+    case all, file, sinceReview, branch
 }
 
 enum SecondOpinionFindings {
@@ -77,12 +42,6 @@ enum SecondOpinionFindings {
         let rotated = list[(start + 1)...] + list[..<max(0, start + 1)]
         return rotated.first(where: undecided)?.id
     }
-}
-
-// Each agent once, in the order given. Two seats can run the same agent on two models.
-private func unique(_ agents: [AgentKind]) -> [AgentKind] {
-    var seen = Set<AgentKind>()
-    return agents.filter { seen.insert($0).inserted }
 }
 
 private func names(_ agents: [AgentKind]) -> String {
@@ -221,6 +180,9 @@ struct SecondOpinionLanesPanel: View {
             Text(running.isEmpty ? "Second opinion" : "Reading the changes")
                 .font(Typography.body.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
+            if let run = runs.last {
+                SecondOpinionReceiptView(run: run, compact: true)
+            }
             if runs.isEmpty {
                 Text("No reviewer is at work.").font(Typography.detail).foregroundStyle(.secondary)
             }
@@ -256,6 +218,7 @@ struct SecondOpinionLanesPanel: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Second opinion progress")
+        .focusBoundary()
     }
 
     @ViewBuilder private func lane(_ run: SecondOpinionRun, findings: [ReviewComment]) -> some View {
@@ -265,8 +228,8 @@ struct SecondOpinionLanesPanel: View {
             case .running:
                 BadgedAvatar(agent: run.agent, size: ControlHeight.sm, badge: .working)
                 laneWords(name, detail: run.activity, mono: true)
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(clock(from: run.started, to: context.date)).font(Typography.data).foregroundStyle(.tertiary)
+                TickingReading(since: run.started, reading: { clock(from: $0, to: $1) }) { text in
+                    Text(text).font(Typography.data).foregroundStyle(.tertiary)
                 }
                 ActionButton(title: "Stop", tone: .sunken, height: ControlHeight.sm, size: Typography.Size.caption,
                              icon: "stop.fill") {
@@ -313,6 +276,7 @@ struct SecondOpinionLanesPanel: View {
 
 struct SecondOpinionFindingsView: View {
     let review: ReviewTarget
+    var send: (([ReviewComment]) -> Void)?
 
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -322,8 +286,9 @@ struct SecondOpinionFindingsView: View {
     @State private var keys = WindowKeyHandler()
     @FocusState private var editorFocused: Bool
 
-    init(review: ReviewTarget, selected: UUID?) {
+    init(review: ReviewTarget, selected: UUID?, send: (([ReviewComment]) -> Void)? = nil) {
         self.review = review
+        self.send = send
         _selected = State(initialValue: selected)
     }
 
@@ -332,6 +297,11 @@ struct SecondOpinionFindingsView: View {
     private var store: ReviewCommentStore { review.reviews }
     private var list: [ReviewComment] { SecondOpinionFindings.ordered(store.findings(review.sessionID)) }
     private var dismissedIDs: Set<UUID> { Set(store.dismissedFindings(review.sessionID).map(\.id)) }
+    private var receiptRun: SecondOpinionRun? {
+        let finding = list.first { $0.id == selected }
+        return store.runs(review.sessionID).first { run in finding?.raised(by: run.reviewer) == true }
+            ?? store.runs(review.sessionID).last
+    }
 
     private func decision(_ finding: ReviewComment, dismissed: Set<UUID>) -> Decision? {
         dismissed.contains(finding.id) ? .dismissed : finding.isPending ? nil : .kept
@@ -343,53 +313,74 @@ struct SecondOpinionFindingsView: View {
         let kept = list.count { decision($0, dismissed: dismissed) == .kept }
         let gone = dismissed.count { id in list.contains { $0.id == id } }
         let left = list.count - kept - gone
-        let voices = Set(list.flatMap(\.reviewers))
         let running = unique(store.runs(review.sessionID).filter(\.isRunning).map(\.agent))
-        DialogFrame(title: voices.isEmpty ? "Findings" : "Findings from " + names(AgentKind.allCases.filter(voices.contains)),
+        DialogFrame(title: "Findings",
                     icon: "text.bubble",
                     message: "Keep what you agree with. Kept findings join your review, and nothing reaches \(review.agent.title) until you send it.",
                     escapeCloses: false) {
             if !list.isEmpty { progress(list, dismissed: dismissed, decided: kept + gone) }
         } content: {
-            HStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if !running.isEmpty { waitingNote(running) }
-                            ForEach(Array(list.enumerated()), id: \.element.id) { index, finding in
-                                if index == 0 || ReviewRound.fileKey(root: list[index - 1].root, path: list[index - 1].path)
-                                    != ReviewRound.fileKey(root: finding.root, path: finding.path) {
-                                    groupHeader(finding)
+            GeometryReader { geometry in
+                let narrow = geometry.size.width < ReviewMetrics.columnsWidth
+                let separateReceipt = geometry.size.width >= ReviewMetrics.findingsWidth
+                let layout = narrow ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+                layout {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                if !running.isEmpty { waitingNote(running) }
+                                ForEach(Array(list.enumerated()), id: \.element.id) { index, finding in
+                                    if index == 0 || ReviewRound.fileKey(root: list[index - 1].root, path: list[index - 1].path)
+                                        != ReviewRound.fileKey(root: finding.root, path: finding.path) {
+                                        groupHeader(finding)
+                                    }
+                                    row(finding, decision: decision(finding, dismissed: dismissed))
+                                        .id(finding.id)
                                 }
-                                row(finding, decision: decision(finding, dismissed: dismissed))
-                                    .id(finding.id)
                             }
+                            .padding(.horizontal, Space.md).padding(.top, Space.md).padding(.bottom, Space.lg)
                         }
-                        .padding(.horizontal, Space.md).padding(.top, Space.md).padding(.bottom, Space.lg)
+                        .onChange(of: selected) { _, id in
+                            if let id { withAnimation(reduceMotion ? nil : Motion.reveal) { proxy.scrollTo(id) } }
+                        }
                     }
-                    .onChange(of: selected) { _, id in
-                        if let id { withAnimation(reduceMotion ? nil : Motion.reveal) { proxy.scrollTo(id) } }
+                    .frame(width: narrow ? nil : ReviewMetrics.findingsListWidth)
+                    .frame(maxHeight: narrow ? ScrollCap.short : .infinity)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Findings")
+                    if !narrow { Divider().overlay(Theme.hairline) }
+                    detail(list, dismissed: dismissed, running: running, showsReceipt: !separateReceipt)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if separateReceipt, let run = receiptRun {
+                        ScrollView { SecondOpinionReceiptView(run: run).padding(Space.lg) }
+                            .frame(width: ReviewMetrics.findingsListWidth)
                     }
                 }
-                .frame(width: 318)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Findings")
-                Rectangle().fill(Theme.hairline).frame(width: 1)
-                detail(list, dismissed: dismissed, running: running)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: 470)
+            .frame(maxHeight: .infinity)
             .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
             .padding(.top, Space.xl)
         } footer: {
-            Text(left > 0 ? "\(kept) kept, \(gone) dismissed, \(left) left. Anything left stays here for later."
-                 : "\(kept) kept and added to your review. \(gone) dismissed.")
-                .font(Typography.detail).foregroundStyle(.tertiary)
-            Spacer(minLength: 0)
-            ActionButton(title: left > 0 ? "Finish later" : "Done", tone: left > 0 ? .outlined : .green,
-                         height: ControlHeight.lg, size: Typography.Size.body) { dialogs.dismiss() }
+            VStack(alignment: .leading, spacing: Space.md) {
+                Text(left > 0 ? "\(kept) selected, \(gone) dismissed, \(left) left. Nothing has been sent."
+                     : "\(kept) selected and \(gone) dismissed. Nothing has been sent.")
+                    .font(Typography.detail).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Space.md) {
+                    Spacer(minLength: 0)
+                    if let send, kept > 0 {
+                        ActionButton(title: "Send \(counted(kept, "finding"))", tone: .green, icon: "paperplane") {
+                            send(list.filter { decision($0, dismissed: dismissed) == .kept })
+                        }
+                        .appTooltip("Send the selected findings to \(review.agent.title)")
+                    }
+                    ActionButton(title: left > 0 ? "Finish later" : "Done", tone: .outlined,
+                                 height: ControlHeight.lg, size: Typography.Size.body) { dialogs.dismiss() }
+                }
+            }
         }
         .background(WindowKeyAnchor(handler: keys))
+        .focusBoundary()
         .onAppear {
             if selected == nil || !list.contains(where: { $0.id == selected }) {
                 selected = SecondOpinionFindings.next(after: nil, in: list) { decision($0, dismissed: dismissed) == nil }
@@ -408,29 +399,11 @@ struct SecondOpinionFindingsView: View {
 
     private func progress(_ list: [ReviewComment], dismissed: Set<UUID>, decided: Int) -> some View {
         HStack(spacing: Space.md) {
-            Text("\(decided) of \(list.count) looked at").font(Typography.detail).foregroundStyle(.secondary)
+            ProgressRing(fraction: Double(decided) / Double(max(1, list.count)))
+            Text("\(decided) of \(list.count) looked at").font(Typography.caption).foregroundStyle(.secondary)
                 .contentTransition(.numericText())
-            if list.count <= 12 {
-                HStack(spacing: Space.xxs) {
-                    ForEach(list) { finding in
-                        RoundedRectangle(cornerRadius: Radius.tag)
-                            .fill(segmentColour(decision(finding, dismissed: dismissed)))
-                            .frame(width: 18, height: 5)
-                    }
-                }
-                .accessibilityHidden(true)
-            }
         }
-        .fixedSize()
         .motion(Motion.control, value: decided)
-    }
-
-    private func segmentColour(_ decision: Decision?) -> Color {
-        switch decision {
-        case .kept: Theme.dotOn
-        case .dismissed: Color.secondary.opacity(0.5)
-        case nil: Theme.field
-        }
     }
 
     private func waitingNote(_ running: [AgentKind]) -> some View {
@@ -505,7 +478,8 @@ struct SecondOpinionFindingsView: View {
         }
     }
 
-    @ViewBuilder private func detail(_ list: [ReviewComment], dismissed: Set<UUID>, running: [AgentKind]) -> some View {
+    @ViewBuilder private func detail(_ list: [ReviewComment], dismissed: Set<UUID>, running: [AgentKind],
+                                    showsReceipt: Bool) -> some View {
         if let finding = list.first(where: { $0.id == selected }) {
             let decided = decision(finding, dismissed: dismissed)
             ScrollView {
@@ -551,6 +525,9 @@ struct SecondOpinionFindingsView: View {
                         .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 2) }
                     }
                     actions(finding, decision: decided, list: list)
+                    if showsReceipt, let run = receiptRun {
+                        SecondOpinionReceiptView(run: run)
+                    }
                 }
                 .padding(.horizontal, Space.xxxl).padding(.vertical, Space.xxl)
             }
@@ -574,7 +551,7 @@ struct SecondOpinionFindingsView: View {
     }
 
     @ViewBuilder private func actions(_ finding: ReviewComment, decision: Decision?, list: [ReviewComment]) -> some View {
-        HStack(spacing: Space.md) {
+        FlowRow(spacing: Space.md) {
             // The outcome and the buttons it replaces swap places: the old set goes at
             // once and the new one fades in, so the two are never drawn over each other.
             Group {
@@ -582,7 +559,6 @@ struct SecondOpinionFindingsView: View {
                     Label(decision == .kept ? "Kept. It is in your review." : "Dismissed. It will not be sent.",
                           systemImage: decision == .kept ? "checkmark" : "xmark")
                         .font(Typography.body)
-                    Spacer(minLength: 0)
                     InlineLink(title: "Undo", tint: decision == .kept ? Theme.dotOn : Color.secondary) { undo(finding, decision) }
                 } else if editing {
                     ActionButton(title: "Keep my version", tone: .green, height: ControlHeight.md, size: Typography.Size.detail, icon: "checkmark",
@@ -595,7 +571,6 @@ struct SecondOpinionFindingsView: View {
                     ActionButton(title: "Keep", tone: .green, height: ControlHeight.md, size: Typography.Size.detail, icon: "checkmark", shortcut: "K") { keep(finding) }
                     ActionButton(title: "Edit and keep", tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail, shortcut: "E") { startEdit(finding) }
                     ActionButton(title: "Dismiss", tone: .sunken, height: ControlHeight.md, size: Typography.Size.detail, shortcut: "D") { dismiss(finding) }
-                    Spacer(minLength: 0)
                     GlyphButton(icon: "chevron.up", side: ControlHeight.sm) { move(-1, in: list) }
                         .appTooltip("Previous finding  ↑")
                         .accessibilityLabel("Previous finding")
@@ -606,7 +581,7 @@ struct SecondOpinionFindingsView: View {
             }
             .transition(.fadeIn)
         }
-        .padding(decision == nil ? 0 : 10)
+        .padding(decision == nil ? 0 : Space.md)
         .foregroundStyle(decision == .kept ? Theme.dotOn : Color.secondary)
         .background(RoundedRectangle(cornerRadius: Radius.card).fill(decision == .kept ? Theme.dotOn.opacity(0.08)
                                                              : decision == .dismissed ? Theme.field : .clear))

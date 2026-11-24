@@ -67,7 +67,9 @@ step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
 # ---------------------------------------------------------------- 1. build
 step "Building $APP_NAME $VERSION ($BUILD_NUMBER)"
-./build-app.sh release
+# Only the versions in Package.resolved: a release never picks up a newer dependency
+# than the one that was reviewed and tested.
+./build-app.sh release --force-resolved-versions
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER"       "$APP/Contents/Info.plist"
@@ -101,10 +103,10 @@ else
 
     while IFS= read -r -d '' nested; do
         if ! has_macho "$nested"; then
-            echo "    no code, skipping: ${nested#$APP/}"
+            echo "    no code, skipping: ${nested#"$APP"/}"
             continue
         fi
-        echo "    nested: ${nested#$APP/}"
+        echo "    nested: ${nested#"$APP"/}"
         sign "$nested"
     done < <(find "$APP/Contents" \
                   \( -name '*.framework' -o -name '*.bundle' -o -name '*.dylib' -o -name '*.so' \) \

@@ -29,7 +29,7 @@ final class NoteTableCell: NSTextAttachmentCell {
 
     init(source: String) {
         self.source = source
-        if let table = MarkdownTable.read(source.components(separatedBy: "\n"), from: 0)?.table {
+        if let table = MarkdownTable(markdown: source) {
             rows = ([table.header] + table.rows).enumerated().map { row, cells in
                 cells.enumerated().map { column, text in
                     Self.text(text, header: row == 0,
@@ -207,7 +207,7 @@ struct NoteTableSource: Equatable {
 
     init?(_ source: String) {
         let lines = source.components(separatedBy: "\n")
-        guard let table = MarkdownTable.read(lines, from: 0)?.table, lines.count >= 2 else { return nil }
+        guard let table = MarkdownTable(markdown: source), lines.count >= 2 else { return nil }
         self.lines = lines
         self.table = table
     }
@@ -267,7 +267,7 @@ struct NoteTableSource: Equatable {
             alignments[column] = alignment
             lines[1] = Self.separator(alignments)
         }
-        table = MarkdownTable.read(lines, from: 0)?.table ?? table
+        table = MarkdownTable(markdown: text) ?? table
     }
 
     private mutating func rewrite(_ grid: [[String]], _ alignments: [MarkdownTable.ColumnAlignment]) {

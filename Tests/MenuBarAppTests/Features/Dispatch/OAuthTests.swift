@@ -25,7 +25,7 @@ struct OAuthTests {
     }
 
     @Test func waitsForTheCompleteCallbackHeader() async throws {
-        let port: UInt16 = 8917
+        let port = try freeLoopbackPort()
         let server = LoopbackServer()
         try await server.start(port: port, timeout: 10)
         defer { server.stop() }
@@ -63,24 +63,23 @@ struct OAuthTests {
     }
 
     @Test func readsTheCodeOutOfTheRedirect() {
-        let request = "GET /callback?code=abc123&state=xyz HTTP/1.1\r\nHost: 127.0.0.1:8234\r\n\r\n"
-        let query = LoopbackServer.query(from: request)
+        let query = LoopbackServer.query(method: .GET, target: "/callback?code=abc123&state=xyz")
         #expect(query?["code"] == "abc123")
         #expect(query?["state"] == "xyz")
     }
 
     @Test func readsAProviderRefusal() {
-        let request = "GET /callback?error=access_denied&error_description=Nope%20sorry HTTP/1.1\r\n\r\n"
-        let query = LoopbackServer.query(from: request)
+        let query = LoopbackServer.query(method: .GET,
+                                         target: "/callback?error=access_denied&error_description=Nope%20sorry")
         #expect(query?["error"] == "access_denied")
         #expect(query?["error_description"] == "Nope sorry")
     }
 
     @Test func ignoresAnythingThatIsNotTheRedirect() {
-        #expect(LoopbackServer.query(from: "") == nil)
-        #expect(LoopbackServer.query(from: "POST /callback HTTP/1.1\r\n\r\n") == nil)
+        #expect(LoopbackServer.query(method: .POST, target: "/callback") == nil)
+        #expect(LoopbackServer.query(method: .GET, target: "/favicon.ico") == nil)
         // A browser that follows the redirect without a query is still a valid arrival.
-        #expect(LoopbackServer.query(from: "GET /callback HTTP/1.1\r\n\r\n") == [:])
+        #expect(LoopbackServer.query(method: .GET, target: "/callback") == [:])
     }
 
     @Test func escapesProviderTextBeforePuttingItInTheBrowserPage() {
@@ -95,7 +94,7 @@ struct OAuthTests {
     // The whole point of the listener: a real request on the loopback port hands its
     // query back to the flow that is waiting for it.
     @Test func handsBackTheQueryTheBrowserArrivesWith() async throws {
-        let port: UInt16 = 8913
+        let port = try freeLoopbackPort()
         let server = LoopbackServer()
         try await server.start(port: port, timeout: 10)
         async let redirect = server.waitForRedirect()
@@ -111,7 +110,7 @@ struct OAuthTests {
     // A sign-in that goes wrong in the browser never comes back, so calling it off has to
     // both end the wait and free the port for the next attempt.
     @Test func stopsWaitingWhenTheAttemptIsCalledOff() async throws {
-        let port: UInt16 = 8915
+        let port = try freeLoopbackPort()
         let first = LoopbackServer()
         try await first.start(port: port, timeout: 30)
         let waiting = Task { try await first.waitForRedirect() }
@@ -129,7 +128,7 @@ struct OAuthTests {
 
     @Test func givesUpWhenTheBrowserNeverComesBack() async throws {
         let server = LoopbackServer()
-        try await server.start(port: UInt16.random(in: 49_152...65_535), timeout: 1)
+        try await server.start(port: freeLoopbackPort(), timeout: 1)
         do {
             _ = try await server.waitForRedirect()
             Issue.record("Expected the browser timeout.")
@@ -139,7 +138,7 @@ struct OAuthTests {
     }
 
     @Test func ignoresRequestsOutsideTheConfiguredCallbackPath() async throws {
-        let port: UInt16 = 8918
+        let port = try freeLoopbackPort()
         let server = LoopbackServer()
         try await server.start(port: port, path: "/oauth/return", timeout: 10)
         defer { server.stop() }
@@ -156,14 +155,14 @@ struct OAuthTests {
     @Test func alreadyCancelledStartDoesNotWaitForTheBrowserTimeout() async {
         let attempt = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            try await LoopbackServer().start(port: 8919, timeout: 0.1)
+            try await LoopbackServer().start(port: freeLoopbackPort(), timeout: 0.1)
         }
         await #expect(throws: CancellationError.self) { try await attempt.value }
     }
 
     @Test func stoppingResumesTheRedirectWait() async throws {
         let server = LoopbackServer()
-        try await server.start(port: 8919, timeout: 1)
+        try await server.start(port: freeLoopbackPort(), timeout: 1)
         server.stop()
         await #expect(throws: CancellationError.self) { try await server.waitForRedirect() }
     }
@@ -171,7 +170,7 @@ struct OAuthTests {
     // Binding fails before a browser tab is ever opened, so a busy port is an error you
     // can act on rather than a wait that goes nowhere.
     @Test func refusesToStartOnAPortAlreadyInUse() async throws {
-        let port: UInt16 = 8916
+        let port = try freeLoopbackPort()
         let holder = LoopbackServer()
         try await holder.start(port: port, timeout: 10)
         defer { holder.stop() }

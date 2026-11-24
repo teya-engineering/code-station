@@ -90,12 +90,21 @@ enum RelativeTime {
 
     // "today 09:41", "yesterday 16:18", "3 Aug 11:02": what a row shows when the reader
     // is deciding which session to come back to rather than how fresh it is.
-    static func stamp(_ date: Date) -> String {
-        let time = date.formatted(date: .omitted, time: .shortened)
+    // With `seconds` the time keeps its seconds, for a transcript entry where two steps
+    // can land in the same minute. A date in another year names the year, "3 Aug 2025 11:02",
+    // so an old imported conversation is not mistaken for this year's.
+    static func stamp(_ date: Date, seconds: Bool = false, now: Date = Date()) -> String {
+        let time = date.formatted(date: .omitted, time: seconds ? .standard : .shortened)
         let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "today \(time)" }
-        if calendar.isDateInYesterday(date) { return "yesterday \(time)" }
-        return date.formatted(.dateTime.day().month(.abbreviated)) + " " + time
+        if calendar.isDate(date, inSameDayAs: now) { return "today \(time)" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) {
+            return "yesterday \(time)"
+        }
+        let day = calendar.isDate(date, equalTo: now, toGranularity: .year)
+            ? date.formatted(.dateTime.day().month(.abbreviated))
+            : date.formatted(.dateTime.day().month(.abbreviated).year())
+        return day + " " + time
     }
 }
 

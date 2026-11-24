@@ -1,4 +1,5 @@
 import Foundation
+import Markdown
 
 enum MarkdownEditorMode: String, CaseIterable {
     case edit = "Edit", source = "Source", preview = "Preview"
@@ -36,29 +37,15 @@ struct MarkdownWritingDocument {
     private static func parse(_ source: String) -> (document: NoteDocument, original: Original?)? {
         // "\r\n" is one Character, so look at scalars to find every carriage return.
         guard !source.unicodeScalars.contains("\r") else { return nil }
-        let lines = source.components(separatedBy: "\n")
-        var reader = Reader(lines: lines)
-        // Where the block being read began, and the reader as it was before it. When a line
-        // of that block cannot be read, the block is read again as literal source.
-        var checkpoint = (line: 0, reader: reader)
-        func fallBack() {
-            reader = checkpoint.reader
-            reader.appendLiteral(checkpoint.line..<Self.literalEnd(from: checkpoint.line, in: lines))
+        let markdown = MarkdownSource(source)
+        var reader = Reader(lines: source.components(separatedBy: "\n"), source: markdown)
+        for block in markdown.document.children {
+            reader.read(block)
         }
-        while true {
-            if reader.index == lines.count {
-                if reader.close() { break }
-                fallBack()
-            } else if lines[reader.index].isEmpty {
-                if reader.close() { reader.index += 1 } else { fallBack() }
-            } else {
-                if reader.open == nil { checkpoint = (reader.index, reader) }
-                if !reader.readLine() { fallBack() }
-            }
-        }
-        let runs = reader.runs
+        reader.appendLiteral(upTo: reader.lines.count)
+        let lines = reader.lines
         let spans = reader.spans
-        let document = NoteDocument(runs: Self.normalized(NoteDocument(runs: runs)))
+        let document = NoteDocument(runs: Self.normalized(NoteDocument(runs: reader.runs)))
         let generated = document.markdownBlocks.map(\.text)
         guard let first = spans.first, let last = spans.last, generated.count == spans.count else {
             return (document, nil)
@@ -71,31 +58,46 @@ struct MarkdownWritingDocument {
         return (document, original)
     }
 
+    // Turns each block swift-markdown read into runs, when the editor would write that
+    // block back the way it is written. Any other block stays as literal source.
     private struct Reader {
         let lines: [String]
-        var index = 0
+        let source: MarkdownSource
         var runs: [NoteDocument.Run] = []
         // The source lines of each block. Code blocks that follow each other become one
         // block in the editor, so they share one span, and so do literal blocks.
         var spans: [Range<Int>] = []
         var lastMerging: NoteDocument.Block?
-        // A paragraph stays open while its lines wrap, and is read as one line of text.
-        var open: (block: NoteDocument.Block, marker: String, depth: Int, text: String, lines: Range<Int>)?
-        // The start column and text column of each open list item, outermost first.
-        var lists: [(start: Int, content: Int)] = []
+        // The lines before this one have been read.
+        var covered = 0
 
-        mutating func close() -> Bool {
-            guard let paragraph = open else { return true }
-            open = nil
-            guard let inline = MarkdownWritingDocument.inline(paragraph.text, block: paragraph.block) else { return false }
-            if !runs.isEmpty { runs.append(.init(text: "\n")) }
-            if !paragraph.marker.isEmpty {
-                runs.append(.init(text: paragraph.marker, block: paragraph.block, indent: paragraph.depth))
+        mutating func read(_ block: Markup) {
+            guard var span = source.lines(of: block) else { return }
+            span = max(span.lowerBound, covered)..<min(max(span.upperBound, covered), lines.count)
+            while span.count > 1, lines[span.upperBound - 1].isEmpty { span = span.dropLast() }
+            guard !span.isEmpty else { return }
+            appendLiteral(upTo: span.lowerBound)
+            var attempt = self
+            // Only empty lines may fall between the blocks it read, as those are all the
+            // gaps between blocks can write back.
+            if attempt.admit(block, span), span.allSatisfy({ line in
+                lines[line].isEmpty || attempt.spans.contains { $0.contains(line) }
+            }) {
+                self = attempt
+            } else {
+                appendLiteral(span)
             }
-            runs.append(contentsOf: inline.map { var run = $0; run.indent = paragraph.depth; return run })
-            spans.append(paragraph.lines)
-            lastMerging = nil
-            return true
+            covered = span.upperBound
+        }
+
+        // Written lines that make no block, such as a link reference definition, stay as
+        // they are.
+        mutating func appendLiteral(upTo end: Int) {
+            guard covered < end,
+                  let first = lines[covered..<end].firstIndex(where: { !$0.isEmpty }),
+                  let last = lines[covered..<end].lastIndex(where: { !$0.isEmpty }) else { return }
+            appendLiteral(first..<(last + 1))
+            covered = end
         }
 
         // Source lines the editor cannot show as formatting stay as they are written.
@@ -109,130 +111,109 @@ struct MarkdownWritingDocument {
                 spans.append(range)
             }
             lastMerging = .literal
-            lists = []
-            index = range.upperBound
         }
 
-        // Reads the non-empty line at `index`. False when the block it belongs to has
-        // syntax the editor cannot show.
-        mutating func readLine() -> Bool {
-            var line = lines[index]
-            let number = index
-            index += 1
-            if line == "```" {
-                guard close() else { return false }
-                var code: [String] = []
-                while index < lines.count && lines[index] != "```" {
-                    code.append(lines[index]); index += 1
-                }
-                guard index < lines.count, !code.isEmpty else { return false }
-                index += 1
-                if !runs.isEmpty { runs.append(.init(text: "\n")) }
-                runs.append(.init(text: code.joined(separator: "\n"), block: .code))
-                if lastMerging == .code, let last = spans.last { spans[spans.count - 1] = last.lowerBound..<index }
-                else { spans.append(number..<index) }
-                lastMerging = .code
-                lists = []
-                return true
-            }
-            // A table must start its own block and run to a blank line. One that carries
-            // on from a paragraph, or runs into the text below it, reads differently in
-            // other Markdown readers, so it stays as source.
-            if line.hasPrefix("|"), let table = MarkdownTable.read(lines, from: number) {
-                guard open == nil, table.end == lines.count || lines[table.end].isEmpty else { return false }
-                if !runs.isEmpty { runs.append(.init(text: "\n")) }
-                runs.append(.init(text: lines[number..<table.end].joined(separator: "\n"), block: .table))
-                spans.append(number..<table.end)
-                index = table.end
-                lastMerging = nil
-                lists = []
-                return true
-            }
-            let leading = line.prefix(while: { $0 == " " }).count
-            line.removeFirst(leading)
-            let prefixes: [(String, NoteDocument.Block, String)] = [
-                ("### ", .subheading, ""), ("## ", .heading, ""), ("# ", .title, ""),
-                ("- [ ] ", .checklist, "☐ "), ("- [x] ", .checklist, "☑ "),
-                ("- ", .bullet, "• "), ("> ", .quote, "")
-            ]
-            var block = NoteDocument.Block.text
-            var marker = ""
-            if let prefix = prefixes.first(where: { line.hasPrefix($0.0) }) {
-                line.removeFirst(prefix.0.count); block = prefix.1; marker = prefix.2
-            } else if let range = line.range(of: #"^1\. "#, options: .regularExpression) {
-                line.removeSubrange(range); block = .numbered; marker = "1. "
-            }
-            // Indentation, hard breaks and block extensions carry meaning that a
-            // paragraph-only rich editor cannot safely reconstruct.
-            guard !line.isEmpty, line == line.trimmingCharacters(in: .whitespaces),
-                  !line.contains("\t"), !line.hasPrefix("---"), !line.hasPrefix("==="),
-                  !line.hasPrefix("+++"), !line.hasPrefix("~~~"), !line.hasPrefix("```"),
-                  !([.title, .heading, .subheading].contains(block)
-                    && line.range(of: #"\s+#+$"#, options: .regularExpression) != nil),
-                  !([.bullet, .numbered, .checklist, .quote].contains(block) && line.hasPrefix("#")),
-                  !(block == .text && line.range(of: #"^(\d+[.)] |[+*>-] |#{1,6}( |$))"#, options: .regularExpression) != nil)
-            else { return false }
-            // A plain line straight after a paragraph, a list item or a quote carries on
-            // that paragraph, as does a quote line after a quote. The wrap reads as a space.
-            if let paragraph = open,
-               block == .text || block == .quote && paragraph.block == .quote && leading == 0 {
-                open?.text += " " + line
-                open?.lines = paragraph.lines.lowerBound..<index
-                return true
-            }
-            guard close() else { return false }
-            var depth = 0
-            if NoteDocument.Block.lists.contains(block) {
-                let width = block == .numbered ? 3 : 2
-                while let last = lists.last, last.start > leading { lists.removeLast() }
-                if let last = lists.last, last.start == leading {
-                    lists[lists.count - 1] = (leading, leading + width)
-                } else if leading == (lists.last?.content ?? 0) {
-                    lists.append((leading, leading + width))
-                } else { return false }
-                depth = lists.count - 1
+        private mutating func append(_ newRuns: [NoteDocument.Run], span: Range<Int>, merging: NoteDocument.Block? = nil) {
+            if !runs.isEmpty { runs.append(.init(text: "\n")) }
+            runs += newRuns
+            if let merging, lastMerging == merging, let last = spans.last {
+                spans[spans.count - 1] = last.lowerBound..<span.upperBound
             } else {
-                // An indented line that does not carry on a paragraph starts indented
-                // code, which has no place in the rich editor.
-                guard leading == 0 else { return false }
-                lists = []
+                spans.append(span)
             }
-            open = (block, marker, depth, line, number..<index)
-            // A heading is one line, so the next line starts a new block.
-            if [.title, .heading, .subheading].contains(block) { return close() }
+            lastMerging = merging
+        }
+
+        private mutating func admit(_ block: Markup, _ span: Range<Int>) -> Bool {
+            switch block {
+            case let paragraph as Paragraph:
+                guard lines[span.lowerBound].first?.isWhitespace == false else { return false }
+                return appendParagraph(paragraph, block: .text, span: span)
+            case let heading as Heading:
+                guard (1...3).contains(heading.level), span.count == 1 else { return false }
+                let title = source.title(of: heading)
+                // A heading closed with hashes, or written any other way, would change on an edit.
+                guard lines[span.lowerBound] == String(repeating: "#", count: heading.level) + " " + title,
+                      let inline = MarkdownWritingDocument.inline(title, block: Self.headings[heading.level - 1]) else { return false }
+                append(inline, span: span)
+                return true
+            case let quote as BlockQuote:
+                guard quote.childCount == 1, let paragraph = quote.child(at: 0) as? Paragraph,
+                      lines[span.lowerBound].hasPrefix("> "),
+                      lines[span].allSatisfy({ !$0.hasPrefix(">") || $0.hasPrefix("> ") }) else { return false }
+                return appendParagraph(paragraph, block: .quote, span: span)
+            case let list as ListItemContainer:
+                return appendList(list, depth: 0, column: 0)
+            case is CodeBlock:
+                guard span.count > 2, lines[span.lowerBound] == "```", lines[span.upperBound - 1] == "```" else { return false }
+                let code = lines[(span.lowerBound + 1)..<(span.upperBound - 1)].joined(separator: "\n")
+                append([.init(text: code, block: .code)], span: span, merging: .code)
+                return true
+            case is Table:
+                // A table must start its own block and run to a blank line. One that carries
+                // on from a paragraph, or runs into the text below it, reads differently in
+                // other Markdown readers, so it stays as source.
+                guard span.lowerBound == 0 || lines[span.lowerBound - 1].isEmpty,
+                      span.upperBound == lines.count || lines[span.upperBound].isEmpty,
+                      lines[span].allSatisfy({ $0.hasPrefix("|") }) else { return false }
+                append([.init(text: lines[span].joined(separator: "\n"), block: .table)], span: span)
+                return true
+            default:
+                return false
+            }
+        }
+
+        private static let headings: [NoteDocument.Block] = [.title, .heading, .subheading]
+
+        // Each item must sit where the editor would put it: a "- " or "1. " marker at the
+        // column where the item above it starts its text, and the text one space after it.
+        private mutating func appendList(_ list: ListItemContainer, depth: Int, column: Int) -> Bool {
+            if let ordered = list as? OrderedList, ordered.startIndex != 1 { return false }
+            for item in list.listItems {
+                let children = Array(item.children)
+                guard let start = item.range?.lowerBound, start.column - 1 == column,
+                      let paragraph = children.first as? Paragraph,
+                      let text = paragraph.range?.lowerBound,
+                      children.count == 1 || children.count == 2 && children[1] is ListItemContainer else { return false }
+                let line = lines[start.line - 1].dropFirst(column)
+                let shape: (prefix: String, block: NoteDocument.Block, marker: String)? = switch (list is OrderedList, item.checkbox) {
+                case (true, nil): ("1. ", .numbered, "1. ")
+                case (false, nil): ("- ", .bullet, "• ")
+                case (false, .unchecked): ("- [ ] ", .checklist, "☐ ")
+                case (false, .checked): ("- [x] ", .checklist, "☑ ")
+                case (true, _): nil
+                }
+                guard let shape, line.hasPrefix(shape.prefix), text.column - 1 == column + shape.prefix.count,
+                      let paragraphLines = source.lines(of: paragraph),
+                      appendParagraph(paragraph, block: shape.block, marker: shape.marker, depth: depth,
+                                      span: (start.line - 1)..<paragraphLines.upperBound) else { return false }
+                if children.count == 2, let nested = children[1] as? ListItemContainer {
+                    let width = shape.block == .numbered ? 3 : 2
+                    guard appendList(nested, depth: depth + 1, column: column + width) else { return false }
+                }
+            }
             return true
         }
-    }
 
-    // A literal block runs to the next blank line, and a fenced block to its closing
-    // fence, so a blank line inside the fence does not split it.
-    private static func literalEnd(from start: Int, in lines: [String]) -> Int {
-        func fence(_ line: String) -> String? {
-            let trimmed = line.drop { $0 == " " }
-            guard let mark = trimmed.first, mark == "`" || mark == "~" else { return nil }
-            let run = trimmed.prefix { $0 == mark }
-            return run.count >= 3 ? String(run) : nil
-        }
-        var end = start
-        var openFence: String?
-        while end < lines.count {
-            let line = lines[end]
-            end += 1
-            if let current = openFence {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix(current), trimmed.allSatisfy({ $0 == current.first }) {
-                    openFence = nil
-                    if fence(lines[start]) != nil { break }
-                }
-            } else if line.isEmpty {
-                end -= 1
-                break
-            } else if let opened = fence(line) {
-                openFence = opened
+        // A paragraph is read as one line of text, its wraps read as spaces. Indentation
+        // inside it, a hard break or a line that starts like another block carries
+        // meaning that a paragraph-only rich editor cannot safely reconstruct.
+        private mutating func appendParagraph(_ paragraph: Paragraph, block: NoteDocument.Block, marker: String = "",
+                                              depth: Int = 0, span: Range<Int>) -> Bool {
+            for (offset, line) in lines[span].enumerated() {
+                guard !line.contains("\t"), line.last?.isWhitespace != true else { return false }
+                guard offset > 0 else { continue }
+                let carried = MarkdownSource.unquoted(Substring(line), depth: block == .quote ? 1 : 0)
+                guard !["---", "===", "+++", "~~~", "```"].contains(where: carried.hasPrefix),
+                      carried.range(of: #"^(\d+[.)] |[+*>-] |#{1,6}( |$))"#, options: .regularExpression) == nil
+                else { return false }
             }
+            guard let inline = MarkdownWritingDocument.inline(source.content(of: paragraph), block: block) else { return false }
+            var runs = inline.map { var run = $0; run.indent = depth; return run }
+            if !marker.isEmpty { runs.insert(.init(text: marker, block: block, indent: depth), at: 0) }
+            append(runs, span: span)
+            return true
         }
-        while end > start + 1, lines[end - 1].isEmpty { end -= 1 }
-        return end
     }
 
     func markdown(afterEditing edited: NoteDocument) -> String {
@@ -293,66 +274,74 @@ struct MarkdownWritingDocument {
         return result
     }
 
-    static func inline(_ text: String, block: NoteDocument.Block,
-                       bold: Bool = false, italic: Bool = false) -> [NoteDocument.Run]? {
-        var rest = text[...]
+
+    // The runs of one paragraph of inline Markdown, or nil when it holds anything the
+    // editor would write back differently: an image, inline HTML, a hard break, emphasis
+    // with underscores, a link with a title, or a mark written without its escape.
+    static func inline(_ text: String, block: NoteDocument.Block) -> [NoteDocument.Run]? {
+        let source = MarkdownSource(text)
+        guard source.document.childCount > 0 else { return [] }
+        guard source.document.childCount == 1, let paragraph = source.document.child(at: 0) as? Paragraph,
+              let runs = Self.runs(paragraph.children, in: source, template: .init(text: "", block: block))
+        else { return nil }
+        return normalized(NoteDocument(runs: runs))
+    }
+
+    private static func runs(_ nodes: some Sequence<Markup>, in source: MarkdownSource,
+                             template: NoteDocument.Run) -> [NoteDocument.Run]? {
         var runs: [NoteDocument.Run] = []
-        while let first = rest.first {
-            if first == "\\" {
-                rest.removeFirst()
-                guard let escaped = rest.first, #"\`*_{}[]<>#!|-+.=~&"#.contains(escaped) else { return nil }
-                runs.append(.init(text: String(escaped), bold: bold, italic: italic, block: block))
-                rest.removeFirst()
-            } else if first == "*" {
-                let delimiter = rest.hasPrefix("***") ? "***" : rest.hasPrefix("**") ? "**" : "*"
-                rest.removeFirst(delimiter.count)
-                guard let end = rest.range(of: delimiter), end.lowerBound != rest.startIndex,
-                      rest.first?.isWhitespace == false,
-                      rest[rest.index(before: end.lowerBound)].isWhitespace == false,
-                      let nested = inline(String(rest[..<end.lowerBound]), block: block,
-                                          bold: bold || delimiter.count >= 2, italic: italic || delimiter.count != 2) else { return nil }
-                runs += nested; rest = rest[end.upperBound...]
-            } else if first == "`" {
-                let fence = String(rest.prefix { $0 == "`" })
-                rest.removeFirst(fence.count)
-                var search = rest.startIndex
-                var close: Range<Substring.Index>?
-                while let found = rest[search...].range(of: fence) {
-                    let longer = found.upperBound < rest.endIndex && rest[found.upperBound] == "`"
-                    if !longer { close = found; break }
-                    search = rest[found.lowerBound...].firstIndex { $0 != "`" } ?? rest.endIndex
-                }
-                guard let close, close.lowerBound != rest.startIndex else { return nil }
-                var content = String(rest[..<close.lowerBound])
-                if content.count > 2, content.hasPrefix(" "), content.hasSuffix(" "),
-                   content.contains(where: { $0 != " " }) {
-                    content = String(content.dropFirst().dropLast())
-                }
-                runs.append(.init(text: content, bold: bold, italic: italic, block: block, code: true))
-                rest = rest[close.upperBound...]
-            } else if first == "[" {
-                guard let close = rest.range(of: "]("), let end = rest[close.upperBound...].firstIndex(of: ")") else { return nil }
-                let label = String(rest[rest.index(after: rest.startIndex)..<close.lowerBound])
-                var destination = String(rest[close.upperBound..<end])
-                if destination.hasPrefix("<"), destination.hasSuffix(">") { destination = String(destination.dropFirst().dropLast()) }
-                guard let kept = NoteDocument.keptLink(destination),
-                      !destination.contains(where: \.isWhitespace),
-                      let nested = inline(label, block: block, bold: bold, italic: italic),
-                      nested.allSatisfy({ $0.link == nil }) else { return nil }
-                runs += nested.map { var run = $0; run.link = kept; return run }
-                rest = rest[rest.index(after: end)...]
-            } else if first == "&" {
-                guard !NoteDocument.startsEntity(rest) else { return nil }
-                runs.append(.init(text: "&", bold: bold, italic: italic, block: block))
-                rest.removeFirst()
-            } else {
-                guard !"_`[]<>!|~".contains(first) else { return nil }
-                let plain = rest.prefix { !"\\*_`[]<>!|~&".contains($0) }
-                runs.append(.init(text: String(plain), bold: bold, italic: italic, block: block))
-                rest.removeFirst(plain.count)
+        func written(_ node: Markup) -> Substring? { node.range.map(source.slice) }
+        for node in nodes {
+            var run = template
+            switch node {
+            case let text as Text:
+                guard let written = written(text), writesBackAsWritten(written) else { return nil }
+                run.text = text.string
+                runs.append(run)
+            case is SoftBreak:
+                run.text = " "
+                runs.append(run)
+            case let code as InlineCode:
+                run.text = code.code
+                run.code = true
+                runs.append(run)
+            case is Strong, is Emphasis:
+                guard written(node)?.first == "*" else { return nil }
+                if node is Strong { run.bold = true } else { run.italic = true }
+                guard let nested = Self.runs(node.children, in: source, template: run) else { return nil }
+                runs += nested
+            case let link as Link:
+                guard written(link)?.first == "[", link.title == nil,
+                      let destination = link.destination, !destination.contains(where: \.isWhitespace),
+                      let kept = NoteDocument.keptLink(destination) else { return nil }
+                run.link = kept
+                guard let nested = Self.runs(link.children, in: source, template: run) else { return nil }
+                runs += nested
+            default:
+                return nil
             }
         }
-        return normalized(NoteDocument(runs: runs))
+        return runs
+    }
+
+    // The editor escapes Markdown's marks when it writes text, so text that holds one
+    // unescaped, or an entity, would change on an edit.
+    private static func writesBackAsWritten(_ written: Substring) -> Bool {
+        var index = written.startIndex
+        while index < written.endIndex {
+            let character = written[index]
+            if character == "\\" {
+                let next = written.index(after: index)
+                guard next < written.endIndex, #"\`*_{}[]<>#!|-+.=~&"#.contains(written[next]) else { return false }
+                index = written.index(after: next)
+                continue
+            }
+            if "*_`[]<>!|~".contains(character) || character == "&" && NoteDocument.startsEntity(written[index...]) {
+                return false
+            }
+            index = written.index(after: index)
+        }
+        return true
     }
 }
 
@@ -362,15 +351,9 @@ struct MarkdownHeading: Identifiable {
     var id: Int { line }
 
     static func read(_ source: String) -> [Self] {
-        var fence: String?
-        return source.components(separatedBy: "\n").enumerated().compactMap { index, line in
-            if line.hasPrefix("```") || line.hasPrefix("~~~") {
-                let marker = String(line.prefix(3))
-                fence = fence == nil ? marker : fence == marker ? nil : fence
-                return nil
-            }
-            guard fence == nil, let range = line.range(of: #"^#{1,6} "#, options: .regularExpression) else { return nil }
-            return Self(line: index + 1, title: String(line[range.upperBound...]))
+        Document(parsing: source, options: .disableSmartOpts).children.compactMap { block in
+            guard let heading = block as? Heading, let line = heading.range?.lowerBound.line else { return nil }
+            return Self(line: line, title: heading.plainText)
         }
     }
 }

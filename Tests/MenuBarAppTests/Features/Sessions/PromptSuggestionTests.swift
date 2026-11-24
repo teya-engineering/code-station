@@ -161,8 +161,7 @@ struct PromptSuggestionRunnerTests {
         let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode),
                                         promptSuggestionsEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
         #expect(harness.runner.suggestion(harness.session.id) == "Add a regression test")
 
@@ -182,8 +181,7 @@ struct PromptSuggestionRunnerTests {
     @Test func staysQuietAndUnaskedWhenTheSettingIsOff() async throws {
         let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode))
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
         #expect(harness.runner.suggestion(harness.session.id) == nil)
         #expect(!(try Self.arguments(harness).contains("--prompt-suggestions")))
@@ -194,8 +192,7 @@ struct PromptSuggestionRunnerTests {
         let harness = try RunnerHarness(agent: agent, script: Self.script(agent),
                                         promptSuggestionsEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
         #expect(harness.runner.suggestion(harness.session.id) == "Add a regression test")
         // The asking runs beside the session rather than inside it, so the conversation
@@ -211,8 +208,7 @@ struct PromptSuggestionRunnerTests {
         defer { harness.tearDown() }
         harness.store.setSettings(SessionSettings(model: "gpt-5.6-sol"),
                                   for: harness.session.id)
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
         let arguments = try String(contentsOf: harness.scratch.path("suggestion-arguments"),
                                    encoding: .utf8).split(separator: "\n").map(String.init)
@@ -224,8 +220,7 @@ struct PromptSuggestionRunnerTests {
         let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode),
                                         promptSuggestionsEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
 
         // Nothing typed, but a file already waiting to go out with whatever is typed next.
@@ -233,7 +228,7 @@ struct PromptSuggestionRunnerTests {
         try "notes".write(to: file, atomically: true, encoding: .utf8)
         harness.runner.composer.attach([Attachment(url: file)], to: harness.session.id)
 
-        harness.runner.sendSuggestion(harness.session.id, store: harness.store)
+        harness.runner.sendSuggestion(harness.session.id)
         #expect(harness.runner.suggestion(harness.session.id) == nil)
         #expect(await waitUntil {
             harness.store.transcript(of: harness.session.id).last?.text == "Work complete"
@@ -250,12 +245,11 @@ struct PromptSuggestionRunnerTests {
         let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode),
                                         promptSuggestionsEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
         harness.runner.composer.editDraft(harness.session.id) { $0.text = "also check the changelog" }
 
-        harness.runner.sendSuggestion(harness.session.id, store: harness.store)
+        harness.runner.sendSuggestion(harness.session.id)
         #expect(harness.runner.composer.draft(harness.session.id).text == "also check the changelog")
         #expect(harness.runner.suggestion(harness.session.id) == "Add a regression test")
         #expect(harness.store.transcript(of: harness.session.id).map(\.text)
@@ -272,11 +266,9 @@ struct PromptSuggestionRunnerTests {
         let harness = try RunnerHarness(agent: .claudeCode, script: Self.script(.claudeCode),
                                         promptSuggestionsEnabled: { true })
         defer { harness.tearDown() }
-        harness.runner.send("Fix the login retry", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Fix the login retry", sessionID: harness.session.id)
         #expect(await waitUntil { harness.runner.suggestion(harness.session.id) != nil })
-        harness.runner.send("Add a regression test", sessionID: harness.session.id,
-                            store: harness.store)
+        harness.runner.send("Add a regression test", sessionID: harness.session.id)
         #expect(harness.runner.suggestion(harness.session.id) == nil)
     }
 

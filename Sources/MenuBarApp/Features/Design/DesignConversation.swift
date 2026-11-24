@@ -199,6 +199,7 @@ struct DesignConversation: View {
     @State private var composerHeight: CGFloat = 167
     @State private var transcriptHeight: CGFloat = .infinity
     @State private var waitNoticeDismissed = false
+    @State private var fileDragOver = false
 
     private var sessionID: UUID { session.id }
 
@@ -245,6 +246,13 @@ struct DesignConversation: View {
             .frame(maxHeight: .infinity)
         }
         .onPointerHover { conversationHovered = $0 }
+        // Off while the panel is put away, so a file dropped on the canvas behind it is not
+        // taken by a chat that is not on screen.
+        .fileDrop(enabled: !conversationMinimized && !composerBlocked(session),
+                  isTargeted: $fileDragOver) { dropped in
+            runner.composer.attach(dropped, to: sessionID)
+            composerFocused = true
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Conversation")
         // The panel stays built while it is small, so the transcript keeps its scroll
@@ -365,6 +373,7 @@ struct DesignConversation: View {
             HStack(spacing: Space.lg) {
                 conversationBot(session, needsYou: needsYou, size: botSize)
                 MinimizedConversationLine(tone: tone, personality: personality,
+                                          spinnerVerbs: runner.spinnerVerbs(sessionID),
                                           waitingSince: runner.waitingSince(sessionID)) { lineWidth in
                     // The tab hugs its line: the bot, the gap and the padding around them.
                     minimizedWidth = Space.lg + botSize + Space.lg + lineWidth + Space.xl
@@ -424,7 +433,8 @@ struct DesignConversation: View {
                                     openPreview: openPreview ?? { _ in false },
                                     availableWidth: width - 28,
                                     arriving: message.isArriving(sentAt: promptSentAt),
-                                    bubble: bubble)
+                                    bubble: bubble,
+                                    timestamps: appSettings.transcriptTimestamps)
                             .equatable()
                             .environment(\.runningAgents, runner.runningAgents(sessionID))
                             .environment(\.previewsLocalServers, openPreview != nil)
@@ -518,6 +528,7 @@ struct DesignConversation: View {
                    sessionID: sessionID,
                    avatarName: session.agentAvatarName,
                    agentTitle: session.agent.title,
+                   spinnerVerbs: runner.spinnerVerbs(sessionID),
                    completionActivity: runner.completionActivity(sessionID),
                    tasks: runner.backgroundTasks(sessionID),
                    waitingSince: runner.waitingSince(sessionID))
@@ -542,9 +553,13 @@ struct DesignConversation: View {
 
     // MARK: - Composer
 
+    private func composerBlocked(_ session: ChatSession) -> Bool {
+        !FileManager.default.fileExists(atPath: store.workingDirectory(for: session) ?? "")
+            || !runner.catalog.isAvailable(session.agent)
+    }
+
     private func designComposer(_ session: ChatSession) -> some View {
-        let blocked = !FileManager.default.fileExists(atPath: store.workingDirectory(for: session) ?? "")
-            || !runner.isAvailable(session.agent)
+        let blocked = composerBlocked(session)
         return Composer(sessionID: sessionID,
                         agent: session.agent,
                         blocked: blocked,
@@ -554,10 +569,11 @@ struct DesignConversation: View {
                         minimumLines: 3,
                         buttonAlignment: .center,
                         onOversizedPaste: attachPastedText,
-                        onRecallUp: { runner.recallEarlier(sessionID, store: store) },
-                        onRecallDown: { runner.recallLater(sessionID, store: store) },
+                        onRecallUp: { runner.recallEarlier(sessionID) },
+                        onRecallDown: { runner.recallLater(sessionID) },
                         onSend: { promptSentAt = .now },
                         dictates: !conversationMinimized,
+                        fileDragOver: fileDragOver,
                         above: {
                             // The panel shares its height with the transcript, so about
                             // three rows show and the rest scroll.
@@ -604,7 +620,7 @@ struct DesignConversation: View {
                                workingDirectories: store.workingDirectories(for: session),
                                projectPath: projectPath) { answer in
                     runner.answer(request, with: answer,
-                                  sessionID: sessionID, store: store)
+                                  sessionID: sessionID)
                 }
                 .id(request.id)
             }
@@ -631,7 +647,7 @@ struct DesignConversation: View {
 
     private func hasTurnEndAction(_ state: SessionState) -> Bool {
         if case .failed = state { return true }
-        return runner.canContinueAfterStop(sessionID, store: store)
+        return runner.canContinueAfterStop(sessionID)
     }
 }
 
@@ -643,6 +659,7 @@ private struct MinimizedConversationLine: View {
 
     let tone: SessionTone
     let personality: AgentPersonality
+    let spinnerVerbs: ClaudeSpinnerVerbs?
     let waitingSince: Date?
     let measured: (CGFloat) -> Void
 
@@ -671,10 +688,13 @@ private struct MinimizedConversationLine: View {
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { measured($0) }
                 }
         }
-        .onAppear { words = WorkingWords(personality: personality) }
+        .onAppear { words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs) }
         .onChange(of: personality) { _, personality in
-            words = WorkingWords(personality: personality)
+            words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs)
             started = .now
+        }
+        .onChange(of: spinnerVerbs) { _, spinnerVerbs in
+            words = WorkingWords(personality: personality, spinnerVerbs: spinnerVerbs)
         }
     }
 }

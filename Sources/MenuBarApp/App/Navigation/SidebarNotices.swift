@@ -78,7 +78,7 @@ struct SidebarBrandBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(MobileAccessController.self) private var mobileAccess
     @State private var hovering = false
-    @State private var pointer = CGPoint(x: 0.6, y: -0.4)
+    @State private var pointer = CGPoint.zero
     @State private var headerSize = CGSize.zero
     @FocusState private var focused: Bool
 
@@ -102,18 +102,23 @@ struct SidebarBrandBar: View {
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, Space.xl)
-            .frame(maxWidth: .infinity, minHeight: 68)
+            .frame(maxWidth: .infinity, minHeight: BrandMetrics.barHeight)
             .background(RoundedRectangle(cornerRadius: Radius.control)
                 .fill(isHome || hovering ? Theme.field : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onPointerHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
+        .onDisappear { hovering = false }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { headerSize = $0 }
         .onContinuousHover { phase in
-            if case .active(let point) = phase {
+            switch phase {
+            case .active(let point):
                 pointer = CGPoint(x: min(1, max(-1, point.x / max(1, headerSize.width) * 2 - 1)),
                                   y: min(1, max(-1, point.y / max(1, headerSize.height) * 2 - 1)))
+            case .ended:
+                hovering = false
             }
         }
         .sidebarFocusRing($focused)
@@ -131,19 +136,15 @@ struct SidebarBrandBar: View {
     private var brand: some View {
         HStack(spacing: Space.md) {
             SidebarBrandMark(input: .init(hovered: hovering,
-                                          focused: focused && KeyboardFocusVisibility.shared.isVisible,
-                                          pointer: hovering ? pointer : CGPoint(x: 0.6, y: -0.4),
                                           reducedMotion: reduceMotion))
-                .frame(width: 41, height: 41)
-                .frame(width: 33, height: 33)
+                .frame(width: BrandMetrics.drawingSide, height: BrandMetrics.drawingSide)
+                .frame(width: BrandMetrics.layoutSide, height: BrandMetrics.layoutSide)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: BrandMetrics.nameGap) {
                 Text("Teya")
-                    .font(.logo(9 * max(1, textScale), weight: 500))
+                    .font(.logo(BrandMetrics.ownerSize * max(1, textScale), weight: 500))
                     .foregroundStyle(.secondary)
-                Text("Code Station")
-                    .font(.logo(15 * max(1, textScale)))
-                    .kerning(-0.55)
+                BrandWordmark(hovered: hovering, pointer: pointer)
             }
         }
         .fixedSize()

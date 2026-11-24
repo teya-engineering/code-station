@@ -72,7 +72,7 @@ struct NewSessionFooter: View {
         AgentAndBotPicker(avatars: appSettings.agentAvatars,
                           selectedAvatarName: $selectedAvatarName, sessionID: sessionID,
                           agent: chosenAgent,
-                          agentEnabled: !runner.availableAgents.isEmpty,
+                          agentEnabled: !runner.catalog.availableAgents.isEmpty,
                           agentMenu: agentMenu)
     }
 
@@ -96,7 +96,7 @@ struct NewSessionFooter: View {
     }
 
     private var chosenAgent: AgentKind? {
-        runner.agentForNewSession(selected: selectedAgent)
+        runner.catalog.agentForNewSession(selected: selectedAgent)
     }
 
     private var canCreate: Bool {
@@ -104,7 +104,7 @@ struct NewSessionFooter: View {
     }
 
     private var agentMenu: [MenuEntry] {
-        runner.availableAgents.map { agent in
+        runner.catalog.availableAgents.map { agent in
             .item(agent.title,
                   checked: chosenAgent == agent,
                   subtitle: agent.blurb) {

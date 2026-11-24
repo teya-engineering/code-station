@@ -1,10 +1,9 @@
 import Foundation
 
-// What a second opinion can be about, from the narrowest thing to read to the widest.
-// The ask shows them as stops along one track, and only the stops with something behind
-// them: no "Not committed" when nothing is, no "Whole chat" before there is a chat.
+// Subjects and file scopes share the existing review routes. The ask presents the
+// subject separately from its comparison and supporting context.
 enum SecondOpinionStop: Hashable, CaseIterable {
-    case file, answer, sinceReview, uncommitted, design, conversation
+    case file, answer, sinceReview, uncommitted, branch, design, conversation
 
     // Where the results land: a card under the answer, findings on the diff, or notes
     // pinned on the design.
@@ -15,7 +14,7 @@ enum SecondOpinionStop: Hashable, CaseIterable {
     var kind: Kind {
         switch self {
         case .answer, .conversation: .chat
-        case .file, .sinceReview, .uncommitted: .changes
+        case .file, .sinceReview, .uncommitted, .branch: .changes
         case .design: .design
         }
     }
@@ -34,14 +33,37 @@ struct SecondOpinionAskFacts: Equatable {
         var picked: Bool
     }
 
-    struct File: Equatable, Identifiable {
+    struct File: Equatable, Identifiable, Sendable {
+        enum Change: Equatable, Sendable {
+            case edited, new, deleted
+
+            init(_ kind: GitStatusKind) {
+                switch kind {
+                case .added, .untracked: self = .new
+                case .deleted: self = .deleted
+                default: self = .edited
+                }
+            }
+        }
+
         var root: String
         var path: String
         var added: Int
         var removed: Int
+        var change = Change.edited
 
         var id: String { root + "\u{0}" + path }
         var name: String { (path as NSString).lastPathComponent }
+        var lines: Int { added + removed }
+    }
+
+    // What the branch changes from the base the Changes screen compares it with,
+    // committed or not.
+    struct Branch: Equatable {
+        // The base's name, such as origin/main.
+        var base: String
+        var files: [File]
+        var bases: [String: String] = [:]
     }
 
     struct Turn: Equatable {
@@ -53,7 +75,11 @@ struct SecondOpinionAskFacts: Equatable {
     var answer: Answer?
     // Every uncommitted file, in every project the session works in.
     var files: [File] = []
-    // The file picked on the Changes screen, which a review can be held to.
+    // Nil while the Changes screen compares with the last commit, or when the branch
+    // changes nothing that is not also uncommitted.
+    var branch: Branch?
+    // The file picked on the Changes screen, which a review can be held to. While that
+    // screen compares with a base, its counts are against the base too.
     var file: File?
     // A review has been sent, so what changed after it can be read on its own.
     var canReadSince = false
@@ -62,6 +88,11 @@ struct SecondOpinionAskFacts: Equatable {
     var turns: [Turn] = []
     // The page in view is the design, so the header's ask is about it.
     var showsDesign = false
+    var showsChanges = false
+    var repositories: [ReviewRepository] = []
+    var compareRefs: [String: String] = [:]
+    var headRoots: Set<String> = []
+    var reviewTrees: [String: String] = [:]
 }
 
 enum SecondOpinionAsk {
@@ -71,35 +102,39 @@ enum SecondOpinionAsk {
         var stops: [SecondOpinionStop] = []
         if facts.file != nil { stops.append(.file) }
         if facts.answer != nil { stops.append(.answer) }
-        if facts.canReadSince && !facts.files.isEmpty { stops.append(.sinceReview) }
-        if !facts.files.isEmpty { stops.append(.uncommitted) }
+        if facts.canReadSince { stops.append(.sinceReview) }
+        if !facts.files.isEmpty || !facts.repositories.isEmpty { stops.append(.uncommitted) }
+        if facts.branch?.files.isEmpty == false { stops.append(.branch) }
         if facts.designScreens != nil { stops.append(.design) }
-        // With one answer, the whole chat is that answer and its question, which the
-        // answer's own stop already reads.
-        if facts.turns.count(where: { !$0.fromPerson }) > 1 { stops.append(.conversation) }
+        if facts.turns.contains(where: { !$0.fromPerson }) { stops.append(.conversation) }
         return stops
     }
 
     // What a click proposes before the person changes anything. Under an answer or on a
     // file it is that thing. From the header it is named by where the work stands: a plan
-    // waiting on an answer first, then the design when it is on screen, then the
+    // waiting on an answer first, then the design when it is on screen, then the changes
+    // as the Changes screen compares them: the whole branch when it shows that, else the
     // uncommitted changes, so a review never misses work that is not committed yet.
-    static func initialStop(_ facts: SecondOpinionAskFacts) -> SecondOpinionStop? {
+    static func initialStop(_ facts: SecondOpinionAskFacts, defaults: SecondOpinionDefaults? = nil) -> SecondOpinionStop? {
         let stops = stops(facts)
+        if let defaults, facts.origin == .header, !facts.showsChanges, !facts.showsDesign,
+           facts.answer?.subject.kind != .plan, facts.answer != nil {
+            return defaults.chatSubject == .conversation && stops.contains(.conversation) ? .conversation : .answer
+        }
         let preferred: [SecondOpinionStop] = switch facts.origin {
         case .answer: [.answer]
         case .file: [.file]
         case .header:
             (facts.answer?.subject.kind == .plan ? [.answer] : [])
                 + (facts.showsDesign ? [.design] : [])
-                + [.uncommitted, .answer, .design]
+                + [.branch, .uncommitted, .answer, .design]
         }
         return preferred.first(where: stops.contains) ?? stops.first
     }
 
     // MARK: Words
 
-    // The few words a stop wears on the track.
+    // The short label used when choosing a subject or scope.
     static func stopTitle(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts) -> String {
         switch stop {
         case .file: "This file"
@@ -107,12 +142,13 @@ enum SecondOpinionAsk {
             facts.answer?.subject.kind == .plan ? "This plan" : facts.answer?.picked == true ? "This answer" : "Last answer"
         case .sinceReview: "Since review"
         case .uncommitted: "Not committed"
+        case .branch: "Whole branch"
         case .design: "Design"
         case .conversation: "Whole chat"
         }
     }
 
-    // The subject's name over the track.
+    // The subject's name in the preview.
     static func title(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts) -> String {
         switch stop {
         case .file: facts.file?.name ?? "This file"
@@ -120,6 +156,7 @@ enum SecondOpinionAsk {
             facts.answer?.subject.kind == .plan ? "This plan" : facts.answer?.picked == true ? "This answer" : "The last answer"
         case .sinceReview: "Since your last review"
         case .uncommitted: "Uncommitted changes"
+        case .branch: "Changes from " + (facts.branch?.base ?? "the base")
         case .design: "The design"
         case .conversation: "The whole conversation"
         }
@@ -132,6 +169,7 @@ enum SecondOpinionAsk {
         case .answer: "and what you asked"
         case .sinceReview: "only what changed after it was sent"
         case .uncommitted: counted(facts.files.count, "file")
+        case .branch: counted(facts.branch?.files.count ?? 0, "file")
         case .design: counted(facts.designScreens?.count ?? 0, "screen") + ", light and dark"
         case .conversation:
             counted(facts.turns.count(where: { !$0.fromPerson }), "turn") + ", checked against what you asked"
@@ -146,6 +184,7 @@ enum SecondOpinionAsk {
             facts.answer?.subject.kind == .plan ? "this plan" : facts.answer?.picked == true ? "this answer" : "the last answer"
         case .sinceReview: "what changed since your last review"
         case .uncommitted: "the uncommitted changes"
+        case .branch: "everything this branch changes from " + (facts.branch?.base ?? "its base")
         case .design: "the design"
         case .conversation: "the whole conversation"
         }
@@ -160,12 +199,22 @@ enum SecondOpinionAsk {
             + phrase(stop, facts: facts)
     }
 
+    // The files the preview lists for a code stop. The branch and a file picked on it are
+    // counted against the base, the rest against the last commit.
+    static func files(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts) -> [SecondOpinionAskFacts.File] {
+        switch stop {
+        case .branch, .file: facts.branch?.files ?? facts.files
+        default: facts.files
+        }
+    }
+
     // The files a stop covers, which the preview lights. Nil for a stop that is not code.
     static func litFiles(_ stop: SecondOpinionStop, facts: SecondOpinionAskFacts,
                          sinceReview: Set<String>?) -> Set<String>? {
         switch stop {
         case .file: facts.file.map { [$0.id] } ?? []
         case .uncommitted: Set(facts.files.map(\.id))
+        case .branch: Set((facts.branch?.files ?? []).map(\.id))
         case .sinceReview: sinceReview ?? []
         case .answer, .design, .conversation: nil
         }
@@ -179,17 +228,38 @@ enum SecondOpinionAsk {
         return lineup.filter { seen.insert($0).inserted }
     }
 
-    // The Ask button names who is asked, or says what is missing.
-    static func askTitle(lineup: [SecondOpinion.Reviewer], hasFocus: Bool) -> String {
+    // The Ask button names who is asked. What is missing is said beside it, not on it.
+    static func askTitle(lineup: [SecondOpinion.Reviewer]) -> String {
         let chosen = seated(lineup)
-        guard !chosen.isEmpty else { return "Pick a reviewer" }
-        guard hasFocus else { return "Pick what to look for" }
+        guard !chosen.isEmpty else { return "Ask" }
         var seen = Set<AgentKind>()
         let agents = chosen.map(\.agent).filter { seen.insert($0).inserted }
         if chosen.count == agents.count && agents.count <= 2 {
             return "Ask " + agents.map(\.title).joined(separator: " and ")
         }
         return "Ask \(chosen.count) reviewers"
+    }
+
+    // The one line at the foot of the preview that says what else the reviewers get.
+    // It names only what is in, so nothing reads as a list of what was left out.
+    static func alsoIncluded(_ stop: SecondOpinionStop, chatReading: ChatSecondOpinion.Reading,
+                             designReading: DesignSecondOpinion.Reading, usesServers: Bool) -> String? {
+        var parts: [String] = []
+        switch stop {
+        case .file, .sinceReview, .uncommitted, .branch:
+            parts.append("the project files around these changes")
+        case .answer:
+            if chatReading.files { parts.append("the project files the answer mentions") }
+            if chatReading.conversation { parts.append("the earlier conversation") }
+        case .conversation:
+            if chatReading.files { parts.append("the project files the chat mentions") }
+        case .design:
+            if designReading.source { parts.append("the HTML, handoff and theme") }
+            if designReading.conversation { parts.append("the design conversation") }
+        }
+        if usesServers { parts.append("your read-only MCP tools") }
+        guard let last = parts.popLast() else { return nil }
+        return "Plus " + (parts.isEmpty ? last : parts.joined(separator: ", ") + " and " + last)
     }
 
     // What the reviewers can reach, under the tray. With MCP servers open it says they
@@ -213,8 +283,8 @@ enum SecondOpinionAsk {
     }
 
     static func blockedReason(lineup: [SecondOpinion.Reviewer], hasFocus: Bool) -> String? {
-        guard !lineup.isEmpty else { return "Choose at least one reviewer." }
-        guard hasFocus else { return "Choose what to look for or add a note." }
+        guard !lineup.isEmpty else { return "Pick a reviewer." }
+        guard hasFocus else { return "Pick something to look for." }
         return nil
     }
 }

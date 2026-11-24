@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let copilot = CopilotCodeManager()
     private let projects = ProjectStore()
     private lazy var runner: SessionRunner = {
-        let runner = SessionRunner(configs: store)
+        let runner = SessionRunner(store: projects, configs: store)
         // Agents usually commit at the end of a turn, so the sidebar reads the session's
         // folders again then instead of waiting for the file system to report it.
         runner.onTurnEnded = { [projects, workingTrees] sessionID in
@@ -46,8 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             afterTurn(sessionID)
             pullRequestReviews.turnEnded(sessionID)
         }
-        let opinionSettled: (UUID) -> Void = { [weak runner, projects] sessionID in
-            runner?.secondOpinionSettled(sessionID, store: projects)
+        let opinionSettled: (UUID) -> Void = { [weak runner] sessionID in
+            runner?.secondOpinionSettled(sessionID)
         }
         runner.reviews.onSecondOpinionSettled = opinionSettled
         runner.opinions.onSettled = opinionSettled
@@ -65,7 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private lazy var sessionTimes = SessionTimeWatch(
         transcripts: projects.transcriptsURL,
         loaded: { [projects] in projects.loadedTranscript(of: $0) })
+    private lazy var stats = StatsStore(
+        transcripts: projects.transcriptsURL,
+        loaded: { [projects] in projects.loadedTranscript(of: $0) })
     private let orphanedWorktrees = OrphanedWorktreeMonitor()
+    private lazy var cleanup = CleanupCoordinator(
+        store: projects, runner: runner, settings: appSettings, orphanedWorktrees: orphanedWorktrees)
     private let pullRequestReviews = PullRequestReviewStore()
     private let gitStats = GitStatsCache()
     private let terminals = TerminalStore()
@@ -110,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.terminals.discard(TerminalScope(owner))
             if let scope = ShortcutScope(owner) { self?.shortcuts.discard(scope) }
         }
+        connectStats()
         Attachments.pruneOldPastes()
         AppNotifier.shared.activate()
         AppNotifier.shared.openSession = { [weak self] sessionID in
@@ -126,7 +132,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         showManager()
         scheduledTasks.start()
+        cleanup.start()
         sunlight.start()
+    }
+
+    // Stats only listen while the person has turned them on; each hook asks first.
+    private func connectStats() {
+        stats.isEnabled = { [appSettings] in appSettings.statsEnabled }
+        stats.keptDays = { [appSettings] in appSettings.statsRemovedSessionDays }
+        stats.isRunning = { [runner] id in runner.state(id).isBusy }
+        let subject: (UUID) -> UUID? = { [projects] id in
+            projects.session(id)?.containerID
+        }
+        let afterTurn = runner.onTurnRecorded
+        runner.onTurnRecorded = { [stats] sessionID, ending in
+            afterTurn(sessionID, ending)
+            stats.recordTurn(ending, sessionID: sessionID, subjectID: subject(sessionID))
+        }
+        runner.onQuestionAnswered = { [stats] request, allowed, sessionID in
+            stats.recordAnswer(to: request, allowed: allowed, sessionID: sessionID,
+                               subjectID: subject(sessionID))
+        }
+        projects.onSessionLeaving = { [stats, projects] session in
+            stats.sessionLeaving(session, store: projects)
+        }
     }
 
     // macOS starts the app with room for 2560 open files. Watching a tree for changes
@@ -212,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private var runningSessions: Int {
-        projects.sessions.count { $0.designSourceSessionID == nil && runner.isBusy($0.id, store: projects) }
+        runner.runningSessions().count
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -244,7 +273,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     .environment(dictation)
                     .environment(workingTrees)
                     .environment(sessionTimes)
+                    .environment(stats)
                     .environment(orphanedWorktrees)
+                    .environment(cleanup)
                     .environment(pullRequestReviews)
                     .environment(gitStats)
                     .environment(terminals)
@@ -289,9 +320,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // longer shows up as something the app started.
         let leftovers = QuitSweep.snapshot()
         scheduledTasks.stop()
+        cleanup.stop()
         processes.stopAll()
         shortcuts.stopAll()
         runner.stopAll()
+        stats.flush()
         terminals.stopEverything()
         mobileAccess.stop()
         // Blocking here is deliberate. While the main thread waits, nothing can react to

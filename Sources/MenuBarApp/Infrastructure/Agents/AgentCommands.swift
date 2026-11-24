@@ -1,4 +1,5 @@
 import Foundation
+import Yams
 
 // The slash commands a session can be sent, gathered for one agent in one folder.
 //
@@ -29,6 +30,18 @@ struct AgentCommand: Identifiable, Equatable, Sendable {
 
     var id: String { name }
     var typed: String { "/\(name)" }
+
+    // Whether the agent still acts on it when it is named later in a prompt, which is the
+    // case for a skill or a command file the agent picks up while it reads. The app's own
+    // commands are caught only at the front, and the CLI's built-ins only run as the
+    // first word.
+    func worksMidPrompt(for agent: AgentKind) -> Bool {
+        guard agent.readsCommandsMidPrompt else { return false }
+        return switch scope {
+        case .user, .project, .plugin: true
+        case .app, .builtIn: false
+        }
+    }
 }
 
 enum AgentCommands {
@@ -118,8 +131,7 @@ enum AgentCommands {
         let roots = workingDirectories.map { URL(fileURLWithPath: $0) }
         switch agent {
         case .claudeCode:
-            let base = environment["CLAUDE_CONFIG_DIR"].map { URL(fileURLWithPath: $0) }
-                ?? home.appendingPathComponent(".claude")
+            let base = agent.configDirectory(environment: environment, home: home)
             // Claude settles a skill's name the other way round from a command's: your own
             // skill over the project's, and a skill over any command of the same name.
             return [Folder(url: base.appendingPathComponent("skills"), scope: .user, holds: .skills)]
@@ -130,8 +142,7 @@ enum AgentCommands {
                 + [Folder(url: base.appendingPathComponent("commands"), scope: .user, holds: .commands)]
                 + pluginFolders(base: base, lead: roots.first)
         case .codex:
-            let base = environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
-                ?? home.appendingPathComponent(".codex")
+            let base = agent.configDirectory(environment: environment, home: home)
             return [Folder(url: base.appendingPathComponent("prompts"), scope: .user, holds: .commands)]
         case .copilot:
             return roots.map { Folder(url: $0.appendingPathComponent(".github/prompts"), scope: .project,
@@ -154,13 +165,8 @@ enum AgentCommands {
     // project. A worktree belongs to the project of the checkout it came from, and that
     // checkout's path is the one a project install records.
     static func pluginFolders(base: URL, lead: URL?) -> [Folder] {
-        var settings = [base.appendingPathComponent("settings.json")]
-        if let lead {
-            settings += [lead.appendingPathComponent(".claude/settings.json"),
-                         lead.appendingPathComponent(".claude/settings.local.json")]
-        }
         var enabled: [String: Bool] = [:]
-        for file in settings {
+        for file in claudeSettingsFiles(base: base, lead: lead) {
             for (key, value) in jsonObject(at: file)?["enabledPlugins"] as? [String: Any] ?? [:] {
                 if let on = value as? Bool { enabled[key] = on }
             }
@@ -189,6 +195,17 @@ enum AgentCommands {
                                namespace: name)]
         }
         return folders
+    }
+
+    // The settings files Claude reads in the folder it runs in, farthest first, so a
+    // later file overrides an earlier one.
+    static func claudeSettingsFiles(base: URL, lead: URL?) -> [URL] {
+        var files = [base.appendingPathComponent("settings.json")]
+        if let lead {
+            files += [lead.appendingPathComponent(".claude/settings.json"),
+                      lead.appendingPathComponent(".claude/settings.local.json")]
+        }
+        return files
     }
 
     private static func jsonObject(at url: URL) -> [String: Any]? {
@@ -290,33 +307,48 @@ enum AgentCommands {
     // that block is for the CLI that reads it, so none of it belongs in a prompt.
     static func body(of text: String) -> String {
         var lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        guard lines.first?.trimmedLine == "---",
-              let close = lines.dropFirst().firstIndex(where: { $0.trimmedLine == "---" })
+        guard let close = frontMatterEnd(lines)
         else { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
         lines.removeSubrange(0...close)
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // Only keys at the left edge count. An indented key belongs to some other key, so a
-    // `description` kept under `metadata` does not describe the file. A value may carry on
-    // over the lines indented below its key, as a folded or literal block does. The menu
-    // shows one line, so they are joined with spaces either way.
+    private static func frontMatterEnd(_ lines: [Substring]) -> Int? {
+        guard lines.first?.trimmedLine == "---" else { return nil }
+        return lines.dropFirst().firstIndex { $0.trimmedLine == "---" }
+    }
+
+    // Only top-level keys count, so a `description` kept under `metadata` does not
+    // describe the file. The menu shows one line, so a value folded or written over
+    // several lines is joined with spaces.
     private static func frontMatterValue(_ key: String, in text: String) -> String? {
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        guard lines.first?.trimmedLine == "---" else { return nil }
-        for (index, raw) in lines.enumerated().dropFirst() {
-            let line = raw.trimmedLine
-            if line == "---" { return nil }
-            guard raw.indentation == 0, line.lowercased().hasPrefix(key + ":") else { continue }
-            var parts = [String(line.dropFirst(key.count + 1)).trimmed]
-            if parts[0].range(of: #"^[|>][+-]?$"#, options: .regularExpression) != nil { parts = [] }
-            for next in lines.dropFirst(index + 1) where !next.trimmedLine.isEmpty {
-                guard next.indentation > raw.indentation else { break }
-                parts.append(next.trimmedLine)
+        guard let close = frontMatterEnd(lines) else { return nil }
+        let block = lines[1..<close]
+        let value: String?
+        // The basic resolver keeps every value as text, so `false` and `No` are read the
+        // same way whatever the YAML version would make of them.
+        if let mapping = (try? Yams.compose(yaml: block.joined(separator: "\n"), .basic))?.mapping {
+            value = mapping.first { $0.key.string?.lowercased() == key }?.value.scalar?.string
+        } else {
+            value = looseValue(key, in: block)
+        }
+        let line = value?.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return line?.isBlank == false ? line : nil
+    }
+
+    // People write front matter by hand, and a colon inside a plain value, as in
+    // `description: Use when: the build fails`, is not valid YAML. The CLIs still read
+    // such a file, so it falls back to taking each top-level line as written.
+    private static func looseValue(_ key: String, in block: ArraySlice<Substring>) -> String? {
+        for line in block where line.indentation == 0 {
+            guard let colon = line.firstIndex(of: ":"),
+                  line[..<colon].trimmedLine.lowercased() == key else { continue }
+            let value = line[line.index(after: colon)...].trimmedLine
+            if let quote = value.first, "\"'".contains(quote), value.count > 1, value.last == quote {
+                return String(value.dropFirst().dropLast())
             }
-            let value = parts.joined(separator: " ")
-                .trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
-            return value.isBlank ? nil : value
+            return value
         }
         return nil
     }
@@ -361,52 +393,4 @@ enum AgentCommands {
 private extension Substring {
     var trimmedLine: String { trimmingCharacters(in: .whitespaces) }
     var indentation: Int { prefix { $0 == " " || $0 == "\t" }.count }
-}
-
-// The word being typed after a slash, and the commands it points at.
-enum SlashQuery {
-    static func highlightedRange(in text: String, commandNames: Set<String>) -> NSRange? {
-        guard let start = text.firstIndex(where: { !$0.isWhitespace }), text[start] == "/" else { return nil }
-        let end = text[start...].firstIndex(where: \.isWhitespace) ?? text.endIndex
-        let name = text[text.index(after: start)..<end].lowercased()
-        // A partial name is a command only while it can still be completed. Once the
-        // arguments start, it must match a whole name.
-        let known = end == text.endIndex
-            ? commandNames.contains(where: { $0.hasPrefix(name) })
-            : commandNames.contains(name)
-        return known ? NSRange(start..<end, in: text) : nil
-    }
-
-    // A command is only ever the whole of an unfinished prompt: the CLIs read one off the
-    // front of a prompt and nowhere else, and a slash in the middle of a sentence is a
-    // path or a date far more often than it is a command.
-    static func typed(in text: String) -> String? {
-        guard text.hasPrefix("/"), text.count <= 64,
-              !text.contains(where: { $0.isWhitespace || $0.isNewline }) else { return nil }
-        return String(text.dropFirst())
-    }
-
-    // What matches, nearest first: the name itself, then a name starting with it, then a
-    // name holding it anywhere. A name is often two words joined by a colon, so the part
-    // after the colon counts as a start of its own.
-    static func matches(_ query: String, in commands: [AgentCommand]) -> [AgentCommand] {
-        let query = query.lowercased()
-        guard !query.isEmpty else { return commands }
-        return commands.compactMap { command -> (AgentCommand, Int)? in
-            let name = command.name.lowercased()
-            let tail = name.split(separator: ":").last.map(String.init) ?? name
-            if name == query { return (command, 0) }
-            if name.hasPrefix(query) { return (command, 1) }
-            if tail.hasPrefix(query) { return (command, 2) }
-            if name.contains(query) { return (command, 3) }
-            return nil
-        }
-        .enumerated()
-        .sorted { left, right in
-            left.element.1 != right.element.1
-                ? left.element.1 < right.element.1
-                : left.offset < right.offset
-        }
-        .map(\.element.0)
-    }
 }

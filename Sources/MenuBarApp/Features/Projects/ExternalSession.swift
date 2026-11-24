@@ -15,8 +15,7 @@ struct ImportedSessionOrigin: Codable, Equatable, Sendable {
     // need signs the user out.
     func historyOverride(environment: [String: String] = ProcessInfo.processInfo.environment,
                          home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
-        let inherited = environment[agent.historyEnvironmentVariable].flatMap { $0.isEmpty ? nil : $0 }
-            ?? home.appendingPathComponent(".\(agent.rawValue)").path
+        let inherited = agent.configDirectory(environment: environment, home: home).path
         func resolved(_ path: String) -> String {
             URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
         }
@@ -63,5 +62,13 @@ extension AgentKind {
         // imported Kiro session always resumes from the default folder.
         case .kiro: "KIRO_HOME"
         }
+    }
+
+    // The folder the CLI keeps its settings and history in when it inherits the app's
+    // environment. An empty variable counts as unset.
+    func configDirectory(environment: [String: String] = ProcessInfo.processInfo.environment,
+                         home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        environment[historyEnvironmentVariable].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? home.appendingPathComponent(".\(rawValue)")
     }
 }

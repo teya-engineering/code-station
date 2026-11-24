@@ -4,116 +4,6 @@ enum MessageRole: String, Codable, Sendable {
     case user, assistant, system, instructions
 }
 
-// One tool call inside an assistant turn. `result` stays nil until Claude Code
-// reports the tool_result, so the UI can show a call as still in flight.
-struct ToolUse: Identifiable, Codable, Equatable, Sendable {
-    var id: String
-    var name: String
-    var input: String
-    var result: String?
-    var isError: Bool = false
-    // Shell calls carry the process result when the agent reports one. Other failures
-    // still use `isError`, since not every tool has an exit status.
-    var exitCode: Int?
-    // How much of the turn's text had been written when this call started. It is the
-    // only record of where the call belongs, since text and calls are kept apart.
-    // Optional so conversations written before the app tracked it still decode; those
-    // read as "before anything was said", which is how they have always been drawn.
-    var textOffset: Int?
-    // The call that started the agent which made this one, when it was not the main
-    // loop that made it. Every call of a whole fan-out arrives in the same flat stream,
-    // so this is the only thing that says which agent was working.
-    var parentID: String?
-    // The last thing an agent said while it worked, kept only for the call that started
-    // it. A fan-out can run for many minutes with nothing else to show for it.
-    var status: String?
-    // Where in the file an edit landed, counted from 1. Neither CLI says, so it is read
-    // off disk the moment the call reports in, while what is on disk is still what the
-    // call wrote. Nil when the file could not be read or the call was not an edit, which
-    // is what leaves a diff without a line gutter.
-    var editStartLine: Int?
-    // What the call left behind on disk when its input did not say. Filled in once the
-    // snapshot behind it comes back, which is a beat after the result. Nil when the input
-    // describes the change and when the call changed nothing.
-    var written: WrittenChange?
-    // When the call reached the app. Neither CLI sends a time, so it is stamped as the
-    // call arrives. Optional so conversations written before the app kept it still
-    // decode; those fall back to the time of the turn they sit in.
-    var startedAt: Date?
-    // When the call's result reached the app, stamped the same way. Nil while the call
-    // runs, and for a call interrupted mid-turn, which never reports in.
-    var finishedAt: Date?
-    var agentTask: AgentTaskRecord?
-
-    var isRunning: Bool { result == nil }
-
-    // How long the call took, from its arrival to its result. Nil until it has reported
-    // in, and for conversations written before the app kept both times.
-    var duration: TimeInterval? {
-        guard let startedAt, let finishedAt else { return nil }
-        return max(0, finishedAt.timeIntervalSince(startedAt))
-    }
-
-    // Calls that stand for an agent rather than for work done in this conversation.
-    // Their rows read as a container: what matters is what ran inside them.
-    static let agentTools: Set<String> = ["Task", "Agent", "Workflow"]
-
-    var startsAgents: Bool { Self.agentTools.contains(name) }
-
-    // The id the CLI gave the agent this call started, read off the receipt it answered
-    // with. An agent sent to the background reports in the moment it starts, so the
-    // call's own result says nothing about whether the agent is still working. This is
-    // what ties the call to the list of agents the CLI says are still going.
-    var backgroundAgentID: String? {
-        if let agentTask { return agentTask.task.id }
-        guard startsAgents, let result,
-              let marker = result.range(of: "agentId: ") else { return nil }
-        let id = result[marker.upperBound...].prefix { $0.isHexDigit }
-        return id.isEmpty ? nil : String(id)
-    }
-
-    // Calls that may arrive carrying the change they made. Codex can send only the paths,
-    // so the name alone does not say whether the payload is enough to draw the change.
-    static let editTools: Set<String> = ["Edit", "Write", "Delete"]
-
-    var describesOwnChange: Bool {
-        guard Self.editTools.contains(name),
-              let object = try? JSONSerialization.jsonObject(with: Data(input.utf8)),
-              let fields = object as? [String: Any]
-        else { return false }
-        if let diff = fields["diff"] as? String, !diff.isEmpty { return true }
-        return switch name {
-        case "Edit": fields["old_string"] is String && fields["new_string"] is String
-        case "Write": fields["content"] is String
-        default: false
-        }
-    }
-}
-
-struct AgentTaskRecord: Codable, Equatable, Sendable {
-    enum State: String, Codable, Sendable {
-        case running, finished, completed, failed, interrupted
-    }
-
-    var task: BackgroundTask
-    var state: State = .running
-    var report: String?
-    var finishedAt: Date?
-}
-
-// A change git saw a call make, worked out by comparing the working tree before and after
-// it ran. Kept with the call rather than derived again on demand: the trees it came from
-// are unreachable the moment they are taken, and the worktree itself may be gone by the
-// time anyone reads the conversation back.
-struct WrittenChange: Codable, Equatable, Sendable {
-    var files = 0
-    var added = 0
-    var removed = 0
-    // The change itself, as a unified patch covering every file. Nil when it was too large
-    // to be worth reading inline, which leaves the counts above and nothing to unfold.
-    var patch: String?
-}
-
 // One call and everything that ran inside it. A turn's calls are stored flat, in the
 // order the stream gave them, and this is that list read as what it really is.
 struct ToolNode: Identifiable {
@@ -165,19 +55,28 @@ struct ThinkingSegment: Identifiable, Codable, Equatable, Sendable {
     // How many calls the turn had made when this arrived. Text alone cannot place a
     // thought between two rounds of calls that spoke no words between them.
     var toolOffset = 0
+    // When the thought arrived. Transcripts saved before thoughts were dated have none.
+    var date: Date? = nil
+}
+
+// Where a block of the reply's text begins and when it arrived. The text is stored as one
+// string, so this is what lets each stretch of it carry its own time.
+struct TextMark: Codable, Equatable, Sendable {
+    var offset: Int
+    var date: Date
 }
 
 // A run of the turn laid out in the order it happened: some text Claude wrote, a stretch
 // of thinking, or the calls it made at that point. Adjacent calls that started at the
 // same point ran as one round, so they stay together and are drawn as a single spine.
 enum MessageBlock: Identifiable {
-    case prose(id: Int, text: String)
-    case thinking(id: Int, text: String)
+    case prose(id: Int, text: String, date: Date? = nil)
+    case thinking(id: Int, text: String, date: Date? = nil)
     case tools(id: Int, [ToolNode])
 
     var id: Int {
         switch self {
-        case .prose(let id, _), .thinking(let id, _), .tools(let id, _): return id
+        case .prose(let id, _, _), .thinking(let id, _, _), .tools(let id, _): return id
         }
     }
 }
@@ -208,6 +107,8 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     // The model's reasoning, in the order it happened. Optional so conversations written
     // before the app kept thinking still decode.
     var thinking: [ThinkingSegment]?
+    // When each block of the text arrived. Replies saved before text was dated have none.
+    var textMarks: [TextMark]?
     // Where the conversation stood when this prompt ran. Only prompts that start a turn
     // carry one; a prompt sent into a turn already running does not mark a point the
     // conversation could go back to.
@@ -300,12 +201,24 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         var cursor = 0
         var cursorIndex = text.startIndex
         let length = text.count
+        // When the last call so far finished. Text saved without marks was written after
+        // the calls above it, so that is the nearest time it can be given.
+        var lastFinished: Date?
+
+        func proseDate(from start: Int, to end: Int) -> Date? {
+            if let mark = textMarks?.first(where: { $0.offset >= start && $0.offset < end }) {
+                return mark.date
+            }
+            if let mark = textMarks?.last(where: { $0.offset < start }) { return mark.date }
+            return lastFinished ?? date
+        }
 
         func emitProse(upTo offset: Int) {
             let end = min(max(offset, cursor), length)
             guard end > cursor else { return }
             let endIndex = text.index(cursorIndex, offsetBy: end - cursor)
-            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex..<endIndex])))
+            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex..<endIndex]),
+                                 date: proseDate(from: cursor, to: end)))
             cursor = end
             cursorIndex = endIndex
         }
@@ -319,7 +232,7 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
                   thought.textOffset < textOffset
                     || (thought.textOffset == textOffset && thought.toolOffset <= toolOrder) {
                 emitProse(upTo: thought.textOffset)
-                blocks.append(.thinking(id: blocks.count, text: thought.text))
+                blocks.append(.thinking(id: blocks.count, text: thought.text, date: thought.date))
                 thoughts.removeFirst()
             }
         }
@@ -340,14 +253,18 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
             } else {
                 blocks.append(.tools(id: blocks.count, [node]))
             }
+            if let finished = node.tool.finishedAt {
+                lastFinished = max(lastFinished ?? finished, finished)
+            }
         }
         for thought in thoughts {
             emitProse(upTo: thought.textOffset)
-            blocks.append(.thinking(id: blocks.count, text: thought.text))
+            blocks.append(.thinking(id: blocks.count, text: thought.text, date: thought.date))
         }
 
         if cursor < length {
-            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex...])))
+            blocks.append(.prose(id: blocks.count, text: String(text[cursorIndex...]),
+                                 date: proseDate(from: cursor, to: length)))
         }
         return blocks
     }

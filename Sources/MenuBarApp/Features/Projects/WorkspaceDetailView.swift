@@ -26,8 +26,7 @@ struct WorkspaceDetailView: View {
     // The project row under the pointer. Only one row can be hovered, so the id is
     // enough and each row does not need state of its own.
     @State private var hoveredProjectID: UUID?
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     private var terminalScope: TerminalScope { .workspace(workspaceID) }
 
@@ -50,16 +49,7 @@ struct WorkspaceDetailView: View {
                                          focusTerminal: $terminalFocused)
                             .disabled(hasMissingProjects(workspace)
                                       || store.project(workspace.leadProjectID) == nil))
-            .overlay(alignment: .topTrailing) {
-                ZStack {
-                    if let note {
-                        HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
-                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                    }
-                }
-                .motion(Motion.reveal, value: note)
-            }
+            .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxxl)
             .task(id: workspace.projectIDs) { await checkFreshness(workspace) }
             .task(id: workspace.projectIDs) { await watchWorkingTrees(workspace) }
             .sheet(item: $creatingSession) { workspace in
@@ -777,16 +767,8 @@ struct WorkspaceDetailView: View {
         showNote("Showed \(project.name) in Finder")
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "arrow.up.forward.app")
     }
 
     private func hasMissingProjects(_ workspace: ProjectWorkspace) -> Bool {

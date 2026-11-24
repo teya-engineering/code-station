@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - Motion
 
 // The pace everything interactive moves at. A switch, a pill, a menu and a pane all move
-// on one of these three curves, so the window reads as a single surface reacting rather
+// on one of these curves, so the window reads as a single surface reacting rather
 // than a set of parts each keeping its own time.
 enum Motion {
     static let hoverDuration: TimeInterval = 0.12
@@ -28,7 +28,7 @@ enum Motion {
     // control, since on something this small a firmer spring reads as no motion at all.
     static let pop = Animation.spring(response: popDuration, dampingFraction: popDamping)
     // A line drawing itself: quick out of the gate, then a long gentle finish.
-    static let draw = Animation.timingCurve(0.2, 0.7, 0.1, 1, duration: 0.28)
+    static let draw = drawAnimation(duration: 0.28)
     // Anything put away. Leaving is always quicker than arriving, so closing never
     // feels like waiting.
     static let leave = Animation.easeIn(duration: leaveDuration)
@@ -48,7 +48,31 @@ enum Motion {
     // starts on the curve a line draws on, held long enough to be seen spreading.
     static let ringDuration: TimeInterval = 0.52
     static let ringGap: TimeInterval = 0.09
-    static let ring = Animation.timingCurve(0.2, 0.7, 0.1, 1, duration: ringDuration)
+    static let ring = drawAnimation(duration: ringDuration)
+    // A wash fading off words that have just been put into a field. It runs on the curve
+    // a line draws on, held long enough for the eye to find where the words went.
+    static let washDuration: TimeInterval = 0.7
+
+    // The step between rows that arrive together, such as a folder's files, so they
+    // read as a list unfolding rather than a block appearing.
+    static let stagger: TimeInterval = 0.02
+
+    static let brandOrbitDuration: TimeInterval = 1.12
+    static let brandGleamDuration: TimeInterval = 1.6
+    static let wordmarkPeriod: TimeInterval = 2.2
+
+    // The curve a line draws on. Kept in one place so the SwiftUI marks and the ones
+    // Core Animation plays in AppKit views move the same way.
+    private static let drawPoints: (Double, Double, Double, Double) = (0.2, 0.7, 0.1, 1)
+
+    private static func drawAnimation(duration: TimeInterval) -> Animation {
+        .timingCurve(drawPoints.0, drawPoints.1, drawPoints.2, drawPoints.3, duration: duration)
+    }
+
+    static var drawCurve: CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: Float(drawPoints.0), Float(drawPoints.1),
+                              Float(drawPoints.2), Float(drawPoints.3))
+    }
 
     // How far a control swells under the pointer. Kept this small on purpose: at this
     // size the lift is felt as the control waking up, and much past it the window starts

@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import SwiftUI
 
 // Keeps the app's MCP definitions registered with the Codex CLI. The CLI remains the
 // owner of ~/.codex/config.toml, so this manager only reads or changes it through
@@ -45,11 +44,6 @@ final class CodexCodeManager {
             }
             return nil
         }
-    }
-
-    private struct DiscoveryFailure: LocalizedError, Sendable {
-        let message: String
-        var errorDescription: String? { message }
     }
 
     private let registrar = CLIRegistrar(command: "codex",
@@ -190,10 +184,10 @@ final class CodexCodeManager {
                                                  in configURL: URL) throws {
         let target = configURL.resolvingSymlinksInPath()
         guard let toml = try? String(contentsOf: target, encoding: .utf8) else {
-            throw AgentServerWork.Failure(message: "Could not read \(configURL.path.abbreviatedPath).")
+            throw AgentFailure(message: "Could not read \(configURL.path.abbreviatedPath).")
         }
         guard let updated = settingEnabled(enabled, forServer: name, in: toml) else {
-            throw AgentServerWork.Failure(
+            throw AgentFailure(
                 message: "\(name) is not in \(configURL.path.abbreviatedPath). It may come from a Codex plugin, which Codex switches on its own.")
         }
         try updated.write(to: target, atomically: true, encoding: .utf8)
@@ -296,7 +290,7 @@ final class CodexCodeManager {
     // the CLI as the source of truth instead of parsing its TOML file.
     func enabledServers(in directory: String) async throws -> [DisabledMCPServer] {
         guard let codexPath = ProcessManager.resolve("codex") else {
-            throw DiscoveryFailure(message: "Codex CLI not found on PATH.")
+            throw AgentFailure(message: "Codex CLI not found on PATH.")
         }
         return try await Self.enabledServers(at: codexPath, searchPath: ProcessManager.searchPath,
                                              in: directory)
@@ -315,17 +309,17 @@ final class CodexCodeManager {
                                                  environment: environment,
                                                  timeout: timeout)
         } catch {
-            throw DiscoveryFailure(message: "Could not run Codex: \(error.localizedDescription)")
+            throw AgentFailure(message: "Could not run Codex: \(error.localizedDescription)")
         }
         guard result.succeeded else {
             let message = result.errorOutput.trimmed
-            throw DiscoveryFailure(message: message.isEmpty
+            throw AgentFailure(message: message.isEmpty
                 ? "Codex could not list its MCP servers."
                 : message)
         }
         guard !result.outputTruncated,
               let snapshots = Self.enabledServers(in: Data(result.output.utf8)) else {
-            throw DiscoveryFailure(message: "Codex returned an MCP server without a usable transport.")
+            throw AgentFailure(message: "Codex returned an MCP server without a usable transport.")
         }
         return snapshots
     }

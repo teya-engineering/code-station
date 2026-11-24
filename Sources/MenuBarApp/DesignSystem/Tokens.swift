@@ -17,6 +17,7 @@ enum Typography {
         static let caption: CGFloat = 11
         static let detail: CGFloat = 12
         static let body: CGFloat = 13
+        static let wordmark: CGFloat = 15
         static let title: CGFloat = 17
         static let display: CGFloat = 22
     }
@@ -45,12 +46,22 @@ enum Typography {
     // spaces the letters.
     static let caps = Font.mono(Size.micro, .semibold)
     static let capsKerning: CGFloat = 0.6
+    static let wordmarkKerning: CGFloat = -0.55
 }
 
 extension View {
     func capsText() -> some View {
         font(Typography.caps).kerning(Typography.capsKerning)
     }
+}
+
+// The brand lockup keeps its artwork and text metrics independent of control sizing.
+enum BrandMetrics {
+    static let barHeight: CGFloat = 68
+    static let drawingSide: CGFloat = 41
+    static let layoutSide: CGFloat = 33
+    static let ownerSize: CGFloat = 9
+    static let nameGap: CGFloat = 1
 }
 
 // MARK: - Space
@@ -108,6 +119,19 @@ enum ControlHeight {
     static let xl: CGFloat = 36
 }
 
+// MARK: - Scroll cap
+
+// How tall a block that scrolls inside a page may grow before it scrolls instead, such as
+// tool output in a transcript. Set with `.scrollCap(_:)`, which scales it with the text.
+enum ScrollCap {
+    // A few readings or the tail of a command's output.
+    static let short: CGFloat = 220
+    // Log lines or a document to read before answering.
+    static let medium: CGFloat = 320
+    // A whole trace waterfall.
+    static let tall: CGFloat = 460
+}
+
 // MARK: - Depth
 
 // The app is flat. Surfaces part by colour and a hairline, and a shadow is kept for the
@@ -132,11 +156,37 @@ extension View {
     }
 }
 
-// Shared dimensions for compact dialog forms.
+// Shared dimensions for dialog and sheet forms.
 enum FormMetrics {
     static let dialogWidth: CGFloat = 460
+    static let sheetWidth: CGFloat = 680
     static let guidanceHeight: CGFloat = 96
     static let pairedFieldsWidth: CGFloat = 340
     static let rowLabelWidth: CGFloat = 68
     static let inlineRowWidth: CGFloat = 360
+}
+
+// Aligned age and action columns in a settings rule table.
+enum SettingsRuleMetrics {
+    static let stackedWidth: CGFloat = 520
+    static let ageWidth: CGFloat = 120
+    static let actionWidth: CGFloat = 150
+}
+
+enum ReviewMetrics {
+    static let askWidth: CGFloat = 640
+    static let askHeight: CGFloat = 760
+    static let columnsWidth: CGFloat = 680
+    static let rangeHeight: CGFloat = 44
+    static let rangeStripHeight: CGFloat = 30
+    static let fileNameWidth: CGFloat = 260
+    // The change receipt in the ask stops at nine and a half rows and scrolls inside, so
+    // a big review keeps the card one size and the half row says there is more.
+    static let receiptListHeight: CGFloat = ControlHeight.md * 9.5
+    static let receiptBarWidth: CGFloat = 84
+    // Room for a row's file count and its "+n −n", so the bars line up down the list.
+    static let receiptCountWidth: CGFloat = 52
+    static let receiptFiguresWidth: CGFloat = 88
+    static let findingsWidth: CGFloat = 1000
+    static let findingsListWidth: CGFloat = 280
 }

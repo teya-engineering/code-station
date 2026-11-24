@@ -147,6 +147,31 @@ struct SessionScrollTests {
         #expect(abs(pane.distanceFromBottom(scroll)) < 2)
     }
 
+    // A mouse wheel moves the transcript without any live-scroll notification, and must
+    // still stop it following the conversation.
+    @Test func aMouseWheelScrollKeepsItsPlaceWhenRowsChangeHeight() async throws {
+        let pane = try Pane()
+        defer { pane.close() }
+        let scroll = try await pane.transcript()
+        let message = try #require(pane.harness.store.transcript(of: pane.harness.session.id).last)
+
+        let document = scroll.contentView.documentRect
+        let visible = scroll.documentVisibleRect
+        scroll.contentView.scroll(to: NSPoint(x: visible.minX, y: document.maxY - visible.height - 300))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        // The test host has no window server to route a real wheel event, so the
+        // observer is asked to read the position the way a wheel event would ask it.
+        let observer = try #require(pane.views.compactMap { $0 as? TranscriptScrollObserverView }.first)
+        observer.readPosition()
+        await pane.settle()
+
+        pane.harness.store.updateMessage(message.id, in: pane.harness.session.id) {
+            $0.text += "\n\nMore text while reading an earlier message."
+        }
+        await pane.settle()
+        #expect(pane.distanceFromBottom(scroll) > 100)
+    }
+
     @MainActor
     private final class Pane {
         let harness: RunnerHarness
@@ -174,7 +199,7 @@ struct SessionScrollTests {
                         "A long conversation needs room to read earlier messages. ", count: 8)),
                     to: harness.session.id)
             }
-            let preferences = try #require(UserDefaults(suiteName: "scroll-\(UUID().uuidString)"))
+            let preferences = scratchDefaults()
             let settings = AppSettings(agentAvatarURL: harness.scratch.path("avatar.png"),
                                        preferences: preferences)
             let hosting = NSHostingController(rootView:

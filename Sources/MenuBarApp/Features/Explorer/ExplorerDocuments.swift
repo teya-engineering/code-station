@@ -41,21 +41,17 @@ struct ExplorerDocuments {
         pinned = pinned.map(movedNode)
         modes = Dictionary(modes.map { (FileTree.path($0.key, afterMoving: old, to: new), $0.value) }, uniquingKeysWith: { _, latest in latest })
         edits = Dictionary(edits.values.map { edit in
-            let path = FileTree.path(edit.path, afterMoving: old, to: new)
-            return (path, ExplorerMemory.UnsavedEdit(path: path, preview: edit.preview,
-                                                   draft: edit.draft, original: edit.original,
-                                                   loadedAt: edit.loadedAt))
+            var edit = edit
+            edit.path = FileTree.path(edit.path, afterMoving: old, to: new)
+            return (edit.path, edit)
         }, uniquingKeysWith: { _, latest in latest })
     }
 
     mutating func removed(_ path: String) {
-        func contains(_ candidate: String) -> Bool {
-            candidate == path || candidate.hasPrefix(path + "/")
-        }
-        tabs.removeAll { contains($0.path) }
-        pinned.removeAll { contains($0.path) }
-        edits = edits.filter { !contains($0.key) }
-        modes = modes.filter { !contains($0.key) }
+        tabs.removeAll { $0.path.isInside(path) }
+        pinned.removeAll { $0.path.isInside(path) }
+        edits = edits.filter { !$0.key.isInside(path) }
+        modes = modes.filter { !$0.key.isInside(path) }
     }
 }
 

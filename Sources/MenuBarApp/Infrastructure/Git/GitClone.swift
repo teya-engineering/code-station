@@ -42,8 +42,8 @@ enum GitClone {
     static func clone(_ remote: String, to destination: URL,
                       preferences: UserDefaults = .standard,
                       onProgress: @escaping @MainActor @Sendable (Progress) -> Void) async -> Outcome {
-        guard let tool = await GitInspector.tool() else {
-            return .failed("Could not find git on PATH.")
+        guard let tool = Git.tool() else {
+            return .failed(Git.notFoundMessage)
         }
         guard !FileManager.default.fileExists(atPath: destination.path) else {
             return .failed("\(destination.path.abbreviatedPath) already exists.")

@@ -160,7 +160,7 @@ struct ProjectRemovalTests {
             return .success(())
         }
 
-        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                               shortcuts: shortcuts,
                                               worktrees: worktrees)
 
@@ -173,7 +173,7 @@ struct ProjectRemovalTests {
     @Test func removesAProjectThatHasNoSessionsAtAll() async throws {
         let project = try addProject(named: "checkout")
 
-        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                               shortcuts: shortcuts,
                                               worktrees: removal { .success(()) })
 
@@ -190,7 +190,7 @@ struct ProjectRemovalTests {
         shortcuts.add(name: "Build", text: "make", projectID: other.id)
         shortcuts.add(name: "Prune", text: "docker system prune")
 
-        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                               shortcuts: shortcuts,
                                               worktrees: removal { .success(()) })
 
@@ -211,7 +211,7 @@ struct ProjectRemovalTests {
                                        worktreeBranch: "code-station/test")
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
-        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                               shortcuts: shortcuts,
                                               worktrees: worktrees)
 
@@ -234,7 +234,7 @@ struct ProjectRemovalTests {
         }
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
-        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        let result = await ProjectRemoval.run(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                               shortcuts: shortcuts,
                                               worktrees: worktrees)
 
@@ -258,7 +258,7 @@ struct ProjectRemovalTests {
         }
         let worktrees = removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) }
 
-        let result = await ProjectRemoval.run(task, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        let result = await ProjectRemoval.run(task, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                               shortcuts: shortcuts,
                                               worktrees: worktrees)
 
@@ -275,7 +275,7 @@ struct ProjectRemovalTests {
         let project = try addProject(named: "checkout")
         let dialogs = DialogPresenter()
 
-        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                shortcuts: shortcuts, dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
@@ -289,7 +289,7 @@ struct ProjectRemovalTests {
                                        worktreePath: "/worktrees/checkout",
                                        worktreeBranch: "code-station/test")
         let dialogs = DialogPresenter()
-        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                shortcuts: shortcuts, dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
@@ -310,7 +310,7 @@ struct ProjectRemovalTests {
                              worktreeBranch: "code-station/test")
         let dialogs = DialogPresenter()
         ProjectRemoval.confirm(
-            project, in: store, runner: SessionRunner(preferences: testPreferences.store), shortcuts: shortcuts,
+            project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store), shortcuts: shortcuts,
             dialogs: dialogs, worktrees: removal { .failure(GitWorktree.Failure(message: "Worktree is busy")) })
 
         dialogs.run(try #require(dialogs.current?.actions.first))
@@ -325,7 +325,7 @@ struct ProjectRemovalTests {
     @Test func leavesTheProjectAloneWhenTheQuestionIsRefused() throws {
         let project = try addProject(named: "checkout")
         let dialogs = DialogPresenter()
-        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(preferences: testPreferences.store),
+        ProjectRemoval.confirm(project, in: store, runner: SessionRunner(store: store, preferences: testPreferences.store),
                                shortcuts: shortcuts, dialogs: dialogs,
                                worktrees: removal { .success(()) })
 
@@ -356,10 +356,10 @@ struct ProjectRemovalTests {
         _ remove: @escaping @Sendable () async -> Result<Void, GitWorktree.Failure>
     ) -> WorktreeOperations {
         WorktreeOperations(
-            addProject: { _, _, _, _ in
+            addProject: { _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
-            addWorkspaceProject: { _, _, _, _, _ in
+            addWorkspaceProject: { _, _, _, _, _, _ in
                 .failure(GitWorktree.Failure(message: "Unexpected add"))
             },
             remove: { _, _, _ in await remove() })

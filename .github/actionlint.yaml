@@ -1,0 +1,5 @@
+self-hosted-runner:
+  # GitHub-hosted labels that actionlint does not list yet. xcode-27 is the
+  # preview image the Tests and Release workflows run on.
+  labels:
+    - xcode-27

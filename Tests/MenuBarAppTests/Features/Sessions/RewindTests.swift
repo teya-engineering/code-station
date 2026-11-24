@@ -16,7 +16,7 @@ struct RewindTests {
 
     init() throws {
         (store, scratch) = TestStore.make()
-        runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+        runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
         project = try TestStore.project(in: store)
         session = store.newSession(in: project.id)
     }
@@ -44,7 +44,7 @@ struct RewindTests {
 
         // The turn cannot start without a CLI on PATH, but the prompt is already in the
         // transcript by then, checkpoint and all.
-        runner.send("Do the thing", sessionID: session.id, store: store)
+        runner.send("Do the thing", sessionID: session.id)
 
         let prompt = try #require(store.transcript(of: session.id).first)
         #expect(prompt.checkpoint == ConversationCheckpoint(agent: .claudeCode,
@@ -54,8 +54,8 @@ struct RewindTests {
     @Test func rewindingRestoresTheConversationAndTheComposer() throws {
         let (first, second) = twoTurns()
 
-        #expect(runner.canRewind(to: second.id, sessionID: session.id, store: store))
-        runner.rewind(to: second.id, sessionID: session.id, store: store)
+        #expect(runner.canRewind(to: second.id, sessionID: session.id))
+        runner.rewind(to: second.id, sessionID: session.id)
 
         // The discarded turns are gone, a note marks the seam, and the next turn
         // resumes the conversation as it stood before the second prompt.
@@ -70,7 +70,7 @@ struct RewindTests {
     @Test func rewindingToTheFirstPromptStartsOver() {
         let (first, _) = twoTurns()
 
-        runner.rewind(to: first.id, sessionID: session.id, store: store)
+        runner.rewind(to: first.id, sessionID: session.id)
 
         // Nothing had been said before the first prompt, so there is nothing to resume.
         #expect(store.session(session.id)?.claudeSessionID == nil)
@@ -100,7 +100,7 @@ struct RewindTests {
         let prompt = ChatMessage(role: .user, text: "Old prompt")
         store.append(prompt, to: session.id)
 
-        #expect(!runner.canRewind(to: prompt.id, sessionID: session.id, store: store))
+        #expect(!runner.canRewind(to: prompt.id, sessionID: session.id))
     }
 
     @Test func forkingCarriesTheConversationUpToThePrompt() throws {
@@ -137,10 +137,13 @@ struct RewindTests {
     // over each other in.
     @Test func aCodexConversationDoesNotFork() {
         var prompt = ChatMessage(role: .user, text: "One")
-        prompt.checkpoint = ConversationCheckpoint(agent: .claudeCode,
-                                                   codexSessionID: "thread-1")
+        prompt.checkpoint = ConversationCheckpoint(agent: .codex, codexSessionID: "thread-1")
         store.append(prompt, to: session.id)
+        var unstarted = ChatMessage(role: .user, text: "Two")
+        unstarted.checkpoint = ConversationCheckpoint(agent: .codex)
+        store.append(unstarted, to: session.id)
 
         #expect(!store.canForkSession(session.id, before: prompt.id))
+        #expect(!store.canForkSession(session.id, before: unstarted.id))
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 // A throwaway, non-interactive run of a session's CLI that answers one prompt and is gone.
 // It never resumes the session, so what it is asked never reaches the conversation.
@@ -48,34 +49,30 @@ enum OneShotAgent {
 
     // The three CLIs answer in three dialects, all of which the app already reads, so the
     // run is folded onto the same events a turn produces and the text is taken off those.
-    private final class Collector: @unchecked Sendable {
-        private let lock = NSLock()
-        private let agent: AgentKind
-        private let copilot = CopilotStream()
-        private var parts: [String] = []
-        // `claude -p --output-format json` prints a single result object and no text
-        // events, so its answer is the result's own text.
-        private var result: String?
+    private final class Collector: Sendable {
+        private struct Answer {
+            var parts: [String] = []
+            // `claude -p --output-format json` prints a single result object and no text
+            // events, so its answer is the result's own text.
+            var result: String?
+        }
 
-        init(agent: AgentKind) { self.agent = agent }
+        private let parser: AgentStreamParser
+        private let answer = Mutex(Answer())
+
+        init(agent: AgentKind) { parser = AgentStreamParser(agent: agent) }
 
         var text: String {
-            lock.withLock { parts.isEmpty ? result ?? "" : parts.joined(separator: " ") }
+            answer.withLock { $0.parts.isEmpty ? $0.result ?? "" : $0.parts.joined(separator: " ") }
         }
 
         func receive(_ line: String) -> CommandRunner.OutputLineAction {
-            let events = switch agent {
-            case .claudeCode: StreamEvent.parse(line)
-            case .codex: StreamEvent.parseCodex(line)
-            case .copilot: copilot.parse(line)
-            // `kiro-cli chat --no-interactive` prints the answer as plain text.
-            case .kiro: line.isBlank ? [] : [StreamEvent.text(line)]
-            }
-            lock.withLock {
+            let events = parser.parse(line)
+            answer.withLock { answer in
                 for event in events {
                     switch event {
-                    case .text(let text): parts.append(text)
-                    case .finished(isError: false, message: let message?): result = message
+                    case .text(let text): answer.parts.append(text)
+                    case .finished(isError: false, message: let message?): answer.result = message
                     default: break
                     }
                 }

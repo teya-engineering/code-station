@@ -115,10 +115,11 @@ struct AppBackup: Codable, Equatable, Sendable {
 
     // Preferences that point at this Mac's sessions, cache what a server said, or belong
     // to AppKit stay behind. Everything else is a choice the person made.
-    private static let machineKeys: Set<String> = [
+    static let machineKeys: Set<String> = [
         "selectedSessionID", "selectedProjectID", "selectedWorkspaceID",
-        "hasCompletedOnboarding", "siteDefaultsPath", "appUpdateLastCheck",
-        "cachedAppUpdateRelease", "dismissedAppUpdateVersion", "dayRibbonEntranceDay"
+        Preferences.hasCompletedOnboarding.key, "siteDefaultsPath", "appUpdateLastCheck",
+        "cachedAppUpdateRelease", Preferences.dismissedAppUpdateVersion.key,
+        "dayRibbonEntranceDay"
     ]
     private static let machinePrefixes = ["NS", "Apple", "com.apple.", "adoptedDefaultsFrom-",
                                           "skillsLastRefresh"]

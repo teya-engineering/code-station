@@ -102,8 +102,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // folder. The worktree and branch belong to this session and go with it.
     var worktreePath: String?
     var worktreeBranch: String?
-    // Set only for a multi-project session. The checkout list is a snapshot of the
-    // workspace at creation time, ordered with the lead project first.
+    // Set only for a multi-project session. The checkout list starts as the workspace at
+    // creation time, with the lead project first, and grows when a project is attached.
     var workspaceID: UUID?
     var sessionProjects: [SessionProject]?
     // Folders outside every checkout that the person opened up from a permission card.
@@ -153,6 +153,10 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     var isDesignSession: Bool { designSourceSessionID != nil }
 
     var ownsDesign: Bool { mode == .design }
+
+    // The sidebar row the session sits under: its workspace, or its project when it has
+    // none.
+    var containerID: UUID { workspaceID ?? projectID }
 
     var isActivelyDesigning: Bool {
         ownsDesign && designPhase != .implementing

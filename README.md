@@ -8,11 +8,11 @@ Teya Code Station is a macOS app for running Claude Code, Codex, GitHub Copilot 
 
 ## Why Code Station
 
-- **Run agents side by side.** Choose Claude Code, Codex, Copilot or Kiro (beta) for each session, then run independent sessions in their own Git worktrees without having them edit the same checkout.
-- **Work across repositories.** Group related projects into a reusable workspace with one lead working directory and attach the others to the same conversation.
+- **Run agents side by side.** Choose Claude Code, Codex, Copilot or Kiro (beta) for each session, then run independent sessions in their own Git worktrees without having them edit the same checkout. Name a session's branch yourself, or keep the one the app picks.
+- **Work across repositories.** Group related projects into a reusable workspace with one lead working directory and attach the others to the same conversation. A running session can attach another project without starting over. The project also joins the workspace, and a single-project session becomes a workspace session.
 - **Come back caught up.** Ask for a short session recap at any time, or create one automatically when a turn finishes while you are elsewhere. Recaps stay outside the conversation, so they do not add noise to the agent's context.
 - **Review like a pull request.** Click a line number in a session's changes to ask a question or request a change. A side copy of the session answers questions right there, without touching the chat. Ask another agent for a second opinion that lands as more comments, then send the changes back to the session as one prompt.
-- **Stay close to the work.** Review and commit changes, browse files, use a terminal, manage MCP servers and skills, send HTTP requests, inspect Docker, run shortcuts, and start guided troubleshooting without leaving the app.
+- **Stay close to the work.** Review and commit changes, browse files, use a terminal, manage MCP servers and skills, send HTTP requests, inspect Docker, run shortcuts, and start guided troubleshooting without leaving the app. You can amend a commit you already pushed, and the push review replaces it on origin with `--force-with-lease`, so nobody else's work is overwritten.
 
 The [project website](https://teya-engineering.github.io/code-station/#features) has the complete feature overview and more product screenshots.
 
@@ -33,9 +33,9 @@ You need macOS 15 or later and at least one supported coding agent installed and
 You need:
 
 - macOS 15 or later
-- Xcode 26 or another Swift 6.2 toolchain
+- Xcode 26 or later. The version in `.xcode-version` is the one CI uses, so it is the safest choice
 - Git
-- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in. Kiro support is in beta. Skills from the marketplace install into `~/.kiro/skills`; a package's agents, commands and hooks do not carry over. Kiro sessions show the plan credits they use rather than dollars. Kiro sessions are handed Code Station's MCP servers when they open, alongside any set up in Kiro itself.
+- At least one supported coding agent installed and signed in: `claude`, `codex`, `copilot` or `kiro-cli`. Kiro signs in through its own menu: GitHub, Google, AWS Builder ID, or your organisation's sign-in. Kiro support is in beta.
 
 Clone the repository and create a double-clickable app bundle:
 

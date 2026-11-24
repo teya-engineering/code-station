@@ -1,0 +1,1487 @@
+import SwiftUI
+
+// What Home can say about today without Stats: it is read off the sessions themselves.
+struct GlanceToday {
+    var added = 0
+    var removed = 0
+    var sessions = 0
+    var worktrees = 0
+    var worktreeSessions = 0
+    // Whether the scans behind the line counts have landed.
+    var measured = false
+    var changedNote = ""
+}
+
+// Where the time went, in one place on Home. A sentence says it, one chart shows it (the
+// rolling day as a ribbon, or a longer stretch as stacked bars), and one slim line under
+// the chart picks what the chart measures. The full breakdown opens in place under the
+// card.
+//
+// The rolling day's agent time comes from the session scan, so it is there with Stats
+// off. Everything else, and every longer stretch, comes from a Stats report.
+struct GlanceSection: View {
+    let timeline: [RibbonSession]
+    let spans: (UUID) -> [TimeSpan]
+    // Whether every session in the window has been read off disk yet. Without it the
+    // chart claims an empty day for the moment between opening Home and the first scan
+    // landing, which is the one moment the claim is most likely to be wrong.
+    let scanned: Bool
+    let today: GlanceToday
+    let onOpen: (UUID) -> Void
+    let openStatsSettings: () -> Void
+
+    @Environment(StatsStore.self) private var stats
+    @Environment(ProjectStore.self) private var store
+    @Environment(AppSettings.self) private var settings
+    @Environment(TooltipPresenter.self) private var tooltips
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // What the person picked.
+    @State private var range = StatsRange.today
+    @State private var lens = StatsLens.time
+    @State private var subject: UUID?
+    // What is on screen. The stretch and the filter move only once the report for them
+    // is built, so every number in the section changes in one go.
+    @State private var shownRange = StatsRange.today
+    @State private var shownSubject: UUID?
+    @State private var report: StatsReport?
+    @State private var subjects: [StatsSubject] = []
+    @State private var showsWhy = false
+    @State private var showsBreakdown = false
+    @State private var zoom: Zoom?
+    @State private var plotWidth: CGFloat = 0
+    @FocusState private var focusedBar: Int?
+    @FocusState private var focusedLens: StatsLens?
+    @Namespace private var rangeTrack
+    @Namespace private var lensTrack
+
+    // One owner for every bar, so moving between bars hands the card along instead of
+    // closing one and waiting to open the next.
+    @State private var cardOwner = UUID()
+    @State private var card = CardState()
+    @State private var trackAnchor = FrameAnchor()
+    @State private var sectionAnchor = FrameAnchor()
+
+    @State private var entrance = Entrance.waiting
+    @State private var settling: Task<Void, Never>?
+
+    private static let bandHeight: CGFloat = 132
+    private static let barSpacing: CGFloat = 3
+    // A bar on a longer stretch takes this share of its slot, up to a width that still
+    // reads as a bar rather than a block.
+    private static let wideBarShare: CGFloat = 0.62
+    private static let wideBarLimit: CGFloat = 44
+    // Room above the band for the "now" label, and how far its line rises past the band.
+    private static let markerRoom: CGFloat = 21
+    private static let markerOverhang: CGFloat = 6
+    private static let axisGap: CGFloat = 8
+    private static let axisLabelWidth: CGFloat = 72
+    private static let cardWidth: CGFloat = 290
+    // The line of readings under the chart.
+    private static let lineHeight = ControlHeight.xl + Space.xl
+    nonisolated private static let space = "glance"
+    // Resting on a bar answers almost at once. It is just long enough that a pointer
+    // passing straight over the chart does not flash a card up.
+    private static let hoverDelay = Duration.milliseconds(80)
+    // Crossing the gap between two bars ends one hover just before the next begins, so
+    // the card waits this long before going, in case the pointer is only passing over.
+    private static let hideGrace = Duration.milliseconds(140)
+    // The card and the dimming of the other bars keep pace with the short hover delay.
+    fileprivate static let quick = Animation.easeOut(duration: Motion.hoverDuration)
+    private static let fade = Motion.revealDuration
+    // Sessions keep working while Home is open, so Stats reads them again now and then.
+    private static let rereadEvery = Duration.seconds(30)
+
+    private enum Entrance {
+        case waiting
+        case fading(since: Date)
+        case settled
+    }
+
+    // One frame of whatever the chart is doing.
+    private struct Moment {
+        var chartOpacity: Double = 1
+    }
+
+    // The stretch being left, held while the axis moves from it to the new one.
+    private struct Zoom {
+        let outgoing: GlanceShape
+        var domain: DateInterval
+        var arrived = false
+    }
+
+    private struct BuildKey: Equatable {
+        let revision: Int
+        let range: StatsRange
+        let subject: UUID?
+        let enabled: Bool
+    }
+
+    private var statsOn: Bool { settings.statsEnabled }
+    private var stretch: StatsRange { statsOn ? shownRange : .today }
+    private var peeking: Bool { tooltips.isShowing(owner: cardOwner) }
+
+    private var isMoving: Bool {
+        switch entrance {
+        case .fading: true
+        case .waiting, .settled: false
+        }
+    }
+
+    var body: some View {
+        let ribbon = ribbon
+        let shape = shape(ribbon)
+        VStack(alignment: .leading, spacing: Space.lg) {
+            // The "How Stats counts" panel hangs out of the title row over the card, so the
+            // row has to draw above the card or the card hides the panel.
+            titleRow
+                .zIndex(1)
+            TimelineView(.animation(paused: !isMoving)) { context in
+                glanceCard(ribbon: ribbon, shape: shape, moment: moment(at: context.date))
+            }
+            if showsBreakdown, statsOn, let report {
+                StatsBreakdown(report: report, subject: $subject, tint: tint(for:))
+                    .padding(.top, Space.lg)
+                    .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
+            }
+        }
+        .motion(Motion.reveal, value: showsBreakdown)
+        .onAppear {
+            if statsOn { stats.refresh(store) }
+            begin()
+        }
+        .onChange(of: scanned) { begin() }
+        .onChange(of: statsOn) { _, on in
+            guard !on else { return }
+            withAnimation(reduceMotion ? nil : Motion.control) {
+                range = .today
+                lens = .time
+                subject = nil
+                showsBreakdown = false
+            }
+        }
+        .task(id: statsOn) {
+            while statsOn, !Task.isCancelled {
+                try? await Task.sleep(for: Self.rereadEvery)
+                stats.refresh(store)
+            }
+        }
+        .task(id: BuildKey(revision: stats.revision, range: range, subject: subject, enabled: statsOn)) {
+            await rebuild()
+        }
+        .onDisappear {
+            card.pendingShow?.cancel()
+            card.pendingHide?.cancel()
+            settling?.cancel()
+            entrance = .waiting
+            tooltips.hide(owner: cardOwner, immediately: true)
+        }
+    }
+
+    // MARK: - Title row
+
+    private var titleRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Space.lg) {
+                title.fixedSize()
+                Spacer(minLength: Space.lg)
+                controls
+            }
+            VStack(alignment: .leading, spacing: Space.md) {
+                title
+                controls
+            }
+        }
+    }
+
+    // The lead words follow the stretch, so the title says what the section is about now.
+    private var title: some View {
+        Text("\(lead), at a glance")
+            .font(Typography.display)
+            .contentTransition(.opacity)
+            .motion(Motion.reveal, value: range)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var lead: String {
+        switch statsOn ? range : .today {
+        case .today: "Your day"
+        case .week: "Your week"
+        case .month: "Your month"
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: Space.md) {
+            HStack(spacing: Space.xs) {
+                ForEach(StatsRange.allCases, id: \.self) { choice in
+                    let enabled = statsOn || choice == .today
+                    ChoicePill(title: choice.title, selected: (statsOn ? range : .today) == choice,
+                               enabled: enabled, thumb: rangeTrack) { pick(choice) }
+                        .appTooltip(enabled ? nil : "Turn on Stats to look back further")
+                }
+            }
+            .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+                step(range: press.key == .rightArrow ? 1 : -1)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Stretch of time")
+            OptionMenu(value: subjectName, matchWidth: false, height: ControlHeight.md) { subjectEntries }
+                .fixedSize()
+            WhyButton(label: "How Stats counts", isOpen: $showsWhy) {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    explanation("Agent time", "Only the stretches a turn was working. A session left open overnight is not twelve hours.")
+                    explanation("Waiting on you", "From the moment an agent asked to the moment you answered. Counted from when Stats was turned on.")
+                    explanation("Your reply", "From the end of a turn to your next prompt, when it came within half an hour.")
+                    explanation("Cost", "What the agent reported. On a subscription, what the same use would cost on the API. Codex and Copilot report tokens only.")
+                }
+            }
+        }
+    }
+
+    private func explanation(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            Text(title).font(Typography.detail.weight(.semibold))
+            Text(detail)
+                .font(Typography.detail)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var subjectEntries: [MenuEntry] {
+        [.item("All projects and workspaces", checked: subject == nil) { pickSubject(nil) },
+         .separator]
+        + subjectChoices.map { choice in
+            .item(choice.name, projectTint: choice.tint, checked: subject == choice.id) {
+                pickSubject(choice.id)
+            }
+        }
+    }
+
+    private struct SubjectChoice {
+        let id: UUID
+        let name: String
+        let tint: Theme.ProjectTint
+    }
+
+    // With Stats on, everything Stats has counted. With it off, whatever ran in the
+    // rolling day, since that is all the chart can show.
+    private var subjectChoices: [SubjectChoice] {
+        if statsOn {
+            return subjects.map { SubjectChoice(id: $0.id, name: $0.name, tint: tint(for: $0)) }
+        }
+        var seen: Set<UUID> = []
+        return timeline.compactMap { session in
+            guard let id = session.subject.subjectID, seen.insert(id).inserted else { return nil }
+            return SubjectChoice(id: id, name: session.subject.name, tint: session.subject.tint)
+        }
+    }
+
+    private var subjectName: String {
+        guard let subject else { return "All projects and workspaces" }
+        return subjectChoices.first { $0.id == subject }?.name ?? "One project"
+    }
+
+    // MARK: - Card
+
+    private func glanceCard(ribbon: DayRibbon, shape: GlanceShape, moment: Moment) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            headline(ribbon: ribbon)
+                .padding(Space.xxl)
+            if statsOn && stats.isReading {
+                ProgressCard(title: "Reading your sessions",
+                             detail: "Numbers fill in as each one lands.",
+                             done: stats.total - stats.pending, total: stats.total,
+                             unit: "sessions", compact: true)
+                    .padding(.horizontal, Space.xxl)
+                    .padding(.bottom, Space.lg)
+                    .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
+            }
+            if let error = stats.loadError {
+                WarningStrip(error, icon: "externaldrive.badge.exclamationmark") {
+                    InlineLink(title: "Read again", tint: Theme.warningText) { stats.readAgain(store) }
+                        .fixedSize()
+                }
+            }
+            chart(shape, moment: moment)
+                .padding(.horizontal, Space.xxl)
+                .padding(.top, Space.xs)
+                .padding(.bottom, Space.xl)
+            if !statsOn {
+                statsOffNote
+                    .padding(.horizontal, Space.xxl)
+                    .padding(.bottom, Space.xl)
+                    .transition(.asymmetric(insertion: .fadeIn, removal: .fold))
+            }
+            readings(ribbon: ribbon)
+        }
+        .coordinateSpace(.named(Self.space))
+        .background(FrameAnchorView(anchor: sectionAnchor))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface(cornerRadius: Radius.floating)
+        .motion(Motion.reveal, value: stats.isReading)
+        .motion(Motion.reveal, value: statsOn)
+        .motion(Motion.reveal, value: stats.loadError)
+    }
+
+    // MARK: - Headline
+
+    private func headline(ribbon: DayRibbon) -> some View {
+        HStack(alignment: .center, spacing: Space.xxl) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                sentence(ribbon: ribbon)
+                summary(ribbon)
+                    .font(Typography.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+                    .appTooltip(stretch == .today && !today.changedNote.isEmpty ? today.changedNote : nil)
+            }
+            Spacer(minLength: 0)
+            if statsOn, let report {
+                HStack(spacing: Space.xl) {
+                    mark(icon: "flame.fill", tint: StatsBreakdown.Ink.waiting,
+                         value: report.streak, label: "day streak")
+                    mark(icon: "square.stack.3d.up.fill", tint: StatsBreakdown.Ink.prompts,
+                         value: report.peakAtOnce, label: "at once, at most")
+                }
+                .transition(.fadeIn)
+            }
+        }
+    }
+
+    private var agentSeconds: TimeInterval {
+        stretch == .today ? ribbon.spent : report?.agentTime.value ?? 0
+    }
+
+    // The stretch said as one sentence about whatever the chart measures, so the card
+    // opens on what the bars mean rather than on four numbers to add up.
+    private func sentence(ribbon: DayRibbon) -> some View {
+        let value = reading(lens, ribbon: ribbon).value
+        let ink = lens.tint
+        let text: Text
+        if stretch == .today && !scanned {
+            text = Text("Counting session time…")
+        } else if agentSeconds <= 0 {
+            text = Text(stretch == .today ? "Nothing ran in the last 24 hours." : "Nothing ran in this stretch.")
+        } else if value <= 0 {
+            text = Text(emptyLine)
+        } else {
+            let amount = Text(lens == .prompts ? counted(Int(value.rounded()), "prompt") : lens.format(value))
+                .foregroundStyle(ink)
+            let scope: Text = if let name = focusName(ribbon) {
+                Text(" on ") + Text(name).foregroundStyle(ink)
+            } else if let projects = projectCount(ribbon) {
+                Text(" across ") + Text(counted(projects, "project")).foregroundStyle(ink)
+            } else {
+                Text("")
+            }
+            text = switch lens {
+            case .time: Text("Your agents worked ") + amount + scope + Text(".")
+            case .prompts: Text("You sent ") + amount + scope + Text(".")
+            case .waiting: Text("You kept your agents waiting ") + amount + scope + Text(".")
+            case .cost: Text("Your agents cost ") + amount + scope + Text(".")
+            }
+        }
+        return text
+            .font(Typography.display)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.numericText(value: value))
+            .motion(Motion.control, value: value)
+            .motion(Motion.control, value: lens)
+    }
+
+    private var emptyLine: String {
+        let when = stretch == .today ? "today" : "in this stretch"
+        return switch lens {
+        case .time: "Nothing ran \(when)."
+        case .prompts: "No prompts sent \(when)."
+        case .waiting: "Your agents never waited on you \(when)."
+        case .cost: "Nothing spent \(when)."
+        }
+    }
+
+    private func focusName(_ ribbon: DayRibbon) -> String? {
+        guard let shownSubject else { return nil }
+        return subjectChoices.first { $0.id == shownSubject }?.name
+            ?? ribbon.legend.first?.subject.name
+    }
+
+    // Stats keeps no per-project count of waiting, so that sentence names no projects.
+    private func projectCount(_ ribbon: DayRibbon) -> Int? {
+        switch lens {
+        case .time:
+            stretch == .today
+                ? ribbon.legend.count
+                : report?.subjects.filter { $0.seconds > 0 }.count ?? 0
+        case .prompts: report?.subjects.filter { $0.prompts > 0 }.count
+        case .cost: report?.subjects.filter { $0.cost > 0 }.count
+        case .waiting: nil
+        }
+    }
+
+    // Where the time went, then what it changed: "Mostly on code-station, 180 prompts,
+    // busiest around 11:00. +1,204 −318 lines changed today, in 35 sessions."
+    private func summary(_ ribbon: DayRibbon) -> Text {
+        if stretch == .today && !scanned { return Text(verbatim: " ") }
+        if agentSeconds <= 0 {
+            if stretch == .today { return Text(statsOn ? "Look back further to see the week." : " ") }
+            return Text(stretch == .month ? " " : "Try a longer stretch.")
+        }
+        let work = workSentence(ribbon)
+        guard let changes = changeSentence else { return Text(work ?? " ") }
+        guard let work else { return changes }
+        return Text(work + " ") + changes
+    }
+
+    private func workSentence(_ ribbon: DayRibbon) -> String? {
+        var parts: [String] = []
+        if shownSubject == nil {
+            let lead = stretch == .today
+                ? ribbon.legend.first?.subject.name
+                : report?.subjects.first { $0.seconds > 0 }?.subject.name
+            if let lead { parts.append("mostly on \(lead)") }
+        }
+        // The headline already says the number the chart measures, so the line under it
+        // brings in agent time and prompts only when the headline is about something else.
+        if lens != .time { parts.append(StatsFormat.time(agentSeconds) + " of agent time") }
+        if statsOn, lens != .prompts, let report { parts.append(counted(Int(report.prompts.value), "prompt")) }
+        if stretch == .today {
+            let hours = ribbon.activity(bucketCount: 24)
+            if let busiest = hours.max(by: { $0.spent < $1.spent }), busiest.spent > 0 {
+                parts.append("busiest around " + String(format: "%02d:00",
+                    Calendar.current.component(.hour, from: busiest.interval.start)))
+            }
+        } else if let day = report?.busiestDay {
+            parts.append("busiest on \(day.name)")
+        }
+        guard let first = parts.first else { return nil }
+        parts[0] = first.prefix(1).uppercased() + first.dropFirst()
+        return parts.joined(separator: ", ") + "."
+    }
+
+    // The lines are only counted once their scans land, so until then the sentence names
+    // the sessions alone rather than claiming nothing changed.
+    private var changeSentence: Text? {
+        let added, removed, sessions: Int
+        let measured: Bool
+        if stretch == .today {
+            (added, removed, sessions, measured) = (today.added, today.removed, today.sessions, today.measured)
+        } else if let report {
+            (added, removed, sessions, measured) = (report.added, report.removed, report.sessions, true)
+        } else {
+            return nil
+        }
+        guard sessions > 0 else { return nil }
+        let count = counted(sessions, "session")
+        guard measured, added + removed > 0 else {
+            return Text(count.prefix(1).uppercased() + count.dropFirst() + " \(stretchWords).")
+        }
+        return Text(verbatim: "+" + StatsFormat.count(added))
+            .foregroundStyle(Theme.addition).fontWeight(.semibold)
+            + Text(verbatim: " ")
+            + Text(verbatim: "−" + StatsFormat.count(removed))
+            .foregroundStyle(Theme.deletion).fontWeight(.semibold)
+            + Text(" lines changed \(stretchWords), in \(count).")
+    }
+
+    private func mark(icon: String, tint: Color, value: Int, label: String) -> some View {
+        HStack(spacing: Space.md) {
+            IconBadge(icon: icon, tint: tint, side: ControlHeight.xl, round: true)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(value > 0 ? "\(value)" : "–")
+                    .font(Typography.title)
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(value)))
+                    .motion(Motion.control, value: value)
+                Text(label)
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - Lenses
+
+    private struct Reading {
+        var value: Double = 0
+        var text = "–"
+        var change: Double?
+        var spark: [Double] = []
+    }
+
+    // One slim line along the bottom of the card. Four cells, split by hairlines, each with
+    // a dot, a name, the reading and how it moved. The one picked decides what the chart
+    // measures, and a mark slides along their top edge to it, pointing up at the chart.
+    // Resting on a cell opens a card with the rest of the reading. The full breakdown sits
+    // at the right end.
+    private func readings(ribbon: DayRibbon) -> some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(Array(StatsLens.allCases.enumerated()), id: \.element) { index, choice in
+                    if index > 0 {
+                        Rectangle().fill(Theme.hairline).frame(width: 1)
+                    }
+                    lensCell(choice, reading: reading(choice, ribbon: ribbon))
+                }
+            }
+            .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+                step(lens: press.key == .rightArrow ? 1 : -1)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("What the chart measures")
+            Rectangle().fill(Theme.hairline).frame(width: 1)
+            breakdownToggle
+                .padding(.horizontal, Space.lg)
+        }
+        .frame(height: Self.lineHeight)
+        .lineLimit(1)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
+        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: Radius.floating,
+                                          bottomTrailingRadius: Radius.floating))
+    }
+
+    private func lensCell(_ choice: StatsLens, reading: Reading) -> some View {
+        let locked = !statsOn && choice != .time
+        let picked = lens == choice
+        let change = ChangeFigure.isWorthSaying(reading.change) ? reading.change : nil
+        return Button { pickLens(choice) } label: {
+            HStack(spacing: Space.md) {
+                Circle()
+                    .fill(choice.tint)
+                    .frame(width: Space.sm, height: Space.sm)
+                    .opacity(picked ? 1 : 0.45)
+                Text(choice.title)
+                    .font(Typography.body)
+                    .foregroundStyle(picked ? Color.primary : Color.secondary)
+                Text(locked ? "–" : reading.text)
+                    .font(Typography.title.weight(.semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: reading.value))
+                    .motion(Motion.control, value: reading.value)
+                if let change, !locked {
+                    ChangeFigure(change: change, lowerIsBetter: choice.lowerIsBetter)
+                        .transition(.fadeIn)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Space.xxl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(picked ? Theme.sunken : Color.clear)
+            .overlay(alignment: .top) {
+                if picked {
+                    Rectangle()
+                        .fill(choice.tint)
+                        .frame(height: Space.xxs)
+                        .matchedGeometryEffect(id: "underline", in: lensTrack)
+                }
+            }
+            .opacity(locked ? 0.55 : 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(locked)
+        .focused($focusedLens, equals: choice)
+        .hoverFill(cornerRadius: 0)
+        .modifier(LensHint(locked: locked, isFocused: focusedLens == choice, delay: Self.hoverDelay) {
+            peek(choice, reading: reading)
+        })
+        .accessibilityLabel(choice.title)
+        .accessibilityValue(locked ? "" : spoken(reading, change: change))
+        .accessibilityAddTraits(picked ? .isSelected : [])
+        .accessibilityHint(locked ? "Turn on Stats to count this" : "Shows this on the chart")
+        .motion(Motion.control, value: lens)
+    }
+
+    private func spoken(_ reading: Reading, change: Double?) -> String {
+        guard let change else { return reading.text }
+        return "\(reading.text), \(ChangeFigure.words(change)) than \(stretch.versus)"
+    }
+
+    // Built when the pointer comes to rest, so it reads the lens picked by then.
+    private func peek(_ choice: StatsLens, reading: Reading) -> Tooltip {
+        let edges = sectionAnchor.frame().map { $0.minX...max($0.maxX, $0.minX + ReadingPeek.width) }
+            ?? 0...CGFloat.greatestFiniteMagnitude
+        let content = ReadingPeek(
+            title: choice.title, value: reading.text, tint: choice.tint,
+            change: reading.change, lowerIsBetter: choice.lowerIsBetter, versus: stretch.versus,
+            note: reading.value > 0 ? "In \(stretch.phrase)" : "Nothing counted in \(stretch.phrase)",
+            spark: reading.spark,
+            footnote: lens == choice ? "On the chart now" : "Click to put this on the chart")
+        // Above, so the card covers the chart it describes rather than whatever sits below.
+        return Tooltip(title: "", hanging: Tooltip.Hanging(width: ReadingPeek.width, edges: edges,
+                                                           content: AnyView(content), side: .above))
+    }
+
+    private func reading(_ choice: StatsLens, ribbon: DayRibbon) -> Reading {
+        if stretch == .today && choice == .time {
+            var reading = Reading(value: ribbon.spent,
+                                  text: scanned ? StatsFormat.time(ribbon.spent) : "–",
+                                  spark: ribbon.activity(bucketCount: Sparkline.points).map(\.spent))
+            if statsOn, let previous = report?.agentTime.previous, previous > 0 {
+                reading.change = (ribbon.spent - previous) / previous
+            }
+            return reading
+        }
+        guard statsOn, let report else { return Reading() }
+        let tile = report.tile(choice)
+        return Reading(value: tile.value, text: choice.format(tile.value),
+                       change: (tile.previous ?? 0) > 0 ? tile.change : nil,
+                       spark: tile.spark)
+    }
+
+    // MARK: - Chart
+
+    private func chart(_ shape: GlanceShape, moment: Moment) -> some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            caption(shape)
+            ZStack(alignment: .center) {
+                VStack(spacing: Self.axisGap) {
+                    ZStack(alignment: .bottomLeading) {
+                        if let zoom {
+                            band(zoom.outgoing, domain: zoom.domain, role: .leaving)
+                        }
+                        band(shape, domain: zoom?.domain ?? shape.domain, role: .shown)
+                        if shape.wide && !shape.isEmpty {
+                            averageLine(shape)
+                        }
+                        nowMarker
+                            .opacity(stretch == .today && zoom == nil ? 1 : 0)
+                            .motion(Motion.reveal, value: stretch)
+                    }
+                    .frame(height: Self.markerRoom + Self.bandHeight)
+                    axis(shape)
+                }
+                if shape.isEmpty && (stretch != .today || scanned) && zoom == nil {
+                    emptyNote(shape)
+                        .transition(.fadeIn)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { plotWidth = $0 }
+            .opacity(moment.chartOpacity)
+        }
+    }
+
+    private func caption(_ shape: GlanceShape) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+            if shape.wide && !shape.isEmpty {
+                Text("The dashed line is the average, \(shape.lens.format(shape.average)) a day")
+                    .font(Typography.caption)
+                    .foregroundStyle(.tertiary)
+                    .contentTransition(.numericText(value: shape.average))
+            }
+            Spacer(minLength: Space.md)
+            if !shape.isEmpty {
+                Text(shape.wide ? "Click a bar to zoom in to \(shape.stretch.zoomedIn.phrase)"
+                                : "Click a bar to open its sessions")
+                    .font(Typography.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .lineLimit(1)
+        .motion(Motion.reveal, value: shape.lens)
+        .motion(Motion.reveal, value: shape.stretch)
+    }
+
+    private func phrase(_ shape: GlanceShape) -> String {
+        switch shape.stretch {
+        case .today: "over the last 24 hours"
+        case .week: "by day, over the last 7 days"
+        case .month: "by day, over the last 30 days"
+        }
+    }
+
+    private enum BandRole { case shown, leaving }
+
+    private func band(_ shape: GlanceShape, domain: DateInterval, role: BandRole) -> some View {
+        let peak = shape.peak
+        let count = shape.bars.count
+        let restack = "\(shape.lens.rawValue)\(shownSubject?.uuidString ?? "")"
+        // A zoom grows the new bars up from a quarter of their height as they fade in,
+        // and fades the old ones out as they squeeze into place.
+        let arriving = role == .shown && zoom != nil && zoom?.arrived == false
+        let opacity: Double = switch role {
+        case .shown: arriving ? 0 : 1
+        case .leaving: zoom?.arrived == true ? 0 : 1
+        }
+        let growth = arriving ? ChartMotion.zoomGrowth : 1
+        return ZStack(alignment: .bottomLeading) {
+            ForEach(shape.bars.indices, id: \.self) { index in
+                let bar = shape.bars[index]
+                let slot = ChartMotion.place(bar.interval, in: domain, width: plotWidth)
+                let width = shape.wide
+                    ? min(slot.width * Self.wideBarShare, Self.wideBarLimit)
+                    : max(0.5, slot.width - min(Self.barSpacing, slot.width * 0.17))
+                let x = slot.x + (slot.width - width) / 2
+                let face = face(bar, index: index, peak: peak, rank: shape.rank,
+                                growth: growth, interactive: role == .shown)
+                Group {
+                    if role == .shown && bar.total > 0 && (stretch != .today || scanned) {
+                        live(face, bar: bar, place: BarPlace(index: index, bar: bar, x: x, width: width),
+                             shape: shape)
+                    } else {
+                        face.accessibilityHidden(true)
+                    }
+                }
+                .frame(width: max(0, width), height: Self.bandHeight, alignment: .bottom)
+                .offset(x: x)
+                .motion(ChartMotion.restack(bar: index, of: count), value: restack)
+            }
+        }
+        .frame(width: max(plotWidth, 0), height: Self.bandHeight, alignment: .bottomLeading)
+        .animation(role == .shown ? ChartMotion.zoomArrive : ChartMotion.zoomLeave) {
+            $0.opacity(opacity)
+        }
+        .allowsHitTesting(role == .shown && zoom == nil)
+        .background {
+            if role == .shown { FrameAnchorView(anchor: trackAnchor) }
+        }
+        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+            step(bar: press.key == .rightArrow ? 1 : -1, in: shape)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(bandLabel(shape))
+        .accessibilityHidden(role == .leaving)
+    }
+
+    @ViewBuilder
+    private func live(_ face: RibbonBar, bar: GlanceBar, place: BarPlace, shape: GlanceShape) -> some View {
+        if shape.wide {
+            Button { zoomIn(from: shape.stretch) } label: { face }
+                .buttonStyle(.plain)
+                .focused($focusedBar, equals: place.index)
+                .onFocusChange { focused in focus(place, shape, focused) }
+                .onPointerHover { inside in hover(place, shape, inside) }
+                .accessibilityLabel(barLabel(bar, shape))
+                .accessibilityHint("Zooms in to \(shape.stretch.zoomedIn.phrase)")
+        } else if !bar.sessions.isEmpty {
+            face
+                .focused($focusedBar, equals: place.index)
+                .onFocusChange { focused in focus(place, shape, focused) }
+                .appMenu {
+                    [.searchable(bar.sessions.map { block in
+                        MenuItem(label: block.title, projectTint: block.subject.tint,
+                                 subtitle: block.subject.name,
+                                 handler: { onOpen(block.sessionID) })
+                    }, prompt: "Find a session", noResults: "No sessions match your search.")]
+                }
+                .onPointerHover { inside in hover(place, shape, inside) }
+                .accessibilityLabel(barLabel(bar, shape))
+                .accessibilityHint("Shows sessions active during this time")
+        } else {
+            face
+                .onPointerHover { inside in hover(place, shape, inside) }
+                .accessibilityLabel(barLabel(bar, shape))
+        }
+    }
+
+    private func face(_ bar: GlanceBar, index: Int, peak: Double, rank: [String: Int],
+                      growth: CGFloat, interactive: Bool) -> RibbonBar {
+        guard bar.total > 0, peak > 0, stretch != .today || scanned || !interactive else {
+            return RibbonBar(segments: [], dimmed: false, shown: false)
+        }
+        let height = Self.bandHeight * bar.total / peak * growth
+        return RibbonBar(segments: DayRibbon.Activity.segments(of: bar.pieces, total: bar.total,
+                                                               height: height, rank: rank),
+                         dimmed: interactive && peeking && card.shown != index,
+                         shown: interactive && peeking && card.shown == index)
+    }
+
+    private func averageLine(_ shape: GlanceShape) -> some View {
+        let height = shape.peak > 0 ? Self.bandHeight * shape.average / shape.peak : 0
+        return Path { path in
+            path.move(to: .zero)
+            path.addLine(to: CGPoint(x: max(plotWidth, 0), y: 0))
+        }
+        .stroke(Theme.secondaryText.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        .frame(height: 1)
+        .offset(y: -height)
+        .opacity(zoom == nil ? 1 : 0)
+        .motion(ChartMotion.restack(bar: 0, of: 1), value: height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    // The right edge of the rolling day is now, so the marker stands there above the
+    // last bar.
+    private var nowMarker: some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            Text(verbatim: "NOW")
+                .font(Typography.caps)
+                .foregroundStyle(Theme.accent)
+                .fixedSize()
+            Spacer(minLength: 0)
+            Path { path in
+                path.move(to: CGPoint(x: 0.75, y: 0))
+                path.addLine(to: CGPoint(x: 0.75, y: Self.bandHeight + Self.markerOverhang))
+            }
+            .stroke(Theme.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+            .frame(width: 1.5, height: Self.bandHeight + Self.markerOverhang)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func axis(_ shape: GlanceShape) -> some View {
+        Group {
+            if shape.wide {
+                ZStack(alignment: .topLeading) {
+                    ForEach(axisLabels(shape), id: \.index) { label in
+                        let slot = ChartMotion.place(shape.bars[label.index].interval,
+                                                     in: shape.domain, width: plotWidth)
+                        Text(verbatim: label.text)
+                            .font(Typography.data)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .frame(width: Self.axisLabelWidth)
+                            .offset(x: slot.x + slot.width / 2 - Self.axisLabelWidth / 2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                // Every three hours along the window, read from the window's own times
+                // rather than from the bars, so the labels stay true at any width.
+                HStack(spacing: 0) {
+                    ForEach(0..<9, id: \.self) { step in
+                        if step > 0 { Spacer(minLength: Space.xs) }
+                        Text(verbatim: step == 8 ? "now" : hour(shape.domain.start.addingTimeInterval(
+                            Double(step) * 3 * 3_600)))
+                            .font(Typography.data)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+            }
+        }
+        .id(shape.stretch)
+        .transition(.opacity)
+        .motion(Motion.reveal, value: shape.stretch)
+        .accessibilityHidden(true)
+    }
+
+    private struct AxisLabel {
+        let index: Int
+        let text: String
+    }
+
+    // A week names every day; a month names one bar in a few, so the dates do not run
+    // into one another.
+    private func axisLabels(_ shape: GlanceShape) -> [AxisLabel] {
+        let calendar = Calendar.current
+        let bars = shape.bars
+        let (every, offset) = shape.stretch == .week ? (1, 0) : (5, 4)
+        return bars.indices.filter { $0 % every == offset % every }.map { index in
+            let start = bars[index].interval.start
+            let text: String = if shape.stretch == .week {
+                calendar.isDateInToday(start) ? "Today" : start.formatted(.dateTime.weekday(.abbreviated).day())
+            } else {
+                start.formatted(.dateTime.day().month(.abbreviated))
+            }
+            return AxisLabel(index: index, text: text)
+        }
+    }
+
+    private func hour(_ date: Date) -> String {
+        String(format: "%02d:00", Calendar.current.component(.hour, from: date))
+    }
+
+    private func emptyNote(_ shape: GlanceShape) -> some View {
+        VStack(spacing: Space.md) {
+            Text(shape.stretch == .today ? "No sessions ran in the last 24 hours" : "Nothing ran in this stretch")
+                .font(Typography.detail)
+                .foregroundStyle(.secondary)
+            if statsOn, shape.stretch != .month {
+                let longer: StatsRange = shape.stretch == .today ? .week : .month
+                ActionButton(title: "Show \(longer.title)",
+                             tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail) {
+                    pick(longer)
+                }
+            }
+        }
+        .padding(Space.lg)
+    }
+
+    private func bandLabel(_ shape: GlanceShape) -> String {
+        if shape.stretch == .today && !scanned { return "Counting session activity" }
+        return "\(shape.lens.title), \(phrase(shape)). Taller bars mean more. Use the arrow keys to move between bars."
+    }
+
+    private func barLabel(_ bar: GlanceBar, _ shape: GlanceShape) -> String {
+        let parts = bar.pieces
+            .map { "\($0.subject.name) \(shape.lens.format($0.spent))" }
+            .joined(separator: ", ")
+        return "\(GlanceCard.title(of: bar, in: shape)), \(shape.lens.format(bar.total)) of \(shape.lens.title.lowercased()): \(parts)"
+    }
+
+    // MARK: - Below the chart
+
+    private var statsOffNote: some View {
+        HStack(alignment: .center, spacing: Space.lg) {
+            IconBadge(icon: "chart.bar.xaxis", tint: Theme.accent, side: ControlHeight.lg)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("See prompts, waits and cost, and look back further than a day")
+                    .font(Typography.body.weight(.semibold))
+                Text("Stats is off until you turn it on. Everything it counts stays on this Mac, and it never keeps what was written.")
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Space.md)
+            ActionButton(title: "Turn on in Settings", tone: .green, height: ControlHeight.md,
+                         icon: "gearshape", action: openStatsSettings)
+                .fixedSize()
+        }
+        .padding(Space.lg)
+        .washSurface(tint: Theme.accent)
+    }
+
+    @ViewBuilder
+    private var breakdownToggle: some View {
+        if statsOn {
+            ActionButton(title: showsBreakdown ? "Hide the full breakdown" : "Show the full breakdown",
+                         tone: .outlined, height: ControlHeight.md, size: Typography.Size.detail,
+                         trailingIcon: showsBreakdown ? "chevron.up" : "chevron.down") {
+                showsBreakdown.toggle()
+            }
+            .fixedSize()
+            .accessibilityValue(showsBreakdown ? "Shown" : "Hidden")
+        } else {
+            Label("The full breakdown needs Stats", systemImage: "lock.fill")
+                .font(Typography.caption)
+                .foregroundStyle(.tertiary)
+                .fixedSize()
+        }
+    }
+
+    private var stretchWords: String {
+        switch stretch {
+        case .today: "today"
+        case .week: "in 7 days"
+        case .month: "in 30 days"
+        }
+    }
+
+    // MARK: - Picking
+
+    private func pick(_ choice: StatsRange) {
+        guard statsOn || choice == .today, choice != range else { return }
+        skip()
+        tooltips.hide(owner: cardOwner, immediately: true)
+        withAnimation(reduceMotion ? nil : Motion.control) { range = choice }
+    }
+
+    private func pickLens(_ choice: StatsLens) {
+        guard statsOn || choice == .time, choice != lens else { return }
+        skip()
+        tooltips.hide(owner: cardOwner, immediately: true)
+        withAnimation(reduceMotion ? nil : Motion.control) { lens = choice }
+    }
+
+    private func pickSubject(_ id: UUID?) {
+        skip()
+        tooltips.hide(owner: cardOwner, immediately: true)
+        subject = id
+    }
+
+    private func step(range offset: Int) -> KeyPress.Result {
+        let all = StatsRange.allCases
+        guard statsOn, let index = all.firstIndex(of: range),
+              all.indices.contains(index + offset) else { return .ignored }
+        pick(all[index + offset])
+        return .handled
+    }
+
+    private func step(lens offset: Int) -> KeyPress.Result {
+        let all = StatsLens.allCases
+        guard statsOn, let index = all.firstIndex(of: lens),
+              all.indices.contains(index + offset) else { return .ignored }
+        let next = all[index + offset]
+        pickLens(next)
+        // Focus follows the pick, so the card under it moves along to the new reading.
+        if focusedLens != nil { focusedLens = next }
+        return .handled
+    }
+
+    private func step(bar offset: Int, in shape: GlanceShape) -> KeyPress.Result {
+        let live = shape.bars.indices.filter { shape.bars[$0].total > 0 }
+        guard !live.isEmpty else { return .ignored }
+        let current = focusedBar ?? (offset > 0 ? -1 : shape.bars.count)
+        let next = offset > 0 ? live.first { $0 > current } : live.last { $0 < current }
+        guard let next else { return .ignored }
+        focusedBar = next
+        return .handled
+    }
+
+    private func zoomIn(from stretch: StatsRange) {
+        tooltips.hide(owner: cardOwner, immediately: true)
+        pick(stretch.zoomedIn)
+    }
+
+    // MARK: - Building
+
+    private var ribbon: DayRibbon {
+        let sessions = shownSubject.map { id in timeline.filter { $0.subject.subjectID == id } } ?? timeline
+        return DayRibbon.build(sessions, spans: spans, now: Date())
+    }
+
+    private func shape(_ ribbon: DayRibbon) -> GlanceShape {
+        let count = GlanceShape.dayBars(width: plotWidth)
+        guard statsOn, let report, stretch != .today || lens != .time else {
+            return .ribbon(ribbon, bars: count)
+        }
+        let sessions = stretch == .today ? ribbon.activity(bucketCount: count).map(\.sessions) : []
+        return .report(report, stretch: stretch, lens: lens, dayBars: count,
+                       sessions: sessions, tint: tint(for:))
+    }
+
+    private func rebuild() async {
+        guard statsOn else {
+            shownRange = .today
+            shownSubject = subject
+            return
+        }
+        let digests = stats.digests
+        let events = stats.archive.events
+        let since = stats.archive.enabledAt
+        let range = range
+        let subject = subject
+        let (built, listed) = await Task.detached(priority: .userInitiated) {
+            (StatsReport.build(digests: digests, events: events, range: range,
+                               subject: subject, waitsSince: since),
+             StatsReport.subjects(of: digests))
+        }.value
+        guard !Task.isCancelled else { return }
+        subjects = listed
+
+        let zooms = range != shownRange && !reduceMotion && zoom == nil
+        let refiltered = subject != shownSubject
+        let outgoing = shape(ribbon)
+        guard zooms else {
+            withAnimation(refiltered && !reduceMotion ? Motion.control : nil) {
+                report = built
+                shownRange = range
+                shownSubject = subject
+            }
+            return
+        }
+        // The new bars go down at once on the old axis, unseen, and then the axis moves.
+        report = built
+        shownRange = range
+        shownSubject = subject
+        zoom = Zoom(outgoing: outgoing, domain: outgoing.domain)
+        let target = shape(ribbon).domain
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(ChartMotion.zoom) {
+                zoom?.domain = target
+                zoom?.arrived = true
+            } completion: {
+                zoom = nil
+            }
+        }
+    }
+
+    // The colour a project or workspace wears in the sidebar and on the map, so the same
+    // colour means the same thing here. One that has since been removed falls back to the
+    // colour its name would give it.
+    private func tint(for subject: StatsSubject) -> Theme.ProjectTint {
+        let avatar: SidebarAvatar?
+        let fallback: Theme.ProjectTint
+        if subject.isWorkspace {
+            avatar = store.workspace(subject.id)?.sidebarAvatar
+            fallback = Theme.workspaceTint
+        } else {
+            avatar = store.project(subject.id)?.sidebarAvatar
+            fallback = Theme.projectTint(for: subject.name)
+        }
+        guard let avatar else { return fallback }
+        return avatar.identityTint(iconSet: settings.sidebarIconSet,
+                                   style: settings.diceBearAvatarStyle,
+                                   name: subject.name, monogramTint: fallback)
+    }
+
+    // MARK: - Entrance
+
+    private func moment(at date: Date) -> Moment {
+        switch entrance {
+        case .waiting, .settled:
+            return Moment()
+        case .fading(let since):
+            let progress = max(0, min(1, date.timeIntervalSince(since) / Self.fade))
+            return Moment(chartOpacity: 0.35 + 0.65 * (1 - (1 - progress) * (1 - progress)))
+        }
+    }
+
+    // The chart fades in once the scan lands, every time Home opens.
+    private func begin() {
+        guard case .waiting = entrance, scanned else { return }
+        entrance = reduceMotion ? .settled : .fading(since: Date())
+        settle(after: Self.fade)
+    }
+
+    private func settle(after seconds: TimeInterval) {
+        settling?.cancel()
+        settling = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            entrance = .settled
+        }
+    }
+
+    private func skip() {
+        guard isMoving else { return }
+        settling?.cancel()
+        entrance = .settled
+    }
+
+    // MARK: - Hover card
+
+    private struct BarPlace {
+        let index: Int
+        let bar: GlanceBar
+        let x: CGFloat
+        let width: CGFloat
+    }
+
+    private func hover(_ place: BarPlace, _ shape: GlanceShape, _ inside: Bool) {
+        guard !isMoving else { return }
+        if inside {
+            card.pendingShow?.cancel()
+            card.pendingHide?.cancel()
+            card.hovered = place.index
+            if peeking {
+                showCard(place, shape)
+                return
+            }
+            card.pendingShow = Task {
+                try? await Task.sleep(for: Self.hoverDelay)
+                guard !Task.isCancelled else { return }
+                showCard(place, shape)
+            }
+        } else if card.hovered == place.index {
+            // Moving to the next bar can report the new bar's hover before this one
+            // ends, so only the bar still under the pointer may cancel what is pending.
+            card.pendingShow?.cancel()
+            card.hovered = nil
+            hideCard()
+        }
+    }
+
+    // A keyboard user has no pointer to rest, so focus shows the card straight away.
+    private func focus(_ place: BarPlace, _ shape: GlanceShape, _ focused: Bool) {
+        guard !isMoving else { return }
+        if focused {
+            card.pendingShow?.cancel()
+            card.pendingHide?.cancel()
+            showCard(place, shape)
+        } else if card.hovered == nil && card.shown == place.index {
+            hideCard()
+        }
+    }
+
+    private func hideCard() {
+        card.pendingHide?.cancel()
+        card.pendingHide = Task {
+            try? await Task.sleep(for: Self.hideGrace)
+            guard !Task.isCancelled else { return }
+            tooltips.hide(owner: cardOwner, immediately: true)
+        }
+    }
+
+    private func showCard(_ place: BarPlace, _ shape: GlanceShape) {
+        guard let track = trackAnchor.frame(), let section = sectionAnchor.frame() else { return }
+        let bar = CGRect(x: track.minX + place.x, y: track.minY,
+                         width: place.width, height: track.height)
+        card.shown = place.index
+        tooltips.show(Tooltip(title: "",
+                              hanging: Tooltip.Hanging(
+                                  width: Self.cardWidth,
+                                  edges: section.minX...max(section.maxX, section.minX + Self.cardWidth),
+                                  content: AnyView(GlanceCard(bar: place.bar, shape: shape)),
+                                  arrival: Self.quick)),
+                      from: bar, owner: cardOwner)
+    }
+}
+
+// How each lens names itself, marks itself and writes its readings, wherever it appears.
+extension StatsLens {
+    var title: String {
+        switch self {
+        case .time: "Agent time"
+        case .prompts: "Prompts"
+        case .waiting: "Waiting on you"
+        case .cost: "Cost"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .time: StatsBreakdown.Ink.time
+        case .prompts: StatsBreakdown.Ink.prompts
+        case .waiting: StatsBreakdown.Ink.waiting
+        case .cost: StatsBreakdown.Ink.cost
+        }
+    }
+
+    // Waiting and spending are better when they fall.
+    var lowerIsBetter: Bool { self == .waiting || self == .cost }
+
+    func format(_ value: Double) -> String {
+        switch self {
+        case .time, .waiting: StatsFormat.time(value)
+        case .prompts: StatsFormat.count(Int(value.rounded()))
+        case .cost: StatsFormat.money(value)
+        }
+    }
+}
+
+extension StatsRange {
+    // One step shorter, which is where clicking a bar of this stretch goes.
+    var zoomedIn: StatsRange {
+        switch self {
+        case .today, .week: .today
+        case .month: .week
+        }
+    }
+
+    var phrase: String {
+        switch self {
+        case .today: "the last 24 hours"
+        case .week: "the last 7 days"
+        case .month: "the last 30 days"
+        }
+    }
+}
+
+// A locked lens says why on a plain hint after the usual wait. An open one shows its
+// reading card almost at once, the way the bars do.
+private struct LensHint: ViewModifier {
+    let locked: Bool
+    let isFocused: Bool
+    let delay: Duration
+    let peek: () -> Tooltip
+
+    func body(content: Content) -> some View {
+        if locked {
+            content.appTooltip("Turn on Stats to count this")
+        } else {
+            content.appTooltip(delay: delay, isFocused: isFocused, peek)
+        }
+    }
+}
+
+// Which bar has its card up and which one the pointer is on. SwiftUI can report a hover
+// in the middle of an update, and a change to view state made then is lost while the
+// card still moves on, so the chart would light a different bar from the one the card
+// describes. A change to an observable object is not lost that way.
+@MainActor
+@Observable
+private final class CardState {
+    var shown: Int?
+    @ObservationIgnored var hovered: Int?
+    @ObservationIgnored var pendingShow: Task<Void, Never>?
+    @ObservationIgnored var pendingHide: Task<Void, Never>?
+}
+
+// MARK: - Bar
+
+private struct RibbonBar: View {
+    // Bottom first. Empty for a slot with nothing to show, which is drawn as a stub.
+    let segments: [DayRibbon.Activity.Segment]
+    let dimmed: Bool
+    // The bar whose card is up sits on a sunken background.
+    let shown: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private static let radius: CGFloat = 2
+    private static let stubHeight: CGFloat = 3
+
+    private var height: CGFloat {
+        segments.reduce(0) { $0 + $1.height }
+            + DayRibbon.Activity.segmentGap * Double(max(0, segments.count - 1))
+    }
+
+    private var segmentOpacity: Double { colorScheme == .dark ? 0.86 : 0.78 }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            if segments.isEmpty {
+                RoundedRectangle(cornerRadius: Self.radius)
+                    .fill(Theme.field)
+                    .frame(height: Self.stubHeight)
+            }
+            if !segments.isEmpty {
+                bar
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .opacity(dimmed ? 0.35 : 1)
+        .motion(Motion.reveal, value: dimmed)
+        .contentShape(Rectangle())
+    }
+
+    private var bar: some View {
+        VStack(spacing: DayRibbon.Activity.segmentGap) {
+            ForEach(segments.reversed()) { segment in
+                RoundedRectangle(cornerRadius: Self.radius)
+                    .fill(segment.subject.tint.colour.opacity(segmentOpacity))
+                    .frame(height: segment.height)
+            }
+        }
+        .frame(height: height)
+        .background {
+            RoundedRectangle(cornerRadius: Radius.tag)
+                .fill(Theme.sunken)
+                .padding(.horizontal, -2)
+                .padding(.vertical, -4)
+                .opacity(shown ? 1 : 0)
+                .motion(Motion.reveal, value: shown)
+        }
+    }
+}
+
+extension View {
+    // A bar sits inside a menu button, so it learns of the button's focus from the
+    // environment the button sets.
+    fileprivate func onFocusChange(_ handler: @escaping (Bool) -> Void) -> some View {
+        FocusReader(handler: handler) { self }
+    }
+}
+
+private struct FocusReader<Content: View>: View {
+    let handler: (Bool) -> Void
+    @ViewBuilder let content: Content
+
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        content.onChange(of: isFocused) { _, focused in handler(focused) }
+    }
+}
+
+// What a bar held: when it was, how much, and the projects that filled it.
+private struct GlanceCard: View {
+    let bar: GlanceBar
+    let shape: GlanceShape
+
+    private static let maxRows = 5
+    private static let tileSide: CGFloat = 22
+    private static let mixHeight: CGFloat = 6
+
+    static func title(of bar: GlanceBar, in shape: GlanceShape) -> String {
+        let start = bar.interval.start
+        switch shape.stretch {
+        case .today:
+            return "\(clock(start)) - \(clock(bar.interval.end))"
+        case .week, .month:
+            return start.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
+        }
+    }
+
+    private static func clock(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    Text(verbatim: Self.title(of: bar, in: shape))
+                        .font(Typography.title)
+                    Text(verbatim: subtitle)
+                        .font(Typography.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Text(shape.lens.format(bar.total))
+                    .font(Font.mono(Typography.Size.body, .semibold))
+                    .fixedSize()
+            }
+            .padding(.horizontal, Space.lg)
+            .padding(.top, Space.lg)
+            .padding(.bottom, Space.md)
+
+            mix
+                .padding(.horizontal, Space.lg)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(bar.pieces.prefix(Self.maxRows)) { share in
+                    HStack(spacing: Space.md) {
+                        ProjectTileView(name: share.subject.name, tint: share.subject.tint, side: Self.tileSide)
+                        Text(share.subject.name)
+                            .font(Typography.detail)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: Space.sm)
+                        Text(shape.lens.format(share.spent))
+                            .font(Typography.data)
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                    }
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.xs)
+                }
+                let rest = bar.pieces.count - Self.maxRows
+                if rest > 0 {
+                    Text(verbatim: "and \(rest) more")
+                        .font(Typography.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, Self.tileSide + Space.md * 2)
+                        .padding(.trailing, Space.md)
+                        .padding(.top, Space.xxs)
+                        .padding(.bottom, Space.xs)
+                }
+            }
+            .padding(.horizontal, Space.sm)
+            .padding(.top, Space.md)
+            .padding(.bottom, Space.sm)
+
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+            Text(hint)
+                .font(Typography.caption)
+                .foregroundStyle(.tertiary)
+                .padding(Space.md)
+                .padding(.horizontal, Space.xs)
+        }
+    }
+
+    private var subtitle: String {
+        let projects = counted(bar.pieces.count, "project")
+        let start = bar.interval.start
+        switch shape.stretch {
+        case .today:
+            return (Calendar.current.isDateInToday(start) ? "Today" : "Yesterday") + " · " + projects
+        case .week, .month:
+            return bar.interval.contains(Date()) ? "So far · " + projects : projects
+        }
+    }
+
+    private var hint: String {
+        if shape.wide { return "Click to zoom in to \(shape.stretch.zoomedIn.phrase)" }
+        return bar.sessions.isEmpty ? "No session worked in this time" : "Click to open one of these sessions"
+    }
+
+    private var mix: some View {
+        GeometryReader { geometry in
+            let gaps = Double(max(0, bar.pieces.count - 1))
+            let width = max(0, geometry.size.width - gaps)
+            HStack(spacing: 1) {
+                ForEach(bar.pieces) { share in
+                    Rectangle()
+                        .fill(share.subject.tint.colour)
+                        .frame(width: width * share.spent / max(bar.total, .leastNonzeroMagnitude))
+                }
+            }
+        }
+        .frame(height: Self.mixHeight)
+        .background(Theme.field)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
+    }
+}

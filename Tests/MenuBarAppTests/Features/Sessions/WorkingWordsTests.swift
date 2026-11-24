@@ -45,13 +45,23 @@ struct WorkingWordsTests {
 
     @Test func everyPersonalityCyclesOnlyThroughItsOwnPhrases() {
         for personality in AgentPersonality.allCases {
-            let words = WorkingWords(personality: personality)
+            let words = WorkingWords(personality: personality, spinnerVerbs: nil)
             let seen = (0..<personality.workingWords.count).map {
                 words.word(after: Double($0) * WorkingWords.interval)
             }
 
             #expect(Set(seen) == Set(personality.workingWords))
         }
+    }
+
+    // Only the default bot speaks with Claude's spinner words. A bot with a personality
+    // keeps its own lines whatever the CLI is set to.
+    @Test func onlyTheDefaultBotTakesClaudesSpinnerVerbs() {
+        let verbs = ClaudeSpinnerVerbs(mode: .replace, verbs: ["Box box box"])
+
+        #expect(WorkingWords(personality: .standard, spinnerVerbs: verbs).word(after: 0) == "Box box box")
+        #expect(AgentPersonality.cat.workingWords.contains(
+            WorkingWords(personality: .cat, spinnerVerbs: verbs).word(after: 0)))
     }
 
     // The bot preview in Appearance shows a line in the chosen bot's voice. It is drawn
@@ -74,5 +84,53 @@ struct WorkingWordsTests {
                 #expect(phraseSets[first].isDisjoint(with: phraseSets[second]))
             }
         }
+    }
+}
+
+// The row redraws only when its reading changes, so the reading must hold still for every
+// second in which nothing on screen should move.
+struct WorkingRowClockTests {
+    private let start = Date(timeIntervalSinceReferenceDate: 0)
+    private let words = WorkingWords(order: ["Mulling", "Pondering", "Noodling"])
+
+    private func clock(waitingSince: Date? = nil, fixedWord: String? = nil) -> WorkingRowClock {
+        WorkingRowClock(since: start, started: start, words: words,
+                        waitingSince: waitingSince, fixedWord: fixedWord)
+    }
+
+    @Test func aBusyTurnOnlyMovesWhenTheWordChanges() {
+        let readings = (0..<Int(WorkingRowClock.showQuietAfter)).map {
+            clock().reading(at: start.addingTimeInterval(Double($0)))
+        }
+        var changes = 0
+        for (previous, next) in zip(readings, readings.dropFirst()) where previous != next {
+            changes += 1
+            #expect(previous.word != next.word)
+        }
+        #expect(changes == Int((WorkingRowClock.showQuietAfter - 1) / WorkingWords.interval))
+        #expect(readings.allSatisfy { $0.silence == nil && !$0.concerning })
+    }
+
+    @Test func countsTheSilenceOnceItIsWorthWatching() {
+        let reading = clock().reading(at: start.addingTimeInterval(WorkingRowClock.showQuietAfter + 5))
+        #expect(reading.silence == "25s")
+        #expect(!reading.concerning)
+
+        let long = clock().reading(at: start.addingTimeInterval(WorkingRowClock.concerningAfter + 3))
+        #expect(long.silence == "2m 3s")
+        #expect(long.concerning)
+    }
+
+    @Test func aWaitingTurnCountsTheWaitAndNotTheSilence() {
+        let reading = clock(waitingSince: start).reading(at: start.addingTimeInterval(300))
+        #expect(reading.word == "Waiting")
+        #expect(reading.silence == nil)
+        #expect(reading.waited != nil)
+    }
+
+    @Test func aFixedWordNeverCycles() {
+        let first = clock(fixedWord: "Compacting").reading(at: start)
+        let later = clock(fixedWord: "Compacting").reading(at: start.addingTimeInterval(10))
+        #expect(first == later)
     }
 }

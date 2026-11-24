@@ -10,6 +10,9 @@ struct ActivitySpine: View {
     var runInShell: ((String) -> Void)? = nil
 
     @State private var expanded: Set<String> = []
+    @State private var showsEarlierCalls = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.agentTranscriptFocus) private var focus
 
     private let calls: [ToolNode]
     private let entries: [TranscriptActivityEntry]
@@ -28,42 +31,31 @@ struct ActivitySpine: View {
         self.runInShell = runInShell
     }
 
+    // A long turn shows only its latest calls until the reader asks for the rest. Every
+    // receipt is drawn in full rather than in a lazy stack: SwiftUI guesses the height of
+    // a lazy stack's unbuilt rows, and when the guess is corrected as the rows scroll into
+    // view it moves the transcript's scroll position, throwing the reader up or down the
+    // page. Folding keeps a long turn cheap without that guess.
+    static let foldedCallCount = 30
+
+    static func shownEntries(_ entries: [TranscriptActivityEntry],
+                             showsEarlier: Bool) -> (shown: ArraySlice<TranscriptActivityEntry>, earlier: Int) {
+        guard !showsEarlier, entries.count > foldedCallCount else { return (entries[...], 0) }
+        return (entries.suffix(foldedCallCount), entries.count - foldedCallCount)
+    }
+
     var body: some View {
-        // A turn's calls are drawn lazily: a long turn would otherwise build every
-        // receipt, and its diff, before a reader has scrolled anywhere near them.
-        // The caption stays outside the lazy stack. The stack guesses the height of the
-        // rows it has not built from the ones it has, and a shorter caption among them
-        // makes that guess change with the scroll position, so the transcript's height
-        // would flicker as it follows the bottom.
+        let (shown, earlier) = Self.shownEntries(entries, showsEarlier: showsEarlierCalls)
         VStack(alignment: .leading, spacing: 0) {
             if !calls.isEmpty { caption }
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(entries) { entry in
-                    switch entry {
-                    case .agents(let nodes):
-                        TranscriptAgentGroup(nodes: nodes, messageID: messageID,
-                                             projectPath: projectPath, openChange: openChange,
-                                             runInShell: runInShell)
-                            .padding(.vertical, Space.sm)
-                    case .call(let node):
-                        CallReceipt(
-                            node: node,
-                            presentation: ToolPresentationCache.presentation(
-                                for: node.tool, projectPath: projectPath),
-                            isExpanded: expanded.contains(node.id),
-                            onToggle: {
-                                if expanded.contains(node.id) {
-                                    expanded.remove(node.id)
-                                } else {
-                                    expanded.insert(node.id)
-                                }
-                            },
-                            openChange: openChange,
-                            runInShell: runInShell)
-                            .transition(.fadeIn)
-                    }
+            if earlier > 0 {
+                ActivityLink(title: "show \(counted(earlier, "earlier call"))") {
+                    withAnimation(reduceMotion ? nil : Motion.reveal) { showsEarlierCalls = true }
                 }
+                .padding(.bottom, Space.sm)
+                .transition(.fold)
             }
+            ForEach(shown) { entry in row(entry) }
         }
         .padding(.leading, Space.xxl)
         .overlay(alignment: .leading) {
@@ -75,6 +67,36 @@ struct ActivitySpine: View {
         // Only a reader's click changes an opened detail. Calls arriving and finishing
         // update their permanent rows without taking ownership of this state.
         .smoothlyResizes(when: expanded)
+        // A jump to delegated work in this turn must find its group on the page.
+        .onChange(of: focus, initial: true) {
+            if let focus, focus.messageID == messageID { showsEarlierCalls = true }
+        }
+    }
+
+    @ViewBuilder private func row(_ entry: TranscriptActivityEntry) -> some View {
+        switch entry {
+        case .agents(let nodes):
+            TranscriptAgentGroup(nodes: nodes, messageID: messageID,
+                                 projectPath: projectPath, openChange: openChange,
+                                 runInShell: runInShell)
+                .padding(.vertical, Space.sm)
+        case .call(let node):
+            CallReceipt(
+                node: node,
+                presentation: ToolPresentationCache.presentation(
+                    for: node.tool, projectPath: projectPath),
+                isExpanded: expanded.contains(node.id),
+                onToggle: {
+                    if expanded.contains(node.id) {
+                        expanded.remove(node.id)
+                    } else {
+                        expanded.insert(node.id)
+                    }
+                },
+                openChange: openChange,
+                runInShell: runInShell)
+                .transition(.fadeIn)
+        }
     }
 
     private var caption: some View {
@@ -223,6 +245,7 @@ private struct CallReceipt: View {
     @Environment(\.textScale) private var textScale
     @Environment(\.runningAgents) private var runningAgents
     @Environment(\.activeTranscriptTools) private var activeTools
+    @Environment(\.transcriptTimestamps) private var stamps
 
     let node: ToolNode
     let presentation: ToolPresentation
@@ -335,7 +358,11 @@ private struct CallReceipt: View {
 
     @ViewBuilder private var outcome: some View {
         if state == .interrupted {
-            Text("interrupted").scaledMono(Typography.Size.caption).foregroundStyle(Theme.secret)
+            HStack(spacing: Space.xs) {
+                Text("interrupted").scaledMono(Typography.Size.caption).foregroundStyle(Theme.secret)
+                startStamp(after: true)
+            }
+            .fixedSize()
         } else if isWorking {
             HStack(spacing: Space.xs) {
                 Text("running")
@@ -359,6 +386,7 @@ private struct CallReceipt: View {
                 DiffPair(added: added, removed: removed, size: 11 * textScale,
                          weight: .regular)
                 duration
+                startStamp(after: true)
             }
             .fixedSize()
         } else {
@@ -371,8 +399,23 @@ private struct CallReceipt: View {
                                          : AnyShapeStyle(.tertiary))
                 }
                 duration
+                startStamp(after: outcomeNote != nil || tool.duration != nil)
             }
             .fixedSize()
+        }
+    }
+
+    // When the call started, as the last fact on its row. A running call shows its
+    // elapsed time in that place instead, which says more while it is still going.
+    @ViewBuilder private func startStamp(after earlier: Bool) -> some View {
+        if stamps.shows(tool.startedAt, step: true) {
+            if earlier {
+                Text("·")
+                    .scaledMono(Typography.Size.caption)
+                    .foregroundStyle(.tertiary)
+                    .transition(.fold)
+            }
+            TimeStamp(date: tool.startedAt, step: true)
         }
     }
 
@@ -403,6 +446,9 @@ private struct CallReceipt: View {
         if !subject.isEmpty { parts.append(subject) }
         if let outcomeNote { parts.append(outcomeNote) }
         if let duration = tool.duration { parts.append(ElapsedTime.duration(duration)) }
+        if let startedAt = tool.startedAt, stamps.shows(startedAt, step: true) {
+            parts.append("started \(stamps.tooltip(for: startedAt))")
+        }
         return parts.joined(separator: ", ")
     }
 
@@ -515,7 +561,7 @@ struct ToolOutputCard: View {
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.md)
             }
-            .frame(maxHeight: 220 * textScale)
+            .scrollCap(ScrollCap.short)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .surface(Theme.sunken, cornerRadius: Radius.control, border: Theme.border)

@@ -1,5 +1,4 @@
 import AppKit
-import Network
 import SwiftUI
 import Testing
 import WebKit
@@ -371,7 +370,7 @@ struct LocalServerPreviewPageTests {
         private let store: ProjectStore
         private let scratch: ScratchDirectory
         private let session: ChatSession
-        private let runner = SessionRunner(paths: [.codex: "/usr/bin/true"])
+        private let runner: SessionRunner
         private let settings: AppSettings
         private let shortcuts: ShortcutStore
         private let palette = GlobalCommandPaletteController()
@@ -379,9 +378,10 @@ struct LocalServerPreviewPageTests {
         init(app: String = "<p>Start</p>",
              at address: URL = URL(string: "http://localhost:3000/settings")!) async throws {
             (store, scratch) = TestStore.make()
+            runner = SessionRunner(store: store, paths: [.codex: "/usr/bin/true"])
             let project = try TestStore.project(in: store)
             session = store.newSession(in: project.id, seed: .init(agent: .codex))
-            let preferences = try #require(UserDefaults(suiteName: "preview-page-\(UUID().uuidString)"))
+            let preferences = scratchDefaults()
             settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"), preferences: preferences)
             shortcuts = ShortcutStore(storageURL: scratch.path("shortcuts.json"), siteDefaults: SiteDefaults())
             previews.open(address)
@@ -467,8 +467,9 @@ struct LocalServerPreviewPageTests {
         func click(_ point: CGPoint, holding modifiers: NSEvent.ModifierFlags = []) throws {
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 window.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point,
-                    modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
-                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+                    modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                    clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
             }
         }
 
@@ -579,7 +580,7 @@ struct LocalServerPreviewPageTests {
     // A page that keeps sending files must not hold Code Station behind save panels, so for a
     // moment after a save is turned down only a person's click or a conversation link asks again.
     @Test func savesWhatTheAppSends() async throws {
-        let server = FileServer(serving: "week,picks\n42,7\n", as: "report.csv")
+        let server = fileServer(serving: "week,picks\n42,7\n", as: "report.csv")
         let port = try await server.start()
         defer { server.stop() }
         let report = "http://127.0.0.1:\(port)/report.csv"
@@ -590,8 +591,12 @@ struct LocalServerPreviewPageTests {
               style='position:absolute; left:0; top:0; width:200px; height:80px'>Export</a>"
               style="position:absolute; left:0; top:100px; width:300px; height:120px; border:0"></iframe>
             <a href="\(report)" \(box(0, 240))>Report</a>
-            """)
+            """, at: url("http://127.0.0.1:\(port)/settings"))
         defer { pane.close() }
+        // WebKit and layout can take longer than the download cooldown on a busy runner.
+        // Advance the clock only when the test asks for that cooldown to end.
+        var now = ContinuousClock.now
+        pane.preview.coordinator.now = { now }
         let scratch = ScratchDirectory()
         var asked: [String] = []
         pane.preview.coordinator.saveDownload = { asked.append($0); return scratch.path($0) }
@@ -608,7 +613,7 @@ struct LocalServerPreviewPageTests {
                      (280, "report.csv", "week,picks\n42,7\n")]
         for (y, file, contents) in files {
             try pane.click(page: CGPoint(x: 100, y: y))
-            #expect(await waitUntil { saved(file) == contents })
+            try #require(await waitUntil { saved(file) == contents }, "Download did not finish: \(file)")
         }
         #expect(asked == ["people.csv", "teams.csv", "report.csv"])
         // A link to a file starts loading it as a page, and the address must not move to the
@@ -622,24 +627,31 @@ struct LocalServerPreviewPageTests {
 
         pane.preview.coordinator.saveDownload = { asked.append($0); return nil }
         _ = try await page.evaluateJavaScript(export)
-        #expect(await waitUntil { asked.count == 4 })
+        try #require(await waitUntil { asked.count == 4 }, "Save requests: \(asked)")
         _ = try await page.evaluateJavaScript("\(export); \(export)")
+        var loading: [Bool] = []
+        let observation = page.observe(\.isLoading) { page, _ in
+            MainActor.assumeIsolated { loading.append(page.isLoading) }
+        }
         _ = try await page.evaluateJavaScript("location.href = '\(report)'")
-        try await pane.settle()
+        // The cancelled HTTP load must finish before a person's next click starts one.
+        try #require(await waitUntil { loading.contains(true) && loading.last == false })
+        observation.invalidate()
         #expect(asked.count == 4)
         try pane.click(page: CGPoint(x: 100, y: 40))
-        #expect(await waitUntil { asked.count == 5 })
+        try #require(await waitUntil { asked.count == 5 }, "Save requests: \(asked)")
         try await pane.settle()
+        try #require(await waitUntil { !page.isLoading && !pane.preview.coordinator.provisional })
         #expect(asked.count == 5)
         #expect(pane.preview.phase == .showing)
         try pane.click(page: CGPoint(x: 100, y: 280))
-        #expect(await waitUntil { asked.count == 6 })
+        try #require(await waitUntil { asked.count == 6 }, "Save requests: \(asked)")
         pane.preview.open(url(report))
-        #expect(await waitUntil { asked.count == 7 })
-        #expect(await waitUntil { pane.preview.address.path == "/settings" })
-        pane.preview.coordinator.declinedAt = .now - .seconds(2)
+        try #require(await waitUntil { asked.count == 7 }, "Save requests: \(asked)")
+        try #require(await waitUntil { pane.preview.address.path == "/settings" })
+        now += .seconds(2)
         _ = try await page.evaluateJavaScript(export)
-        #expect(await waitUntil { asked.count == 8 })
+        try #require(await waitUntil { asked.count == 8 }, "Save requests: \(asked)")
     }
 
     // A press while picking is a pick on its way to the composer, so it leaves the panel open.
@@ -682,7 +694,7 @@ struct LocalServerPreviewPageTests {
     }
 
     @Test func typingAnAddressLoadsIt() async throws {
-        let server = FileServer(serving: "Next")
+        let server = fileServer(serving: "Next")
         let port = try await server.start()
         defer { server.stop() }
         let pane = try await Pane()
@@ -719,7 +731,7 @@ struct LocalServerPreviewPageTests {
     }
 
     @Test func goesBackAndForwardThroughThePagesVisited() async throws {
-        let server = FileServer(serving: """
+        let server = fileServer(serving: """
             <button onclick="history.pushState({}, '', '/settings')" \(box(0, 0))>Settings</button>
             """)
         let port = try await server.start()
@@ -806,7 +818,7 @@ struct LocalServerPreviewPageTests {
     }
 
     @Test func anotherPageOpensAtTheAppsRootAndClosesAlone() async throws {
-        let server = FileServer(serving: "<p>Home</p>")
+        let server = fileServer(serving: "<p>Home</p>")
         let port = try await server.start()
         defer { server.stop() }
         let pane = try await Pane(at: url("http://localhost:\(port)/settings"))
@@ -838,7 +850,7 @@ struct LocalServerPreviewPageTests {
     // A page the app opens beside itself at a person's press is another page, or goes to the
     // browser when it is elsewhere, and the page it came from stays. WebKit stops the rest.
     @Test func aPageTheAppOpensBesideItselfOpensAsAnotherPage() async throws {
-        let server = FileServer(serving: "<p>Page</p>")
+        let server = fileServer(serving: "<p>Page</p>")
         let port = try await server.start()
         defer { server.stop() }
         let app = """
@@ -894,38 +906,8 @@ private func answer(to script: String, in webView: WKWebView,
 
 // A server on this machine that answers every request the same way: with one file, sent
 // the way a dev server sends an export, or with one page.
-private final class FileServer: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "local-server-preview.file-server")
-    private let listener = HTTPListener()
-    private let reply: Data
-
-    init(serving body: String, as file: String? = nil) {
-        let type = file.map { "text/csv\r\nContent-Disposition: attachment; filename=\($0)" }
-        reply = Data(("HTTP/1.1 200 OK\r\nContent-Type: \(type ?? "text/html; charset=utf-8")\r\n"
-            + "Content-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n" + body).utf8)
-    }
-
-
-    func start() async throws -> UInt16 {
-        let parameters = NWParameters.tcp
-        parameters.requiredInterfaceType = .loopback
-        let bound = try NWListener(using: parameters, on: .any)
-        return try await withCheckedThrowingContinuation { ready in
-            queue.async {
-                self.listener.expect(ready)
-                self.listener.start(bound, on: self.queue) { connection in
-                    connection.start(queue: self.queue)
-                    connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
-                        connection.send(content: self.reply, completion: .contentProcessed { _ in
-                            connection.cancel()
-                        })
-                    }
-                } failed: { error in
-                    self.listener.answer(.failure(error))
-                }
-            }
-        }
-    }
-
-    func stop() { queue.async { self.listener.cancel() } }
+private func fileServer(serving body: String, as file: String? = nil) -> CannedHTTPServer {
+    let type = file.map { "text/csv\r\nContent-Disposition: attachment; filename=\($0)" }
+    return CannedHTTPServer(reply: "HTTP/1.1 200 OK\r\nContent-Type: \(type ?? "text/html; charset=utf-8")\r\n"
+        + "Content-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n" + body)
 }

@@ -175,10 +175,12 @@ struct CleanupStrip: View {
     // "5 hold work · 2 not seen yet"
     nonisolated static func waitingDetail(_ parked: [OldSessionSweep.Parked]) -> String {
         let work = parked.count { $0.family == .losesWork }
-        let unseen = parked.count - work
+        let review = parked.count { $0.reasons.isEmpty }
+        let unseen = parked.count - work - review
         var parts: [String] = []
         if work > 0 { parts.append("\(work) \(work == 1 ? "holds" : "hold") work") }
         if unseen > 0 { parts.append("\(unseen) not seen yet") }
+        if review > 0 { parts.append("\(review) for review") }
         return parts.joined(separator: " · ")
     }
 }
@@ -194,20 +196,19 @@ enum CleanupHighlight: Equatable {
 // offer to review what has gone quiet.
 struct OldSessionsOfferStrip: View {
     let summary: OldSessionsWatch.Summary
-    let days: Int
     let onReview: () -> Void
 
     var body: some View {
         CleanupCard {
-            CleanupLine(title: Self.title(summary, days: days),
+            CleanupLine(title: Self.title(summary),
                         detail: Self.detail(summary),
                         label: "Review old sessions",
                         action: onReview)
         }
     }
 
-    nonisolated static func title(_ summary: OldSessionsWatch.Summary, days: Int) -> String {
-        "\(counted(summary.sessions, "session")) older than \(counted(days, "day"))"
+    nonisolated static func title(_ summary: OldSessionsWatch.Summary) -> String {
+        "\(counted(summary.sessions, "old session"))"
     }
 
     // "Automatic cleanup is off · 1 would lose work", so a quiet strip is never a mystery.
@@ -242,9 +243,12 @@ final class OldSessionsWatch {
         struct Session: Equatable {
             let id: UUID
             let isBusy: Bool
+            let isOpen: Bool
+            let lastActivity: Date
+            let reasons: [CleanupReason]
         }
 
-        let days: Int
+        let cleanupRule: CleanupRule
         let oldSessions: [Session]
         let nextOldAt: Date?
     }
@@ -253,29 +257,32 @@ final class OldSessionsWatch {
 
     private(set) var summary = Summary()
 
-    func rule(store: ProjectStore, runner: SessionRunner, days: Int) -> RefreshRule {
+    func rule(store: ProjectStore, runner: SessionRunner, cleanupRule: CleanupRule) -> RefreshRule {
         let sessions = store.sidebarSessions
         return RefreshRule(
-            days: days,
-            oldSessions: OldSessions.olderThan(days, in: sessions,
+            cleanupRule: cleanupRule,
+            oldSessions: OldSessions.olderThan(cleanupRule.minimumDays, in: sessions,
                                                snoozedUntil: { store.snoozeDeadline(for: $0) })
                 .map {
                     RefreshRule.Session(id: $0.id,
-                                        isBusy: runner.isBusy($0.id, store: store))
+                                        isBusy: runner.isBusy($0.id),
+                                        isOpen: store.selection == .session($0.id),
+                                        lastActivity: $0.lastActivity,
+                                        reasons: OldSessionSweep.reasons(of: $0, cost: nil, store: store, now: Date()))
                 },
-            nextOldAt: OldSessions.nextOldAt(days, in: sessions,
+            nextOldAt: OldSessions.nextOldAt(cleanupRule.minimumDays, in: sessions,
                                              snoozedUntil: { store.snoozeDeadline(for: $0) }))
     }
 
-    func watch(store: ProjectStore, runner: SessionRunner, days: Int) async {
+    func watch(store: ProjectStore, runner: SessionRunner, cleanupRule: CleanupRule) async {
         while !Task.isCancelled {
-            await refresh(store: store, runner: runner, days: days)
+            await refresh(store: store, runner: runner, cleanupRule: cleanupRule)
             let now = Date()
             let hourly = now.addingTimeInterval(Self.refreshInterval)
             // The earliest snooze deadline counts as well, so the strip wakes up on the
             // minute a project comes back rather than at the next hourly pass.
             let nextOld = OldSessions.nextOldAt(
-                days, in: store.sidebarSessions, now: now,
+                cleanupRule.minimumDays, in: store.sidebarSessions, now: now,
                 snoozedUntil: { store.snoozeDeadline(for: $0) })
             let next = min(hourly, nextOld ?? .distantFuture)
             do {
@@ -286,23 +293,30 @@ final class OldSessionsWatch {
         }
     }
 
-    private func refresh(store: ProjectStore, runner: SessionRunner, days: Int) async {
-        let old = OldSessions.olderThan(days, in: store.sidebarSessions)
-            .filter { !runner.isBusy($0.id, store: store) }
-        let heldBack = old.filter { ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }
-        let sessions = old.filter { !ProjectSnooze.isActive(store.snoozeDeadline(for: $0)) }
+    private func refresh(store: ProjectStore, runner: SessionRunner, cleanupRule: CleanupRule) async {
+        let old = OldSessions.olderThan(cleanupRule.minimumDays, in: store.sidebarSessions)
+            .filter { !runner.isBusy($0.id) && store.selection != .session($0.id) }
+        var snoozedProjects: Set<UUID> = []
         var losesWork = 0
-        for session in sessions {
+        var count = 0
+        for session in old {
             guard !Task.isCancelled else { return }
             let cost = await SessionCost.settledCost(
                 worktrees: store.checkoutProjects(for: session).compactMap(\.worktreePath),
                 design: store.designCost(for: session))
+            let reasons = OldSessionSweep.reasons(of: session, cost: cost, store: store, now: Date())
+            guard cleanupRule.isOld(session, reasons: reasons) else { continue }
+            if ProjectSnooze.isActive(store.snoozeDeadline(for: session)) {
+                snoozedProjects.insert(session.projectID)
+                continue
+            }
+            count += 1
             if cost.losesWork { losesWork += 1 }
         }
         guard !Task.isCancelled else { return }
-        summary = Summary(sessions: sessions.count,
+        summary = Summary(sessions: count,
                           losesWork: losesWork,
-                          snoozedProjects: Set(heldBack.map(\.projectID)).count)
+                          snoozedProjects: snoozedProjects.count)
     }
 }
 

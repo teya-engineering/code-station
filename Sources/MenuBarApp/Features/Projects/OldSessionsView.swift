@@ -2,7 +2,7 @@ import SwiftUI
 
 // The offer to clear out sessions that have gone quiet. Everything here is a choice: the
 // sheet arrives with the harmless rows ticked and says, next to each one, exactly what
-// deleting it costs. Anything that would lose work can only be cleared from here.
+// deleting it costs. Work that would be lost always needs an explicit selection here.
 //
 // Rows are grouped by the project they belong to, and a group can be snoozed: the third
 // answer, "not this project, not yet", which takes the whole project out of the count for
@@ -37,8 +37,6 @@ struct OldSessionsView: View {
         })
     }
 
-    private var days: Int { appSettings.oldSessionDays }
-
     private struct Row: Identifiable {
         let session: ChatSession
         let projectID: UUID
@@ -47,8 +45,8 @@ struct OldSessionsView: View {
         var id: UUID { session.id }
     }
 
-    // One project's worth of rows. The header carries the project, which is what lets the
-    // rows underneath drop the fixed column they used to spend on it.
+    // One project's worth of rows. The header carries the project, so the rows underneath
+    // need no column for it.
     private struct ProjectGroup: Identifiable {
         let projectID: UUID
         let name: String
@@ -77,6 +75,11 @@ struct OldSessionsView: View {
             readings
             ScrollView {
                 VStack(spacing: Space.lg) {
+                    if rows.isEmpty {
+                        PaneMessage(icon: "checkmark.circle", title: "No old sessions",
+                                    detail: "No sessions meet your current age rules.")
+                            .transition(.fadeIn)
+                    }
                     ForEach(groups) { group in
                         groupView(group)
                     }
@@ -108,8 +111,9 @@ struct OldSessionsView: View {
                     }
                 }
                 .padding(Space.pane)
+                .motion(Motion.leave, value: rows.map(\.id))
             }
-            .frame(maxHeight: 420)
+            .scrollCap(ScrollCap.tall)
 
             SheetFooter(title: footerNote,
                         primary: SheetAction(title: deleteLabel,
@@ -136,7 +140,7 @@ struct OldSessionsView: View {
     private var header: some View {
         SheetTitle(name: "Old sessions", icon: "clock.arrow.circlepath", count: awakeRows.count) {
             WhyButton(label: "Why these are here", isOpen: $showsWhy) {
-                Text("These have gone quiet for more than \(counted(days, "day")). Ticked sessions are removed from the app. Change the \(counted(days, "day")) in Settings.")
+                Text("These have reached the age set by their matching rules in Settings. Ticked sessions are removed from the app.")
                     .font(Typography.detail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -149,7 +153,7 @@ struct OldSessionsView: View {
     // The threshold, then how much of the list is chosen and how much is set aside.
     private var readings: some View {
         HStack(spacing: Space.md) {
-            StatusCaps(text: "OLDER THAN \(counted(days, "day"))".uppercased())
+            StatusCaps(text: "OLD UNDER YOUR RULES")
             StatusRule()
             StatusValue(text: "\(tickedRows.count) ticked")
                 .contentTransition(.numericText(value: Double(tickedRows.count)))
@@ -351,7 +355,11 @@ struct OldSessionsView: View {
     // nothing the footer or the warnings promise.
     private var awakeRows: [Row] {
         let snoozed = Set(groups.filter(\.isSnoozed).map(\.projectID))
-        return rows.filter { !snoozed.contains($0.projectID) }
+        return rows.filter {
+            !snoozed.contains($0.projectID) && appSettings.cleanupRule.isOld(
+                $0.session, reasons: OldSessionSweep.reasons(of: $0.session, cost: $0.cost,
+                                                           store: store, now: Date()))
+        }
     }
 
     private var tickedRows: [Row] {
@@ -427,6 +435,11 @@ struct OldSessionsView: View {
             guard !isDeleting else { return }
             settle(row.id, on: cost)
         }
+        rows.removeAll { row in
+            let reasons = OldSessionSweep.reasons(of: row.session, cost: row.cost, store: store, now: Date())
+            return row.cost.canSelect && !appSettings.cleanupRule.isOld(row.session, reasons: reasons)
+        }
+        ticked.formIntersection(Set(rows.map(\.id)))
     }
 
     private func startingCost(_ session: ChatSession) -> SessionRemovalCost {

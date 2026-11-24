@@ -172,16 +172,22 @@ enum SecondOpinion {
 
     // MARK: - Gathering the changes
 
-    static func patches(for repositories: [(root: String, name: String)]) async -> [Patch] {
+    // Each project against the base named for it, when it has one and the remote still
+    // has it, and against the last commit otherwise.
+    static func patches(for repositories: [(root: String, name: String)],
+                        bases: [String: String] = [:]) async -> [Patch] {
         let spansProjects = repositories.count > 1
         var patches: [Patch] = []
         for repository in repositories {
+            let base = bases[repository.root]
             let snapshot = await GitInspector.snapshot(at: repository.root, lane: .interactive,
-                                                       comparingToLastCommit: true)
+                                                       comparingToLastCommit: true,
+                                                       comparingToRemote: base != nil, remoteRef: base)
             guard snapshot.state == .ready else { continue }
             for file in snapshot.files where !file.isBinary {
                 guard case .success(let text) = await GitInspector.copyText(
-                    for: file, root: snapshot.root, version: .patch), !text.isBlank else { continue }
+                    for: file, root: snapshot.root, version: .patch, base: snapshot.diffBase(for: file)),
+                      !text.isBlank else { continue }
                 patches.append(Patch(root: snapshot.root, path: file.path,
                                      label: spansProjects ? repository.name + "/" + file.path : file.path,
                                      text: text, deleted: file.kind == .deleted))
@@ -190,12 +196,20 @@ enum SecondOpinion {
         return patches
     }
 
-    // The changes a request asks for: everything uncommitted, or only what changed after
-    // the last review was sent, read from the tree recorded in each project then.
+    // The changes a request asks for: everything uncommitted, everything the branch
+    // changes from its base, or only what changed after the last review was sent, read
+    // from the tree recorded in each project then.
     static func patches(for request: SecondOpinionRequest) async -> [Patch] {
         let repositories = request.repositories.map { (root: $0.root, name: $0.name) }
-        guard case .sinceReview(let trees) = request.scope else {
-            return await patches(for: repositories)
+        let trees: [String: String]
+        switch request.scope {
+        case .all: return await patches(for: repositories)
+        case .branch(let bases): return await patches(for: repositories, bases: bases)
+        // The run keeps only the one file, so the base can go to every project.
+        case .file(_, _, let base):
+            return await patches(for: repositories,
+                                 bases: base.map { base in Dictionary(repositories.map { ($0.root, base) }) { first, _ in first } } ?? [:])
+        case .sinceReview(let recorded): trees = recorded
         }
         let spansProjects = repositories.count > 1
         var patches: [Patch] = []
@@ -238,7 +252,8 @@ enum SecondOpinion {
     // MARK: - Asking
 
     static func prompt(for patches: [Patch], repositories: [(root: String, name: String)] = [],
-                       focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false) -> String {
+                       focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false,
+                       base: String? = nil) -> String {
         var budget = patchBudget
         var shown: [String] = []
         var left: [String] = []
@@ -265,6 +280,8 @@ enum SecondOpinion {
         """
         if sinceReview {
             text += "\n\nThese are only the changes made after the author's last review was sent, so they are mostly fixes for that review. Check that the fixes are right and did not break anything else."
+        } else if let base {
+            text += "\n\nThese are all the changes compared with \(base), both committed and not yet committed. Review them as one change, the way a pull request is reviewed."
         }
         if !repositories.isEmpty {
             text += "\n\nProject roots (the first is the working directory):\n"
@@ -417,14 +434,14 @@ enum SecondOpinion {
     static func review(_ patches: [Patch], reviewer: Reviewer, executable: String,
                        searchPath: String, repositories: [(root: String, name: String)],
                        focus: [Focus] = Focus.standard, note: String = "", sinceReview: Bool = false,
-                       servers: ServerAccess? = nil,
+                       base: String? = nil, servers: ServerAccess? = nil,
                        activity: @escaping @Sendable (String) -> Void = { _ in }) async -> Result<[ReviewComment], Failure> {
         let agent = reviewer.agent
         guard let directory = repositories.first?.root else {
             return .failure(Failure(message: "There is no project to review."))
         }
         let prompt = prompt(for: patches, repositories: repositories, focus: focus, note: note,
-                            sinceReview: sinceReview)
+                            sinceReview: sinceReview, base: base)
         let output = await run(agent: agent, executable: executable, searchPath: searchPath, directory: directory,
                                timeout: .seconds(420), writing: "Writing findings", servers: servers,
                                activity: activity) { codexServers, copilotServers in
@@ -530,15 +547,14 @@ enum SecondOpinion {
     // Reads the reviewer's output as it streams and reports each call it makes. It only
     // ever sees chunks, so it keeps the part of a line that has not ended yet.
     private final class ActivityReader: @unchecked Sendable {
-        private let agent: AgentKind
+        private let parser: AgentStreamParser
         private let writing: String
         private let report: @Sendable (String) -> Void
-        private let copilot = CopilotStream()
         private let lock = NSLock()
         private var partial = Data()
 
         init(agent: AgentKind, writing: String, report: @escaping @Sendable (String) -> Void) {
-            self.agent = agent
+            parser = AgentStreamParser(agent: agent)
             self.writing = writing
             self.report = report
         }
@@ -553,13 +569,7 @@ enum SecondOpinion {
             }
             lock.unlock()
             for line in lines where !line.isBlank {
-                let events: [StreamEvent] = switch agent {
-                case .claudeCode: StreamEvent.parse(line)
-                case .codex: StreamEvent.parseCodex(line)
-                case .copilot: copilot.parse(line)
-                case .kiro: [StreamEvent.text(line)]
-                }
-                for event in events {
+                for event in parser.parse(line) {
                     switch event {
                     case .toolUse(let tool): report(SecondOpinion.activity(for: tool))
                     case .text: report(writing)
@@ -585,11 +595,10 @@ enum SecondOpinion {
             }
             return output
         case .codex, .copilot:
-            let copilot = CopilotStream()
+            let parser = AgentStreamParser(agent: agent)
             var parts: [String] = []
             for line in output.split(separator: "\n") {
-                let events = agent == .codex ? StreamEvent.parseCodex(String(line)) : copilot.parse(String(line))
-                for case .text(let text) in events { parts.append(text) }
+                for case .text(let text) in parser.parse(String(line)) { parts.append(text) }
             }
             return parts.joined(separator: "\n")
         case .kiro:
@@ -714,4 +723,109 @@ enum SecondOpinion {
         let lines = text.components(separatedBy: "\n")
         return number <= lines.count ? lines[number - 1] : nil
     }
+}
+
+// What a second opinion was asked to do, kept with its run so Try again asks the same.
+struct SecondOpinionRequest: Equatable, Sendable {
+    enum Scope: Equatable, Sendable {
+        case all
+        // One file, read against the base the Changes screen compares it with when there
+        // is one, else against the last commit.
+        case file(root: String, path: String, base: String? = nil)
+        // Only what changed after the last review was sent, compared against the tree
+        // recorded in each project at that moment.
+        case sinceReview(trees: [String: String])
+        // Everything each branch changes from its base, committed or not, keyed by
+        // project root. A project with no base gives its uncommitted changes.
+        case branch(bases: [String: String])
+
+        var isSinceReview: Bool {
+            if case .sinceReview = self { return true }
+            return false
+        }
+
+        // The base named in the prompt, when every project is read against the same one.
+        var base: String? {
+            switch self {
+            case .file(_, _, let base): base
+            case .branch(let bases):
+                Set(bases.values).count > 1 ? "each project's base branch" : bases.values.first
+            case .all, .sinceReview: nil
+            }
+        }
+    }
+
+    var focus: [SecondOpinion.Focus] = SecondOpinion.Focus.standard
+    // Anything else to look for, in the person's own words.
+    var note = ""
+    var scope: Scope = .all
+    var repositories: [ReviewRepository]
+    var executable: String
+    // Nil keeps every MCP server away from the reviewer.
+    var servers: SecondOpinion.ServerAccess? = nil
+}
+
+// One reviewer's lane in the second opinion: what it is reading, how long it has taken,
+// and what it came to.
+struct SecondOpinionRun: Equatable, Identifiable {
+    enum State: Equatable {
+        case running
+        case finished(found: Int)
+        case failed(String)
+    }
+
+    var reviewer: SecondOpinion.Reviewer
+    var started: Date
+    var ended: Date?
+    var state: State = .running
+    var activity = "Gathering the changes"
+    // The last few things it did, oldest first, ending with the activity.
+    var recent = ["Gathering the changes"]
+    var request: SecondOpinionRequest
+    var reviewedFiles: [SecondOpinionAskFacts.File]?
+
+    var agent: AgentKind { reviewer.agent }
+    var id: SecondOpinion.Reviewer { reviewer }
+    var isRunning: Bool { state == .running }
+}
+
+// Where the second opinion stands, which is what the header's control says and opens.
+enum SecondOpinionStatus: Equatable {
+    case ask
+    case reviewing(agents: [AgentKind], started: Date, pending: Int)
+    case failed(AgentKind)
+    case ready(agents: [AgentKind], pending: Int)
+    case settled(kept: Int, dismissed: Int)
+
+    @MainActor
+    init(reviews: ReviewCommentStore, sessionID: UUID) {
+        self.init(runs: reviews.runs(sessionID),
+                  findings: reviews.comments(sessionID).filter { $0.reviewer != nil },
+                  dismissed: reviews.dismissedFindings(sessionID).count)
+    }
+
+    init(runs: [SecondOpinionRun], findings: [ReviewComment], dismissed: Int) {
+        let pending = findings.filter(\.isPending)
+        let running = runs.filter(\.isRunning)
+        if !running.isEmpty {
+            self = .reviewing(agents: unique(running.map(\.agent)), started: running.map(\.started).min() ?? Date(),
+                              pending: pending.count)
+        } else if let failed = runs.first(where: { if case .failed = $0.state { true } else { false } }),
+                  pending.isEmpty {
+            self = .failed(failed.agent)
+        } else if !pending.isEmpty {
+            let voices = Set(pending.flatMap(\.reviewers))
+            self = .ready(agents: AgentKind.allCases.filter(voices.contains), pending: pending.count)
+        } else if !runs.isEmpty {
+            self = .settled(kept: findings.count { !$0.isPending }, dismissed: dismissed)
+        } else {
+            self = .ask
+        }
+    }
+}
+
+// Each agent once, in the order given. Two seats can run the same agent on two models.
+func unique(_ agents: [AgentKind]) -> [AgentKind] {
+    var seen = Set<AgentKind>()
+    return agents.filter { seen.insert($0).inserted }
 }

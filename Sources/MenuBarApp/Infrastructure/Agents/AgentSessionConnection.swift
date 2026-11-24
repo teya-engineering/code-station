@@ -155,15 +155,10 @@ final class AgentSessionConnection: @unchecked Sendable {
     }
 
     private func emit(_ message: [String: Any]) {
-        guard let body = try? JSONSerialization.data(withJSONObject: message) else {
+        guard let bytes = framer.frame(message), write(bytes) else {
             writeFailed = true
             return
         }
-        var bytes = launch.agent == .copilot
-            ? Data("Content-Length: \(body.count)\r\n\r\n".utf8) : Data()
-        bytes.append(body)
-        if launch.agent != .copilot { bytes.append(0x0A) }
-        if !write(bytes) { writeFailed = true }
     }
 
     private func request(_ method: String, _ params: [String: Any], as kind: Request) {

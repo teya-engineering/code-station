@@ -45,9 +45,9 @@ enum TaskRun {
                     scheduled: Bool = false, store: ProjectStore, runner: SessionRunner,
                     agentAvatarName: String?) -> Result<ChatSession, PersistenceFailure> {
         let spec = task.task
-        let agent = spec?.agent ?? runner.agent
-        let model = runner.validModel(spec?.model, for: agent)
-            ?? runner.validModel(runner.defaults(for: agent).model, for: agent)
+        let agent = spec?.agent ?? runner.catalog.agent
+        let model = runner.catalog.validModel(spec?.model, for: agent)
+            ?? runner.catalog.validModel(runner.catalog.defaults(for: agent).model, for: agent)
         if var spec, !values.isEmpty {
             spec.lastValues = values
             store.setTaskSpec(spec, for: task.id)
@@ -58,7 +58,7 @@ enum TaskRun {
                         agentAvatarName: spec?.agentAvatarName ?? agentAvatarName))
         if case .success(let created) = session {
             var settings = created.settings ?? SessionSettings()
-            settings.effort = runner.validEffort(spec?.effort, for: agent, model: model)
+            settings.effort = runner.catalog.validEffort(spec?.effort, for: agent, model: model)
             settings.permissionMode = spec?.permissionMode
             settings.codexSandboxMode = spec?.codexSandboxMode
             settings.copilotAccessMode = spec?.copilotAccessMode
@@ -67,7 +67,7 @@ enum TaskRun {
             if scheduled { store.markScheduledRun(created.id) }
             let prompt = prompt(for: spec, values: values, note: note)
             if !prompt.isEmpty {
-                runner.send(prompt, sessionID: created.id, store: store)
+                runner.send(prompt, sessionID: created.id)
             }
         }
         return session

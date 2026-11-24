@@ -10,14 +10,65 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Being on main is not the same as passing on main: a merge can still break
+  # the build. This waits for the Tests run from the push to main of the commit
+  # being released, and stops the release unless it passed. It runs on Linux,
+  # without the release environment, so waiting holds neither a Mac nor the
+  # signing secrets.
+  tested:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    # Long enough for a Tests run that has only just started, plus time waiting
+    # for a runner on the Xcode image.
+    timeout-minutes: 75
+    steps:
+      - name: Wait for the Tests workflow to pass on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$GITHUB_SHA&event=push&branch=main"
+          started=$SECONDS
+          while :; do
+            found="$(gh api "$runs")"
+            passed="$(jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].html_url // empty' <<<"$found")"
+            if [ -n "$passed" ]; then
+              echo "Tests passed on $GITHUB_SHA: $passed"
+              exit 0
+            fi
+            pending="$(jq -r '[.workflow_runs[] | select(.status != "completed")][0].html_url // empty' <<<"$found")"
+            seen="$(jq -r '[.workflow_runs[].conclusion // empty] | join(", ")' <<<"$found")"
+            if [ -n "$pending" ]; then
+              echo "Waiting for $pending"
+            elif [ -z "$seen" ] && [ $((SECONDS - started)) -lt 180 ]; then
+              # A tag pushed right after the merge can arrive before GitHub
+              # has created the Tests run for it.
+              echo "No Tests run for $GITHUB_SHA yet"
+            else
+              echo "::error::Tests have not passed on $GITHUB_SHA (runs from a push to main: ${seen:-none})." \
+                "Release a commit whose Tests run passed. If its run was cancelled or failed for a" \
+                "temporary reason, re-run that Tests run, then re-run this workflow from the tag."
+              exit 1
+            fi
+            sleep 30
+          done
+
   release:
-    runs-on: macos-26
+    # Same image as the Tests workflow; see the note there.
+    runs-on: xcode-27
     # The signing secrets live in the release environment, so the job has to
     # declare it. Without this the secrets.* are empty and the certificate
     # import fails.
     environment: release
+    # Nothing here starts, and no reviewer is asked to approve the release
+    # environment, until the tested job has seen Tests pass on this commit.
+    needs: tested
     permissions:
       contents: write
+      # Both for the provenance attestation: id-token to get a signing
+      # certificate from Sigstore, attestations to store the result.
+      id-token: write
+      attestations: write
     timeout-minutes: 60
 
     steps:
@@ -57,20 +108,18 @@ jobs:
                exit 1 ;;
           esac
 
-      # macos-26 ships Xcode 26.x (Swift 6.3) by default - the same toolchain as
-      # local development; on macos-15 (Swift 6.1) strict concurrency rejects
-      # code that 6.3 accepts. If you ever need to pin the version, uncomment
-      # the maxim-lobanov/setup-xcode step.
-      # - uses: maxim-lobanov/setup-xcode@v1
-      #   with:
-      #     xcode-version: '16.4'
+      - name: Select Xcode
+        run: ./Scripts/ci-select-xcode.sh
+
       - name: Toolchain
         run: swift --version && xcodebuild -version
 
       # Resolving here rather than during the build keeps dependency manifests,
-      # which SwiftPM compiles and runs, away from the loaded signing key.
+      # which SwiftPM compiles and runs, away from the loaded signing key. The
+      # release takes exactly the versions in Package.resolved, and fails if it
+      # is out of date rather than picking newer ones.
       - name: Resolve dependencies
-        run: swift package resolve
+        run: swift package resolve --force-resolved-versions
 
       - name: Import the Developer ID certificate
         env:
@@ -119,15 +168,38 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/build.keychain-db"
 
-      - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      # A signed record that this workflow, at this commit, built this DMG.
+      # Anyone can check a download against it:
+      #   gh attestation verify TeyaCodeStation-<version>.dmg \
+      #     -R teya-engineering/code-station \
+      #     --signer-workflow teya-engineering/code-station/.github/workflows/release.yml
+      - name: Attest where the DMG was built
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          # No target_commitish: the tag already exists by now, and GitHub
-          # discards it in that case rather than moving the tag.
-          tag_name: v${{ steps.v.outputs.version }}
-          name: Teya Code Station ${{ steps.v.outputs.version }}
-          draft: true          # review it before making it public
-          generate_release_notes: true
-          files: |
-            build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg
-            build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg.sha256
+          subject-path: build/TeyaCodeStation-${{ steps.v.outputs.version }}.dmg
+
+      # The gh CLI on the runner rather than a third-party action, so no code
+      # from outside GitHub runs with the contents: write token.
+      - name: Publish the draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          dmg="build/TeyaCodeStation-$VERSION.dmg"
+          # A re-run after a failed upload finds the draft it made and replaces
+          # its files. A published release is never touched.
+          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$draft" != true ]; then
+              echo "::error::$tag is already published; leaving its files alone"
+              exit 1
+            fi
+            gh release upload "$tag" "$dmg" "$dmg.sha256" --clobber
+          else
+            # --verify-tag: the tag exists by now, and gh must never create or
+            # move one. --draft: review it before making it public.
+            gh release create "$tag" "$dmg" "$dmg.sha256" \
+              --verify-tag --draft --generate-notes \
+              --title "Teya Code Station $VERSION"
+          fi

@@ -7,18 +7,6 @@ import Testing
 // repo rather than trusted to pass its arguments through correctly.
 struct GitActionsTests {
 
-    @Test func commitsEverythingInOneGo() async throws {
-        let repo = try GitRepo()
-        try repo.write("README.md", "changed")
-        try repo.write("notes.txt", "untracked too")
-
-        let error = await GitActions.commitAll(message: "Keep the lot", at: repo.path)
-        #expect(error == nil)
-
-        let after = await GitInspector.snapshot(at: repo.path)
-        #expect(after.files.isEmpty)
-    }
-
     @Test func discardPutsAModifiedFileBack() async throws {
         let repo = try GitRepo()
         try repo.write("README.md", "changed")
@@ -187,26 +175,6 @@ struct GitActionsTests {
         let repo = try GitRepo()
         let error = await GitActions.switchBranch("no-such-branch", at: repo.path)
         #expect(error?.isEmpty == false)
-    }
-
-    @Test func createsAndSwitchesToANewBranch() async throws {
-        let repo = try GitRepo()
-
-        let error = await GitActions.createBranch("feature", at: repo.path)
-        #expect(error == nil)
-
-        let after = await GitInspector.snapshot(at: repo.path)
-        #expect(after.branch == "feature")
-        #expect(after.branches.contains("feature"))
-    }
-
-    @Test func reportsWhyCreatingABranchFailed() async throws {
-        let repo = try GitRepo()
-
-        let error = await GitActions.createBranch("main", at: repo.path)
-
-        #expect(error?.isEmpty == false)
-        #expect(await GitInspector.snapshot(at: repo.path).branch == "main")
     }
 
     @Test func pushPublishesABranchWithNoUpstream() async throws {
@@ -560,6 +528,157 @@ struct GitActionsTests {
         #expect(commits.map(\.subject) == ["local work"])
     }
 
+    // A pushed commit, then amended, so origin holds the version from before the amend.
+    private func amendedAfterPush() throws -> (repo: GitRepo, remote: GitRepo, oldTip: String) {
+        let remote = try GitRepo.bare()
+        let repo = try GitRepo()
+        try repo.addRemote(remote)
+        try repo.write("work.txt", "first try")
+        try repo.commit("work")
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        let oldTip = repo.head
+        try repo.write("work.txt", "second try")
+        try repo.git("commit", "-qa", "--amend", "--no-edit")
+
+        return (repo, remote, oldTip)
+    }
+
+    @Test func anAmendedPushedCommitReplacesItsOldVersionOnOrigin() async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+
+        let preview = await GitActions.commitsToPush(hasUpstream: true, at: repo.path)
+        guard case .rewroteUpstream(let outgoing, let replaced, let tip) = preview else {
+            #expect(Bool(false), "an amended pushed commit has to be reported as rewritten")
+            return
+        }
+        #expect(outgoing.map(\.subject) == ["work"])
+        #expect(replaced.map(\.id) == [oldTip])
+        #expect(tip == oldTip)
+
+        #expect(await GitActions.push(hasUpstream: true, replacing: tip, at: repo.path) == nil)
+        #expect(try remote.git("rev-parse", "main") == repo.head)
+    }
+
+    @Test func replacingARewrittenUpstreamRefusesWhenOriginMovedSinceTheReview() async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+        let other = try remote.clone()
+        try other.write("later.txt", "pushed after the review")
+        try other.commit("later work")
+        try other.git("push", "-q")
+
+        #expect(await GitActions.push(hasUpstream: true, replacing: oldTip, at: repo.path) != nil)
+        #expect(try remote.git("rev-parse", "main") == other.head)
+    }
+
+    @Test(arguments: ["upstream", "current"])
+    func replacingUsesTheReviewedUpstreamWhenTheLocalBranchWasRenamed(pushDefault: String) async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+        try repo.git("branch", "-m", "local-name")
+        try repo.git("config", "push.default", pushDefault)
+
+        let preview = await GitActions.commitsToPush(hasUpstream: true, at: repo.path)
+        guard case .rewroteUpstream(_, _, let tip) = preview else {
+            Issue.record("Expected a rewrite of the upstream branch")
+            return
+        }
+        #expect(tip == oldTip)
+        #expect(await GitActions.push(hasUpstream: true, replacing: tip, at: repo.path) == nil)
+        #expect(try remote.git("rev-parse", "main") == repo.head)
+        #expect(try remote.git("for-each-ref", "--format=%(refname)", "refs/heads") == "refs/heads/main")
+    }
+
+    @Test func replacingARenamedBranchStillRefusesWhenItsUpstreamMoved() async throws {
+        let (repo, remote, oldTip) = try amendedAfterPush()
+        try repo.git("branch", "-m", "local-name")
+        try repo.git("config", "push.default", "upstream")
+        let other = try remote.clone()
+        try other.write("later.txt", "pushed after the review")
+        try other.commit("later work")
+        try other.git("push", "-q")
+
+        #expect(await GitActions.push(hasUpstream: true, replacing: oldTip, at: repo.path) != nil)
+        #expect(try remote.git("rev-parse", "main") == other.head)
+    }
+
+    private func amendedBeforeOriginAdvanced() throws -> (repo: GitRepo, remote: GitRepo, remoteTip: String) {
+        let remote = try GitRepo.bare()
+        let repo = try GitRepo()
+        try repo.addRemote(remote)
+        try repo.write("keep.txt", "wanted work")
+        try repo.write("remove.txt", "remove in amendment")
+        try repo.commit("work")
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        try repo.git("rm", "remove.txt")
+        try repo.git("commit", "-q", "--amend", "--no-edit")
+
+        let other = try remote.clone()
+        try other.write("later.txt", "new remote work")
+        try other.commit("later work")
+        try other.git("push", "-q")
+
+        return (repo, remote, other.head)
+    }
+
+    @Test func pullRefusesRewrittenAncestorsWhenOriginHasNewerWork() async throws {
+        let (repo, remote, remoteTip) = try amendedBeforeOriginAdvanced()
+        let amended = repo.head
+        try repo.write("README.md", "uncommitted work")
+
+        guard case .failed(let message) = await GitActions.pull(at: repo.path) else {
+            Issue.record("Pull must refuse to undo an amendment")
+            return
+        }
+        #expect(message.contains("newer work"))
+        #expect(repo.head == amended)
+        #expect(repo.read("remove.txt") == nil)
+        #expect(repo.read("README.md") == "uncommitted work")
+        #expect(try repo.git("stash", "list").isEmpty)
+        #expect(try remote.git("rev-parse", "main") == remoteTip)
+    }
+
+    @MainActor
+    @Test func pushReviewBlocksRewrittenAncestorsWhenOriginHasNewerWork() async throws {
+        let (repo, remote, remoteTip) = try amendedBeforeOriginAdvanced()
+        let amended = repo.head
+        let model = PushReviewModel(root: repo.path, hasUpstream: true)
+
+        await model.load()
+
+        #expect(model.phase == .failed)
+        #expect(model.error.contains("newer work"))
+        #expect(await model.send() == false)
+        #expect(repo.head == amended)
+        #expect(repo.read("remove.txt") == nil)
+        #expect(try remote.git("rev-parse", "main") == remoteTip)
+    }
+
+    @Test func pullRefusesToBringBackCommitsThatWereRewritten() async throws {
+        let (repo, _, _) = try amendedAfterPush()
+        let before = repo.head
+
+        guard case .failed = await GitActions.pull(at: repo.path) else {
+            #expect(Bool(false), "pulling the old version of an amended commit has to be refused")
+            return
+        }
+        #expect(repo.head == before)
+    }
+
+    @Test func pullBringsBackCommitsAfterAResetWithNothingNew() async throws {
+        let remote = try GitRepo.bare()
+        let repo = try GitRepo()
+        try repo.addRemote(remote)
+        try repo.write("work.txt", "pushed")
+        try repo.commit("work")
+        try repo.git("push", "-q", "-u", "origin", "HEAD")
+        try repo.git("reset", "-q", "--hard", "HEAD~1")
+
+        guard case .updated = await GitActions.pull(at: repo.path) else {
+            #expect(Bool(false), "a reset with nothing new has to pull origin's commits back")
+            return
+        }
+        #expect(try remote.git("rev-parse", "main") == repo.head)
+    }
+
     @Test func updateCheckoutMovesUpToTheRemoteTip() async throws {
         let remote = try GitRepo.bare()
         let first = try GitRepo()
@@ -734,53 +853,18 @@ struct GitActionsTests {
         #expect(second.revision("main") == mainBefore)
     }
 
-    @Test func snapshotListsBranchesAndCountsDrift() async throws {
+    @Test func snapshotCountsDrift() async throws {
         let repo = try GitRepo()
         let remote = try GitRepo.bare()
         try repo.addRemote(remote)
         try repo.git("push", "-q", "-u", "origin", "HEAD")
-        try repo.git("branch", "feature")
         try repo.write("README.md", "ahead now")
         try repo.git("commit", "-qam", "second")
 
         let snapshot = await GitInspector.snapshot(at: repo.path)
-        #expect(Set(snapshot.branches) == ["main", "feature"])
         #expect(snapshot.upstream == "origin/main")
         #expect(snapshot.ahead == 1)
         #expect(snapshot.behind == 0)
-    }
-
-    @Test func listsRemoteBranches() async throws {
-        let remote = try GitRepo.bare()
-        let first = try GitRepo()
-        try first.addRemote(remote)
-        try first.git("push", "-q", "-u", "origin", "HEAD")
-        try first.git("push", "-q", "origin", "HEAD:copycat/agent-work")
-
-        // A clone also gets origin/HEAD, which only points at main and is left out.
-        let second = try remote.clone()
-        let snapshot = await GitInspector.snapshot(at: second.path)
-        #expect(snapshot.branches == ["main"])
-        #expect(Set(snapshot.remoteBranches) == [RemoteBranch(remote: "origin", name: "main"),
-                                                 RemoteBranch(remote: "origin", name: "copycat/agent-work")])
-    }
-
-    @Test func checksOutARemoteBranchAsALocalTrackingBranch() async throws {
-        let remote = try GitRepo.bare()
-        let first = try GitRepo()
-        try first.addRemote(remote)
-        try first.git("push", "-q", "-u", "origin", "HEAD")
-        try first.git("push", "-q", "origin", "HEAD:feature")
-        let second = try remote.clone()
-
-        let error = await GitActions.checkoutRemoteBranch(
-            RemoteBranch(remote: "origin", name: "feature"), at: second.path)
-        #expect(error == nil)
-
-        let after = await GitInspector.snapshot(at: second.path)
-        #expect(after.branch == "feature")
-        #expect(after.upstream == "origin/feature")
-        #expect(after.branches.contains("feature"))
     }
 
     // MARK: - Selective commits
@@ -859,26 +943,10 @@ struct GitActionsTests {
 
     // MARK: - Amend
 
-    @Test func amendFoldsTheChangesIntoTheLastCommit() async throws {
-        let repo = try GitRepo()
-        try repo.write("work.txt", "first pass")
-        #expect(await GitActions.commitAll(message: "Add work", at: repo.path) == nil)
-        try repo.write("work.txt", "second pass")
-
-        let error = await GitActions.commitAll(message: "Add finished work", amend: true,
-                                               at: repo.path)
-        #expect(error == nil)
-
-        #expect(repo.commitCount == 2)
-        let after = await GitInspector.snapshot(at: repo.path)
-        #expect(after.lastCommitSubject == "Add finished work")
-        #expect(after.files.isEmpty)
-    }
-
     @Test func selectiveAmendKeepsUnselectedWorkOutOfTheFoldedCommit() async throws {
         let repo = try GitRepo()
         try repo.write("done.txt", "done")
-        #expect(await GitActions.commitAll(message: "Add done", at: repo.path) == nil)
+        try repo.commit("Add done")
         try repo.write("extra.txt", "fold me in")
         try repo.write("pending.txt", "still cooking")
 
@@ -932,40 +1000,6 @@ struct GitActionsTests {
         let history = await GitInspector.recentCommits(at: repo.path)
         #expect(history.commits.isEmpty)
         #expect(history.note == nil)
-    }
-
-    @Test func commitDiffShowsEachFileUnderItsOwnHeading() async throws {
-        let repo = try GitRepo()
-        try repo.write("README.md", "hello\nagain")
-        try repo.write("notes.txt", "fresh")
-        #expect(await GitActions.commitAll(message: "second", at: repo.path) == nil)
-
-        let history = await GitInspector.recentCommits(at: repo.path)
-        let diff = await GitInspector.commitDiff(history.commits[0].hash, root: repo.path)
-        #expect(diff.note == nil)
-
-        let sections = diff.lines.filter { $0.kind == .section }.map(\.text)
-        #expect(sections == ["README.md", "notes.txt"])
-        #expect(diff.lines.contains { $0.kind == .addition && $0.text == "+again" })
-        #expect(diff.lines.contains { $0.kind == .addition && $0.text == "+fresh" })
-    }
-
-    @Test func commitDiffRecordsARename() async throws {
-        let repo = try GitRepo()
-        try repo.git("mv", "README.md", "MANUAL.md")
-        try repo.git("commit", "-qm", "rename")
-
-        let history = await GitInspector.recentCommits(at: repo.path)
-        let diff = await GitInspector.commitDiff(history.commits[0].hash, root: repo.path)
-        #expect(diff.lines.contains { $0.kind == .meta && $0.text == "rename from README.md" })
-        #expect(diff.lines.contains { $0.kind == .meta && $0.text == "rename to MANUAL.md" })
-    }
-
-    @Test func commitDiffReportsAnUnknownHash() async throws {
-        let repo = try GitRepo()
-        let diff = await GitInspector.commitDiff("0000000000000000000000000000000000000000",
-                                                 root: repo.path)
-        #expect(diff.note?.isEmpty == false)
     }
 }
 

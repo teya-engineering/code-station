@@ -11,11 +11,11 @@ struct OldSessionsStripTests {
                                  snoozedProjects: snoozedProjects)
     }
 
-    @Test func theOfferNamesTheCountAndTheThreshold() {
-        #expect(OldSessionsOfferStrip.title(summary(sessions: 4), days: 30)
-            == "4 sessions older than 30 days")
-        #expect(OldSessionsOfferStrip.title(summary(sessions: 1), days: 1)
-            == "1 session older than 1 day")
+    @Test func theOfferNamesTheCountWithoutClaimingOneSharedThreshold() {
+        #expect(OldSessionsOfferStrip.title(summary(sessions: 4))
+            == "4 old sessions")
+        #expect(OldSessionsOfferStrip.title(summary(sessions: 1))
+            == "1 old session")
     }
 
     // The detail says why nothing will happen on its own, then what accepting would cost.

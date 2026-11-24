@@ -140,6 +140,26 @@ struct TranscriptEvidenceBlocksTests {
         #expect(GrafanaResultView.traceID(in: line) == Self.traceID)
     }
 
+    // The transcript is one tall stack inside a scroll view. A card that gives up height
+    // when offered less makes the stack measure shorter than it draws, and the end of the
+    // conversation can no longer be scrolled into view.
+    @MainActor @Test func aLogsCardKeepsItsHeightWhenOfferedLess() throws {
+        let line = #"{"time":"2026-10-23T14:02:11.418Z","level":"error","service":"ledger","message":"deadlock detected"}"#
+        let text = #"{"title":"ledger errors","lines":["# + Array(repeating: line, count: 40).joined(separator: ",") + "]}"
+        guard case .success(let spec) = TranscriptLogsSpec.parse(text) else {
+            Issue.record("not read"); return
+        }
+        let card = NSHostingController(rootView: GrafanaResultView(source: .init(logs: spec), result: spec.result)
+            .environment(TooltipPresenter())
+            .environment(DialogPresenter())
+            .environment(MenuPresenter()))
+
+        let roomy = card.sizeThatFits(in: CGSize(width: 600, height: 4000))
+        let tight = card.sizeThatFits(in: CGSize(width: 600, height: 150))
+
+        #expect(tight.height == roomy.height)
+    }
+
     @Test func theAgentIsShownBothBlockShapes() {
         let instructions = TranscriptEvidenceBlocks.agentInstructions
         #expect(instructions.contains("```trace"))

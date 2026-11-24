@@ -62,6 +62,50 @@ struct SessionFacts: Equatable {
         return pullRequestCountKnown ? "\(pullRequestCount) open" : "\(pullRequests.count) linked"
     }
 
+    // The pull requests that may still need the person come first, right under the count
+    // that counts them, and the merged and closed ones follow. Each group runs newest
+    // first. One whose state is not known yet might still need them, so it waits with the
+    // open ones rather than being filed away. The badge on every row is what the order
+    // follows, so the order explains itself.
+    //
+    // Newest means when GitHub says it was opened. The stored list is not in that order:
+    // one found for the checkout's branch is kept behind the ones read from the
+    // transcript, however old it is. One with no date has not been read from GitHub yet,
+    // which mostly means it was only just linked, so it counts as the newest.
+    var orderedPullRequests: [PullRequest] {
+        let newestFirst = Array(pullRequests.reversed()).enumerated().sorted { a, b in
+            switch (pullRequestStatuses[a.element.url]?.createdAt, pullRequestStatuses[b.element.url]?.createdAt) {
+            case let (first?, second?) where first != second: first > second
+            case (nil, _?): true
+            case (_?, nil): false
+            default: a.offset < b.offset
+            }
+        }.map(\.element)
+        return newestFirst.filter { !isSettled($0) } + newestFirst.filter(isSettled)
+    }
+
+    // The order a card opened with, kept while it stays open, so a state that arrives
+    // meanwhile does not move a row out from under the pointer. A pull request linked
+    // since joins the rows that have not moved where its group belongs: on top if it may
+    // still need the person, at the bottom if it is already merged or closed. One that
+    // has gone is simply left out.
+    func pullRequests(holding held: [String]) -> [PullRequest] {
+        let place = Dictionary(held.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let current = orderedPullRequests
+        let arrived = current.filter { place[$0.url] == nil }
+        let kept = current.compactMap { pullRequest in place[pullRequest.url].map { ($0, pullRequest) } }
+            .sorted { $0.0 < $1.0 }
+            .map(\.1)
+        return arrived.filter { !isSettled($0) } + kept + arrived.filter(isSettled)
+    }
+
+    private func isSettled(_ pullRequest: PullRequest) -> Bool {
+        switch pullRequestStatuses[pullRequest.url]?.state {
+        case .merged?, .closed?: true
+        case .open?, nil: false
+        }
+    }
+
     static func percent(_ fraction: Double) -> String {
         "\(Int((fraction * 100).rounded()))%"
     }
@@ -134,6 +178,57 @@ struct SessionStateReading: Equatable {
     }
 }
 
+extension SessionFacts {
+    // Read from the session and from what git last said about each of its folders:
+    // `snapshots` has one entry for each folder, lead checkout first, and nil where git
+    // has not answered yet.
+    //
+    // The lead checkout is the one the branch speaks for. A worktree session knows its
+    // branch from creation, so the branch can draw on the first frame instead of waiting
+    // for git and shifting the chip.
+    init(session: ChatSession, snapshots: [GitSnapshot?], reviews: [PullRequestReviewStore.Loaded],
+         modelTitle: (String) -> String, showsCost: Bool) {
+        let answered = snapshots.compactMap { $0 }
+        let hasSnapshots = !snapshots.isEmpty && answered.count == snapshots.count
+        self.init(
+            branch: (snapshots.first ?? nil)?.branch
+                ?? session.worktreeBranch
+                ?? session.sessionProjects?.compactMap(\.worktreeBranch).first,
+            changes: Changes(snapshots: answered, summary: session.summary)
+                ?? (hasSnapshots ? .init(files: 0, added: 0, removed: 0) : nil),
+            pullRequests: session.pullRequests,
+            pullRequestStatuses: Dictionary(reviews.map { ($0.pullRequest.url, $0.status) },
+                                            uniquingKeysWith: { first, _ in first }),
+            model: session.usage?.model(for: session.agent).map(modelTitle),
+            // Kiro counts in plan credits, so it shows those rather than a dollar figure.
+            cost: showsCost && session.agent != .kiro ? session.usage?.costUSD : nil,
+            credits: showsCost && session.agent == .kiro ? session.usage?.credits : nil,
+            context: session.usage?.contextFraction(for: session.agent),
+            agent: session.agent)
+    }
+}
+
+extension SessionFacts.Changes {
+    // How far the working tree has moved, for the Changes tab and for the card behind the
+    // branch. Until git has answered for this tree, the transcript's own running total
+    // stands in - the same numbers the session's sidebar row shows - so the counts arrive
+    // with the deck instead of a few seconds later. That total has no file count and can
+    // disagree with the tree (it keeps counting across commits and repeat edits), so it
+    // is only a stand-in until the first snapshot lands and corrects it.
+    init?(snapshots: [GitSnapshot], summary: SessionSummary) {
+        guard !snapshots.isEmpty else {
+            guard summary.added > 0 || summary.removed > 0 else { return nil }
+            self.init(files: 0, added: summary.added, removed: summary.removed)
+            return
+        }
+        let files = snapshots.reduce(0) { $0 + $1.files.count }
+        guard files > 0 else { return nil }
+        self.init(files: files,
+                  added: snapshots.reduce(0) { $0 + $1.totalAdded },
+                  removed: snapshots.reduce(0) { $0 + $1.totalRemoved })
+    }
+}
+
 // MARK: - The pill
 
 // What the session is up to: its state over the branch it is on, with every other fact
@@ -153,6 +248,8 @@ struct SessionFactsChip: View {
     let openChanges: () -> Void
     let contextActions: () -> [MenuEntry]
     let usageTooltip: () -> Tooltip
+    var attachProject: (() -> Void)? = nil
+    var attachDisabled = false
     // The PR row opens the browser, which leaves nothing in the window to show the click
     // worked, so the header shows a note instead.
     var showNote: (String) -> Void = { _ in }
@@ -167,6 +264,9 @@ struct SessionFactsChip: View {
     // as one scale rather than as bars that happen to be near each other.
     private static let meterWidth: CGFloat = 240
     private static let radius = Radius.floating
+    // The least room the pull requests keep when a short window squeezes them, a few rows
+    // and part of the next, so the list still reads as one that goes on.
+    private static let pullRequestFloor = ControlHeight.lg * 3
     // Strong enough to read on the cream card, still a step under the values.
     private static let labelInk = Color.primary.opacity(0.42)
 
@@ -175,7 +275,7 @@ struct SessionFactsChip: View {
     @Environment(MenuPresenter.self) private var menus
     @FocusedValue(\.sessionFactsPreview) private var focusedPreview
     @FocusState private var chipFocused: Bool
-    private enum PreviewControl: Hashable { case pin, close }
+    private enum PreviewControl: Hashable { case attach, pin, close }
     @FocusState private var previewControl: PreviewControl?
     @State private var focusDismissed = false
     @State private var layout = SessionFactsLayout()
@@ -403,34 +503,18 @@ struct SessionFactsChip: View {
     private var card: some View {
         VStack(spacing: 0) {
             previewHeading.frame(height: Theme.headerHeight)
-            MenuContentScrollView(maxHeight: max(0, layout.height - Theme.headerHeight - Self.cardGap)) {
-                VStack(spacing: 0) {
-                    head
-                    if let changes = facts.changes { changesRow(changes) }
-                    pullRequestsSection
+            // The pull requests scroll inside their own section, so the rest of the card
+            // stays put however many there are. The body keeps a scroll of its own only
+            // for a window too short to hold even that.
+            MenuContentScrollView(maxHeight: bodyHeight) {
+                LeftoverHeightStack(available: bodyHeight, floor: Self.pullRequestFloor) {
                     VStack(spacing: 0) {
-                        if let usageMonitor, usageMonitor.supports(facts.agent) {
-                            usageRow(usageMonitor)
-                        }
-                        if let context = facts.context { contextRow(context) }
-                        if let usageMonitor, usageMonitor.supports(facts.agent) {
-                            Text("\(facts.agent.title) account usage")
-                                .font(Font.system(size: Typography.Size.micro))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, Space.lg)
-                            if !usageMonitor.refreshing.contains(facts.agent),
-                               usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
-                                usageNote(usageMonitor)
-                            }
-                            ForEach(usageMonitor.usage[facts.agent]?.windows ?? []) { window in
-                                usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
-                            }
-                        }
-                        if let cost = facts.cost { costRow(Money.short(cost)) }
-                        if let credits = facts.credits { costRow(Money.credits(credits), verb: "used") }
+                        head
+                        if let changes = facts.changes { changesRow(changes) }
+                        pullRequestsHeading
                     }
-                    .background(Theme.sunken)
+                    pullRequestList
+                    usageSection
                 }
             }
         }
@@ -452,6 +536,19 @@ struct SessionFactsChip: View {
                     .lineLimit(1)
             }
             Spacer(minLength: Space.xs)
+            if let attachProject {
+                GlyphButton(icon: "plus.rectangle.on.folder", side: ControlHeight.sm) {
+                    closeCard()
+                    chipFocused = true
+                    attachProject()
+                }
+                .disabled(attachDisabled)
+                .focused($previewControl, equals: .attach)
+                .focusEffectDisabled()
+                .overlay(FocusRingStroke(focused: previewControl == .attach))
+                .appTooltip("Attach project")
+                .accessibilityLabel("Attach a project to this session")
+            }
             GlyphButton(icon: pinned ? "pin.fill" : "pin", side: ControlHeight.sm, active: pinned) {
                 if pinned { closeCard() } else { pinned = true }
             }
@@ -472,30 +569,71 @@ struct SessionFactsChip: View {
         .motion(Motion.control, value: pinned)
     }
 
-    private var pullRequestsSection: some View {
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            HStack {
-                Text("Pull requests").fontWeight(.semibold)
-                Spacer()
-                Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
+    private var bodyHeight: CGFloat {
+        max(0, layout.height - Theme.headerHeight - Self.cardGap)
+    }
+
+    // The heading stays over the list while a long one scrolls under it, so the count
+    // is still in view when the rows it counts are not.
+    private var pullRequestsHeading: some View {
+        HStack {
+            Text("Pull requests").fontWeight(.semibold)
+            Spacer()
+            Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
+        }
+        .font(Typography.caption)
+        .padding(.horizontal, Space.lg)
+        .padding(.top, Space.md)
+        .overlay(alignment: .top) { rule }
+    }
+
+    @ViewBuilder private var pullRequestList: some View {
+        if facts.pullRequests.isEmpty {
+            Text("No pull requests yet")
+                .font(Typography.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, Space.lg)
+                .padding(.top, Space.md + Space.xxs)
+                .padding(.bottom, Space.md + Space.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.xxs) {
+                    HeldPullRequestRows(facts: facts) { pullRequestRow($0) }
+                }
+                .padding(.top, Space.xxs)
+                .padding(.bottom, Space.sm)
             }
-            .font(Typography.caption)
-            .padding(.horizontal, Space.lg)
-            .padding(.top, Space.md)
-            if facts.pullRequests.isEmpty {
-                Text("No pull requests yet")
-                    .font(Typography.caption)
+            .scrollIndicators(.visible)
+        }
+    }
+
+    // What the account has left, sunken like the head, since it belongs to the account
+    // rather than to the session.
+    private var usageSection: some View {
+        VStack(spacing: 0) {
+            if let usageMonitor, usageMonitor.supports(facts.agent) {
+                usageRow(usageMonitor)
+            }
+            if let context = facts.context { contextRow(context) }
+            if let usageMonitor, usageMonitor.supports(facts.agent) {
+                Text("\(facts.agent.title) account usage")
+                    .font(Font.system(size: Typography.Size.micro))
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, Space.lg)
-                    .padding(.vertical, Space.md)
-            } else {
-                ForEach(facts.pullRequests, id: \.url) { pullRequest in
-                    pullRequestRow(pullRequest)
+                if !usageMonitor.refreshing.contains(facts.agent),
+                   usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
+                    usageNote(usageMonitor)
+                }
+                ForEach(usageMonitor.usage[facts.agent]?.windows ?? []) { window in
+                    usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
                 }
             }
+            if let cost = facts.cost { costRow(Money.short(cost)) }
+            if let credits = facts.credits { costRow(Money.credits(credits), verb: "used") }
         }
-        .padding(.bottom, Space.sm)
-        .overlay(alignment: .top) { rule }
+        .background(Theme.sunken)
     }
 
     // The card's head answers both halves of the pill at a size that can be read: the
@@ -913,6 +1051,70 @@ struct SessionFactsChip: View {
         pointerOnCard = false
         pointerOnChip = false
         hovering = false
+    }
+}
+
+// MARK: - The card's layout
+
+// The card's body as three parts stacked: the sections above the pull requests, the
+// pull requests, and the usage under them. The pull requests are the one part with no
+// end to them, so they take the room the other two leave and scroll inside it, down to
+// a floor that keeps a few rows in view. Everything is measured in the same pass that
+// places it, so the card opens at its final size rather than settling a frame later.
+//
+// The body sits in a scroll view that hands down no height of its own, so the room
+// there is to share is passed in.
+private struct LeftoverHeightStack: Layout {
+    let available: CGFloat
+    let floor: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width
+        let heights = self.heights(width: width, subviews: subviews)
+        return CGSize(width: width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0,
+                      height: heights.reduce(0, +))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for (subview, height) in zip(subviews, heights(width: bounds.width, subviews: subviews)) {
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: height))
+            y += height
+        }
+    }
+
+    // Rounded down, so the parts never add up to a hair more than the room and wake the
+    // body's own scroll for nothing.
+    private func heights(width: CGFloat?, subviews: Subviews) -> [CGFloat] {
+        guard subviews.count == 3 else {
+            return subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        }
+        let natural = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        let leftover = (available - natural[0] - natural[2]).rounded(.down)
+        let list = min(natural[1], max(floor, leftover))
+        return [natural[0], list, natural[2]]
+    }
+}
+
+// The pull request rows in the order the card opened with. The order lives in the rows'
+// own state, which is made when the card arrives and goes when the card has finished
+// leaving, so a state that lands while it is open, or while it fades out, does not move
+// a row. The next opening sorts afresh.
+private struct HeldPullRequestRows<Row: View>: View {
+    let facts: SessionFacts
+    @ViewBuilder let row: (PullRequest) -> Row
+
+    @State private var held: [String]
+
+    init(facts: SessionFacts, @ViewBuilder row: @escaping (PullRequest) -> Row) {
+        self.facts = facts
+        self.row = row
+        _held = State(initialValue: facts.orderedPullRequests.map(\.url))
+    }
+
+    var body: some View {
+        ForEach(facts.pullRequests(holding: held), id: \.url, content: row)
     }
 }
 

@@ -26,8 +26,7 @@ struct TaskDetailView: View {
     @State private var askingTask: Project?
     @State private var runFilter: TaskRunHistory.Filter = .all
     @State private var paneWidth: CGFloat = 1_000
-    @State private var note: String?
-    @State private var notes = 0
+    @State private var note = TransientNote()
 
     private var terminalScope: TerminalScope { .project(projectID) }
 
@@ -52,16 +51,7 @@ struct TaskDetailView: View {
             .background(TerminalShortcut(scope: terminalScope, directory: task.path,
                                          focusTerminal: $terminalFocused)
                             .disabled(store.isMissing(task)))
-            .overlay(alignment: .topTrailing) {
-                ZStack {
-                    if let note {
-                        HeaderNote(icon: "arrow.up.forward.app", text: note)
-                            .padding(.top, Theme.headerHeight + 8).padding(.trailing, Space.xxxl)
-                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
-                    }
-                }
-                .motion(Motion.reveal, value: note)
-            }
+            .headerNote(note, top: Theme.headerHeight + 8, trailing: Space.xxxl)
             .taskRunSheet($askingTask) { asking, values, note in
                 startRun(asking, values: values, note: note)
             }
@@ -467,7 +457,7 @@ struct TaskDetailView: View {
                     ? "Ask for what this run needs, then start a fresh session"
                     : "Start a fresh session with the saved prompt")
         }
-        .task(id: runAgent(task)) { await runner.discoverModels(for: runAgent(task)) }
+        .task(id: runAgent(task)) { await runner.catalog.discoverModels(for: runAgent(task)) }
     }
 
     private func botBinding(_ task: Project) -> Binding<String> {
@@ -479,7 +469,7 @@ struct TaskDetailView: View {
     // to that agent's; an override saved for the other agent reads as unset until the
     // task is switched back.
     private func runAgent(_ task: Project) -> AgentKind {
-        spec(task).agent ?? runner.agent
+        spec(task).agent ?? runner.catalog.agent
     }
 
     // MARK: - Run choices
@@ -512,10 +502,10 @@ struct TaskDetailView: View {
         let override = spec(task).agent
         return RunChoice(
             badge: "AGENT",
-            label: (override ?? runner.agent).title,
+            label: (override ?? runner.catalog.agent).title,
             overridden: override != nil,
             help: "The coding agent each run starts on.",
-            defaultTitle: defaultTitle(runner.agent.title),
+            defaultTitle: defaultTitle(runner.catalog.agent.title),
             options: AgentKind.allCases.map { (id: $0.rawValue, title: $0.title) },
             selection: Binding(get: { override?.rawValue },
                                set: { value in
@@ -527,15 +517,15 @@ struct TaskDetailView: View {
 
     private func modelChoice(_ task: Project) -> RunChoice {
         let agent = runAgent(task)
-        let override = runner.validModel(spec(task).model, for: agent)
-        let appDefault = runner.validModel(runner.defaults(for: agent).model, for: agent)
+        let override = runner.catalog.validModel(spec(task).model, for: agent)
+        let appDefault = runner.catalog.validModel(runner.catalog.defaults(for: agent).model, for: agent)
         return RunChoice(
             badge: "MODEL",
-            label: override.map { runner.modelTitle($0) } ?? "Default model",
+            label: override.map { runner.catalog.modelTitle($0) } ?? "Default model",
             overridden: override != nil,
             help: "The model each run starts on.",
-            defaultTitle: defaultTitle(appDefault.map { runner.modelTitle($0) }),
-            options: runner.modelOptions(for: agent).compactMap { choice in
+            defaultTitle: defaultTitle(appDefault.map { runner.catalog.modelTitle($0) }),
+            options: runner.catalog.modelOptions(for: agent).compactMap { choice in
                 choice.id.map { (id: $0, title: choice.title) }
             },
             selection: Binding(get: { override },
@@ -543,7 +533,7 @@ struct TaskDetailView: View {
                                    changeSpec(task) {
                                        $0.model = id
                                        if let effort = $0.effort,
-                                          runner.validEffort(effort, for: agent,
+                                          runner.catalog.validEffort(effort, for: agent,
                                                              model: id ?? appDefault) == nil {
                                            $0.effort = nil
                                        }
@@ -553,22 +543,22 @@ struct TaskDetailView: View {
 
     private func effortChoice(_ task: Project) -> RunChoice {
         let agent = runAgent(task)
-        let model = runner.validModel(spec(task).model, for: agent)
-            ?? runner.validModel(runner.defaults(for: agent).model, for: agent)
-        let override = runner.validEffort(spec(task).effort, for: agent, model: model)
-        let appDefault = runner.validEffort(runner.defaults(for: agent).effort,
+        let model = runner.catalog.validModel(spec(task).model, for: agent)
+            ?? runner.catalog.validModel(runner.catalog.defaults(for: agent).model, for: agent)
+        let override = runner.catalog.validEffort(spec(task).effort, for: agent, model: model)
+        let appDefault = runner.catalog.validEffort(runner.catalog.defaults(for: agent).effort,
                                             for: agent, model: model)
         let chosen = override ?? appDefault
-        let inheritedEffort = appDefault.map { runner.effortTitle($0, for: agent, model: model) }
+        let inheritedEffort = appDefault.map { runner.catalog.effortTitle($0, for: agent, model: model) }
             ?? "\(agent.title) settings"
         return RunChoice(
             badge: "EFFORT",
-            label: chosen.map { "\(runner.effortTitle($0, for: agent, model: model)) effort" }
+            label: chosen.map { "\(runner.catalog.effortTitle($0, for: agent, model: model)) effort" }
                 ?? "\(agent.title) default effort",
             overridden: override != nil,
             help: "How long the model thinks before it answers. Inherit Code Station's default, or choose a level for this run.",
             defaultTitle: "Use Code Station default (\(inheritedEffort))",
-            options: runner.effortOptions(for: agent, model: model).compactMap { choice in
+            options: runner.catalog.effortOptions(for: agent, model: model).compactMap { choice in
                 choice.id.map { (id: $0, title: choice.title) }
             },
             selection: Binding(get: { override },
@@ -578,7 +568,7 @@ struct TaskDetailView: View {
     private func permissionsChoice(_ task: Project) -> RunChoice {
         let agent = runAgent(task)
         let override = spec(task).permissionMode
-        let defaults = runner.defaults(for: agent)
+        let defaults = runner.catalog.defaults(for: agent)
         return RunChoice(
             badge: "ASKS",
             label: (override ?? defaults.permissionMode ?? .fallback).shortTitle,
@@ -595,7 +585,7 @@ struct TaskDetailView: View {
     private func codexAccessChoice(_ task: Project) -> RunChoice {
         let agent = runAgent(task)
         let override = spec(task).codexSandboxMode
-        let appDefault = (runner.defaults(for: agent).codexSandboxMode ?? .workspaceWrite)
+        let appDefault = (runner.catalog.defaults(for: agent).codexSandboxMode ?? .workspaceWrite)
         let selected = override ?? appDefault
         return RunChoice(
             badge: "ACCESS",
@@ -615,7 +605,7 @@ struct TaskDetailView: View {
     private func copilotAccessChoice(_ task: Project) -> RunChoice {
         let agent = runAgent(task)
         let override = spec(task).copilotAccessMode
-        let appDefault = (runner.defaults(for: agent).copilotAccessMode ?? .workspace)
+        let appDefault = (runner.catalog.defaults(for: agent).copilotAccessMode ?? .workspace)
         let selected = override ?? appDefault
         return RunChoice(
             badge: "ACCESS",
@@ -744,16 +734,8 @@ struct TaskDetailView: View {
         store.setTaskSpec(updated, for: task.id)
     }
 
-    // A second note keeps the line up rather than letting the first one's timer take it
-    // down early.
     private func showNote(_ text: String) {
-        notes += 1
-        let shown = notes
-        note = text
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            if notes == shown { note = nil }
-        }
+        note.show(text, icon: "arrow.up.forward.app")
     }
 
     private func run(_ task: Project) {

@@ -77,6 +77,24 @@ struct SpineCardTests {
 
 @MainActor
 struct ActivitySpineLayoutTests {
+    @Test func aLongTurnShowsItsLatestCallsUntilAskedForTheRest() {
+        let entries = (0..<45).map { index in
+            TranscriptActivityEntry.call(ToolNode(tool: ToolUse(id: "call-\(index)", name: "Bash", input: "{}"),
+                                                  order: index))
+        }
+        let folded = ActivitySpine.shownEntries(entries, showsEarlier: false)
+        #expect(folded.earlier == 15)
+        #expect(folded.shown.map(\.id) == entries.suffix(30).map(\.id))
+
+        let opened = ActivitySpine.shownEntries(entries, showsEarlier: true)
+        #expect(opened.earlier == 0)
+        #expect(opened.shown.count == 45)
+
+        let short = ActivitySpine.shownEntries(Array(entries.prefix(30)), showsEarlier: false)
+        #expect(short.earlier == 0)
+        #expect(short.shown.count == 30)
+    }
+
     // A transcript that follows the bottom shows a different slice of the spine on every
     // frame while a turn runs. If the spine's height depended on that slice, the transcript
     // would keep resizing itself and never settle.

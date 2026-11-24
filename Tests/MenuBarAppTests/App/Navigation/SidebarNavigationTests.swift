@@ -272,7 +272,7 @@ private final class SidebarHarness {
     private let testPreferences = TestPreferences()
     let scratch: ScratchDirectory
     let store: ProjectStore
-    lazy var runner = SessionRunner(preferences: testPreferences.store, paths: [:])
+    lazy var runner = SessionRunner(store: store, preferences: testPreferences.store, paths: [:])
     let settings: AppSettings
     let preferences: UserDefaults
     let mouse = TestMouse()
@@ -283,7 +283,7 @@ private final class SidebarHarness {
     init() throws {
         _ = NSApplication.shared
         (store, scratch) = TestStore.make()
-        preferences = try #require(UserDefaults(suiteName: "sidebar-ui-\(UUID().uuidString)"))
+        preferences = scratchDefaults()
         settings = AppSettings(agentAvatarURL: scratch.path("avatar.png"), preferences: preferences)
         settings.sidebarSessionLimit = 2
         settings.projectGrouping = .kind
@@ -307,6 +307,8 @@ private final class SidebarHarness {
             .environment(AppUpdateChecker(installedVersion: nil, preferences: preferences))
             .environment(WorkingTreeWatch(inspect: { _ in 0 }))
             .environment(OrphanedWorktreeMonitor())
+            .environment(CleanupCoordinator(store: store, runner: runner, settings: settings,
+                                            orphanedWorktrees: OrphanedWorktreeMonitor()))
             .environment(PullRequestReviewStore())
             .environment(MobileAccessController(store: store, runner: runner, gitStats: stats))
             .environment(GlobalCommandPaletteController())

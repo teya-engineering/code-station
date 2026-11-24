@@ -26,12 +26,12 @@ struct SecondOpinionAskTests {
 
     @Test func onlyStopsWithSomethingBehindThemShowNarrowestFirst() {
         #expect(SecondOpinionAsk.stops(facts()) == [])
-        #expect(SecondOpinionAsk.stops(facts(answer: answer, turns: Array(turns.prefix(2)))) == [.answer])
+        #expect(SecondOpinionAsk.stops(facts(answer: answer, turns: Array(turns.prefix(2)))) == [.answer, .conversation])
         #expect(SecondOpinionAsk.stops(facts(answer: answer, files: [retry, test], file: retry, canReadSince: true,
                                              design: ["Home"], turns: turns))
                 == [.file, .answer, .sinceReview, .uncommitted, .design, .conversation])
-        // Since the last review needs both a review and something changed.
-        #expect(!SecondOpinionAsk.stops(facts(canReadSince: true)).contains(.sinceReview))
+        // A clean working tree may still differ from the last review snapshot.
+        #expect(SecondOpinionAsk.stops(facts(canReadSince: true)).contains(.sinceReview))
     }
 
     @Test func eachWayInProposesItsOwnSubject() {
@@ -87,19 +87,64 @@ struct SecondOpinionAskTests {
         #expect(SecondOpinionAsk.litFiles(.answer, facts: changed, sinceReview: nil) == nil)
     }
 
+    @Test func theWholeBranchFollowsWhatTheChangesScreenComparesWith() {
+        let feature = SecondOpinionAskFacts.File(root: "/repo", path: "retry/Backoff.java", added: 40, removed: 2)
+        var compared = facts(files: [retry], file: retry, turns: turns)
+        compared.branch = .init(base: "origin/main", files: [feature, retry])
+        #expect(SecondOpinionAsk.stops(compared) == [.file, .uncommitted, .branch, .conversation])
+        // From the header, the screen's comparison decides what is proposed.
+        #expect(SecondOpinionAsk.initialStop(compared) == .branch)
+        #expect(SecondOpinionAsk.title(.branch, facts: compared) == "Changes from origin/main")
+        #expect(SecondOpinionAsk.fact(.branch, facts: compared) == "2 files")
+        #expect(SecondOpinionAsk.proposal(.branch, facts: compared, reviewers: [.codex])
+                == "Codex reviews everything this branch changes from origin/main")
+        #expect(SecondOpinionAsk.litFiles(.branch, facts: compared, sinceReview: nil) == [feature.id, retry.id])
+        #expect(SecondOpinionAsk.files(.branch, facts: compared) == [feature, retry])
+        #expect(SecondOpinionAsk.files(.uncommitted, facts: compared) == [retry])
+
+        // Compared with the last commit, the uncommitted changes lead as before.
+        compared.branch = nil
+        #expect(!SecondOpinionAsk.stops(compared).contains(.branch))
+        #expect(SecondOpinionAsk.initialStop(compared) == .uncommitted)
+    }
+
+    @Test func aPromptOnTheWholeBranchSaysWhatItIsComparedWith() {
+        #expect(SecondOpinion.prompt(for: [], base: "origin/main")
+                .contains("all the changes compared with origin/main, both committed and not yet committed"))
+        #expect(SecondOpinionRequest.Scope.branch(bases: ["/a": "origin/main", "/b": "origin/main"]).base == "origin/main")
+        #expect(SecondOpinionRequest.Scope.branch(bases: ["/a": "origin/main", "/b": "origin/dev"]).base
+                == "each project's base branch")
+        #expect(SecondOpinionRequest.Scope.all.base == nil)
+    }
+
     @Test func theAskButtonNamesWhoIsAskedOrWhatIsMissing() {
         let codex = SecondOpinion.Reviewer(agent: .codex)
         let copilot = SecondOpinion.Reviewer(agent: .copilot)
         let codexMini = SecondOpinion.Reviewer(agent: .codex, model: "mini")
-        #expect(SecondOpinionAsk.askTitle(lineup: [], hasFocus: true) == "Pick a reviewer")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex], hasFocus: false) == "Pick what to look for")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codex], hasFocus: true) == "Ask Codex")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex, copilot], hasFocus: true) == "Ask Codex and Copilot")
-        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codexMini], hasFocus: true) == "Ask 2 reviewers")
-        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: true) == "Choose at least one reviewer.")
-        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: false) == "Choose at least one reviewer.")
-        #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: false) == "Choose what to look for or add a note.")
+        #expect(SecondOpinionAsk.askTitle(lineup: []) == "Ask")
+        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codex]) == "Ask Codex")
+        #expect(SecondOpinionAsk.askTitle(lineup: [codex, copilot]) == "Ask Codex and Copilot")
+        #expect(SecondOpinionAsk.askTitle(lineup: [codex, codexMini]) == "Ask 2 reviewers")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: true) == "Pick a reviewer.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [], hasFocus: false) == "Pick a reviewer.")
+        #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: false) == "Pick something to look for.")
         #expect(SecondOpinionAsk.blockedReason(lineup: [codex], hasFocus: true) == nil)
+    }
+
+    @Test func theReceiptNamesOnlyWhatComesWithTheSubject() {
+        let none = ChatSecondOpinion.Reading(files: false, conversation: false)
+        let both = ChatSecondOpinion.Reading(files: true, conversation: true)
+        let design = DesignSecondOpinion.Reading(source: false, conversation: false)
+        #expect(SecondOpinionAsk.alsoIncluded(.branch, chatReading: none, designReading: design, usesServers: false)
+                == "Plus the project files around these changes")
+        #expect(SecondOpinionAsk.alsoIncluded(.uncommitted, chatReading: none, designReading: design, usesServers: true)
+                == "Plus the project files around these changes and your read-only MCP tools")
+        #expect(SecondOpinionAsk.alsoIncluded(.answer, chatReading: both, designReading: design, usesServers: true)
+                == "Plus the project files the answer mentions, the earlier conversation and your read-only MCP tools")
+        #expect(SecondOpinionAsk.alsoIncluded(.conversation, chatReading: both, designReading: design, usesServers: false)
+                == "Plus the project files the chat mentions")
+        #expect(SecondOpinionAsk.alsoIncluded(.answer, chatReading: none, designReading: design, usesServers: false) == nil)
+        #expect(SecondOpinionAsk.alsoIncluded(.design, chatReading: none, designReading: design, usesServers: false) == nil)
     }
 
     @Test func wordsTheyWriteJoinWhatTheyTicked() {
@@ -131,21 +176,22 @@ struct SecondOpinionAskTests {
     }
 }
 
-// The card keeps one size while the knob moves, so it never jumps under the pointer, and
-// it keeps to its content whatever room it is offered.
+// The ask stays inside its pane while the subject and expanded options change.
 @MainActor
 @Suite(.serialized)
 struct SecondOpinionAskCardLayoutTests {
     private let testPreferences = TestPreferences()
 
     @Test func expandedOptionsFitNarrowCardsAndBothAppearances() async throws {
-        let facts = SecondOpinionAskFacts(origin: .header, files: [
-            .init(root: "/repo", path: "src/RetryPolicy.swift", added: 18, removed: 9)
-        ])
+        let facts = SecondOpinionAskFacts(origin: .header,
+            answer: .init(subject: .init(kind: .answer, id: "answer:1", text: "Retries now back off.",
+                                        request: "Add retries."), picked: false),
+            files: [.init(root: "/repo", path: "src/RetryPolicy.swift", added: 18, removed: 9)],
+            turns: [.init(fromPerson: true, text: "Add retries."), .init(fromPerson: false, text: "Done.")])
         let lineup = [SecondOpinion.Reviewer(agent: .claudeCode, model: "opus"),
                       SecondOpinion.Reviewer(agent: .codex, model: "gpt-6-astra"),
                       SecondOpinion.Reviewer(agent: .copilot)]
-        for width: CGFloat in [320, 480] {
+        for width: CGFloat in [390, ReviewMetrics.askWidth] {
             for dark in [false, true] {
                 for reducedMotion in [false, true] {
                     let card = SecondOpinionAskCard(
@@ -154,7 +200,7 @@ struct SecondOpinionAskCardLayoutTests {
                         defaults: SecondOpinionDefaults(), startsTuning: true,
                         ask: { _ in }, close: {})
                         .environment(DialogPresenter())
-                        .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+                        .environment(SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [:]))
                         .environment(TooltipPresenter())
                         .environment(MenuPresenter())
                         .environment(\.colorScheme, dark ? .dark : .light)
@@ -163,8 +209,8 @@ struct SecondOpinionAskCardLayoutTests {
                     host.sizingOptions = []
                     let measured = host.sizeThatFits(in: CGSize(width: width, height: 2000))
                     #expect(measured.width == width)
-                    #expect(measured.height > 500)
-                    #expect(measured.height < 1000)
+                    #expect(measured.height > 400)
+                    #expect(measured.height <= ReviewMetrics.askHeight)
                     let window = NSWindow(contentRect: NSRect(origin: .zero, size: measured),
                                           styleMask: [.titled], backing: .buffered, defer: false)
                     window.isReleasedWhenClosed = false
@@ -225,7 +271,7 @@ struct SecondOpinionAskCardLayoutTests {
         }
     }
 
-    @Test func theCardKeepsItsHeightAsTheSubjectChanges() {
+    @Test func everySubjectFitsThePopoverHeight() {
         let answer = ChatSecondOpinion.Subject(kind: .answer, id: "answer:1",
                                                text: String(repeating: "A long answer. ", count: 60), request: "Ask.")
         let files = (0..<12).map { SecondOpinionAskFacts.File(root: "/repo", path: "src/File\($0).swift",
@@ -245,7 +291,7 @@ struct SecondOpinionAskCardLayoutTests {
             }
             .frame(width: 1400, height: 1200)
             .environment(DialogPresenter())
-            .environment(SessionRunner(preferences: testPreferences.store, paths: [:]))
+            .environment(SessionRunner(store: TestStore.make().store, preferences: testPreferences.store, paths: [:]))
             .environment(TooltipPresenter())
             .environment(MenuPresenter())
 
@@ -256,8 +302,8 @@ struct SecondOpinionAskCardLayoutTests {
             heights[stop] = height
         }
         #expect(heights.count == 5)
-        #expect(Set(heights.values).count == 1)
+        #expect(heights.values.allSatisfy { $0 <= ReviewMetrics.askHeight })
         #expect((heights.values.first ?? 0) > 200)
-        #expect((heights.values.first ?? 0) < 480)
+        #expect((heights.values.first ?? 0) <= ReviewMetrics.askHeight)
     }
 }

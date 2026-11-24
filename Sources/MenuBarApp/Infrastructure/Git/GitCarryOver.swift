@@ -28,10 +28,10 @@ enum GitCarryOver {
     }
 
     static func preview(at projectPath: String, onto base: String) async -> Preview {
-        guard let tool = await GitInspector.tool() else { return .unknown }
+        guard let tool = Git.tool() else { return .unknown }
         let folder = URL(fileURLWithPath: projectPath)
-        return await GitInspector.offMain {
-            let stash = GitInspector.run(tool, ["stash", "create"], in: folder)
+        return await Git.offMain {
+            let stash = Git.run(tool, ["stash", "create"], in: folder)
             guard stash.ok else { return .unknown }
             var clashes: [String] = []
 
@@ -39,7 +39,7 @@ enum GitCarryOver {
                 let commit = stash.trimmedText
                 // The stash's first parent is the commit the work was written on, so the
                 // merge sees only the work itself as one side's change.
-                let merge = GitInspector.run(
+                let merge = Git.run(
                     tool, ["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z",
                            "--merge-base=\(commit)^1", base, commit],
                     in: folder)
@@ -55,7 +55,7 @@ enum GitCarryOver {
             // anything HEAD already tracks could not be untracked.
             let untracked = untrackedFiles(tool, in: folder)
             if !untracked.isEmpty {
-                let added = GitInspector.run(
+                let added = Git.run(
                     tool, ["diff", "--name-only", "-z", "--diff-filter=A", "HEAD", base],
                     in: folder)
                 guard added.ok else { return .unknown }
@@ -72,25 +72,23 @@ enum GitCarryOver {
     // have changed while the sheet was open. A clash is not a failure: the files keep
     // their conflict markers for the session to resolve.
     static func apply(from projectPath: String, to worktreePath: String) async -> Outcome {
-        guard let tool = await GitInspector.tool() else {
-            return Outcome(failure: "Could not find git on PATH.")
+        guard let tool = Git.tool() else {
+            return Outcome(failure: Git.notFoundMessage)
         }
         let folder = URL(fileURLWithPath: projectPath)
         let worktree = URL(fileURLWithPath: worktreePath)
-        return await GitInspector.offMain {
-            let stash = GitInspector.run(tool, ["stash", "create"], in: folder)
+        return await Git.offMain {
+            let stash = Git.run(tool, ["stash", "create"], in: folder)
             guard stash.ok else { return Outcome(failure: stash.failureMessage) }
             var outcome = Outcome()
 
             if !stash.trimmedText.isEmpty {
                 // Worktrees share one object store, so the new checkout can reach the
                 // commit `stash create` just wrote in the project folder.
-                let applied = GitInspector.run(tool, ["stash", "apply", stash.trimmedText],
-                                               in: worktree)
+                let applied = Git.run(tool, ["stash", "apply", stash.trimmedText],
+                                      in: worktree)
                 if !applied.ok {
-                    let unmerged = GitInspector.run(
-                        tool, ["diff", "--name-only", "-z", "--diff-filter=U"], in: worktree)
-                    let files = unmerged.ok ? nulSeparated(unmerged.text) : []
+                    let files = Git.conflictedPaths(tool, in: worktree)
                     if files.isEmpty { return Outcome(failure: applied.failureMessage) }
                     outcome.conflicts += files
                 }
@@ -126,9 +124,9 @@ enum GitCarryOver {
         }
     }
 
-    private static func untrackedFiles(_ tool: GitInspector.GitTool, in folder: URL) -> [String] {
-        let listed = GitInspector.run(tool, ["ls-files", "--others", "--exclude-standard", "-z"],
-                                      in: folder)
+    private static func untrackedFiles(_ tool: Git.Tool, in folder: URL) -> [String] {
+        let listed = Git.run(tool, ["ls-files", "--others", "--exclude-standard", "-z"],
+                             in: folder)
         return listed.ok ? nulSeparated(listed.text) : []
     }
 

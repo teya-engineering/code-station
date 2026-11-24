@@ -38,19 +38,13 @@ struct DisclosureHeader<Label: View>: View {
         .buttonStyle(.plain)
         // A fill rather than a lift, since the label often runs the width of its card
         // and a row that swells pushes against the lines around it. The wash gets a
-        // little room past the text, then the row gives that room back so it lines up
-        // with its neighbours as before.
+        // little room past the text, then the row gives that room back so it still
+        // lines up with its neighbours.
         .hoverFill(cornerRadius: Radius.inset)
         .padding(.horizontal, -5)
         .padding(.vertical, -3)
         .motion(Motion.control, value: isExpanded)
         .appTooltip(isExpanded ? hide : show)
-    }
-}
-
-private extension View {
-    @ViewBuilder func appTooltip(_ text: String?) -> some View {
-        if let text { appTooltip(text) } else { self }
     }
 }
 

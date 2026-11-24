@@ -2,21 +2,23 @@ import SwiftUI
 
 enum SettingsSearchTarget: String, Hashable {
     case generalSidebar
-    case generalRecaps
-    case generalTitles
-    case generalSuggestions
-    case generalMidTurnPrompts
-    case generalSound
     case generalOldSessions
     case generalOrphanedWorktrees
-    case generalSessionMemory
+    case generalStats
     case generalSkills
     case generalSystem
+    case sessionsMidTurnPrompts
+    case sessionsSuggestions
+    case sessionsRecaps
+    case sessionsTitles
+    case sessionsSound
+    case sessionsMemory
     case appearanceTheme
     case appearanceSunlight
     case appearanceCursorEffects
     case appearanceText
     case appearanceMessages
+    case appearanceTimestamps
     case appearanceHeaderButtons
     case appearanceSidebarIcons
     case appearanceDefaultBot
@@ -36,6 +38,7 @@ enum SettingsSearchTarget: String, Hashable {
     case secondOpinionAccess
     case advancedConfiguration
     case advancedImport
+    case advancedSessionLog
     case mobileAccess
     case mobilePairingLifetime
 
@@ -56,32 +59,36 @@ struct SettingsSearchResult: Identifiable, Equatable {
 
 enum SettingsSearchIndex {
     static let entries = [
-        result("Sessions shown", .general, .generalSidebar,
-               "sidebar recent project workspace see more limit"),
-        result("Automatic session recaps", .general, .generalRecaps,
-               "recap catch up return summary conversation finish away manual toggle"),
-        result("Automatic session titles", .general, .generalTitles,
-               "title name rename regenerate summarise sentence first turn right click manual toggle"),
-        result("Suggest the next prompt", .general, .generalSuggestions,
-               "suggestion suggest next prompt predict composer follow up autocomplete toggle"),
-        result("Prompts sent during a turn", .general, .generalMidTurnPrompts,
-               "steer queue send now wait mid turn running busy return enter interrupt"),
-        result("Session finished sound", .general, .generalSound,
-               "sound alert audio chime beep play finish turn ends notification silent off"),
-        result("Old sessions", .general, .generalOldSessions,
-               "count old after days delete automatically on their own review clear stale design saved work uncommitted unpushed commits ask me first confirm unread snoozed park"),
-        result("Orphaned worktrees", .general, .generalOrphanedWorktrees,
-               "git checkout prune automatically treat like old sessions no session disk cleanup uncommitted branch"),
-        result("Session memory", .general, .generalSessionMemory,
-               "limit ram gigabytes gb stop turn protect mac build automatic out of memory"),
-        result("Skills refresh", .general, .generalSkills,
-               "skills marketplace refresh versions interval daily"),
         result("Terminal", .general, .generalSystem,
                "system open shell command app"),
+        result("Open in", .general, .generalSystem,
+               "system open folder editor app finder cursor vscode jetbrains add remove"),
         result("Start at login", .general, .generalSystem,
                "system launch log in startup"),
-        result("Session log", .general, .generalSystem,
-               "system open reveal stuck diagnostics"),
+        result("Check for updates", .general, .generalSystem,
+               "system update upgrade new version release install latest"),
+        result("Sessions shown", .general, .generalSidebar,
+               "sidebar recent project workspace see more limit"),
+        result("Skills refresh", .general, .generalSkills,
+               "skills marketplace refresh versions interval daily"),
+        result("Old sessions", .general, .generalOldSessions,
+               "count old after days age rule condition auto-delete automatically on their own review clear stale design saved work uncommitted unpushed commits ask me first confirm unread snoozed park"),
+        result("Orphaned worktrees", .general, .generalOrphanedWorktrees,
+               "git checkout prune automatically treat like old sessions no session disk cleanup uncommitted branch"),
+        result("Stats", .general, .generalStats,
+               "stats statistics turn on off enable count time cost live past removed deleted sessions days history retention"),
+        result("Prompts sent during a turn", .sessions, .sessionsMidTurnPrompts,
+               "steer queue send now wait mid turn running busy return enter interrupt"),
+        result("Automatic session recaps", .sessions, .sessionsRecaps,
+               "recap catch up return summary conversation finish away manual toggle"),
+        result("Automatic session titles", .sessions, .sessionsTitles,
+               "title name rename regenerate summarise sentence first turn right click manual toggle"),
+        result("Suggest the next prompt", .sessions, .sessionsSuggestions,
+               "suggestion suggest next prompt predict composer follow up autocomplete toggle"),
+        result("Session finished sound", .sessions, .sessionsSound,
+               "sound alert audio chime beep play finish turn ends notification silent off"),
+        result("Session memory", .sessions, .sessionsMemory,
+               "limit ram gigabytes gb stop turn protect mac build automatic out of memory"),
         result("Theme", .appearance, .appearanceTheme,
                "appearance system light dark macos"),
         result("Sunlight", .appearance, .appearanceSunlight,
@@ -92,10 +99,12 @@ enum SettingsSearchIndex {
                "appearance size small regular large transcript diff terminal"),
         result("Your messages", .appearance, .appearanceMessages,
                "appearance colour color bubble prompt sent project icon stone paper lemon leaf ink"),
+        result("Timestamps", .appearance, .appearanceTimestamps,
+               "appearance time timestamp stamp clock date when sent seconds smart message step tool hover"),
         result("Header buttons", .appearance, .appearanceHeaderButtons,
                "appearance session toolbar rail dock show hide preview globe running app browser"),
         result("Sidebar icons", .appearance, .appearanceSidebarIcons,
-               "appearance style monogram dicebear motion still animated"),
+               "appearance style monogram dicebear avatar motion breathing"),
         result("Your bots", .appearance, .appearanceDefaultBot,
                "appearance default avatar image personality picture photo add edit remove delete collection crew"),
         result("Keyboard shortcuts", .keyboard, .keyboardShortcuts,
@@ -132,8 +141,8 @@ enum SettingsSearchIndex {
                "second opinion review reviewer lineup seat ask default model effort claude codex copilot"),
         result("Look for", .secondOpinion, .secondOpinionFocus,
                "second opinion review focus bugs edge cases security tests risks assumptions steps hierarchy accessibility copy states"),
-        result("They read", .secondOpinion, .secondOpinionReading,
-               "second opinion review project files conversation design source html handoff theme"),
+        result("Review context", .secondOpinion, .secondOpinionReading,
+               "second opinion review context project files conversation chat answer design source html handoff theme comparison head branch defaults"),
         result("Use your MCP servers", .secondOpinion, .secondOpinionAccess,
                "second opinion review reviewer mcp servers tools access read only logs dashboards docs"),
         result("Current configuration", .advanced, .advancedConfiguration,
@@ -142,6 +151,8 @@ enum SettingsSearchIndex {
                "import backup restore reset repository url github load choose file aspects team configuration"),
         result("Move to another Mac", .advanced, .advancedImport,
                "export import backup restore laptop migrate transfer new computer"),
+        result("Session log", .advanced, .advancedSessionLog,
+               "system open reveal stuck diagnostics debug troubleshoot"),
         result("Mobile access", .mobile, .mobileAccess,
                "qr code phone wifi remote share iphone android"),
         result("Keep a code working", .mobile, .mobilePairingLifetime,
@@ -193,6 +204,7 @@ enum SettingsSearchIndex {
 
 enum SettingsTab: CaseIterable, Hashable {
     case general
+    case sessions
     case appearance
     case keyboard
     case agents
@@ -203,6 +215,7 @@ enum SettingsTab: CaseIterable, Hashable {
     var title: String {
         switch self {
         case .general: "General"
+        case .sessions: "Sessions"
         case .appearance: "Appearance"
         case .keyboard: "Keyboard"
         case .agents: "Agents"
@@ -215,6 +228,7 @@ enum SettingsTab: CaseIterable, Hashable {
     var symbol: String {
         switch self {
         case .general: "slider.horizontal.3"
+        case .sessions: "bubble.left.and.text.bubble.right"
         case .appearance: "paintpalette"
         case .keyboard: "keyboard"
         case .agents: "cpu"
@@ -227,6 +241,7 @@ enum SettingsTab: CaseIterable, Hashable {
     var note: String {
         switch self {
         case .general: "Settings for Teya Code Station."
+        case .sessions: "How a session behaves while its agent works, and what happens when a turn ends."
         case .appearance: "Make Code Station comfortable to read and easy to recognise at a glance."
         case .keyboard: "Every key Code Station answers. Click a key to change it."
         case .agents: "Choose an agent and set how it runs."
