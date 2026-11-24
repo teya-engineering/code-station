@@ -28,13 +28,17 @@ enum GitHubPullRequests {
         async let reviewsData = api(endpoint.host, ["\(endpoint.pulls)/reviews", "--paginate", "--slurp"])
         async let commentsData = api(endpoint.host, ["\(endpoint.pulls)/comments", "--paginate", "--slurp"])
         async let threadsData = threads(endpoint)
-        guard let status = GitHubReviewParser.status(from: try await statusData) else {
+        guard var status = GitHubReviewParser.status(from: try await statusData) else {
             throw Failure.command("GitHub returned something that is not a pull request.")
         }
         // `--slurp` hands back one array per page, so the pages are flattened here.
-        var reviews = GitHubReviewParser.reviews(reviews: joinPages(try await reviewsData),
+        let reviewsJSON = joinPages(try await reviewsData)
+        var reviews = GitHubReviewParser.reviews(reviews: reviewsJSON,
                                                  comments: joinPages(try await commentsData))
-        let states = GitHubReviewParser.threadStates(from: try await threadsData)
+        let threadsJSON = try await threadsData
+        status.reviewDecision = GitHubReviewParser.reviewDecision(from: threadsJSON)
+            ?? GitHubReviewParser.reviewDecision(reviews: reviewsJSON)
+        let states = GitHubReviewParser.threadStates(from: threadsJSON)
         for i in reviews.indices {
             for j in reviews[i].threads.indices {
                 reviews[i].threads[j].isResolved = states[reviews[i].threads[j].id]?.isResolved ?? false
@@ -109,11 +113,14 @@ enum GitHubPullRequests {
         var pulls: String { "repos/\(owner)/\(name)/pulls/\(number)" }
     }
 
+    // The review decision rides along, since REST has no word for it and this query is
+    // already on its way.
     private static func threads(_ endpoint: Endpoint) async throws -> Data {
         try await graphql(endpoint.host, """
         query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
           repository(owner: $owner, name: $repo) {
             pullRequest(number: $number) {
+              reviewDecision
               reviewThreads(first: 100, after: $endCursor) {
                 nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
                 pageInfo { hasNextPage endCursor }

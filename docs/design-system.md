@@ -49,7 +49,8 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `onFill` | Words and marks on any filled control or filled dot. |
 | `attention`, `attentionText`, `secret` | Stopped and waiting for a look. |
 | `warningText` on `warningBackground` | Something went wrong. |
-| `addition`, `deletion` | Lines added and removed. `deletion` is also the colour of a delete action. Each has an `...NSColor` twin for AppKit text, and a line's band is the same colour, faint. |
+| `addition`, `deletion` | Lines added and removed. `deletion` is also the colour of a delete action. Each has an `...NSColor` twin for AppKit text, and a line's band is the same colour, faint. `deletionText` is the red read as words on a red wash. |
+| `merged`, `mergedText` | A merged pull request, in GitHub's merge purple. Nothing else wears it. A pull request's states take their colours from `PullRequestTone`, which the session chip and its card both read: amber in review, green approved, red changes requested or closed, grey draft. |
 | `additionEmphasis`, `deletionEmphasis` | The words that changed within an added or removed line: the same colour as the line's band, a step stronger. Each has an `...NSColor` twin. |
 | `plan` | Read only. Nothing will be changed. |
 | `brand`, `listen...` | The app itself. Lime on screen means the microphone is open. |
@@ -59,7 +60,7 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `RailTint` | Which tool this is, while it is pointed at. Each header rail shortcut has one, set by its `RailTool`, and it shows only under the pointer or keyboard focus, as a wash behind the seat, the glyph's ink and a square dot in the tooltip. The colour follows the tool into the panel it opens: the glyph at the head of that panel takes `RailTool.mark`. An open seat keeps the accent, since green means chosen. |
 | `chartSeries` | Chart lines, in a fixed order. |
 
-Where a colour has a `...Text` twin, use the twin for words and the plain one for dots and fills. The twins are tuned to be readable, and `WarningContrastTests` checks them.
+Where a colour has a `...Text` twin, use the twin for words and the plain one for dots and fills. The twins are tuned to be readable, and `WarningContrastTests` checks them. For a badge, lay the plain colour faintly behind its twin with `Theme.wash(_:light:dark:)`, which takes a separate strength for each appearance.
 
 ### Type
 

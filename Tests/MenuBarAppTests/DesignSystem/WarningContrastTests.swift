@@ -173,6 +173,44 @@ struct WarningContrastTests {
         }
     }
 
+    // A pull request's state is a 10pt word in two places: in caps on the header pill, on
+    // the card at rest and on the sunken fill once open, and as the card's badge on the
+    // state's own wash. The mark in the card has to read as a mark. The pill's rail is the
+    // state's light colour as GitHub draws it, with the word always beside it, so it is
+    // not held to a line of its own.
+    @Test func everyPullRequestStateIsReadableInBothAppearances() throws {
+        let readinesses: [PullRequestStatus.Readiness?] = PullRequestStatus.Readiness.allCases + [nil]
+        for appearance in try appearances() {
+            let card = try swatch(Theme.card, in: appearance)
+            let open = try swatch(Theme.sunken, in: appearance).over(card)
+            for readiness in readinesses {
+                let tone = PullRequestTone(readiness.map(Self.status))
+                let ink = try swatch(tone.ink, in: appearance)
+                let wash = try swatch(tone.wash, in: appearance).over(card)
+                #expect(ink.over(wash).contrast(against: wash) >= 4.5,
+                        "\(tone.word) badge on \(appearance.name.rawValue)")
+                for (surface, backdrop) in [("rest", card), ("open", open)] {
+                    #expect(ink.over(backdrop).contrast(against: backdrop) >= 4.5,
+                            "\(tone.word) word at \(surface) on \(appearance.name.rawValue)")
+                }
+                #expect(ink.over(card).contrast(against: card) >= 3,
+                        "\(tone.word) mark on \(appearance.name.rawValue)")
+            }
+        }
+    }
+
+    private static func status(_ readiness: PullRequestStatus.Readiness) -> PullRequestStatus {
+        switch readiness {
+        case .draft: PullRequestStatus(state: .open, title: "", headBranch: "b", isDraft: true)
+        case .inReview: PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .reviewRequired)
+        case .approved: PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .approved)
+        case .changesRequested:
+            PullRequestStatus(state: .open, title: "", headBranch: "b", reviewDecision: .changesRequested)
+        case .merged: PullRequestStatus(state: .merged, title: "", headBranch: "b")
+        case .closed: PullRequestStatus(state: .closed, title: "", headBranch: "b")
+        }
+    }
+
     // A rail shortcut's glyph takes its tool's ink while pointed at. It sits on the band the
     // rail is drawn on, and on the tool's own wash over that band.
     @Test func everyRailToolIsReadableInBothAppearances() throws {

@@ -59,6 +59,46 @@ enum GitHubReviewParser {
         return states
     }
 
+    // GitHub's own summary of the reviews, read off the thread query, which asks for it
+    // alongside. Nil when the repository requires no reviewers, since GitHub then has
+    // nothing to sum up.
+    static func reviewDecision(from data: Data) -> PullRequestStatus.ReviewDecision? {
+        let value = json(data)
+        let pages = value as? [Object] ?? (value as? Object).map { [$0] } ?? []
+        for page in pages {
+            let decision = (page["data"] as? Object)
+                .flatMap { $0["repository"] as? Object }
+                .flatMap { $0["pullRequest"] as? Object }
+                .flatMap { $0["reviewDecision"] as? String }
+            switch decision {
+            case "APPROVED": return .approved
+            case "CHANGES_REQUESTED": return .changesRequested
+            case "REVIEW_REQUIRED": return .reviewRequired
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    // The same summary worked out from the reviews, for when GitHub gives none. Each
+    // reviewer counts by their latest verdict, and a comment is not one. A dismissal takes
+    // that reviewer's verdict back. Any changes requested outweighs any approval.
+    static func reviewDecision(reviews data: Data) -> PullRequestStatus.ReviewDecision {
+        var latest: [String: (at: Date, state: String)] = [:]
+        for case let object as Object in (json(data) as? [Any]) ?? [] {
+            guard let state = object["state"] as? String,
+                  ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].contains(state),
+                  let login = (object["user"] as? Object)?["login"] as? String else { continue }
+            let at = date(object["submitted_at"]) ?? .distantPast
+            if let previous = latest[login], previous.at > at { continue }
+            latest[login] = (at, state)
+        }
+        let verdicts = latest.values.map(\.state)
+        if verdicts.contains("CHANGES_REQUESTED") { return .changesRequested }
+        if verdicts.contains("APPROVED") { return .approved }
+        return .reviewRequired
+    }
+
     // MARK: - Pieces
 
     private static func review(_ object: Object, threads: [PullRequestReviewThread]) -> PullRequestReview? {

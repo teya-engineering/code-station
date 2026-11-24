@@ -16,6 +16,54 @@ struct GitHubReviewParserTests {
         #expect(merged.readinessLabel == "Merged")
     }
 
+    // Draft outweighs the reviewers' decision, and merged or closed outweigh both.
+    @Test func namesTheBadgeFromStateDraftAndReviewDecision() {
+        func label(_ state: PullRequestStatus.State, draft: Bool = false,
+                   _ decision: PullRequestStatus.ReviewDecision?) -> String {
+            PullRequestStatus(state: state, title: "", headBranch: "b", isDraft: draft,
+                              reviewDecision: decision).readinessLabel
+        }
+        #expect(label(.open, nil) == "In review")
+        #expect(label(.open, .reviewRequired) == "In review")
+        #expect(label(.open, .approved) == "Approved")
+        #expect(label(.open, .changesRequested) == "Changes requested")
+        #expect(label(.open, draft: true, .approved) == "Draft")
+        #expect(label(.merged, draft: true, .changesRequested) == "Merged")
+        #expect(label(.closed, .approved) == "Closed")
+    }
+
+    @Test func readsTheReviewDecisionOffTheThreadQuery() {
+        func page(_ decision: String) -> Data {
+            Data(#"[{"data":{"repository":{"pullRequest":{"reviewDecision":\#(decision),"reviewThreads":{"nodes":[]}}}}}]"#.utf8)
+        }
+        #expect(GitHubReviewParser.reviewDecision(from: page(#""APPROVED""#)) == .approved)
+        #expect(GitHubReviewParser.reviewDecision(from: page(#""CHANGES_REQUESTED""#)) == .changesRequested)
+        #expect(GitHubReviewParser.reviewDecision(from: page(#""REVIEW_REQUIRED""#)) == .reviewRequired)
+        // A repository that requires no reviewers has no decision to give.
+        #expect(GitHubReviewParser.reviewDecision(from: page("null")) == nil)
+    }
+
+    // With no decision from GitHub, each reviewer's latest verdict stands, comments aside,
+    // and any changes requested outweighs any approval.
+    @Test func worksOutTheDecisionFromEachReviewersLatestVerdict() {
+        func decision(_ items: [String]) -> PullRequestStatus.ReviewDecision {
+            GitHubReviewParser.reviewDecision(reviews: data(items))
+        }
+        #expect(decision([]) == .reviewRequired)
+        #expect(decision([reviewJSON(id: 1, state: "COMMENTED", body: "Hm.")]) == .reviewRequired)
+        #expect(decision([reviewJSON(id: 1, state: "APPROVED"),
+                          reviewJSON(id: 2, state: "COMMENTED", body: "Also.", at: "2026-10-17T10:00:00Z")])
+                == .approved)
+        #expect(decision([reviewJSON(id: 1, state: "APPROVED", login: "ana"),
+                          reviewJSON(id: 2, state: "CHANGES_REQUESTED", login: "rui")]) == .changesRequested)
+        // Maria asked for changes, then approved once they were made.
+        #expect(decision([reviewJSON(id: 1, state: "CHANGES_REQUESTED", at: "2026-10-16T10:00:00Z"),
+                          reviewJSON(id: 2, state: "APPROVED", at: "2026-10-17T10:00:00Z")]) == .approved)
+        // A dismissed review takes the reviewer's verdict back.
+        #expect(decision([reviewJSON(id: 1, state: "CHANGES_REQUESTED", at: "2026-10-16T10:00:00Z"),
+                          reviewJSON(id: 2, state: "DISMISSED", at: "2026-10-17T10:00:00Z")]) == .reviewRequired)
+    }
+
     @Test func readsThreadStatesAndNodeIDsAcrossAllGraphQLPages() throws {
         let pages: [[String: Any]] = stride(from: 1, through: 201, by: 100).map { start in
             let nodes: [[String: Any]] = (start...min(start + 99, 201)).map { id in
