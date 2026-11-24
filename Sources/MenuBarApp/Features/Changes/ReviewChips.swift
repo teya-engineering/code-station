@@ -30,6 +30,8 @@ struct ReviewAvatar: View {
             .clipped()
             .background(RoundedRectangle(cornerRadius: size * 0.3).fill(fill))
             .overlay(RoundedRectangle(cornerRadius: size * 0.3).strokeBorder(edge, lineWidth: muted ? 1.3 : 1))
+            // The colour settles in on its own pace, apart from whatever moves the tile.
+            .motion(Motion.reveal, value: muted)
             .accessibilityHidden(true)
     }
 

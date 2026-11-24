@@ -115,6 +115,8 @@ struct LineupTiles: View {
     var muted = false
     // Counts up each time the marks should hop, one after another.
     var hops = 0
+    // A thin ring of the surface the lineup sits on, so overlapping tiles stay apart.
+    var ring: Color? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -133,7 +135,7 @@ struct LineupTiles: View {
                 }
             }
         }
-        .motion(Motion.hover, value: muted)
+        .motion(Motion.railFan, value: fanned)
         .accessibilityHidden(true)
     }
 
@@ -159,6 +161,18 @@ struct LineupTiles: View {
         return (CGFloat(index) - CGFloat(shown.count - 1) / 2) * size * 0.26
     }
 
+    // The outer tiles turn away from each other; a middle one rises a little instead.
+    private func fanAngle(at index: Int, isFront: Bool) -> Double {
+        guard fanned, !gathered, !reduceMotion, shown.count > 1 else { return 0 }
+        if index == 0 { return -7 }
+        return isFront ? 7 : 0
+    }
+
+    private func fanLift(at index: Int, isFront: Bool) -> CGFloat {
+        guard fanned, !gathered, !reduceMotion, index > 0, !isFront else { return 0 }
+        return -size / 15
+    }
+
     private func tile(_ tile: Tile, at index: Int) -> some View {
         let isFront = index == shown.count - 1
         let mark: SecondOpinionLineup.Mark? = switch tile {
@@ -171,7 +185,7 @@ struct LineupTiles: View {
                        depth: size * 0.14) {
             tileFace(tile, at: index, isFront: isFront, mark: mark)
         }
-        .offset(x: fanOffset(at: index))
+        .offset(x: fanOffset(at: index), y: fanLift(at: index, isFront: isFront))
         .zIndex(Double(index))
     }
 
@@ -188,16 +202,23 @@ struct LineupTiles: View {
                 Text("+\(count)")
                     .font(.system(size: size * 0.48, weight: .bold))
                     .foregroundStyle(muted ? Color.secondary : Theme.onFill)
-                    .railHop(trigger: hops, delay: Double(index) * Self.hopStep)
                     .frame(width: size, height: size)
                     .background(RoundedRectangle(cornerRadius: size * 0.3).fill(muted ? Theme.statusBand : plum))
                     .overlay(RoundedRectangle(cornerRadius: size * 0.3)
                         .strokeBorder(muted ? Color.secondary : .clear, lineWidth: muted ? 1.3 : 1))
+                    .motion(Motion.reveal, value: muted)
             }
         }
         .modifier(TileMoves(size: size, index: index, deals: deals, squashes: squashes,
                             shakes: mark == .failed ? shakes : 0, reduceMotion: reduceMotion))
-        .rotationEffect(.degrees(fanned && !reduceMotion && shown.count > 1 ? (index == 0 ? -10 : isFront ? 9 : 0) : 0))
+        .background {
+            if let ring {
+                RoundedRectangle(cornerRadius: size * 0.3 + size * 0.1)
+                    .fill(ring)
+                    .padding(-size * 0.1)
+            }
+        }
+        .rotationEffect(.degrees(fanAngle(at: index, isFront: isFront)))
         // A badge on the front tile sits bottom right; on the others bottom left, so the
         // tile in front never hides it.
         .overlay(alignment: isFront ? .bottomTrailing : .bottomLeading) {
@@ -464,7 +485,8 @@ struct SecondOpinionLineupButton: View {
                         // The rail is grey at rest. Pointed at, each reviewer steps
                         // forward in its own colour and its mark hops, one after another.
                         muted: shown == .rest && !(hovering && canAsk),
-                        hops: hops)
+                        hops: hops,
+                        ring: Theme.statusBand)
                 .padding(.horizontal, Space.xxs)
             words
         }

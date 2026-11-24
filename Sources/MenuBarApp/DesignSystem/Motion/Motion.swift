@@ -60,6 +60,10 @@ enum Motion {
     // The header rail's signatures: what each shortcut's glyph plays while it is pointed
     // at. An act plays once on arrival; a loop then runs for as long as the pointer stays.
     static let railHopDuration: TimeInterval = 0.3
+    // The second opinion's reviewers fanning out: slower than a hover and landing just past
+    // its mark, so the tiles read as stepping forward rather than snapping apart.
+    static let railFanDuration: TimeInterval = 0.34
+    static let railFan = Animation.timingCurve(0.2, 0.9, 0.3, 1.12, duration: railFanDuration)
     static let railFindDuration: TimeInterval = 1.14
     static let railZipDuration: TimeInterval = 0.76
     static let railBulbDuration: TimeInterval = 0.4
