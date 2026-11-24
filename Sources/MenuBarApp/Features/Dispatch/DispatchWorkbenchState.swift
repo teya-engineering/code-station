@@ -13,7 +13,6 @@ struct DispatchWorkbenchState: Codable, Equatable {
 
     var selectedID: UUID?
     var requestTab = RequestTab.parameters
-    var pathParameters = false
     var responseTab = ResponseTab.body
     var responseHeight: CGFloat = 270
     var responseExpanded = false
@@ -22,6 +21,8 @@ struct DispatchWorkbenchState: Codable, Equatable {
 enum DispatchSplitLayout {
     static let handleHeight: CGFloat = 10
     static let minimumEditorHeight: CGFloat = 110
+    // Before the first send the response is one line, so the request has the room.
+    static let closedHeight = DispatchMetrics.responseHeaderHeight
 
     static func responseHeight(_ preferred: CGFloat, available: CGFloat) -> CGFloat {
         let maximum = max(0, available - minimumEditorHeight - handleHeight)

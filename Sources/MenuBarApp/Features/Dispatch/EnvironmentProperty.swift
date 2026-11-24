@@ -24,7 +24,7 @@ struct RequestPropertyResolver {
     var properties: [EnvironmentProperty] = []
     var masked = false
     private(set) var problems: [String] = []
-    private static let placeholder = try! NSRegularExpression(pattern: #"\{\{([^{}]+)\}\}"#)
+    static let placeholder = try! NSRegularExpression(pattern: #"\{\{([^{}]+)\}\}"#)
 
     mutating func text(_ template: String, field: String, json: Bool = false, encoded: Bool = false) -> String {
         let matches = Self.placeholder.matches(in: template, range: NSRange(template.startIndex..., in: template))

@@ -125,3 +125,226 @@ extension View {
             .transaction { if !shown { $0.animation = nil } }
     }
 }
+
+extension View {
+    // Rows that belong together sit in one card and are split by a hairline, which each
+    // row after the first draws along its own top edge.
+    func rowCard() -> some View {
+        background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border))
+    }
+
+    fileprivate func cardRow(first: Bool, lit: Bool) -> some View {
+        padding(.leading, Space.lg).padding(.trailing, Space.sm)
+            .frame(minHeight: DispatchMetrics.rowHeight)
+            .background(lit ? Theme.sunken : .clear)
+            .overlay(alignment: .top) {
+                if !first { Theme.hairline.frame(height: 1) }
+            }
+    }
+}
+
+// A query parameter or a header: a tick to park it, its name, its value, and a way to
+// remove it that shows once the row is under the pointer or holds the cursor.
+struct DispatchFieldRow: View {
+    @Binding var field: HeaderField
+    var kind: String? = nil
+    var namePlaceholder = "Header"
+    // Only real headers are held to the header name rules. A query param is named by
+    // whoever wrote the API and may hold characters a header never could.
+    var isHeader = false
+    var first = false
+    var focusesName = false
+    var focusesValue = false
+    let onDelete: () -> Void
+
+    private enum Field: Hashable { case name, value, remove }
+    @FocusState private var focused: Field?
+    @State private var hovering = false
+
+    private var title: String { field.key.isEmpty ? namePlaceholder : field.key }
+
+    // Shown once the name cannot be fixed by splitting it, so a name that arrives whole
+    // is quietly put right and only a genuinely unusable one is called out.
+    private var nameProblem: String? {
+        guard isHeader, !field.key.isEmpty, !HeaderField.isValidName(field.key) else { return nil }
+        return "A header name cannot hold spaces or colons."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(spacing: Space.lg) {
+                Toggle(isOn: $field.enabled) { EmptyView() }
+                    .toggleStyle(.appCheckbox)
+                    .accessibilityLabel("Include \(title)")
+                if let kind {
+                    Text(kind).capsText().foregroundStyle(.tertiary)
+                        .frame(width: DispatchMetrics.kindWidth, alignment: .leading)
+                }
+                Group {
+                    TextField(namePlaceholder, text: $field.key)
+                        .textFieldStyle(.plain)
+                        .focused($focused, equals: .name)
+                        .font(Typography.code.weight(.semibold))
+                        .foregroundStyle(nameProblem == nil ? Color.primary : Theme.deletion)
+                        .frame(width: DispatchMetrics.nameWidth, alignment: .leading)
+                        .accessibilityLabel("\(namePlaceholder) name")
+                        .onChange(of: field.key) {
+                            if isHeader { field.splitPastedName() }
+                        }
+                    TextField("value", text: $field.value)
+                        .textFieldStyle(.plain)
+                        .focused($focused, equals: .value)
+                        .font(Typography.code)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("Value for \(title)")
+                }
+                .opacity(field.enabled ? 1 : 0.45)
+                Button(action: onDelete) {
+                    Image(systemName: "xmark").font(Typography.caption)
+                        .frame(width: ControlHeight.sm, height: ControlHeight.sm).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focused($focused, equals: .remove)
+                .foregroundStyle(.secondary)
+                .hoverLift(amount: Motion.smallLift)
+                .opacity(hovering || focused != nil ? 1 : 0)
+                .accessibilityLabel("Remove \(title)")
+            }
+            if let nameProblem {
+                Text(nameProblem)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.deletion)
+                    .padding(.bottom, Space.sm)
+            }
+        }
+        .cardRow(first: first, lit: hovering || focused != nil)
+        .onPointerHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering || focused != nil)
+        .motion(Motion.control, value: field.enabled)
+        .accessibilityAction(named: "Remove \(title)", onDelete)
+        .onAppear {
+            if focusesName { focused = .name } else if focusesValue { focused = .value }
+        }
+    }
+}
+
+// The value for one :name in the address. The row comes and goes with the name, so it
+// has a lock where the others have a tick.
+struct DispatchPathRow: View {
+    let name: String
+    @Binding var value: String
+    var first = false
+    let onHover: (Bool) -> Void
+
+    @FocusState private var focused: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: Space.lg) {
+            Image(systemName: "lock")
+                .font(Typography.caption)
+                .foregroundStyle(.tertiary)
+                .frame(width: ControlHeight.xs - Space.xs)
+                .appTooltip("Comes from :\(name) in the address")
+                .accessibilityHidden(true)
+            Text("PATH").capsText().foregroundStyle(Theme.attentionText)
+                .frame(width: DispatchMetrics.kindWidth, alignment: .leading)
+            Text(name)
+                .font(Typography.code.weight(.semibold))
+                .lineLimit(1).truncationMode(.middle)
+                .frame(width: DispatchMetrics.nameWidth, alignment: .leading)
+            TextField("value", text: $value)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .font(Typography.code)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Value for \(name), from the address")
+        }
+        .padding(.trailing, ControlHeight.sm + Space.lg)
+        .cardRow(first: first, lit: hovering || focused)
+        .onPointerHover {
+            hovering = $0
+            onHover($0)
+        }
+        .motion(Motion.hover, value: hovering || focused)
+    }
+}
+
+// Where the environment's token stands, at the end of the "Goes to" line. It is only
+// there for a request that uses the token, and turns amber when there is none to send.
+struct DispatchTokenChip: View {
+    let environment: ApiEnvironment
+    let mode: AuthMode
+    let openEnvironments: () -> Void
+
+    @Environment(DispatchAuthStore.self) private var auth
+
+    var body: some View {
+        switch mode {
+        case .none:
+            EmptyView()
+        case .basic:
+            chip("lock", "Basic sign-in", needed: false, tint: .secondary)
+                .accessibilityLabel("This request signs in with a username and password")
+        case .environmentToken:
+            // The time left is read off the clock, so it is looked at again now and then.
+            TimelineView(.periodic(from: .now, by: 30)) { _ in token }
+        }
+    }
+
+    @ViewBuilder private var token: some View {
+        if auth.busy.contains(environment) || auth.awaitingPaste.contains(environment) {
+            chip("shield", "Signing in to \(environment.label)…", needed: true)
+                .hoverLift()
+                .appMenu {
+                    [.item("Cancel sign-in") { auth.cancelAuthentication(environment) },
+                     .item("Sign-in settings", action: openEnvironments)]
+                }
+        } else if auth.isAuthenticated(for: environment) {
+            chip("checkmark.shield", "Token ready", detail: auth.tokens[environment]?.remainingText,
+                 needed: false, tint: environment.accent)
+                .hoverLift()
+                .appMenu {
+                    [.item("Sign in again", action: signIn),
+                     .item("Sign-in settings", action: openEnvironments)]
+                }
+                .accessibilityLabel("\(environment.label) token ready")
+                .transition(.fadeIn)
+        } else {
+            Button(action: signIn) {
+                chip("shield", auth.failures[environment] == nil ? "Sign in to \(environment.label)"
+                                                                  : "Sign-in failed. Try again",
+                     needed: true)
+            }
+            .buttonStyle(.plain)
+            .hoverLift()
+            .appTooltip("This request uses \(environment.label)'s token")
+        }
+    }
+
+    private func signIn() {
+        dispatchSignIn(environment, auth: auth, openSettings: openEnvironments)
+    }
+
+    private func chip(_ icon: String, _ text: String, detail: String? = nil, needed: Bool,
+                      tint: Color = Theme.attentionText) -> some View {
+        HStack(spacing: Space.xs) {
+            Image(systemName: icon)
+            Text(text)
+            if let detail {
+                Text(detail).font(Font.mono(Typography.Size.micro)).opacity(0.8)
+            }
+        }
+        .font(Typography.caption.weight(.semibold))
+        .foregroundStyle(tint)
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, Space.md)
+        .frame(height: ControlHeight.xs)
+        .background(needed ? Theme.attention.opacity(0.14) : .clear,
+                    in: RoundedRectangle(cornerRadius: Radius.inset))
+        .contentShape(Rectangle())
+    }
+}

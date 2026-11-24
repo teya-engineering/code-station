@@ -143,6 +143,8 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
+`DispatchMetrics` supplies the sizes of the Dispatch sheet: the request list, the address card, a parameter row and its columns, and the response header.
+
 `SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
 
 ### Scroll cap
@@ -186,7 +188,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 | `Motion.flightAcross`, `Motion.flightDown` | A small mark carried across the window. Across eases out and down eases in, which bends the path into a curve. Going home uses `Motion.flightHomeDuration`, which is shorter. |
 | `Motion.stagger` | The step between rows that arrive together, such as the files of a folder opening. Add it as a delay per row, and stop counting after a few rows so a long list does not keep the last one waiting. |
 | `Motion.ring` | A ring spreading out from a mark that has just landed. |
-| `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
+| `Motion.wash`, `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field, or off a reading that has just changed. `wash` is the SwiftUI curve. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
 | `Motion.rail...`, `Motion.flood` | The header rail's signatures: each shortcut's act and loop lengths, the hand-off between seats, and the wash flooding in from where the pointer came. |
 | `Motion.popCurve`, `Motion.controlCurve` | `Motion.pop` and `Motion.control` for Core Animation. |
 | `Motion.brandOrbitDuration`, `Motion.brandGleamDuration`, `Motion.wordmarkPeriod` | The brand's finite dot orbit, one entry gleam and repeating hover colour flow. Core Animation plays them without a frame clock. `BrandLayerView` cancels playback when the window loses focus or becomes hidden; another pointer entry is needed to start again. Exit returns to rest on `Motion.leaveDuration`. |
@@ -199,6 +201,7 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 - Words put into a text field by a pick, such as a slash command chosen from the menu, are marked where they land with `TextWash.play(over:in:colour:)` (`Motion/TextWash.swift`): a short wash of the colour that fades on `Motion.washDuration`. Core Animation plays it, so the text is not drawn again, and an edit clears it. Leave it out under Reduce Motion.
 - A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
+- Something on its way along a line, such as a request sent and not yet answered, is a `CometLine` (`Motion/CometLine.swift`): a streak that runs the length of the line it is given. Under Reduce Motion the line is lit and holds still.
 - A header rail shortcut gives its seat a `tool:` (`Motion/RailSignature.swift`). Its glyph is drawn as layers by `RailGlyph` and plays a short act while pointed at, never at rest. One wash per rail (`.railWash()` on the row, `.railSeat` on each seat) floods in from where the pointer came, slides from seat to seat and leaves on `Motion.leave`. The seat's hint slides with it: a `Tooltip` with `glides: true` waits `Motion.railHandoff` for the next source and moves there on `Motion.control` instead of fading out and in. Keyboard focus shows the colour without the act. Under Reduce Motion the colour and wash stay as a plain fade, with no act, slide or flood.
 - Motion confirms what the person did and never makes them wait. The brand wordmark's colour flow is decorative and runs only while hovered; other motion answers an action or shows work in progress.
 
@@ -266,6 +269,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Tick off a changed file as read | `ViewedToggle` (`Controls/ViewedToggle.swift`): an outlined pill with a `CheckboxMark` and "Viewed". `ControlHeight.md` in a pane's header, `.sm` in a card's own header. Pass `edited: true` for a file changed since it was ticked, which gives the pill an amber edge. Kept apart from a row's commit checkbox so the two never read as one. |
 | A number in a range | `AppSlider` |
 | Text | `.appTextField()`, `AppTextEditor` |
+| One line of text the machine reads, with some words tinted | `TintedLineField` (`Controls/TintedLineField.swift`): pass a `Mark` for each stretch to tint, such as the `{{property}}` and `:name` parts of an address, and `lit:` for one to light up for a moment. The tint is painted over the text and is never part of the value. Return submits and Tab moves on. |
 | A count of days | `DayField`. Use `validatesEntry: true` to keep invalid text visible with a correction; Return or leaving the field saves a valid whole number, and Escape restores the saved value. |
 | A file or folder | `FilePicker` |
 | A label over a field | `LabeledField` |

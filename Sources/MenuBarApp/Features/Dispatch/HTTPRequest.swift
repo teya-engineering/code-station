@@ -58,9 +58,9 @@ enum AuthMode: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .none: "No auth"
+        case .none: "None"
         case .environmentToken: "Environment token"
-        case .basic: "Basic auth"
+        case .basic: "Basic"
         }
     }
 }
@@ -124,7 +124,8 @@ struct SavedRequest: Identifiable, Codable, Equatable {
     var url: String = ""
     var headers: [HeaderField] = []
     // Query params are appended to the URL as ?key=value; path params fill the :name
-    // segments typed into the URL. Both are rows so they can be parked with the toggle.
+    // segments typed into the URL. A path param belongs to its :name, so it is found by
+    // key and there is one value for each name.
     var queryParams: [HeaderField] = []
     var pathParams: [HeaderField] = []
     var bodyType: BodyType = .none
@@ -189,7 +190,7 @@ struct SavedRequest: Identifiable, Codable, Equatable {
     // The URL with the params folded in. {{env}} is left alone, so the result is still
     // a template for the environment to resolve on send.
     var expandedURL: String {
-        let range = pathRange
+        let range = Self.pathRange(of: url)
         let path = url[range].split(separator: "/", omittingEmptySubsequences: false).map { segment in
             guard segment.first == ":",
                   let param = pathParams.first(where: {
@@ -212,15 +213,35 @@ struct SavedRequest: Identifiable, Codable, Equatable {
         return address + separator + query + fragment
     }
 
-    var pathParameterNames: Set<String> {
-        Set(url[pathRange].split(separator: "/").compactMap { segment in
-            segment.first == ":" ? String(segment.dropFirst()) : nil
-        })
+    // The :names in the address, each once, in the order they are written.
+    var pathNames: [String] {
+        var seen = Set<String>()
+        return url[Self.pathRange(of: url)].split(separator: "/").compactMap { segment in
+            guard segment.first == ":", segment.count > 1 else { return nil }
+            let name = String(segment.dropFirst())
+            return seen.insert(name).inserted ? name : nil
+        }
+    }
+
+    var pathParameterNames: Set<String> { Set(pathNames) }
+
+    // A value that is switched off counts as not set, since nothing fills its :name.
+    func pathValue(for name: String) -> String {
+        pathParams.first { $0.enabled && $0.key == name }?.value ?? ""
+    }
+
+    mutating func setPathValue(_ value: String, for name: String) {
+        if let index = pathParams.firstIndex(where: { $0.key == name }) {
+            pathParams[index].value = value
+            pathParams[index].enabled = true
+        } else {
+            pathParams.append(HeaderField(key: name, value: value))
+        }
     }
 
     // Keep the authority, query and fragment out of path substitution. Slicing the
     // original text also preserves unresolved {{properties}} and existing escapes.
-    private var pathRange: Range<String.Index> {
+    static func pathRange(of url: String) -> Range<String.Index> {
         let end = url.firstIndex(where: { $0 == "?" || $0 == "#" }) ?? url.endIndex
         let address = url[..<end]
         let authorityEnd = address.range(of: "://")?.upperBound
@@ -340,6 +361,12 @@ struct HTTPResult: Equatable {
     var byteCount: Int
     var failure: String?
     var isTruncated = false
+
+    // What a send that was called off is stored as, so it can be told from one the
+    // network failed.
+    static let cancelled = "Cancelled."
+
+    var wasCancelled: Bool { failure == Self.cancelled }
 
     var statusText: String {
         guard failure == nil else { return "Failed" }

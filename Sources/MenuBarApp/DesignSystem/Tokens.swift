@@ -173,6 +173,26 @@ enum SettingsRuleMetrics {
     static let actionWidth: CGFloat = 150
 }
 
+// The sizes Dispatch's sheet holds to, so the request list, the address and the answer
+// line up the same way whatever is in them.
+enum DispatchMetrics {
+    static let sheet = CGSize(width: 1020, height: 720)
+    static let libraryWidth: CGFloat = 236
+    static let titleRowHeight: CGFloat = 50
+    static let addressLineHeight: CGFloat = 46
+    static let goesToHeight: CGFloat = 30
+    static let wireHeight: CGFloat = 2
+    // A parameter or header row, and the columns its kind and name keep.
+    static let rowHeight: CGFloat = 34
+    static let kindWidth: CGFloat = 40
+    static let nameWidth: CGFloat = 168
+    static let responseHeaderHeight: CGFloat = 44
+    // Room for the longest wait the counter shows, so its ticking moves nothing beside it.
+    static let elapsedWidth: CGFloat = 56
+    static let dot: CGFloat = 6
+    static let spinner: CGFloat = 16
+}
+
 enum ReviewMetrics {
     static let askWidth: CGFloat = 640
     static let askHeight: CGFloat = 760

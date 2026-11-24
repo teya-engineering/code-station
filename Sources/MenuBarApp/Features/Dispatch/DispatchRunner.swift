@@ -20,6 +20,8 @@ final class DispatchRunner {
     private(set) var results: [Key: HTTPResult] = [:]
 
     private var preparations: [Key: Task<Void, Never>] = [:]
+    // When each send under way began, so the wait can be read off wherever it is shown.
+    private var started: [Key: Date] = [:]
 
     @ObservationIgnored private let maxResponseBytes: Int
     @ObservationIgnored private let maxRetainedResultBytes: Int
@@ -50,6 +52,10 @@ final class DispatchRunner {
         return inFlight.contains(key) || preparations[key] != nil
     }
 
+    func startedAt(_ id: UUID, in environment: ApiEnvironment) -> Date? {
+        started[Key(request: id, environment: environment)]
+    }
+
     func result(_ id: UUID, in environment: ApiEnvironment) -> HTTPResult? {
         results[Key(request: id, environment: environment)]
     }
@@ -58,6 +64,7 @@ final class DispatchRunner {
         let key = Key(request: id, environment: environment)
         if let preparation = preparations.removeValue(forKey: key) {
             preparation.cancel()
+            started[key] = nil
             storeCancellation(for: key, started: Date())
         }
         transfers[key]?.cancel()
@@ -70,6 +77,7 @@ final class DispatchRunner {
                authorization: @escaping @MainActor () async -> String?) {
         let key = Key(request: request.id, environment: environment)
         guard !isRunning(request.id, in: environment) else { return }
+        started[key] = Date()
         preparations[key] = Task { [weak self] in
             let header = await authorization()
             guard !Task.isCancelled, let self else { return }
@@ -82,6 +90,8 @@ final class DispatchRunner {
               authorization: String? = nil, properties: [EnvironmentProperty] = []) async {
         let key = Key(request: request.id, environment: environment)
         guard !inFlight.contains(key) else { return }
+        if started[key] == nil { started[key] = Date() }
+        defer { started[key] = nil }
 
         let urlRequest: URLRequest
         switch Self.build(request, environment: environment, authorization: authorization, properties: properties) {
@@ -136,7 +146,7 @@ final class DispatchRunner {
     private func storeCancellation(for key: Key, started: Date) {
         store(HTTPResult(status: 0, headers: [], body: "",
                          duration: Date().timeIntervalSince(started),
-                         byteCount: 0, failure: "Cancelled."), for: key)
+                         byteCount: 0, failure: HTTPResult.cancelled), for: key)
     }
 
     private func store(_ result: HTTPResult, for key: Key) {

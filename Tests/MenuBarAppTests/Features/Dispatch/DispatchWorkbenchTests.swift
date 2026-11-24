@@ -10,7 +10,6 @@ struct DispatchWorkbenchTests {
         let store = DispatchStore(storeURL: file, siteDefaults: SiteDefaults())
         let request = store.add(SavedRequest(name: "Selected"))
         store.workbench.requestTab = .auth
-        store.workbench.pathParameters = true
         store.workbench.responseTab = .table
         store.workbench.responseExpanded = true
         store.responseHeight = 410

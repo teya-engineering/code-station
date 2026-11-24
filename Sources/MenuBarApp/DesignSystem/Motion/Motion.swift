@@ -52,6 +52,7 @@ enum Motion {
     // A wash fading off words that have just been put into a field. It runs on the curve
     // a line draws on, held long enough for the eye to find where the words went.
     static let washDuration: TimeInterval = 0.7
+    static let wash = drawAnimation(duration: washDuration)
 
     // The step between rows that arrive together, such as a folder's files, so they
     // read as a list unfolding rather than a block appearing.

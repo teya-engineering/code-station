@@ -9,6 +9,8 @@ enum ResponseStyle {
     static let string = Color(red: 0.878, green: 0.690, blue: 0.290)
     static let literal = Color(red: 0.498, green: 0.690, blue: 0.541)
     static let failure = Color(red: 0.910, green: 0.540, blue: 0.480)
+    // Words that are about the answer rather than part of it, such as the fold link.
+    static let dim = Color(red: 0.486, green: 0.502, blue: 0.475)
 
     // Colouring is worth having on an answer a person reads, not on one they scroll
     // past; past this size the plain text is also much cheaper to lay out.
@@ -16,8 +18,9 @@ enum ResponseStyle {
 
     // Scans rather than parses, so half an answer or a stray line in the middle keeps
     // its colouring instead of losing it for everything after.
-    static func highlight(_ text: String) -> AttributedString {
-        guard looksLikeJSON(text), text.utf8.count < highlightLimit else {
+    // A piece cut out of a JSON body does not start like JSON, so the caller says it is.
+    static func highlight(_ text: String, isJSON: Bool = false) -> AttributedString {
+        guard isJSON || looksLikeJSON(text), text.utf8.count < highlightLimit else {
             return coloured(text[...], base)
         }
 
