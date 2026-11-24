@@ -45,4 +45,16 @@ struct GitDirtyTests {
         let missing = ScratchDirectory(prefix: "dirty").path("missing")
         #expect(await GitInspector.isDirty(at: missing.path) == false)
     }
+
+    // A repository git cannot read is not a clean one: answering zero would hide the
+    // mark that warns a delete would lose work.
+    @Test func cannotSayForARepositoryGitFailsToRead() async throws {
+        let repo = try GitRepo()
+        try repo.write("README.md", "changed")
+        try "not an index".write(to: URL(fileURLWithPath: repo.path).appendingPathComponent(".git/index"),
+                                 atomically: true, encoding: .utf8)
+
+        #expect(await GitInspector.uncommittedFileCount(at: repo.path) == nil)
+        #expect(await GitInspector.isDirty(at: repo.path) == true)
+    }
 }

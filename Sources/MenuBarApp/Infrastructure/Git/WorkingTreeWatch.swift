@@ -15,7 +15,8 @@ import SwiftUI
 // main repository's git folder, outside the tree, so that folder is watched as well, or
 // a commit made in a terminal would go unseen. Events can still go missing, so a tree is
 // also read again whenever its watch starts over, and whenever an agent ends a turn in it,
-// since that is when agents commit.
+// since that is when agents commit. When git fails to read a tree, the last answer stands
+// and the tree is read again on the next pass, so a passing failure never clears the mark.
 @MainActor
 @Observable
 final class WorkingTreeWatch {
@@ -27,7 +28,7 @@ final class WorkingTreeWatch {
     // A tree that no caller has asked about for this long stops being watched.
     static let forgetAfter: Duration = .seconds(120)
 
-    typealias Inspector = @Sendable (String) async -> Int
+    typealias Inspector = @Sendable (String) async -> Int?
 
     private struct WatchedTree {
         // Where the file system reports changes, which is not always the path we were
@@ -94,6 +95,10 @@ final class WorkingTreeWatch {
             for path in pending {
                 let result = await inspect(path)
                 running.remove(path)
+                guard let result else {
+                    trees[path]?.changed = true
+                    continue
+                }
                 inspected.insert(path)
                 trees[path]?.lastInspected = .now
                 if result > 0 {

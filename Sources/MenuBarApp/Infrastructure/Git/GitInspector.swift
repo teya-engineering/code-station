@@ -293,10 +293,13 @@ enum GitInspector {
         return files
     }
 
-    // How many files hold work git does not have yet. A folder that is not a repository
-    // answers zero. The count is shared by the project screen and the sidebar monitor so
-    // one inspection can support both the exact location line and the smaller safety mark.
-    static func uncommittedFileCount(at path: String) async -> Int {
+    // How many files hold work git does not have yet. A folder that is gone or is not a
+    // repository answers zero. Nil when git could not say, such as when it failed to start
+    // or tripped over a checkout half way through: a caller must not read that as clean,
+    // since a clean answer hides the mark that warns a delete would lose work. The count
+    // is shared by the project screen and the sidebar monitor so one inspection can
+    // support both the exact location line and the smaller safety mark.
+    static func uncommittedFileCount(at path: String) async -> Int? {
         guard let tool = Git.tool() else { return 0 }
         let url = URL(fileURLWithPath: path)
         return await Git.offMain {
@@ -304,7 +307,8 @@ enum GitInspector {
             let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             guard exists && isDirectory.boolValue else { return 0 }
             let status = Git.run(tool, ["status", "--porcelain=v1", "-z", "-uall"], in: url)
-            return status.ok ? parseStatus(status.text).count : 0
+            if status.ok { return parseStatus(status.text).count }
+            return status.errorText.lowercased().contains("not a git repository") ? 0 : nil
         }
     }
 
@@ -326,8 +330,10 @@ enum GitInspector {
         }
     }
 
+    // A folder git could not read counts as dirty, so nothing is treated as safely
+    // committed on a guess.
     static func isDirty(at path: String) async -> Bool {
-        await uncommittedFileCount(at: path) > 0
+        await uncommittedFileCount(at: path).map { $0 > 0 } ?? true
     }
 
     // The full hash of the commit checked out at a path. Nil outside a repository and in
