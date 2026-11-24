@@ -27,8 +27,8 @@ enum FixtureCLI {
     // A fake `kiro-cli acp`: one JSON-RPC request per line on stdin, each answered on
     // stdout. Opening a session answers by itself; `onPrompt` runs for every prompt with
     // the request in `$line` and its id in `$id`, says things with `kiro_say` (one chunk
-    // each), thinks with `kiro_think`, calls a tool with `kiro_tool <id>`, and ends the
-    // turn with `kiro_end`. JSONSerialization writes "/" as "\\/", so methods are
+    // each), thinks with `kiro_think`, calls a tool with `kiro_tool <id>`, reports what
+    // the turn cost with `kiro_credits <amount>`, and ends the turn with `kiro_end`. JSONSerialization writes "/" as "\\/", so methods are
     // matched by the part after the slash.
     static func kiroServer(onPrompt: String) -> String {
         """
@@ -40,6 +40,9 @@ enum FixtureCLI {
         }
         kiro_tool() {
             printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"kiro-1","update":{"sessionUpdate":"tool_call","toolCallId":"'"$1"'","title":"Read File","kind":"read","status":"completed","rawInput":{"path":"notes.txt"},"rawOutput":{"message":"hello"}}}}'
+        }
+        kiro_credits() {
+            printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"kiro-1","update":{"sessionUpdate":"session_info_update","_meta":{"kiro":{"kind":"turn_completion","promptTurnSummaries":[{"unit":"credit","unitPlural":"credits","usage":'"$1"'}]}}}}}'
         }
         kiro_end() {
             printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\\n' "$id"

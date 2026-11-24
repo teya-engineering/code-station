@@ -625,6 +625,8 @@ enum EffortChoice {
 // turn including every tool call inside it.
 struct TurnUsage: Equatable, Sendable {
     var costUSD: Double = 0
+    // Plan credits, for an agent that counts in credits rather than dollars (Kiro).
+    var credits: Double = 0
     var inputTokens = 0
     var outputTokens = 0
     var cacheReadTokens = 0
@@ -638,6 +640,9 @@ struct TurnUsage: Equatable, Sendable {
 // numbers survive a restart the way the transcript does.
 struct SessionUsage: Codable, Equatable, Sendable {
     var costUSD: Double = 0
+    // Plan credits used, for an agent that counts in credits (Kiro). Optional so a
+    // session saved before credits were kept still reads.
+    var credits: Double?
     var inputTokens = 0
     var outputTokens = 0
     var cacheReadTokens = 0
@@ -655,6 +660,7 @@ struct SessionUsage: Codable, Equatable, Sendable {
 
     mutating func add(_ turn: TurnUsage, from agent: AgentKind) {
         costUSD += turn.costUSD
+        if turn.credits > 0 { credits = (credits ?? 0) + turn.credits }
         inputTokens += turn.inputTokens
         outputTokens += turn.outputTokens
         cacheReadTokens += turn.cacheReadTokens

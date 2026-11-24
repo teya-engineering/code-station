@@ -782,13 +782,18 @@ struct AgentSettingsView: View {
     // Hiding it only takes the figure off the screen. Sessions still record what they
     // spent, so turning this back on shows the full total rather than starting again.
     private func cost(for agent: AgentKind) -> some View {
-        ChoiceBlock("COST", note: agent == .claudeCode
-                    ? nil
-                    : "\(agent.title) reports no cost of its own, so its sessions have nothing to show until it does.") {
+        let note: String? = switch agent {
+        case .claudeCode: nil
+        case .kiro: "Kiro counts usage in plan credits, so its sessions show the credits they used rather than dollars."
+        default: "\(agent.title) reports no cost of its own, so its sessions have nothing to show until it does."
+        }
+        return ChoiceBlock("COST", note: note) {
             SettingsCard {
                 SettingsToggleRow(
                     "Show what a session has spent",
-                    detail: "The dollar figure on the session bar, and the Spent line in the hints.",
+                    detail: agent == .kiro
+                        ? "The credits on the session bar, and the Spent line in the hints."
+                        : "The dollar figure on the session bar, and the Spent line in the hints.",
                     isOn: Binding(get: { appSettings.showsCost(for: agent) },
                                   set: { appSettings.setShowsCost($0, for: agent) }))
                     .padding(.horizontal, Space.lg)

@@ -2775,9 +2775,15 @@ struct SessionCard: View {
         if let branch {
             rows.append(Tooltip.Row(label: "Branch", value: branch))
         }
-        if appSettings.showsCost(for: session.agent),
-           let usage = session.usage, usage.turns > 0 {
-            rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
+        if appSettings.showsCost(for: session.agent), let usage = session.usage, usage.turns > 0 {
+            // Kiro counts in plan credits rather than dollars.
+            if session.agent == .kiro {
+                if let credits = usage.credits, credits > 0 {
+                    rows.append(Tooltip.Row(label: "Spent", value: Money.credits(credits)))
+                }
+            } else {
+                rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
+            }
         }
         if let context = session.usage?.contextFraction, context > 0 {
             rows.append(Tooltip.Row(label: "Context", value: "\(Int(context * 100))%"))

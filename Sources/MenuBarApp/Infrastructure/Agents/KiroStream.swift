@@ -26,6 +26,9 @@ final class KiroStream: @unchecked Sendable {
     // Kiro's own bookkeeping, such as loading an MCP tool before using it. Not work worth
     // a row, so its result is not worth one either.
     private var ignoredCalls: Set<String> = []
+    // Credits this process has spent, reported as a running total the way the runner
+    // reads every usage report: it records what has grown since the one before.
+    private var credits: Double = 0
 
     func events(_ update: [String: Any]) -> [StreamEvent] {
         lock.withLock {
@@ -58,6 +61,15 @@ final class KiroStream: @unchecked Sendable {
                 case "turn_end":
                     closeBlocks()
                     return []
+                case "turn_completion":
+                    // What the turn cost, one summary per model request it made.
+                    let spent = (meta?["promptTurnSummaries"] as? [[String: Any]] ?? [])
+                        .filter { ($0["unit"] as? String ?? "credit") == "credit" }
+                        .compactMap { ($0["usage"] as? NSNumber)?.doubleValue }
+                        .reduce(0, +)
+                    guard spent > 0 else { return [] }
+                    credits += spent
+                    return [.usage(TurnUsage(credits: credits))]
                 default: return []
                 }
             default:

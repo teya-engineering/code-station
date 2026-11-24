@@ -14,6 +14,8 @@ struct SessionFacts: Equatable {
     // Left out when the agent reports no cost. Codex reports none, and a $0.00 there reads
     // as free rather than as unknown.
     var cost: Double?
+    // Plan credits used, for an agent that counts in credits rather than dollars.
+    var credits: Double?
     var context: Double?
     var agent: AgentKind = .claudeCode
 
@@ -45,7 +47,7 @@ struct SessionFacts: Equatable {
     // Nothing to open the card for.
     var isEmpty: Bool {
         namedBranch == nil && changes == nil && pullRequests.isEmpty && model == nil
-            && cost == nil && context == nil
+            && cost == nil && credits == nil && context == nil
     }
 
     var pullRequestCount: Int {
@@ -425,7 +427,8 @@ struct SessionFactsChip: View {
                                 usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
                             }
                         }
-                        if let cost = facts.cost { costRow(cost) }
+                        if let cost = facts.cost { costRow(Money.short(cost)) }
+                        if let credits = facts.credits { costRow(Money.credits(credits), verb: "used") }
                     }
                     .background(Theme.sunken)
                 }
@@ -658,12 +661,13 @@ struct SessionFactsChip: View {
         .padding(.vertical, Space.xs)
     }
 
-    private func costRow(_ cost: Double) -> some View {
+    private func costRow(_ amount: String, verb: String = "spent") -> some View {
         row("Cost") {
             HStack(spacing: Space.md) {
-                Text(Money.short(cost))
+                Text(amount)
                     .font(Typography.code)
-                Text("spent this session")
+                    .contentTransition(.numericText())
+                Text("\(verb) this session")
                     .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

@@ -568,3 +568,67 @@ struct KiroMCPCallTests {
         #expect(tool.name == "MCP")
     }
 }
+
+// Kiro counts usage in plan credits, reported once per turn.
+struct KiroCreditsTests {
+    private static func completion(_ usages: [Double], unit: String = "credit", replay: Bool = false) -> [String: Any] {
+        var kiro: [String: Any] = [
+            "kind": "turn_completion",
+            "promptTurnSummaries": usages.map { ["unit": unit, "unitPlural": unit + "s", "usage": $0] },
+        ]
+        if replay { kiro["replay"] = true }
+        return ["sessionUpdate": "session_info_update", "_meta": ["kiro": kiro]]
+    }
+
+    @Test func reportsCreditsAsARunningTotal() throws {
+        let wire = try KiroWire()
+        try wire.open()
+        let first = try wire.update(Self.completion([0.03, 0.01]))
+        let second = try wire.update(Self.completion([0.02]))
+        guard case .usage(let a)? = first.first, case .usage(let b)? = second.first else {
+            Issue.record("Expected usage reports, got \((first + second).map(\.logSummary))")
+            return
+        }
+        #expect(abs(a.credits - 0.04) < 1e-9)
+        #expect(abs(b.credits - 0.06) < 1e-9)
+    }
+
+    @Test func ignoresOtherUnitsAndReplayedTurns() throws {
+        let wire = try KiroWire()
+        try wire.open()
+        #expect(try wire.update(Self.completion([5], unit: "token")).isEmpty)
+        #expect(try wire.update(Self.completion([0.5], replay: true)).isEmpty)
+    }
+
+    @Test func aSessionSavedBeforeCreditsStillReads() throws {
+        let old = #"{"costUSD":0,"inputTokens":1,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"turns":1,"contextTokens":0,"contextWindow":0}"#
+        let usage = try JSONDecoder().decode(SessionUsage.self, from: Data(old.utf8))
+        #expect(usage.credits == nil)
+    }
+
+    @Test func writesCredits() {
+        #expect(Money.credits(1) == "1 credit")
+        #expect(Money.credits(0.004).hasPrefix("< "))
+        #expect(Money.credits(2) == "2 credits")
+        #expect(Money.credits(0.25) == "\(0.25.formatted(.number.precision(.fractionLength(0...2)))) credits")
+    }
+}
+
+@MainActor
+struct KiroCreditsRunnerTests {
+    @Test func eachTurnsCreditsAddUpOnTheSession() async throws {
+        let harness = try RunnerHarness(agent: .kiro, script: FixtureCLI.kiroServer(onPrompt: """
+            kiro_say 'Done.'
+            kiro_credits 0.25
+            kiro_end
+            """))
+        defer { harness.tearDown() }
+        for prompt in ["First", "Second"] {
+            harness.runner.send(prompt, sessionID: harness.session.id, store: harness.store)
+            #expect(await waitUntil { harness.runner.state(harness.session.id) == .idle })
+        }
+        let usage = try #require(harness.store.session(harness.session.id)?.usage)
+        #expect(usage.credits == 0.5)
+        #expect(usage.costUSD == 0)
+    }
+}

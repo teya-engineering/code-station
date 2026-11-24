@@ -1228,7 +1228,10 @@ struct SessionView: View {
             pullRequestStatuses: Dictionary((pullRequestReviews.loaded[session.id] ?? [])
                 .map { ($0.pullRequest.url, $0.status) }, uniquingKeysWith: { first, _ in first }),
             model: session.usage?.model(for: session.agent).map { runner.modelTitle($0) },
-            cost: appSettings.showsCost(for: session.agent) ? cost : nil,
+            // Kiro counts in plan credits, so it shows those rather than a dollar figure.
+            cost: appSettings.showsCost(for: session.agent) && session.agent != .kiro ? cost : nil,
+            credits: appSettings.showsCost(for: session.agent) && session.agent == .kiro
+                ? session.usage?.credits : nil,
             context: session.usage?.contextFraction(for: session.agent),
             agent: session.agent)
     }
@@ -2831,6 +2834,9 @@ struct SessionView: View {
         // Codex and Copilot report no cost, so a zero here means "unknown" rather than free.
         if appSettings.showsCost(for: agent), usage.costUSD > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
+        }
+        if appSettings.showsCost(for: agent), let credits = usage.credits, credits > 0 {
+            rows.append(Tooltip.Row(label: "Spent", value: Money.credits(credits)))
         }
         let turns = counted(usage.turns, "turn")
         let note = if !agent.asksPermissions {

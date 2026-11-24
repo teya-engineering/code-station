@@ -2629,6 +2629,7 @@ final class SessionRunner {
         guard let recorded else { return totals }
         var grown = totals
         grown.costUSD = max(0, totals.costUSD - recorded.costUSD)
+        grown.credits = max(0, totals.credits - recorded.credits)
         grown.inputTokens = max(0, totals.inputTokens - recorded.inputTokens)
         grown.outputTokens = max(0, totals.outputTokens - recorded.outputTokens)
         grown.cacheReadTokens = max(0, totals.cacheReadTokens - recorded.cacheReadTokens)
