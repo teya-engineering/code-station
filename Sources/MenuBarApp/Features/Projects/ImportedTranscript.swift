@@ -25,6 +25,19 @@ struct ImportedTranscript {
             thought.textOffset = message.text.count
             thought.toolOffset = message.tools.count
             message.thinking = (message.thinking ?? []) + [thought]
+        case .textChunk(let text, let continuing):
+            if !continuing, !message.text.isEmpty { message.text += "\n\n" }
+            message.text += text
+        case .thinkingChunk(let text, let continuing):
+            if continuing, var thoughts = message.thinking, !thoughts.isEmpty {
+                thoughts[thoughts.count - 1].text += text
+                message.thinking = thoughts
+            } else {
+                var thought = ThinkingSegment(text: text)
+                thought.textOffset = message.text.count
+                thought.toolOffset = message.tools.count
+                message.thinking = (message.thinking ?? []) + [thought]
+            }
         case .toolUse(var tool):
             guard tool.parentID == nil else { return }
             tool.textOffset = message.text.count

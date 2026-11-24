@@ -251,7 +251,8 @@ struct ImportSessionsView: View {
             .padding(.vertical, Space.sm)
             .contentShape(Rectangle())
             .appMenu {
-                AgentKind.allCases.map { agent in
+                // Kiro always reads its history from ~/.kiro, so there is no folder to pick.
+                AgentKind.allCases.filter { $0 != .kiro }.map { agent in
                     MenuEntry.item("\(agent.title)…") { chooseHistoryFolder(for: agent) }
                 }
             }

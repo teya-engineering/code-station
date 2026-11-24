@@ -59,8 +59,8 @@ extension AgentKind {
         case .claudeCode: "CLAUDE_CONFIG_DIR"
         case .codex: "CODEX_HOME"
         case .copilot: "COPILOT_HOME"
-        // Never set yet: nothing imports a Kiro conversation, so no turn points Kiro at
-        // a history folder of its own.
+        // Kiro reads its history from ~/.kiro and has no variable to move it, so an
+        // imported Kiro session always resumes from the default folder.
         case .kiro: "KIRO_HOME"
         }
     }

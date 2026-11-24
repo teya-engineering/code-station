@@ -69,7 +69,7 @@ actor SessionHistoryCatalog {
             return Listing(candidates: ClaudeSessionCatalog.sessions(in: key.folder, root: key.root,
                                                                      read: claudeCandidate))
         }
-        let history = key.root.appendingPathComponent(key.agent == .codex ? "sessions" : "session-state")
+        let history = key.root.appendingPathComponent(key.agent == .copilot ? "session-state" : "sessions")
         guard FileManager.default.fileExists(atPath: history.path) else { return Listing() }
         do {
             return Listing(candidates: try await readAgentHistory(key.agent, key.folder, key.root))
@@ -94,8 +94,10 @@ actor SessionHistoryCatalog {
                                   defaults: UserDefaults = .standard) -> [AgentKind: URL] {
         var roots: [AgentKind: URL] = [.claudeCode: ClaudeSessionCatalog.defaultRoot(environment: environment,
                                                                                     defaults: defaults)]
-        for agent in [AgentKind.codex, .copilot] {
-            let path = defaults.string(forKey: chosenRootKey(agent)) ?? environment[agent.historyEnvironmentVariable]
+        for agent in [AgentKind.codex, .copilot, .kiro] {
+            // Kiro has no setting to move its history, so only its default folder counts.
+            let path = agent == .kiro ? nil
+                : defaults.string(forKey: chosenRootKey(agent)) ?? environment[agent.historyEnvironmentVariable]
             roots[agent] = path.map { URL(fileURLWithPath: $0, isDirectory: true) }
                 ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".\(agent.rawValue)")
         }

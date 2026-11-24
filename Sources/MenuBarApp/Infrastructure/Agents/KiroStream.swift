@@ -17,6 +17,12 @@ final class KiroStream: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    // Importing a past session reads its replay on purpose; a live session drops it.
+    private let acceptsReplay: Bool
+
+    init(acceptsReplay: Bool = false) {
+        self.acceptsReplay = acceptsReplay
+    }
     // Whether the last piece said was text or thinking, so the next piece of the same
     // kind carries on that block rather than opening a new one.
     private var textOpen = false
@@ -33,7 +39,7 @@ final class KiroStream: @unchecked Sendable {
     func events(_ update: [String: Any]) -> [StreamEvent] {
         lock.withLock {
             let meta = (update["_meta"] as? [String: Any])?["kiro"] as? [String: Any]
-            if meta?["replay"] as? Bool == true { return [] }
+            if meta?["replay"] as? Bool == true, !acceptsReplay { return [] }
             switch update["sessionUpdate"] as? String {
             case "agent_message_chunk":
                 let text = Self.chunkText(update)
