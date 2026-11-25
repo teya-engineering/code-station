@@ -2437,6 +2437,7 @@ final class ProjectStore {
         let pendingIDs = Set(pendingSessionRemovals.map(\.id))
         sessions = saved.sessions.filter { !pendingIDs.contains($0.id) }
         moveTranscriptsOutOfTheIndex()
+        dateImportsMadeBeforeTheirDateWasKept()
         selectedProjectID = navigation.savedProjectID ?? saved.selectedProjectID ?? projects.first?.id
         if let id = navigation.savedSessionID ?? saved.selectedSessionID,
            sessions.contains(where: { $0.id == id }) {
@@ -2499,6 +2500,25 @@ final class ProjectStore {
             sessions[i].messages = []
             sessions[i].transcriptLoaded = false
         }
+    }
+
+    // A session imported before imports were dated would age by its original conversation,
+    // and could be offered for deletion, or taken, the first launch after an update. The
+    // transcript file is the nearest record of the import: it is written then, and written
+    // again only by a new turn, which moves the session's age on anyway. Without one,
+    // the clock starts now, which can keep a session too long but never too short.
+    private func dateImportsMadeBeforeTheirDateWasKept(now: Date = Date()) {
+        let undated = sessions.indices.filter {
+            sessions[$0].importedOrigin != nil && sessions[$0].importedAt == nil
+        }
+        guard !undated.isEmpty else { return }
+        for i in undated {
+            let path = transcriptURL(sessions[i].id).path
+            let written = (try? FileManager.default.attributesOfItem(atPath: path))?[.creationDate] as? Date
+            sessions[i].importedAt = min(written ?? now, now)
+        }
+        markIndexDirty()
+        save()
     }
 
     // Projects whose folder has since been moved or deleted; sessions there cannot run.

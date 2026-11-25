@@ -70,7 +70,7 @@ struct OldSessionsSettings: View {
             }
 
             VStack(alignment: .leading, spacing: Space.sm) {
-                Label("Days count from the last turn. Pinned, open and running sessions are always kept.",
+                Label("Days count from the last turn, or from the import for a session not used since. Pinned, open and running sessions are always kept.",
                       systemImage: "shield")
                 Label("The longest matching period wins. If any matching rule has auto-delete off, you review first.",
                       systemImage: "square.3.layers.3d")
@@ -176,7 +176,7 @@ struct OldSessionsSettings: View {
 
     private func showHelp() {
         var dialog = Dialog.notice("How old session rules work", message:
-            "Set 1 to 30 days from a session's last turn. With auto-delete off, that is when it appears for review and it stays until you decide.\n\n"
+            "Set 1 to 30 days from a session's last turn, or from when it was imported if it has not been used since. With auto-delete off, that is when it appears for review and it stays until you decide.\n\n"
             + "Auto-delete on starts the existing one-hour sidebar countdown. You can keep a session during that hour.\n\n"
             + "When conditions overlap, the longest period applies and every matching switch must be on for auto-delete. All other sessions applies only when no conditions match.\n\n"
             + "Pinned, open and running sessions are excluded. Project snoozes and ask-again-later deferrals still hold off cleanup.")

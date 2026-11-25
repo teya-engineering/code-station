@@ -261,6 +261,32 @@ struct ImportedSessionStoreTests {
         #expect(reopened.transcript(of: id).allSatisfy { $0.checkpoint == nil })
     }
 
+    // An import made before imports were dated is dated by its transcript file once, so
+    // an update does not suddenly offer it for deletion by its original conversation.
+    @Test func anImportFromBeforeImportsWereDatedIsDatedByItsTranscript() async throws {
+        let project = try TestStore.project(in: store)
+        let messages = [ChatMessage(role: .user, text: "hello there", date: Date(timeIntervalSince1970: 1_000))]
+        let made = try await store.importSession(
+            .init(candidate: candidate("claude-undated", cwd: project.path), messages: messages),
+            into: project.id).get()
+
+        var saved = try JSONSerialization.jsonObject(with: Data(contentsOf: store.storeURL)) as! [String: Any]
+        var sessions = saved["sessions"] as! [[String: Any]]
+        for i in sessions.indices { sessions[i].removeValue(forKey: "importedAt") }
+        saved["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: saved).write(to: store.storeURL)
+        let transcript = store.storeURL.deletingLastPathComponent()
+            .appendingPathComponent("projects-transcripts/\(made.id.uuidString).json")
+        let written = Date().addingTimeInterval(-2 * 86_400).rounded()
+        try FileManager.default.setAttributes([.creationDate: written], ofItemAtPath: transcript.path)
+
+        let reopened = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
+        #expect(reopened.session(made.id)?.importedAt == written)
+        // Written back, so the next launch does not read the file again.
+        let again = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
+        #expect(again.session(made.id)?.importedAt == written)
+    }
+
     @Test func anUntitledSessionIsNamedAfterItsFirstPrompt() async throws {
         let project = try TestStore.project(in: store)
         let made = try await store.importSession(
@@ -360,4 +386,9 @@ struct ImportedSessionOriginTests {
         #expect(home.historyOverride(environment: ["CLAUDE_CONFIG_DIR": "/work/claude"], home: self.home)
             == "/Users/someone/.claude")
     }
+}
+
+private extension Date {
+    // File dates keep whole seconds, so the one set on the file is the one read back.
+    func rounded() -> Date { Date(timeIntervalSince1970: timeIntervalSince1970.rounded()) }
 }
