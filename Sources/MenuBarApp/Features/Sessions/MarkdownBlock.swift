@@ -111,7 +111,7 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
         case let table as Markdown.Table:
             if let read = MarkdownTable(table, in: source) { return [.table(read)] }
         case let list as ListItemContainer:
-            return [.list(listItems(list, depth: 0, in: source))]
+            return listKinds(list, in: source)
         case is BlockQuote:
             return [.quote(source.content(of: block))]
         case is Paragraph:
@@ -151,37 +151,56 @@ struct MarkdownBlock: Identifiable, Equatable, Sendable {
 
     // Every item of a list and of the lists inside it, in reading order. A paragraph
     // after the first in an item carries on that item, so it has no marker of its own.
-    private static func listItems(_ list: ListItemContainer, depth: Int,
-                                  in source: MarkdownSource) -> [MarkdownListItem] {
-        let level = min(depth, bullets.count - 1)
+    // An item can only hold text, so a table, quote, heading or rule inside one ends
+    // the list there, stands as a block of its own, and the list carries on after it.
+    private static func listKinds(_ list: ListItemContainer, in source: MarkdownSource) -> [Kind] {
+        var kinds: [Kind] = []
         var items: [MarkdownListItem] = []
-        for (offset, item) in list.listItems.enumerated() {
-            var marker: String
-            if let ordered = list as? OrderedList {
-                marker = "\(Int(ordered.startIndex) + offset)\(delimiter(of: item, in: source))"
-            } else {
-                marker = switch item.checkbox {
-                case .checked: "☑"
-                case .unchecked: "☐"
-                case nil: bullets[level]
-                }
-            }
-            for child in item.children {
-                if let nested = child as? ListItemContainer {
-                    // An item that opens with a list still shows its own marker first.
-                    if !marker.isEmpty {
-                        items.append(MarkdownListItem(depth: level, marker: marker, text: ""))
-                        marker = ""
-                    }
-                    items += listItems(nested, depth: depth + 1, in: source)
+        func flushItems() {
+            if !items.isEmpty { kinds.append(.list(items)) }
+            items = []
+        }
+
+        func read(_ list: ListItemContainer, depth: Int) {
+            let level = min(depth, bullets.count - 1)
+            for (offset, item) in list.listItems.enumerated() {
+                var marker: String
+                if let ordered = list as? OrderedList {
+                    marker = "\(Int(ordered.startIndex) + offset)\(delimiter(of: item, in: source))"
                 } else {
-                    items.append(MarkdownListItem(depth: level, marker: marker, text: source.content(of: child)))
+                    marker = switch item.checkbox {
+                    case .checked: "☑"
+                    case .unchecked: "☐"
+                    case nil: bullets[level]
+                    }
+                }
+                // An item that opens with a list or a block still shows its own marker first.
+                func placeMarker() {
+                    guard !marker.isEmpty else { return }
+                    items.append(MarkdownListItem(depth: level, marker: marker, text: ""))
                     marker = ""
                 }
+                for child in item.children {
+                    switch child {
+                    case let nested as ListItemContainer:
+                        placeMarker()
+                        read(nested, depth: depth + 1)
+                    case is Markdown.Table, is BlockQuote, is Heading, is ThematicBreak:
+                        placeMarker()
+                        flushItems()
+                        kinds += Self.kinds(of: child, in: source)
+                    default:
+                        items.append(MarkdownListItem(depth: level, marker: marker, text: source.content(of: child)))
+                        marker = ""
+                    }
+                }
+                placeMarker()
             }
-            if !marker.isEmpty { items.append(MarkdownListItem(depth: level, marker: marker, text: "")) }
         }
-        return items
+
+        read(list, depth: 0)
+        flushItems()
+        return kinds
     }
 
     // "." or ")", as the item was written.
