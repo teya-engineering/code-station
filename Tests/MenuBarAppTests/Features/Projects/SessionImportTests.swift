@@ -251,6 +251,11 @@ struct ImportedSessionStoreTests {
         #expect(session.claudeSessionID == "claude-abc")
         #expect(session.title == "Imported")
         #expect(session.createdAt == Date(timeIntervalSince1970: 1_000))
+        // The conversation keeps its own dates, while cleanup counts from the import.
+        #expect(session.lastActivity == Date(timeIntervalSince1970: 2_000))
+        let importedAt = try #require(session.importedAt)
+        #expect(abs(importedAt.timeIntervalSinceNow) < 60)
+        #expect(session.cleanupActivity == importedAt)
         #expect(reopened.transcript(of: id).map(\.text) == ["hello there", "hi"])
         // Nothing imported can be wound back to: the app never checkpointed it.
         #expect(reopened.transcript(of: id).allSatisfy { $0.checkpoint == nil })

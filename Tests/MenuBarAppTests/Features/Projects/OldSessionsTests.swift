@@ -64,6 +64,33 @@ struct OldSessionsTests {
         #expect(OldSessions.nextOldAt(7, in: [deferred], now: now) == until)
     }
 
+    // An import brings a conversation that may be weeks old. It is counted from the day it
+    // arrived, so it is not offered for deletion the moment it lands.
+    @Test func anImportIsCountedFromWhenItArrived() {
+        var imported = session(daysAgo: 30)
+        imported.summary.lastMessageAt = now.addingTimeInterval(-21 * 86_400)
+        imported.importedAt = now.addingTimeInterval(-3_600)
+
+        #expect(OldSessions.olderThan(7, in: [imported], now: now).isEmpty)
+        #expect(OldSessions.nextOldAt(7, in: [imported], now: now)
+            == now.addingTimeInterval(-3_600 + 7 * 86_400))
+        #expect(OldSessions.olderThan(7, in: [imported], now: now.addingTimeInterval(7 * 86_400)).count == 1)
+        #expect(!CleanupRule(deletesOnItsOwn: true, asked: [], includesOrphans: false, days: 7)
+            .isOld(imported, reasons: [], now: now))
+        #expect(SessionAge.cleanupPhrase(of: imported, now: now) == "imported today")
+    }
+
+    // A turn taken after the import is what counts from then on.
+    @Test func aTurnAfterTheImportTakesOver() {
+        var imported = session(daysAgo: 30)
+        imported.importedAt = now.addingTimeInterval(-10 * 86_400)
+        imported.summary.lastMessageAt = now.addingTimeInterval(-2 * 86_400)
+
+        #expect(imported.cleanupActivity == imported.lastActivity)
+        #expect(OldSessions.olderThan(7, in: [imported], now: now).isEmpty)
+        #expect(SessionAge.cleanupPhrase(of: imported, now: now) == "last turn 2 days ago")
+    }
+
     @Test func aPinnedSessionIsNeverOld() {
         var pinned = session(daysAgo: 30)
         pinned.isPinned = true

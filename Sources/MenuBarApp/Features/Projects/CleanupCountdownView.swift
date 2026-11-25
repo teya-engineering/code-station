@@ -186,12 +186,13 @@ struct CleanupCountdownView: View {
         return item.session?.title ?? ""
     }
 
-    // "code-station · Conversation and a worktree · Last turn 7 days ago"
+    // "code-station · Conversation and a worktree · Last turn 7 days ago", or "Imported …"
     private func detail(_ item: Item) -> String {
         if let orphan = item.orphan { return "\(orphan.projectName) · No changes" }
         guard let session = item.session else { return "" }
         let project = store.project(session.projectID)?.name ?? "Unknown project"
-        return "\(project) · \(goes(session)) · Last turn \(SessionAge.phrase(since: session.lastActivity))"
+        let age = SessionAge.cleanupPhrase(of: session)
+        return "\(project) · \(goes(session)) · \(age.prefix(1).uppercased() + age.dropFirst())"
     }
 
     private func goes(_ session: ChatSession) -> String {

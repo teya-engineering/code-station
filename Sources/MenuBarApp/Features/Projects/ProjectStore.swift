@@ -2106,6 +2106,7 @@ final class ProjectStore {
         case .copilot: session.copilotSessionID = resumeID
         }
         session.importedOrigin = item.candidate.origin
+        session.importedAt = Date()
         session.knownAgentSessionIDs = [item.candidate.id,
             ImportedSessionOrigin.key(agent: session.agent, sessionID: resumeID)]
         session.createdAt = item.candidate.startedAt ?? item.messages.first?.date ?? Date()
