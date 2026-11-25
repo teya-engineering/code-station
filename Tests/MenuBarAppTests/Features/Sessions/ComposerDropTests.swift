@@ -24,6 +24,17 @@ struct ComposerDropTests {
         }
     }
 
+    // Hands its file over the way AppKit does: on the queue it was given, never the main thread.
+    private final class QueuedPromise: NSFilePromiseReceiver {
+        override func receivePromisedFiles(atDestination destinationDir: URL, options: [AnyHashable: Any] = [:],
+                                           operationQueue: OperationQueue,
+                                           reader: @escaping (URL, (any Error)?) -> Void) {
+            nonisolated(unsafe) let reader = reader
+            let url = destinationDir.appendingPathComponent("promised.png")
+            operationQueue.addOperation { reader(url, nil) }
+        }
+    }
+
     // Only what the text view reads off a drag is real; the rest is never asked for.
     @MainActor
     private final class Drag: NSObject, @preconcurrency NSDraggingInfo {
@@ -159,6 +170,17 @@ struct ComposerDropTests {
         deliver()
 
         #expect(dropped == [promisedFile])
+    }
+
+    @Test func promisedFileHandedOverOffTheMainThreadJoinsTheChat() async {
+        let attached: String? = await withCheckedContinuation { continuation in
+            let taken = Attachments.receive([QueuedPromise()],
+                                            each: { continuation.resume(returning: $0.name) },
+                                            failed: { continuation.resume(returning: nil) })
+            #expect(taken)
+        }
+
+        #expect(attached == "promised.png")
     }
 
     @Test func mixedDropIsRefusedWhenPromisesCannotBeReceived() {

@@ -60,7 +60,9 @@ enum Attachments {
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
         for promise in promises {
-            promise.receivePromisedFiles(atDestination: directory, options: [:], operationQueue: queue) { url, error in
+            // AppKit calls the reader on `queue`. Without @Sendable it takes on the main actor
+            // from this function, and Swift stops the app when it runs anywhere else.
+            promise.receivePromisedFiles(atDestination: directory, options: [:], operationQueue: queue) { @Sendable url, error in
                 Task { @MainActor in
                     if error == nil { each(Attachment(url: url)) } else { failed() }
                 }
