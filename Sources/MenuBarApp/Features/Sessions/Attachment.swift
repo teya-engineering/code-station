@@ -60,7 +60,10 @@ enum Attachments {
         let queue = OperationQueue()
         queue.qualityOfService = .userInitiated
         for promise in promises {
-            promise.receivePromisedFiles(atDestination: directory, options: [:], operationQueue: queue) { url, error in
+            // AppKit calls the reader on the queue above. Without @Sendable the closure
+            // would take on the main actor from this function, and Swift traps when it
+            // finds itself running off the main thread.
+            promise.receivePromisedFiles(atDestination: directory, options: [:], operationQueue: queue) { @Sendable url, error in
                 Task { @MainActor in
                     if error == nil { each(Attachment(url: url)) } else { failed() }
                 }
