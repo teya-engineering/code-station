@@ -199,6 +199,24 @@ struct TranscriptSelectionTests {
         }
     }
 
+    // Text outside a transcript, such as a /btw answer or a file preview, has no
+    // selection across blocks, so AppKit has to draw its highlight.
+    @Test func textOutsideATranscriptKeepsTheSystemHighlight() throws {
+        let page = try Page(selection: TranscriptSelection()) {
+            Page.prose(markdown, separateBlocks: false)
+                .environment(\.transcriptSelection, nil)
+        }
+        defer { page.close() }
+        let view = try #require(page.views.first)
+
+        let blank = view.paintedPixels()
+        view.setSelectedRange(NSRange(location: 0, length: Self.first.count))
+        let highlighted = view.paintedPixels()
+
+        try #require(blank > 0)
+        #expect(highlighted > blank * 2)
+    }
+
     // MARK: - Code blocks
 
     @Test func aSelectionRunsThroughACodeBlock() throws {
