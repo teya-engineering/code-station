@@ -29,6 +29,15 @@ extension String {
     func isInside(_ folder: String) -> Bool {
         self == folder || hasPrefix(folder + "/")
     }
+
+    // Safe to place in HTML text or inside a quoted attribute.
+    var htmlEscaped: String {
+        replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+    }
 }
 
 // "1 file", "3 files". A noun with an irregular plural passes it in.

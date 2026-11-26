@@ -38,10 +38,10 @@ struct TooltipTests {
         #expect(presenter.previousAnchor == findFrame)
         #expect(presenter.anchor == previewFrame)
 
-        // Leaving the rail altogether still takes it away.
+        // Leaving the rail altogether still takes it away. A busy machine can run the
+        // delayed hide late, so wait for it rather than for a fixed time.
         presenter.hide(owner: preview)
-        try await Task.sleep(for: .seconds(Motion.railHandoff * 3))
-        #expect(presenter.current == nil)
+        #expect(await waitUntil(timeout: .seconds(5)) { presenter.current == nil })
     }
 
     @Test func aPlainHintStillGoesAtOnce() {
