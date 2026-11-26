@@ -318,6 +318,36 @@ struct SelectableText: View {
     }
 }
 
+// AppKit ignores selectedTextAttributes in a text view that is not first responder and
+// fills its selection with the system's grey instead. A transcript selection spans
+// many blocks and LinkTextView paints it in one colour, so while that is the case the
+// AppKit fill is dropped. A background the text itself asks for is still drawn.
+final class TranscriptLayoutManager: NSLayoutManager {
+    var dropsSelectionFill = false
+
+    override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int,
+                                          forCharacterRange charRange: NSRange, color: NSColor) {
+        guard draws(color, over: charRange) else { return }
+        super.fillBackgroundRectArray(rectArray, count: rectCount, forCharacterRange: charRange, color: color)
+    }
+
+    func draws(_ color: NSColor, over characters: NSRange) -> Bool {
+        guard dropsSelectionFill, let selected = firstTextView?.selectedRange(), selected.length > 0,
+              characters.location >= selected.location,
+              NSMaxRange(characters) <= NSMaxRange(selected) else { return true }
+        return ownBackground(at: characters.location) == color
+    }
+
+    private func ownBackground(at index: Int) -> NSColor? {
+        guard let textStorage, index < textStorage.length else { return nil }
+        if let temporary = temporaryAttribute(.backgroundColor, atCharacterIndex: index,
+                                              effectiveRange: nil) as? NSColor {
+            return temporary
+        }
+        return textStorage.attribute(.backgroundColor, at: index, effectiveRange: nil) as? NSColor
+    }
+}
+
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
 // which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
 private final class LinkTextView: NSTextView {
@@ -332,14 +362,14 @@ private final class LinkTextView: NSTextView {
     var selection: TranscriptSelection? {
         didSet {
             guard (selection == nil) != (oldValue == nil) else { return }
+            (layoutManager as? TranscriptLayoutManager)?.dropsSelectionFill = selection != nil
             if selection == nil {
                 selectedTextAttributes = nativeSelectedTextAttributes
             } else {
-                // A selection that spans blocks is painted by the view itself, in one
-                // colour for every block it reaches. AppKit would dim it everywhere but
-                // the block the drag started in, since only that one is first responder.
+                // Selected text keeps its own colours, the same in every block, since
+                // the focused block would otherwise take the system's selected text colour.
                 nativeSelectedTextAttributes = selectedTextAttributes
-                selectedTextAttributes = [.backgroundColor: NSColor.clear]
+                selectedTextAttributes = [:]
             }
         }
     }
@@ -537,10 +567,8 @@ private final class LinkTextView: NSTextView {
         selection.selectAll()
     }
 
-    // The selection is painted here rather than left to AppKit, which draws a dimmed
-    // highlight in every text view that is not the first responder. Only one block of a
-    // transcript can hold that, so a selection over several would otherwise fade
-    // everywhere but the block the drag started in.
+    // Only one block of a transcript can be first responder, so the selection is painted
+    // here, in one colour for every block it reaches (see TranscriptLayoutManager).
     override func draw(_ dirtyRect: NSRect) {
         drawFindHighlights()
         drawSelectionHighlight()
@@ -685,6 +713,7 @@ private struct LinkAwareText: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextView {
         let view = LinkTextView(usingTextLayoutManager: false)
+        view.textContainer?.replaceLayoutManager(TranscriptLayoutManager())
         view.isEditable = false
         view.isSelectable = true
         // Per-link hints belong to TooltipPresenter, including their Finder action.

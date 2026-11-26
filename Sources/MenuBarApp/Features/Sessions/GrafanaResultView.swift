@@ -273,25 +273,49 @@ struct GrafanaResultView: View {
     }
 
     private func seriesTable(_ series: [GrafanaToolResult.Series]) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.md) {
-                ForEach(series) { one in
-                    Text(Self.labelText(one.labels))
-                        .scaledMono(Typography.Size.caption, .semibold)
-                    ForEach(Array(one.points.enumerated()), id: \.offset) { _, point in
-                        HStack(spacing: Space.lg) {
-                            Text(Self.clock(Date(timeIntervalSince1970: point.seconds)))
-                                .scaledMono(Typography.Size.caption)
-                                .foregroundStyle(.secondary)
-                            Text(point.raw)
-                                .scaledMono(Typography.Size.caption)
-                        }
+        let table = SeriesTable(series)
+        return ScrollView {
+            Grid(alignment: .leading, horizontalSpacing: Space.lg, verticalSpacing: 0) {
+                GridRow {
+                    tableHeader("TIME", alignment: .leading)
+                    ForEach(table.names.indices, id: \.self) { column in
+                        tableHeader(table.names[column], alignment: .trailing)
                     }
                 }
+                Rectangle().fill(Theme.hairline).frame(height: 1)
+                ForEach(table.rows.indices, id: \.self) { index in
+                    let row = table.rows[index]
+                    GridRow {
+                        Text(row.time)
+                            .scaledMono(Typography.Size.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(row.readings.indices, id: \.self) { column in
+                            Text(row.readings[column] ?? "–")
+                                .scaledMono(Typography.Size.caption)
+                                .foregroundStyle(row.readings[column] == nil
+                                                 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                                .gridColumnAlignment(.trailing)
+                        }
+                    }
+                    .padding(.vertical, Space.xxs)
+                }
             }
+            .padding(.horizontal, Space.xs)
             .textSelection(.enabled)
         }
         .scrollCap(ScrollCap.short)
+    }
+
+    // A reading column is wide enough for a long series name to wrap rather than push
+    // the next column off the card, and no wider, so a lone series sits next to its times.
+    private func tableHeader(_ title: String, alignment: Alignment) -> some View {
+        Text(title)
+            .scaledMono(Typography.Size.micro, .bold)
+            .foregroundStyle(.secondary)
+            .lineLimit(3)
+            .multilineTextAlignment(alignment == .trailing ? .trailing : .leading)
+            .frame(maxWidth: alignment == .trailing ? 220 * textScale : nil, alignment: alignment)
+            .padding(.bottom, Space.xs)
     }
 
     private var summary: String {
@@ -365,11 +389,12 @@ struct GrafanaResultView: View {
     // MARK: - Drawing helpers
 
     nonisolated static func chartSpec(_ series: [GrafanaToolResult.Series]) -> TranscriptChartSpec? {
+        let names = seriesNames(series)
         let wire: [String: Any] = [
             "kind": "line",
             "time": true,
-            "series": series.map { one in
-                ["label": labelText(one.labels),
+            "series": zip(series, names).map { one, name in
+                ["label": name,
                  "points": one.points.compactMap { point in
                      point.value.map { [point.seconds, $0] }
                  }] as [String: Any]
@@ -395,6 +420,78 @@ struct GrafanaResultView: View {
         case .warning: Theme.attention
         case .other: .clear
         }
+    }
+
+    // Names series by the labels that tell them apart. The labels they all share are the
+    // ones the query asked for, which the card already shows, and spelling them out on
+    // every series buries the one part that differs.
+    nonisolated static func seriesNames(_ series: [GrafanaToolResult.Series]) -> [String] {
+        let keys = Set(series.flatMap(\.labels.keys)).sorted()
+        let varying = keys.filter { key in Set(series.map { $0.labels[key] }).count > 1 }
+        let names = series.map { one -> String in
+            switch varying.count {
+            case 0: one.labels["__name__"] ?? "value"
+            case 1: one.labels[varying[0]] ?? "(none)"
+            default: labelText(one.labels.filter { varying.contains($0.key) })
+            }
+        }
+        // The chart keys its series by name, so two series with the same name would merge.
+        guard Set(names).count < names.count else { return names }
+        return names.enumerated().map { "\($1) #\($0 + 1)" }
+    }
+
+    // A range result laid out as one row per moment and one column per series, so series
+    // read side by side. A series with no reading at a moment leaves its cell empty.
+    struct SeriesTable: Equatable {
+        struct Row: Equatable {
+            let time: String
+            let readings: [String?]
+        }
+
+        let names: [String]
+        let rows: [Row]
+
+        init(_ series: [GrafanaToolResult.Series], in timeZone: TimeZone = .current) {
+            names = GrafanaResultView.seriesNames(series)
+            let moments = Set(series.flatMap { $0.points.map(\.seconds) }).sorted()
+            let lookup = series.map { one in
+                Dictionary(one.points.map { ($0.seconds, $0.raw) }, uniquingKeysWith: { first, _ in first })
+            }
+            let format = Self.timeFormat(moments, in: timeZone)
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = timeZone
+            formatter.dateFormat = format
+            rows = moments.map { moment in
+                Row(time: formatter.string(from: Date(timeIntervalSince1970: moment)),
+                    readings: lookup.map { $0[moment].map(GrafanaResultView.reading) })
+            }
+        }
+
+        // Milliseconds only when a step falls between whole seconds, and the day only when
+        // the range crosses midnight, since otherwise they are the same on every row.
+        private static func timeFormat(_ moments: [Double], in timeZone: TimeZone) -> String {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = timeZone
+            let clock = moments.contains { $0 != $0.rounded() } ? "HH:mm:ss.SSS" : "HH:mm:ss"
+            guard let first = moments.first, let last = moments.last,
+                  !calendar.isDate(Date(timeIntervalSince1970: first),
+                                   inSameDayAs: Date(timeIntervalSince1970: last))
+            else { return clock }
+            return "MMM d " + clock
+        }
+    }
+
+    // Prometheus writes readings with every digit a double holds. A few are enough to
+    // compare rows, and the rest make the column too wide to scan. Text that is not a
+    // plain number, such as "NaN" or "+Inf", is shown as written.
+    nonisolated static func reading(_ raw: String) -> String {
+        guard let value = Double(raw), value.isFinite else { return raw }
+        let locale = Locale(identifier: "en_US_POSIX")
+        if value == 0 || abs(value) >= 1 {
+            return value.formatted(.number.precision(.fractionLength(0...3)).grouping(.never).locale(locale))
+        }
+        return value.formatted(.number.precision(.significantDigits(1...3)).grouping(.never).locale(locale))
     }
 
     nonisolated static func labelText(_ labels: [String: String]) -> String {
