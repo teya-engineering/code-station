@@ -850,6 +850,99 @@ struct TranscriptSelectionTests {
         #expect(abs(shared.contentHeight - apart.contentHeight) < 1)
     }
 
+    // MARK: - Copying with formatting
+
+    // A chat or a mail takes the HTML and keeps the formatting. Anything else takes the
+    // text, which still needs the markers that are drawn beside each item.
+    @Test func aListCopiesAsAListInBothForms() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "Before.\n\n- **Apples:** ripe\n- Pears\n  - nested\n\nAfter.",
+                            selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.plain == "Before.\n\n- Apples: ripe\n- Pears\n  - nested\n\nAfter.")
+        #expect(copied.html.contains(
+            "<p>Before.</p><ul><li><strong>Apples:</strong> ripe</li><li>Pears"
+                + "<ul><li>nested</li></ul></li></ul><p>After.</p>"))
+    }
+
+    @Test func aNumberedListKeepsWhereItStarts() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "3. three\n4. four", selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.plain == "3. three\n4. four")
+        #expect(copied.html.contains("<ol start=\"3\"><li>three</li><li>four</li></ol>"))
+    }
+
+    @Test func inlineFormattingAndLinksComeThroughAsHTML() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "Use `run` with *care* <see [docs](https://example.com)>.",
+                            selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<code>run</code>"))
+        #expect(copied.html.contains("<em>care</em>"))
+        #expect(copied.html.contains("&lt;see <a href=\"https://example.com\">docs</a>&gt;"))
+    }
+
+    @Test func aCodeBlockCopiesAsPreformattedText() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: markdownWithCode, selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<pre><code>let total = 1\nlet other = 2</code></pre>"))
+        #expect(copied.plain.contains(Self.code))
+    }
+
+    // A heading drawn in the same text view as the paragraphs around it is still a heading.
+    @Test func aHeadingInsideASharedViewCopiesAsAHeading() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "\(Self.first)\n\n## A heading\n\n\(Self.second)\n\n\(Self.third)",
+                            selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<p>\(Self.first)</p><h2>A heading</h2><p>\(Self.second)</p>"))
+    }
+
+    @Test func aTableCopiesAsAnHTMLTable() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: Self.table, selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<table><tr><th>Field</th><th>Value</th></tr>"
+            + "<tr><td>one</td><td>two</td></tr><tr><td>three</td><td>four</td></tr></table>"))
+    }
+
+    @Test func theClipboardCarriesTextAndHTMLOnOneItem() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("transcript-copy-\(UUID())"))
+        defer { pasteboard.releaseGlobally() }
+
+        Pasteboard.copy("- one", html: "<ul><li>one</li></ul>", to: pasteboard)
+
+        #expect(pasteboard.pasteboardItems?.count == 1)
+        #expect(pasteboard.string(forType: .string) == "- one")
+        #expect(pasteboard.string(forType: .html) == "<ul><li>one</li></ul>")
+    }
+
     private func parts(of selection: TranscriptSelection) throws -> [String] {
         try #require(selection.selectedText).components(separatedBy: "\n\n")
     }

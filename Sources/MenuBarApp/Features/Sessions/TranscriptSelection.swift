@@ -1,11 +1,16 @@
 import AppKit
 import SwiftUI
 
-// What a piece of the transcript is, as far as copying it is concerned. Most of it is
-// simply a run of text. A table cell also knows which table and row it belongs to, so a
-// selection over a table can be put back together as a grid.
+// What a piece of the transcript is, as far as copying it is concerned. A table cell
+// also knows which table and row it belongs to, so a selection over a table can be put
+// back together as a grid. A list item keeps its marker, which is drawn beside the text
+// rather than typed in it.
 enum TranscriptTextRole: Equatable {
     case block
+    case heading(level: Int)
+    case listItem(depth: Int, marker: String)
+    case quote
+    case code
     case tableCell(table: UUID, row: Int)
 }
 
@@ -106,64 +111,16 @@ final class TranscriptSelection {
 
     // MARK: - Reading
 
-    // Blocks sharing one text view are separated by a single newline, with the gap on
-    // screen drawn rather than typed. The blank line a reader sees between them has to
-    // be put back on the way to the clipboard.
-    private func copied(_ piece: NSAttributedString) -> String {
-        var breaks: [NSRange] = []
-        piece.enumerateAttribute(.transcriptBlockBreak,
-                                 in: NSRange(location: 0, length: piece.length)) { value, range, _ in
-            if value != nil { breaks.append(range) }
-        }
-        guard !breaks.isEmpty else { return piece.string }
+    var selectedText: String? { selectedContent?.plain }
 
-        let text = NSMutableString(string: piece.string)
-        // Back to front, so replacing one does not move the next.
-        for range in breaks.reversed() {
-            text.replaceCharacters(in: range,
-                                   with: String(repeating: "\n\n", count: range.length))
-        }
-        return text as String
-    }
-
-    // The blocks are joined by a blank line because that is the gap the transcript
-    // draws between them, so pasted text keeps the shape it was read in.
-    var selectedText: String? {
-        let taken = placed().compactMap { block -> (role: TranscriptTextRole, text: String)? in
+    var selectedContent: TranscriptClipboard? {
+        let pieces = placed().compactMap { block -> TranscriptClipboard.Piece? in
             let range = block.view.selectedRange()
             guard range.length > 0, let storage = block.view.textStorage,
                   NSMaxRange(range) <= storage.length else { return nil }
-            return (block.role, copied(storage.attributedSubstring(from: range)))
+            return TranscriptClipboard.Piece(role: block.role, text: storage.attributedSubstring(from: range))
         }
-        guard !taken.isEmpty else { return nil }
-
-        var pieces: [String] = []
-        var index = 0
-        while index < taken.count {
-            guard case .tableCell(let table, _) = taken[index].role else {
-                pieces.append(taken[index].text)
-                index += 1
-                continue
-            }
-
-            // Every cell taken from one table becomes a single piece: a tab between the
-            // cells of a row and a newline between the rows. Pasted anywhere that reads
-            // tabs, such as a spreadsheet, the grid arrives as a grid.
-            var rows: [[String]] = []
-            var current: Int?
-            while index < taken.count,
-                  case .tableCell(let next, let row) = taken[index].role,
-                  next == table {
-                if row != current {
-                    rows.append([])
-                    current = row
-                }
-                rows[rows.count - 1].append(taken[index].text)
-                index += 1
-            }
-            pieces.append(rows.map { $0.joined(separator: "\t") }.joined(separator: "\n"))
-        }
-        return pieces.joined(separator: "\n\n")
+        return pieces.isEmpty ? nil : TranscriptClipboard(pieces)
     }
 
     // MARK: - Order

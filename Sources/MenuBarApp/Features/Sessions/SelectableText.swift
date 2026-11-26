@@ -50,6 +50,8 @@ struct TranscriptBlockStyle: Codable, Hashable, Sendable {
     // the opening line of a block carries it: the newlines inside one are line breaks
     // rather than new blocks, and must not be pushed down as well.
     var spacingBefore: CGFloat
+    // Set on a heading, so a copy can still tell it from the paragraphs beside it.
+    var heading: Int? = nil
 }
 
 enum TranscriptBlockStyleAttribute: CodableAttributedStringKey {
@@ -66,6 +68,10 @@ enum TranscriptBlockBreakAttribute: CodableAttributedStringKey {
 
 extension NSAttributedString.Key {
     static let transcriptBlockBreak = NSAttributedString.Key("transcriptBlockBreak")
+    // A line's heading level and a run's Markdown emphasis, kept so a copy can write
+    // them back out as HTML.
+    static let transcriptHeading = NSAttributedString.Key("transcriptHeading")
+    static let transcriptInline = NSAttributedString.Key("transcriptInline")
 }
 
 // Every run of text in the transcript, prose and code alike, is drawn by a text view
@@ -139,7 +145,7 @@ struct SelectableText: View {
                   alignment: .leading,
                   width: .fixed,
                   italic: false,
-                  role: .block,
+                  role: .code,
                   linksLocalServers: false)
     }
 
@@ -468,8 +474,13 @@ private final class LinkTextView: NSTextView {
             })
         }
         if let text = selectedTextForMenu {
+            let copied = selection?.selectedContent
             entries.append(.item("Copy", icon: "doc.on.doc") { [note] in
-                Pasteboard.copy(text)
+                if let copied {
+                    Pasteboard.copy(copied.plain, html: copied.html)
+                } else {
+                    Pasteboard.copy(text)
+                }
                 note?("Copied", "checkmark")
             })
             if let reply {
@@ -496,11 +507,11 @@ private final class LinkTextView: NSTextView {
     // MARK: - Selection
 
     override func copy(_ sender: Any?) {
-        guard let text = selection?.selectedText else {
+        guard let copied = selection?.selectedContent else {
             super.copy(sender)
             return
         }
-        Pasteboard.copy(text)
+        Pasteboard.copy(copied.plain, html: copied.html)
     }
 
     override func selectAll(_ sender: Any?) {
@@ -817,6 +828,8 @@ private struct LinkAwareText: NSViewRepresentable {
             if run[TranscriptBlockBreakAttribute.self] == true {
                 attrs[.transcriptBlockBreak] = true
             }
+            if let heading = block?.heading { attrs[.transcriptHeading] = heading }
+            if !intent.isEmpty { attrs[.transcriptInline] = intent.rawValue }
             if let link = run.link {
                 attrs[.link] = link
             } else {

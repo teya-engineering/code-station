@@ -61,7 +61,8 @@ struct MarkdownBlockView: View, Equatable {
                                size: heading.size,
                                weight: heading.weight,
                                design: heading.design,
-                               alignment: textAlignment)
+                               alignment: textAlignment,
+                               role: .heading(level: level))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .padding(.top, level <= 2 ? 6 : 2)
@@ -73,14 +74,19 @@ struct MarkdownBlockView: View, Equatable {
                     HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
-                        paragraph(item.text, lineSpacing: 2)
+                        paragraph(item.text,
+                                  lineSpacing: 2,
+                                  role: .listItem(depth: item.depth, marker: item.marker))
                     }
                     .padding(.leading, CGFloat(item.depth) * 16 * textScale)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .quote(let text):
-            SelectableText(MarkdownBlock.displayText(text), size: 13, secondary: true)
+            SelectableText(MarkdownBlock.displayText(text),
+                           size: 13,
+                           secondary: true,
+                           role: .quote)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, Space.lg)
                 .overlay(alignment: .leading) {
@@ -98,7 +104,9 @@ struct MarkdownBlockView: View, Equatable {
 
     // A paragraph that holds images renders as text runs with each image between them
     // at reading size; without any it stays one piece of text.
-    @ViewBuilder private func paragraph(_ text: String, lineSpacing: CGFloat = 0) -> some View {
+    @ViewBuilder private func paragraph(_ text: String,
+                                        lineSpacing: CGFloat = 0,
+                                        role: TranscriptTextRole = .block) -> some View {
         let parts = MarkdownBlock.resolvedParts(text) {
             TranscriptImage.resolve($0, projectPath: projectPath)
         }
@@ -125,7 +133,7 @@ struct MarkdownBlockView: View, Equatable {
                         case .text(let piece):
                             let trimmed = piece.trimmed
                             if !trimmed.isEmpty {
-                                paragraphText(trimmed, lineSpacing: lineSpacing)
+                                paragraphText(trimmed, lineSpacing: lineSpacing, role: role)
                             }
                         case .image(let alt, let url, let attributes):
                             imagePreview(url: url, label: alt, attributes: attributes)
@@ -135,7 +143,7 @@ struct MarkdownBlockView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
         } else {
-            paragraphText(MarkdownBlock.displayText(text), lineSpacing: lineSpacing)
+            paragraphText(MarkdownBlock.displayText(text), lineSpacing: lineSpacing, role: role)
         }
     }
 
@@ -154,8 +162,14 @@ struct MarkdownBlockView: View, Equatable {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func paragraphText(_ text: String, lineSpacing: CGFloat) -> some View {
-        SelectableText(text, size: 13.5, lineSpacing: lineSpacing, alignment: textAlignment)
+    private func paragraphText(_ text: String,
+                               lineSpacing: CGFloat,
+                               role: TranscriptTextRole) -> some View {
+        SelectableText(text,
+                       size: 13.5,
+                       lineSpacing: lineSpacing,
+                       alignment: textAlignment,
+                       role: role)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
     }
