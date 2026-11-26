@@ -209,12 +209,15 @@ struct TranscriptSelectionTests {
         defer { page.close() }
         let view = try #require(page.views.first)
 
-        let blank = view.paintedPixels()
-        view.setSelectedRange(NSRange(location: 0, length: Self.first.count))
-        let highlighted = view.paintedPixels()
+        let selected = NSRange(location: 0, length: Self.first.count)
+        let box = view.box(around: selected)
+        let blank = view.paintedShare(in: box)
+        view.setSelectedRange(selected)
+        let highlighted = view.paintedShare(in: box)
 
         try #require(blank > 0)
-        #expect(highlighted > blank * 2)
+        #expect(blank < 0.6)
+        #expect(highlighted > 0.9)
     }
 
     // MARK: - Code blocks
@@ -1212,6 +1215,33 @@ private extension NSTextView {
             }
         }
         return painted
+    }
+
+    // Measuring only the selected text keeps the result the same however much other
+    // text the view holds and however the machine renders the glyphs.
+    func paintedShare(in rect: NSRect) -> Double {
+        guard let rep = bitmapImageRepForCachingDisplay(in: rect) else { return 0 }
+        cacheDisplay(in: rect, to: rep)
+        var painted = 0
+        var sampled = 0
+        for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+                guard let colour = rep.colorAt(x: x, y: y) else { continue }
+                sampled += 1
+                if colour.alphaComponent > 0.05 { painted += 1 }
+            }
+        }
+        return sampled == 0 ? 0 : Double(painted) / Double(sampled)
+    }
+
+    // Inset by a point, since the glyph box can reach a little past the highlight.
+    func box(around characters: NSRange) -> NSRect {
+        guard let layoutManager, let textContainer else { return .zero }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphs = layoutManager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+        let box = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        let origin = textContainerOrigin
+        return box.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: 1, dy: 1)
     }
 
     func characterIndex(of substring: String) -> Int {
