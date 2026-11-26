@@ -45,7 +45,8 @@ struct SentPromptText: View {
                         let prose = SelectableText(
                             prose: SentPrompt.inline(run.text, commands: commandNames,
                                                      opensPrompt: segment.id == 0 && offset == 0 && !run.isQuote),
-                            lineSpacing: 3, width: .hugs, linksLocalServers: false)
+                            lineSpacing: 3, width: .hugs, linksLocalServers: false,
+                            role: run.isQuote ? .quote : .block)
                             .fixedSize(horizontal: false, vertical: true)
                         if run.isQuote {
                             // The bubble can be filled with the accent, so the bar and the dimmed

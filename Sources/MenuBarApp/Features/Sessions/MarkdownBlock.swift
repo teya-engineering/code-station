@@ -455,6 +455,7 @@ extension MarkdownBlock {
                                              weight: NSFont.Weight.semibold.rawValue,
                                              design: heading.design,
                                              spacingBefore: proseGap + (level <= 2 ? 6 : 2))
+                style.heading = level
             default:
                 continue
             }
