@@ -120,6 +120,62 @@ struct GrafanaToolCallTests {
         #expect(spec.series.first?.values == [1, 3])
     }
 
+    @Test func namesSeriesByTheLabelsThatTellThemApart() {
+        let shared = ["__name__": "cpu", "job": "rds"]
+        let one = GrafanaToolResult.Series(id: 0, labels: shared.merging(["db": "a"]) { $1 }, points: [])
+        let two = GrafanaToolResult.Series(id: 1, labels: shared.merging(["db": "b"]) { $1 }, points: [])
+        #expect(GrafanaResultView.seriesNames([one, two]) == ["a", "b"])
+        #expect(GrafanaResultView.seriesNames([one]) == ["cpu"])
+
+        let three = GrafanaToolResult.Series(id: 2, labels: ["db": "c", "az": "1"], points: [])
+        let four = GrafanaToolResult.Series(id: 3, labels: ["db": "d", "az": "2"], points: [])
+        #expect(GrafanaResultView.seriesNames([three, four])
+                == ["{az=\"1\", db=\"c\"}", "{az=\"2\", db=\"d\"}"])
+    }
+
+    @Test func keepsSeriesNamesApartWhenTheirLabelsMatch() {
+        let one = GrafanaToolResult.Series(id: 0, labels: ["job": "api"], points: [])
+        let two = GrafanaToolResult.Series(id: 1, labels: ["job": "api"], points: [])
+        #expect(GrafanaResultView.seriesNames([one, two]) == ["value #1", "value #2"])
+    }
+
+    @Test func roundsReadingsToAFewDigits() {
+        #expect(GrafanaResultView.reading("10.432824618463847") == "10.433")
+        #expect(GrafanaResultView.reading("19.95") == "19.95")
+        #expect(GrafanaResultView.reading("1200") == "1200")
+        #expect(GrafanaResultView.reading("0.000123456") == "0.000123")
+        #expect(GrafanaResultView.reading("0") == "0")
+        #expect(GrafanaResultView.reading("+Inf") == "+Inf")
+        #expect(GrafanaResultView.reading("NaN") == "NaN")
+    }
+
+    @Test func laysSeriesOutAsOneRowPerMoment() throws {
+        let utc = try #require(TimeZone(identifier: "UTC"))
+        let one = GrafanaToolResult.Series(id: 0, labels: ["db": "a"], points: [
+            .init(seconds: 1_790_935_200, raw: "1.5", value: 1.5),
+            .init(seconds: 1_790_935_500, raw: "2", value: 2)
+        ])
+        let two = GrafanaToolResult.Series(id: 1, labels: ["db": "b"], points: [
+            .init(seconds: 1_790_935_500, raw: "3", value: 3)
+        ])
+        let table = GrafanaResultView.SeriesTable([one, two], in: utc)
+        #expect(table.names == ["a", "b"])
+        #expect(table.rows == [
+            .init(time: "10:00:00", readings: ["1.5", nil]),
+            .init(time: "10:05:00", readings: ["2", "3"])
+        ])
+    }
+
+    @Test func showsTheDayWhenARangeCrossesMidnight() throws {
+        let utc = try #require(TimeZone(identifier: "UTC"))
+        let series = GrafanaToolResult.Series(id: 0, labels: [:], points: [
+            .init(seconds: 1_790_985_600 - 60, raw: "1", value: 1),
+            .init(seconds: 1_790_985_600, raw: "2", value: 2)
+        ])
+        let times = GrafanaResultView.SeriesTable([series], in: utc).rows.map(\.time)
+        #expect(times == ["Oct 2 23:59:00", "Oct 3 00:00:00"])
+    }
+
     @Test func showsClockTimesOnATwentyFourHourClock() throws {
         let afternoon = Date(timeIntervalSince1970: 1_790_957_703.123)
         #expect(GrafanaResultView.clock(afternoon, in: try #require(TimeZone(identifier: "UTC")))
