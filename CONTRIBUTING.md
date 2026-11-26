@@ -80,6 +80,8 @@ All docs live in [`docs/`](docs). The decisions behind how the app is built are 
 - [Local data and processes](docs/adrs/0004-local-data-and-processes.md)
 - [Site configuration](docs/adrs/0005-site-configuration.md)
 - [Own design system](docs/adrs/0006-own-design-system.md)
+- [Dispatch requests](docs/adrs/0007-dispatch-requests.md)
+- [Evidence blocks](docs/adrs/0008-evidence-blocks.md)
 
 Guides for working on specific areas:
 

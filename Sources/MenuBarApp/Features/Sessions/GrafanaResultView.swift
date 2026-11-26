@@ -19,8 +19,12 @@ struct GrafanaResultView: View {
         let start: String?
         let end: String?
         let isInstant: Bool
+        // Lines the agent chose from a larger result. How busy the log was cannot be
+        // read off them, since the lines left out are the ones that would say.
+        let isPicked: Bool
 
         init(call: GrafanaToolCall) {
+            isPicked = false
             kind = call.kind == .lokiLogs ? .loki : .prometheus
             title = nil
             server = call.server
@@ -31,6 +35,7 @@ struct GrafanaResultView: View {
         }
 
         init(logs: TranscriptLogsSpec) {
+            isPicked = true
             kind = .loki
             title = logs.title
             server = logs.server
@@ -54,6 +59,8 @@ struct GrafanaResultView: View {
 
     @State private var expanded: Set<Int> = []
     @State private var showsTable = false
+    // The bar of the rhythm strip the pointer is on, or the bar of the line it is on.
+    @State private var hotBucket: Int?
 
     static let widerWindows = ["1h", "6h", "24h"]
 
@@ -125,10 +132,15 @@ struct GrafanaResultView: View {
     @ViewBuilder private var content: some View {
         switch result {
         case .logs(let entries, _):
+            let rhythm = source.isPicked ? nil : LogRhythm(entries)
+            if let rhythm {
+                LogRhythmStrip(rhythm: rhythm, hot: $hotBucket)
+                Rectangle().fill(Theme.hairline).frame(height: 1)
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(entries) { entry in
-                        logRow(entry)
+                        logRow(entry, bucket: rhythm?.bucket(of: entry.date))
                     }
                 }
                 .smoothlyResizes(when: expanded)
@@ -178,8 +190,9 @@ struct GrafanaResultView: View {
         }
     }
 
-    private func logRow(_ entry: GrafanaToolResult.LogEntry) -> some View {
+    private func logRow(_ entry: GrafanaToolResult.LogEntry, bucket: Int?) -> some View {
         let isOpen = expanded.contains(entry.id)
+        let lit = bucket != nil && hotBucket == bucket
         return VStack(alignment: .leading, spacing: Space.sm) {
             Button {
                 if isOpen { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
@@ -199,7 +212,8 @@ struct GrafanaResultView: View {
                     }
                     Text(entry.message)
                         .scaledMono(Typography.Size.detail)
-                        .lineLimit(1)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .contentShape(Rectangle())
@@ -231,6 +245,17 @@ struct GrafanaResultView: View {
         }
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.xs)
+        .background(Color.primary.opacity(lit ? 0.05 : 0))
+        // An edge in the level's colour, so the bad lines can be found by running an eye
+        // down the side of the list.
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Self.levelEdge(entry.level)).frame(width: 2)
+        }
+        .onPointerHover { inside in
+            guard let bucket else { return }
+            if inside { hotBucket = bucket } else if hotBucket == bucket { hotBucket = nil }
+        }
+        .motion(Motion.hover, value: lit)
     }
 
     private func ask(_ text: String) { askAgent?(text) }
@@ -357,10 +382,18 @@ struct GrafanaResultView: View {
     }
 
     private static func levelColour(_ level: String?) -> AnyShapeStyle {
-        switch level?.uppercased() {
-        case "ERROR", "ERR", "FATAL", "CRITICAL", "CRIT": AnyShapeStyle(Theme.deletion)
-        case "WARN", "WARNING": AnyShapeStyle(Theme.attention)
-        default: AnyShapeStyle(.secondary)
+        switch LogRhythm.level(level) {
+        case .error: AnyShapeStyle(Theme.deletion)
+        case .warning: AnyShapeStyle(Theme.attention)
+        case .other: AnyShapeStyle(.secondary)
+        }
+    }
+
+    private static func levelEdge(_ level: String?) -> Color {
+        switch LogRhythm.level(level) {
+        case .error: Theme.deletion
+        case .warning: Theme.attention
+        case .other: .clear
         }
     }
 

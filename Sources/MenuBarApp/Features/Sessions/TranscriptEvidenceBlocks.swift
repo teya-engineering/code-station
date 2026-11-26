@@ -304,13 +304,16 @@ struct TranscriptTraceCard: View {
 // The small accent-coloured action the design system uses inline.
 struct InlineAskButton: View {
     let title: String
+    // The arrow says the click sends something on. A button that opens a fold in place
+    // goes without it.
+    var arrow = true
     let action: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(title + " →")
+            Text(arrow ? title + " →" : title)
                 .font(Typography.label)
                 .foregroundStyle(Theme.accent)
                 .opacity(hovering ? 0.75 : 1)

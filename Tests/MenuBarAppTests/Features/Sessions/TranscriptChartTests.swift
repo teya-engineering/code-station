@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import MenuBarApp
 
@@ -148,35 +150,203 @@ struct TranscriptChartTests {
         #expect(TranscriptChartFormat.value(412, unit: "ms") == "412 ms")
     }
 
-    // The readout rides the pointer, so the only thing that can go wrong is it leaving the
-    // plot. Every case here is a reading the reader would otherwise lose to the edge.
-    @Test func theHoverCardFollowsThePointerAndStaysInThePlot() {
-        let plot = CGSize(width: 400, height: 200)
-        let card = CGSize(width: 120, height: 60)
+    // MARK: - Evidence fields
 
-        let middle = TranscriptChartReadout.placement(
-            pointer: CGPoint(x: 100, y: 100), card: card, within: plot)
-        #expect(middle == CGSize(width: 116, height: 70))
+    private let reset = """
+        {"kind":"line","time":true,"source":"PROMETHEUS","server":"platform-prd",
+         "series":[{"label":"balance","unit":"credits","points":[[0,576],[300,576],[600,2.5],[900,3]]},
+                   {"label":"cpu","unit":"%","points":[[0,12],[300,14],[600,13],[900,15]]},
+                   {"label":"balance, projected","continues":"balance","points":[[900,3],[1500,8]]}],
+         "rules":[{"axis":"y","value":20,"unit":"credits","label":"alert under 20","breach":"below"},
+                  {"axis":"x","value":600,"label":"new instance","tone":"warn","breach":"below"}],
+         "bands":[{"from":700,"label":"alert firing","tone":"bad"},{"from":900,"to":800}],
+         "views":[{"label":"The reset","from":300,"to":900},{"label":"backwards","from":9,"to":1}]}
+        """
 
-        // Near the right edge the card swaps to the left of the pointer rather than run off.
-        let right = TranscriptChartReadout.placement(
-            pointer: CGPoint(x: 380, y: 100), card: card, within: plot)
-        #expect(right == CGSize(width: 244, height: 70))
+    @Test func readsTheFieldsThatMakeAChartEvidence() throws {
+        let chart = try spec(reset)
 
-        // Top and bottom hold the card inside the plot instead of centring it on the pointer.
-        let top = TranscriptChartReadout.placement(
-            pointer: CGPoint(x: 100, y: 4), card: card, within: plot)
-        #expect(top.height == 0)
-        let bottom = TranscriptChartReadout.placement(
-            pointer: CGPoint(x: 100, y: 198), card: card, within: plot)
-        #expect(bottom.height == 140)
+        #expect(chart.series.map(\.unit) == ["credits", "%", nil])
+        #expect(chart.series[2].continues == "balance")
+        #expect(chart.rules[0].breach == .below)
+        #expect(chart.rules[0].unit == "credits")
+        #expect(chart.rules[1].tone == .warn)
+        // A moment has no wrong side to be on.
+        #expect(chart.rules[1].breach == nil)
+        // A band or a window that ends before it starts marks nothing.
+        #expect(chart.bands == [.init(from: 700, to: nil, label: "alert firing", tone: .bad)])
+        #expect(chart.views == [.init(label: "The reset", from: 300, to: 900)])
+        #expect(chart.source == "PROMETHEUS")
+        #expect(chart.server == "platform-prd")
+    }
 
-        // A card wider than the plot has nowhere to go, so it starts at the leading edge
-        // and shows its first characters rather than its last.
-        let cramped = TranscriptChartReadout.placement(
-            pointer: CGPoint(x: 90, y: 50), card: CGSize(width: 500, height: 60),
-            within: plot)
-        #expect(cramped.width == 0)
+    // The chart this was built for: a balance in the hundreds beside a percentage in the
+    // teens. On one scale the percentage is a flat line along the floor.
+    @Test func seriesWithDifferentUnitsGetTheirOwnScale() throws {
+        let lanes = ChartLanes(try spec(reset))
+
+        #expect(lanes.lanes.map(\.unit) == ["credits", "%"])
+        let frame = lanes.frame(from: 0, to: 900)
+        #expect(frame.scales[0] == .init(low: 0, high: 600))
+        #expect(frame.scales[1] == .init(low: 0, high: 20))
+        // The level belongs to the lane whose unit it names.
+        #expect(lanes.lanes[0].levels.map(\.value) == [20])
+        #expect(lanes.lanes[1].levels.isEmpty)
+    }
+
+    @Test func aBlockWithNoneOfTheNewFieldsIsOneLane() throws {
+        let lanes = ChartLanes(try spec("""
+        {"kind":"line","unit":"ms","series":[{"label":"a","points":[[1,400],[2,440]]},
+                                              {"label":"b","points":[[1,410],[2,470]]}]}
+        """))
+
+        #expect(lanes.lanes.count == 1)
+        #expect(lanes.lanes[0].unit == "ms")
+        #expect(lanes.solidLines.map(\.slot) == [0, 1])
+        #expect(lanes.windows.map(\.label) == [ChartLanes.wholeRange])
+        // Readings well above zero keep their own floor, so the change is not flattened.
+        #expect(lanes.frame(from: 1, to: 2).scales[0] == .init(low: 400, high: 500))
+    }
+
+    @Test func aProjectionTakesItsParentsColourAndSaysItIsOne() throws {
+        let lanes = ChartLanes(try spec(reset))
+        let balance = try #require(lanes.solidLines.first)
+
+        #expect(lanes.solidLines.map(\.label) == ["balance", "cpu"])
+        #expect(lanes.projection(of: balance)?.slot == balance.slot)
+        #expect(lanes.readout(balance, at: 600) == .init(value: 2.5, isProjected: false, isBreach: true))
+        #expect(lanes.readout(balance, at: 300) == .init(value: 576, isProjected: false, isBreach: false))
+        #expect(lanes.readout(balance, at: 1500) == .init(value: 8, isProjected: true, isBreach: true))
+        #expect(lanes.readout(lanes.solidLines[1], at: 1500) == nil)
+        // The whole range stops at the last measurement while a named window reaches the rest.
+        #expect(lanes.windows[0].to == 900)
+        #expect(lanes.latest == 900)
+    }
+
+    // With no window to jump to, the whole range is the only way to see a projection.
+    @Test func theWholeRangeHoldsAProjectionWhenNoWindowIsNamed() throws {
+        let lanes = ChartLanes(try spec("""
+        {"kind":"line","series":[{"label":"a","points":[[0,1],[10,2]]},
+                                  {"label":"later","continues":"a","points":[[10,2],[30,4]]}]}
+        """))
+        #expect(lanes.windows[0].to == 30)
+    }
+
+    @Test func aViewRefitsEachScaleToWhatIsInIt() throws {
+        let lanes = ChartLanes(try spec(reset))
+        let recovery = lanes.frame(from: 600, to: 900)
+        // The level stays on the scale, so the line it must clear is still in sight.
+        #expect(recovery.scales[0] == .init(low: 0, high: 20))
+        #expect(lanes.summary(lanes.solidLines[0], in: recovery)?.first == 2.5)
+        #expect(lanes.summary(lanes.solidLines[0], in: recovery)?.high == 3)
+        #expect(lanes.summary(lanes.solidLines[0], in: lanes.frame(from: 1000, to: 1100)) == nil)
+    }
+
+    @Test func thePointerSnapsToAReadingInView() throws {
+        let lanes = ChartLanes(try spec(reset))
+        let frame = lanes.frame(from: 300, to: 900)
+        #expect(lanes.snapped(480, in: frame) == 600)
+        #expect(lanes.snapped(-50, in: frame) == 300)
+    }
+
+    @Test func aBandStillOpenIsNamedWhereItComesIntoView() throws {
+        let lanes = ChartLanes(try spec(reset))
+        let whole = lanes.frame(from: 0, to: 900)
+        #expect(lanes.markers(in: whole).map(\.label) == ["new instance", "alert firing"])
+        #expect(lanes.markers(in: lanes.frame(from: 800, to: 900)).map(\.time) == [800])
+        #expect(lanes.markers(in: lanes.frame(from: 0, to: 500)).isEmpty)
+    }
+
+    // Every case here is a name the reader would otherwise lose to the edge of the card
+    // or to the flag beside it.
+    @Test func flagsNeverLeaveThePlotOrCoverEachOther() {
+        let width: CGFloat = 480
+
+        // Room to the right: the flag hangs there.
+        #expect(ChartGeometry.place(flags: [(100, 120)], within: width) == [.init(row: 0, flipped: false)])
+        // Near the right edge it flips to the left of its stem.
+        #expect(ChartGeometry.place(flags: [(430, 120)], within: width) == [.init(row: 0, flipped: true)])
+        // Two close together: the second one goes up a row rather than over the first.
+        let close = ChartGeometry.place(flags: [(200, 150), (215, 150)], within: width)
+        #expect(close == [.init(row: 1, flipped: false), .init(row: 0, flipped: false)]
+            || close == [.init(row: 0, flipped: true), .init(row: 0, flipped: false)])
+
+        for flags in [[(10.0, 300.0), (20, 300), (30, 300), (470, 300)],
+                      [(200, 150), (215, 150), (230, 150), (245, 150)],
+                      [(0, 500)], [(470, 200), (475, 200), (478, 200)]] as [[(CGFloat, CGFloat)]] {
+            let placed = ChartGeometry.place(flags: flags.map { (x: $0.0, width: $0.1) }, within: width)
+            var taken: [Int: [ClosedRange<CGFloat>]] = [:]
+            for (flag, place) in zip(flags, placed) {
+                guard let row = place.row else { continue }
+                let span = place.flipped ? flag.0 - flag.1...flag.0 : flag.0...flag.0 + flag.1
+                #expect(span.lowerBound >= 0 && span.upperBound <= width)
+                #expect(!(taken[row] ?? []).contains { $0.overlaps(span) })
+                taken[row, default: []].append(span)
+            }
+        }
+    }
+
+    @Test func theTimeAxisIsMarkedAtTimesPeopleSay() {
+        let hour = ChartLanes.ticks(from: 0, to: 3600, limit: 5, isTime: true)
+        #expect(hour.step == 900)
+        #expect(hour.values == [0, 900, 1800, 2700, 3600])
+        #expect(ChartLanes.ticks(from: 0, to: 3600, limit: 5, isTime: false).step == 1000)
+        #expect(ChartLanes.niceStep(37) == 50)
+        #expect(ChartLanes.gridValues(.init(low: 0, high: 600), steps: 3) == [0, 200, 400, 600])
+    }
+
+    @Test func timesAreWrittenOnA24HourClock() {
+        let utc = TimeZone(identifier: "UTC")!
+        let lisbonSummer = TimeZone(identifier: "Europe/Lisbon")!
+        // 2026-07-01 13:05:09 UTC
+        let moment = 1_782_911_109.0
+        #expect(TranscriptChartFormat.clock(moment, in: utc) == "13:05")
+        #expect(TranscriptChartFormat.clock(moment, seconds: true, in: utc) == "13:05:09")
+        #expect(TranscriptChartFormat.clock(moment, in: lisbonSummer) == "14:05")
+        #expect(TranscriptChartFormat.moment(moment, isTime: true, span: 300, in: utc) == "13:05:09")
+        #expect(TranscriptChartFormat.moment(412, isTime: false, span: 300) == "412")
+        #expect(TranscriptChartFormat.span(2100) == "35 min")
+        #expect(TranscriptChartFormat.span(7800) == "2 h 10 min")
+        #expect(TranscriptChartFormat.signed(-573.5) == "-574")
+        #expect(TranscriptChartFormat.signed(4.1) == "+4.1")
+    }
+
+    @Test func aChangeOfViewMovesTheAxisAndTheScalesTogether() throws {
+        let lanes = ChartLanes(try spec(reset))
+        let whole = lanes.frame(from: 0, to: 900)
+        let recovery = lanes.frame(from: 600, to: 900)
+        let half = whole.mixed(with: recovery, 0.5)
+        #expect(half.from == 300)
+        #expect(half.scales[0].high == 310)
+        #expect(whole.mixed(with: recovery, 1) == recovery)
+    }
+
+    // A marked moment lands as the line reaches it, and nothing waits once the line is drawn.
+    @Test func markersLandAsTheLinePassesThem() {
+        #expect(ChartMotion.landed(0.5, drawn: 0.4) == 0)
+        #expect(ChartMotion.landed(0.5, drawn: 0.5 + ChartMotion.markerLanding * 2) == 1)
+        #expect(ChartMotion.landed(0.99, drawn: 1) == 1)
+        // The dot at the end of a line waits for the line to reach it.
+        #expect(ChartMotion.endDot(drawn: 0.9) == 0)
+        #expect(ChartMotion.endDot(drawn: 1) == 1)
+    }
+
+    // A block that was whole but empty is an answer, not a failure, and is told apart so
+    // the reader is offered a wider window rather than a redraw.
+    @Test func anEmptyChartIsToldApartFromABrokenOne() {
+        #expect(throws: TranscriptChartSpec.Failure.noReadings(title: "p99")) {
+            try TranscriptChartSpec.parse(#"{"kind":"line","title":"p99","series":[{"label":"a","points":[]}]}"#).get()
+        }
+        #expect(ChartFollowUp.widen(title: "p99").contains("```chart"))
+        #expect(ChartFollowUp.window(title: "p99", from: "10:35", to: "11:10 UTC", change: "a went from 1 to 2.")
+            == "Look closer at 10:35 to 11:10 UTC on the chart \"p99\". a went from 1 to 2. "
+            + "What else changed in that window? Show what you find as evidence.")
+    }
+
+    @Test func theAgentIsToldAboutUnitsAndViews() {
+        for field in ["\"unit\"", "\"continues\"", "\"breach\"", "\"bands\"", "\"views\"", "\"source\""] {
+            #expect(TranscriptChartSpec.agentInstructions.contains(field))
+        }
     }
 
     // The order of the slots is the mechanism that keeps neighbouring series apart for a
@@ -185,5 +355,33 @@ struct TranscriptChartTests {
         #expect(TranscriptChartPalette.colour(0) == Theme.chartSeries[0])
         #expect(TranscriptChartPalette.colour(7) == Theme.chartSeries[7])
         #expect(Theme.chartSeries.count == TranscriptChartSpec.seriesLimit)
+    }
+
+    // A long series name, three windows and a flag at each edge are what used to push a
+    // chart past its card. The card must take the width it is given and no more.
+    @MainActor @Test(arguments: [480.0, 620.0, 900.0])
+    func theChartStaysInsideItsCard(width: Double) throws {
+        let long = "{namespace=acceptance-bin, app=acceptance-bin-service, pod=acceptance-bin-service-7d9f8b6c5-x2k4q}"
+        let chart = try spec("""
+        {"kind":"line","time":true,"title":"acceptance-bin-service-main - CPU credit balance (min) vs CPU % (max)",
+         "caption":"The balance fell from 576 to 2.5 in one 5 minute sample while CPU stayed level.",
+         "source":"PROMETHEUS","server":"platform-prd",
+         "series":[{"label":"\(long)","unit":"credits","points":[[0,576],[300,576],[600,2.5],[900,3]]},
+                   {"label":"CPU utilization (max)","unit":"%","points":[[0,12],[300,14],[600,13],[900,15]]}],
+         "rules":[{"axis":"x","value":0,"label":"a moment named at the very start of the range"},
+                  {"axis":"x","value":900,"label":"a moment named at the very end of the range"}],
+         "views":[{"label":"The reset","from":300,"to":900},{"label":"Recovery","from":600,"to":900},
+                  {"label":"A third window with a long name","from":0,"to":300}]}
+        """)
+        for view in [AnyView(TranscriptChartView(spec: chart, arrives: false)),
+                     AnyView(ChartArrivingCard()), AnyView(ChartMissingCard(failure: .unreadable))] {
+            let card = NSHostingController(rootView: view
+                .environment(TooltipPresenter())
+                .environment(DialogPresenter())
+                .environment(MenuPresenter()))
+            let size = card.sizeThatFits(in: CGSize(width: width, height: 4000))
+            #expect(size.width <= width)
+            #expect(size.height > 0)
+        }
     }
 }

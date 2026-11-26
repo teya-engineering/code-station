@@ -39,17 +39,49 @@ struct TranscriptChartSpec: Equatable, Sendable {
     struct Series: Equatable, Sendable, Identifiable {
         let label: String
         let points: [Point]
+        // What the readings count. Series that share a unit share a scale, and a series
+        // with another unit gets a lane of its own, so a balance in the hundreds never
+        // flattens a percentage drawn beside it.
+        var unit: String? = nil
+        // The label of the series this one carries on from, for a projection.
+        var continues: String? = nil
         var id: String { label }
 
         var values: [Double] { points.map(\.y) }
     }
 
+    // What a mark says about the moment or the level it sits on. It picks the colour, so
+    // red is only ever a breach or a failure.
+    enum Tone: String, Sendable { case warn, bad, good, note }
+
     struct Rule: Equatable, Sendable, Identifiable {
         enum Axis: String, Decodable, Sendable { case x, y }
+        // Which side of a level is the wrong side to be on.
+        enum Breach: String, Sendable { case below, above }
         let axis: Axis
         let value: Double
         let label: String?
+        var tone: Tone? = nil
+        var breach: Breach? = nil
+        // The unit of the lane a level belongs to, when there is more than one.
+        var unit: String? = nil
         var id: String { "\(axis.rawValue)-\(value)" }
+    }
+
+    // A stretch of time that something held for, such as an alert firing. One with no
+    // end is still going, and is drawn up to the last reading.
+    struct Band: Equatable, Sendable {
+        let from: Double
+        let to: Double?
+        let label: String?
+        let tone: Tone
+    }
+
+    // A named window of the time axis, for an event that is a small part of the range.
+    struct Window: Equatable, Sendable {
+        let label: String
+        let from: Double
+        let to: Double
     }
 
     struct Delta: Equatable, Sendable {
@@ -68,6 +100,11 @@ struct TranscriptChartSpec: Equatable, Sendable {
     let isTime: Bool
     let series: [Series]
     let rules: [Rule]
+    let bands: [Band]
+    let views: [Window]
+    // Where the readings came from, such as "PROMETHEUS" on "platform-prd".
+    let source: String?
+    let server: String?
     let value: Double?
     let delta: Delta?
 
@@ -93,10 +130,17 @@ struct TranscriptChartSpec: Equatable, Sendable {
 // MARK: - Reading one out of a reply
 
 extension TranscriptChartSpec {
-    enum Failure: LocalizedError {
+    enum Failure: LocalizedError, Equatable {
         case unreadable
+        // The block was whole and named its series, but none of them had a reading.
+        case noReadings(title: String?)
 
-        var errorDescription: String? { "This chart could not be read." }
+        var errorDescription: String? {
+            switch self {
+            case .unreadable: "This chart could not be read."
+            case .noReadings: "No readings in this window."
+            }
+        }
     }
 
     // The language tag of a fenced block, which is how a reply asks for a chart.
@@ -104,8 +148,10 @@ extension TranscriptChartSpec {
 
     static func parse(_ json: String) -> Result<Self, Failure> {
         guard let decoded = try? JSONDecoder().decode(Wire.self, from: Data(json.utf8)),
-              let spec = Self(decoded), !spec.isEmpty else { return .failure(.unreadable) }
-        return .success(spec)
+              let spec = Self(decoded) else { return .failure(.unreadable) }
+        guard spec.isEmpty else { return .success(spec) }
+        return .failure(spec.kind != .stat && !spec.series.isEmpty
+            ? .noReadings(title: spec.title) : .unreadable)
     }
 
     private init?(_ wire: Wire) {
@@ -122,13 +168,31 @@ extension TranscriptChartSpec {
         }
         rules = (wire.rules ?? []).compactMap {
             guard $0.value.isFinite else { return nil }
-            return Rule(axis: Rule.Axis(rawValue: ($0.axis ?? "y").lowercased()) ?? .y,
-                        value: $0.value, label: $0.label?.trimmed.nilIfBlank)
+            let axis = Rule.Axis(rawValue: ($0.axis ?? "y").lowercased()) ?? .y
+            return Rule(axis: axis, value: $0.value, label: $0.label?.trimmed.nilIfBlank,
+                        tone: $0.tone.flatMap { Tone(rawValue: $0.lowercased()) },
+                        // A moment has no wrong side, so only a level can be breached.
+                        breach: axis == .y ? $0.breach.flatMap { Rule.Breach(rawValue: $0.lowercased()) } : nil,
+                        unit: $0.unit?.trimmed.nilIfBlank)
         }
+        bands = (wire.bands ?? []).compactMap {
+            guard $0.from.isFinite, $0.to?.isFinite ?? true, ($0.to ?? .infinity) > $0.from else { return nil }
+            return Band(from: $0.from, to: $0.to, label: $0.label?.trimmed.nilIfBlank,
+                        tone: $0.tone.flatMap { Tone(rawValue: $0.lowercased()) } ?? .bad)
+        }
+        views = (wire.views ?? []).compactMap {
+            guard let label = $0.label?.trimmed.nilIfBlank, $0.from.isFinite, $0.to.isFinite,
+                  $0.to > $0.from else { return nil }
+            return Window(label: label, from: $0.from, to: $0.to)
+        }
+        source = wire.source?.trimmed.nilIfBlank
+        server = wire.server?.trimmed.nilIfBlank
 
         let cleaned = (wire.series ?? []).map { wired in
             Series(label: wired.label.trimmed,
-                   points: Self.sampled(wired.points.filter(\.y.isFinite)))
+                   points: Self.sampled(wired.points.filter(\.y.isFinite)),
+                   unit: wired.unit?.trimmed.nilIfBlank,
+                   continues: wired.continues?.trimmed.nilIfBlank)
         }
         rawSeriesCount = cleaned.count
         series = Array(cleaned.prefix(Self.seriesLimit))
@@ -151,11 +215,27 @@ extension TranscriptChartSpec {
         struct Series: Decodable {
             let label: String
             let points: [Point]
+            let unit: String?
+            let continues: String?
         }
         struct Rule: Decodable {
             let axis: String?
             let value: Double
             let label: String?
+            let tone: String?
+            let breach: String?
+            let unit: String?
+        }
+        struct Band: Decodable {
+            let from: Double
+            let to: Double?
+            let label: String?
+            let tone: String?
+        }
+        struct Window: Decodable {
+            let label: String?
+            let from: Double
+            let to: Double
         }
         struct Delta: Decodable {
             let value: Double
@@ -169,6 +249,10 @@ extension TranscriptChartSpec {
         let time: Bool?
         let series: [Series]?
         let rules: [Rule]?
+        let bands: [Band]?
+        let views: [Window]?
+        let source: String?
+        let server: String?
         let value: Double?
         let delta: Delta?
     }
@@ -211,8 +295,22 @@ extension TranscriptChartSpec {
         - "stat" is one headline number: "value", plus an optional "delta" of \
         {"value": n, "label": "vs the hour before", "goodDirection": "down"}. Give it a \
         single series as well to draw a sparkline under the number.
-        - "rules" marks a threshold or a moment: an SLO on the y axis, a deploy or an \
-        alert firing on the x axis.
+        - "rules" marks a threshold or a moment: an SLO on the y axis, a deploy on the x \
+        axis. A rule may take a "tone" of "warn", "bad", "good" or "note". A y rule may \
+        take "breach": "below" or "above" to say which side is the wrong one, and the \
+        "unit" of the series it belongs to.
+        - Give each series its "unit", such as "credits" or "%". Series with different \
+        units are drawn on their own scales, one above the other, on one time axis.
+        - A series that projects another forward takes "continues": the label of that \
+        series. It is drawn dotted and marked as projected.
+        - "bands" shades a stretch of time: {"from": x, "to": x, "label": "alert firing", \
+        "tone": "bad"}. Leave "to" out while it is still going.
+        - "views" names windows of the time axis the reader can jump to: \
+        {"label": "The reset", "from": x, "to": x}. Add one when the event is a small \
+        part of the range.
+        - "source" and "server" say where the readings came from, such as "PROMETHEUS" \
+        and "platform-prd".
+        - A "stat" with a y rule draws a meter from zero to that rule, as a target.
         - At most \(seriesLimit) series, and two to four reads best. At most \(pointLimit) \
         points per series: sample a longer range down yourself, rather than sending every \
         scrape.

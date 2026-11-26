@@ -88,7 +88,7 @@ enum Motion {
     // Core Animation plays in AppKit views move the same way.
     private static let drawPoints: (Double, Double, Double, Double) = (0.2, 0.7, 0.1, 1)
 
-    private static func drawAnimation(duration: TimeInterval) -> Animation {
+    static func drawAnimation(duration: TimeInterval) -> Animation {
         .timingCurve(drawPoints.0, drawPoints.1, drawPoints.2, drawPoints.3, duration: duration)
     }
 

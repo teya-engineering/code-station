@@ -20,6 +20,7 @@ enum Typography {
         static let wordmark: CGFloat = 15
         static let title: CGFloat = 17
         static let display: CGFloat = 22
+        static let figure: CGFloat = 34
     }
 
     // The name of a whole screen.
@@ -117,6 +118,57 @@ enum ControlHeight {
     static let lg: CGFloat = 32
     // The one action an empty pane or a whole form is there to offer.
     static let xl: CGFloat = 36
+}
+
+// MARK: - Chart
+
+// The sizes a chart in a reply is built from. A chart is drawn by hand, so its lanes,
+// rail and marks take their sizes from here the way a form takes its from `FormMetrics`.
+enum ChartMetrics {
+    // The first lane holds the series the finding is about, so it stands tallest. Each
+    // lane after it is a strip of context.
+    static let leadLaneHeight: CGFloat = 172
+    static let laneHeight: CGFloat = 76
+    static let laneGap: CGFloat = 24
+    // The room above the plot where moments are named, two rows of flags deep.
+    static let railHeight: CGFloat = 46
+    static let flagRows = 2
+    static let flagHeight: CGFloat = 18
+    static let flagStep: CGFloat = 22
+    static let flagGap: CGFloat = 4
+    static let flagEdge: CGFloat = 2
+    // With no moments to name, the rail only holds the unit over the first lane.
+    static let unitRoom: CGFloat = 18
+    static let axisHeight: CGFloat = 24
+    static let axisWidth: CGFloat = 40
+    static let trailingInset: CGFloat = Space.lg
+    // One mark of the time axis for about this much width.
+    static let tickSpacing: CGFloat = 88
+
+    static let lineWidth: CGFloat = 2
+    static let sparkLineWidth: CGFloat = 1.75
+    static let endDot: CGFloat = 3.5
+    static let hoverDot: CGFloat = 4.5
+    static let keyWidth: CGFloat = 14
+    static let keyHeight: CGFloat = 3
+    // How far a series fades while another one is pointed at in the strip.
+    static let dimmed: Double = 0.16
+    // The longest a series name may run in the strip before it is cut in the middle.
+    static let nameWidth: CGFloat = 220
+
+    static let barHeight: CGFloat = 14
+    static let barNameShare: CGFloat = 0.46
+    // The room kept at the end of a bar's track for its number.
+    static let barValueRoom: CGFloat = 64
+    static let statMinHeight: CGFloat = 104
+    static let sparkHeight: CGFloat = 44
+    static let meterHeight: CGFloat = 8
+    static let cometHeight: CGFloat = 56
+
+    // The strip of log volume above the lines.
+    static let rhythmHeight: CGFloat = 50
+    static let rhythmBars = 60
+    static let rhythmGap: CGFloat = 2
 }
 
 // MARK: - Scroll cap

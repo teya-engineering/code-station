@@ -322,27 +322,31 @@ struct MarkdownProse<Code: View>: View {
     }
 }
 
-// A chart in place of the block that carried it. A chart still arriving is left out
-// rather than drawn from half its data, and one that arrived broken says so: dropping it
-// would lose the evidence the agent gathered without admitting that it had.
+// A chart in place of the block that carried it. A chart still arriving holds its place
+// rather than being drawn from half its data, and one that arrived broken says so:
+// dropping it would lose the evidence the agent gathered without admitting that it had.
 struct TranscriptChartBlock: View, Equatable {
     let segment: MessageSegment
 
+    // Set once the block has been seen part way through. A chart the reader watched
+    // stream in then stands complete, since its arrival was not something they did.
+    @State private var streamed = false
+
     var body: some View {
         if segment.isOpen {
-            EmptyView()
+            ChartArrivingCard()
+                .onAppear { streamed = true }
         } else {
             switch TranscriptChartSpec.parse(segment.text) {
             case .success(let spec):
-                TranscriptChartView(spec: spec)
-            case .failure:
-                Text(TranscriptChartSpec.Failure.unreadable.localizedDescription)
-                    .scaledText(Typography.Size.detail)
-                    .foregroundStyle(Theme.warningText)
-                    .padding(.vertical, Space.xxs)
+                TranscriptChartView(spec: spec, arrives: !streamed)
+            case .failure(let failure):
+                ChartMissingCard(failure: failure)
             }
         }
     }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.segment == rhs.segment }
 }
 
 // A whole file rendered for the preview pane. Built lazily, since a document can run to
