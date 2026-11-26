@@ -152,20 +152,40 @@ extension ChangesView {
     private func listedChanges(_ repositoryRoot: String) -> [GitChange] {
         let sections = changeSections(repositoryRoot)
 
-        return sections.flatMap { listsRows($0, of: sections, in: repositoryRoot) ? $0.files : [] }
+        return sections.flatMap { listsRows($0, sectionCount: sections.count, in: repositoryRoot) ? $0.files : [] }
     }
 
-    private func listsRows(_ section: ChangeSection, of sections: [ChangeSection], in repositoryRoot: String) -> Bool {
-        sections.count == 1 || !isFolded(section.role, in: repositoryRoot)
+    // A lone section has no header to unfold it with, so its rows always show.
+    private func listsRows(_ section: ChangeSection, sectionCount: Int, in repositoryRoot: String) -> Bool {
+        sectionCount == 1 || !isFolded(section.role, in: repositoryRoot)
     }
 
     private func isFolded(_ role: FileRole, in repositoryRoot: String) -> Bool {
+        isStoredFolded(role, in: repositoryRoot)
+            && navigation.filterOpenedSections[repositoryRoot]?.contains(role) != true
+    }
+
+    private func isStoredFolded(_ role: FileRole, in repositoryRoot: String) -> Bool {
         (role == .generated) != (navigation.flippedSections[repositoryRoot]?.contains(role) == true)
     }
 
+    // A choice the user makes, by clicking a header or picking a file, outlasts the filter.
     private func setFolded(_ folded: Bool, _ role: FileRole, in repositoryRoot: String) {
-        guard isFolded(role, in: repositoryRoot) != folded else { return }
+        navigation.filterOpenedSections[repositoryRoot]?.remove(role)
+        guard isStoredFolded(role, in: repositoryRoot) != folded else { return }
         navigation.flippedSections[repositoryRoot, default: []].formSymmetricDifference([role])
+    }
+
+    private func openSectionsMatchingFilter() {
+        guard isFilteringFiles else {
+            navigation.filterOpenedSections = [:]
+            return
+        }
+        for repository in repositories {
+            for section in changeSections(repository.root) where isFolded(section.role, in: repository.root) {
+                navigation.filterOpenedSections[repository.root, default: []].insert(section.role)
+            }
+        }
     }
 
     private func roleHeader(_ section: ChangeSection, in repositoryRoot: String) -> some View {
@@ -399,6 +419,7 @@ extension ChangesView {
                     .smoothlyResizes(when: mode == .history ? navigation.collapsedHistories : navigation.collapsed)
                     .smoothlyResizes(when: navigation.foldedNotes)
                     .smoothlyResizes(when: navigation.flippedSections)
+                    .smoothlyResizes(when: navigation.filterOpenedSections)
                     .smoothlyResizes(when: navigation.hideViewed)
                 }
                 .accessibilityLabel(mode == .history ? "Workspace projects and commits"
@@ -429,13 +450,7 @@ extension ChangesView {
                     selectRepository(item.root, item.path)
                     return .handled
                 }
-                .onChange(of: navigation.fileFilter) { _, _ in
-                    guard isFilteringFiles else { return }
-                    for repository in repositories
-                    where shownChanges(repository.root).contains(where: { role($0, in: repository.root) == .generated }) {
-                        setFolded(false, .generated, in: repository.root)
-                    }
-                }
+                .onChange(of: navigation.fileFilter) { _, _ in openSectionsMatchingFilter() }
                 .onChange(of: navigatorCursor) { _, item in
                     if let item { proxy.scrollTo(item) }
                 }
@@ -498,7 +513,7 @@ extension ChangesView {
             let sections = changeSections(repository.root)
             ForEach(sections) { section in
                 if sections.count > 1 { roleHeader(section, in: repository.root) }
-                if listsRows(section, of: sections, in: repository.root) {
+                if listsRows(section, sectionCount: sections.count, in: repository.root) {
                     sectionRows(section.files, in: repository.root)
                 }
             }
