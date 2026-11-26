@@ -12,6 +12,9 @@ struct SessionAsideCard: View {
     // Past this the answer scrolls, so a long one cannot push the composer off the pane.
     private let maxAnswerHeight: CGFloat = 240
     @State private var answerHeight: CGFloat = 0
+    // The answer is drawn as several text views, one per block, so it gets a selection
+    // of its own that runs across them, the way the transcript's does.
+    @State private var selection = TranscriptSelection()
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.md) {
@@ -80,6 +83,8 @@ struct SessionAsideCard: View {
                     MarkdownCodeBlock(segment: segment).equatable()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .environment(\.transcriptSelection, selection)
+                .background(TranscriptSelectionClearing(selection: selection))
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { answerHeight = $0 }
             }
             .scrollBounceBehavior(.basedOnSize)

@@ -514,7 +514,8 @@ private final class LinkTextView: NSTextView {
     // The selection is painted here rather than left to AppKit, which draws a dimmed
     // highlight in every text view that is not the first responder. Only one block of a
     // transcript can hold that, so a selection over several would otherwise fade
-    // everywhere but the block the drag started in.
+    // everywhere but the block the drag started in. AppKit's own highlight is switched
+    // off for every view, so a view that selects on its own is painted here as well.
     override func draw(_ dirtyRect: NSRect) {
         drawFindHighlights()
         drawSelectionHighlight()
@@ -532,7 +533,7 @@ private final class LinkTextView: NSTextView {
 
     private func drawSelectionHighlight() {
         let characters = selectedRange()
-        guard selection != nil, characters.length > 0 else { return }
+        guard characters.length > 0 else { return }
         fill(characters, with: Theme.accentNSColor.withAlphaComponent(0.28))
     }
 
