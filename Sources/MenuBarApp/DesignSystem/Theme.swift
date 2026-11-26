@@ -21,18 +21,20 @@ enum Theme {
     // white card. Values are Lemonade's neutral tokens.
     //
     // The canvas a pane sits on. The sidebar is a shade under it and a card a shade over
-    // it, so the three surfaces separate without a single line between them.
+    // it, so the three surfaces separate without a single line between them. The dark
+    // side is a warm charcoal rather than near black: near black leaves too little room
+    // for the shades to show, and bright text on it glares.
     static let canvasLightNSColor = NSColor(srgbRed: 0.961, green: 0.953, blue: 0.929, alpha: 1)
-    static let canvasDarkNSColor = NSColor(srgbRed: 0.082, green: 0.082, blue: 0.075, alpha: 1)
+    static let canvasDarkNSColor = NSColor(srgbRed: 0.122, green: 0.122, blue: 0.110, alpha: 1)
     static let backgroundNSColor = adaptiveNSColor(light: canvasLightNSColor,
                                                    dark: canvasDarkNSColor)
     static let background = Color(nsColor: backgroundNSColor)
     static let sidebar = adaptive(
         light: NSColor(srgbRed: 0.937, green: 0.929, blue: 0.898, alpha: 1),
-        dark: NSColor(srgbRed: 0.067, green: 0.067, blue: 0.062, alpha: 1))
-    static let card = adaptive(
-        light: NSColor(srgbRed: 1, green: 0.992, blue: 0.965, alpha: 1),
-        dark: NSColor(srgbRed: 0.125, green: 0.122, blue: 0.114, alpha: 1))
+        dark: NSColor(srgbRed: 0.102, green: 0.102, blue: 0.094, alpha: 1))
+    static let cardLightNSColor = NSColor(srgbRed: 1, green: 0.992, blue: 0.965, alpha: 1)
+    static let cardDarkNSColor = NSColor(srgbRed: 0.173, green: 0.169, blue: 0.157, alpha: 1)
+    static let card = adaptive(light: cardLightNSColor, dark: cardDarkNSColor)
     static let secondaryText = adaptive(
         light: NSColor(srgbRed: 106.0 / 255, green: 108.0 / 255, blue: 96.0 / 255, alpha: 1),
         dark: .secondaryLabelColor)
@@ -76,14 +78,14 @@ enum Theme {
     // mistaken for one that can. WarningContrastTests measures it on its own tint.
     static let plan = adaptive(
         light: NSColor(srgbRed: 0.190, green: 0.380, blue: 0.620, alpha: 1),
-        dark: NSColor(srgbRed: 0.498, green: 0.659, blue: 0.871, alpha: 1))
+        dark: NSColor(srgbRed: 0.538, green: 0.686, blue: 0.881, alpha: 1))
 
     // A Design session set to go all out. Violet is the project wheel's ink, kept clear of
     // the green, amber, blue and red the shield beside it uses to mean trust levels. The
     // dark side is lifted until the pill's words read on its own tint.
     static let showcase = adaptive(
         light: NSColor(srgbRed: 0.361, green: 0.200, blue: 0.588, alpha: 1),
-        dark: NSColor(srgbRed: 0.690, green: 0.522, blue: 0.969, alpha: 1))
+        dark: NSColor(srgbRed: 0.740, green: 0.598, blue: 0.974, alpha: 1))
 
     static let snoozeSurface = adaptive(
         light: NSColor(srgbRed: 236.0 / 255, green: 230.0 / 255, blue: 242.0 / 255, alpha: 1),
@@ -142,7 +144,7 @@ enum Theme {
     // is the brand yellow taken most of the way to a leaf green.
     static let userMessage = adaptive(
         light: NSColor(srgbRed: 0.902, green: 0.914, blue: 0.784, alpha: 1),
-        dark: NSColor(srgbRed: 0.180, green: 0.196, blue: 0.129, alpha: 1))
+        dark: NSColor(srgbRed: 0.204, green: 0.220, blue: 0.149, alpha: 1))
     static let userMessageRing = Color(red: 0.471, green: 0.502, blue: 0.196).opacity(0.3)
 
     // Diff colours, shared by the changes screen, the chat's edit cards, and the
@@ -167,7 +169,7 @@ enum Theme {
     // its own tint, so the dark side is lifted; paper keeps the same red.
     static let deletionText = adaptive(
         light: deletionLight,
-        dark: NSColor(srgbRed: 0.918, green: 0.482, blue: 0.447, alpha: 1))
+        dark: NSColor(srgbRed: 0.928, green: 0.544, blue: 0.513, alpha: 1))
 
     // A merged pull request, in GitHub's merge purple. Only a pull request wears it.
     static let mergedNSColor = adaptiveNSColor(
@@ -208,14 +210,14 @@ enum Theme {
         dark: NSColor(srgbRed: 0.95, green: 0.64, blue: 0.56, alpha: 1))
     static let warningBackground = adaptive(
         light: NSColor(srgbRed: 0.98, green: 0.90, blue: 0.88, alpha: 1),
-        dark: NSColor(srgbRed: 0.22, green: 0.11, blue: 0.10, alpha: 1))
+        dark: NSColor(srgbRed: 0.27, green: 0.14, blue: 0.13, alpha: 1))
 
     // The terminal a command's output is read in. Dark in both appearances, so a command
     // reads as a shell would print it rather than as another card, and so the same run of
     // text looks the same whichever appearance the reader is in.
     static let terminal = adaptive(
         light: NSColor(srgbRed: 0.169, green: 0.173, blue: 0.149, alpha: 1),
-        dark: NSColor(srgbRed: 0.051, green: 0.055, blue: 0.047, alpha: 1))
+        dark: NSColor(srgbRed: 0.078, green: 0.078, blue: 0.071, alpha: 1))
     static let terminalText = adaptive(
         light: NSColor(srgbRed: 0.925, green: 0.914, blue: 0.867, alpha: 1),
         dark: NSColor(srgbRed: 0.894, green: 0.886, blue: 0.847, alpha: 1))
@@ -255,7 +257,7 @@ enum Theme {
     // below, so it reads as a footnote to the heading rather than a band of its own.
     static let statusBand = adaptive(
         light: NSColor(srgbRed: 0.945, green: 0.937, blue: 0.910, alpha: 1),
-        dark: NSColor(srgbRed: 0.102, green: 0.102, blue: 0.094, alpha: 1))
+        dark: NSColor(srgbRed: 0.145, green: 0.141, blue: 0.133, alpha: 1))
     static let statusBandHeight: CGFloat = 30
 
     // A project's colour, used everywhere the project appears: its sidebar tile, the rail

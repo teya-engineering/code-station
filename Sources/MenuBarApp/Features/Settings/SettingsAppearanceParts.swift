@@ -256,8 +256,7 @@ private struct SettingsThemePreview: View {
 
     private func preview(dark: Bool) -> some View {
         ZStack {
-            (dark ? Color(red: 0.082, green: 0.082, blue: 0.067)
-                  : Color(red: 0.969, green: 0.957, blue: 0.918))
+            Color(nsColor: dark ? Theme.canvasDarkNSColor : Theme.canvasLightNSColor)
 
             HStack(spacing: Space.xs) {
                 RoundedRectangle(cornerRadius: 2)
@@ -278,9 +277,7 @@ private struct SettingsThemePreview: View {
                 }
             }
             .padding(Space.sm)
-            .surface(dark
-                     ? Color(red: 0.125, green: 0.122, blue: 0.114)
-                     : Color(red: 1, green: 0.992, blue: 0.965),
+            .surface(Color(nsColor: dark ? Theme.cardDarkNSColor : Theme.cardLightNSColor),
                      cornerRadius: Radius.inset,
                      border: dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
             .padding(Space.sm)
