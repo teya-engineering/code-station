@@ -2024,6 +2024,7 @@ final class ProjectStore {
         fork.settings = source.settings
         fork.agentAvatarName = source.agentAvatarName
         fork.importedOrigin = source.importedOrigin
+        fork.importedAt = source.importedAt
         fork.knownAgentSessionIDs = source.knownAgentSessionIDs
         fork.claudeSessionID = checkpoint.claudeSessionID
         fork.messages = Array(messages[..<m])
@@ -2504,9 +2505,13 @@ final class ProjectStore {
 
     // A session imported before imports were dated would age by its original conversation,
     // and could be offered for deletion, or taken, the first launch after an update. The
-    // transcript file is the nearest record of the import: it is written then, and written
-    // again only by a new turn, which moves the session's age on anyway. Without one,
-    // the clock starts now, which can keep a session too long but never too short.
+    // transcript file is the nearest record of the import. Every save replaces the whole
+    // file, so its date is the last write: the import itself when the session was never
+    // used, or the last turn when it was. A last write close to the last turn means the
+    // session was used, and it ages from that turn like any other. Without a file, the
+    // clock starts now, which can keep a session too long but never too short.
+    // The write is left to the debounced save, so it runs after the selection is restored
+    // and off the main thread.
     private func dateImportsMadeBeforeTheirDateWasKept(now: Date = Date()) {
         let undated = sessions.indices.filter {
             sessions[$0].importedOrigin != nil && sessions[$0].importedAt == nil
@@ -2514,11 +2519,12 @@ final class ProjectStore {
         guard !undated.isEmpty else { return }
         for i in undated {
             let path = transcriptURL(sessions[i].id).path
-            let written = (try? FileManager.default.attributesOfItem(atPath: path))?[.creationDate] as? Date
-            sessions[i].importedAt = min(written ?? now, now)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+            let written = min(attributes?[.creationDate] as? Date ?? now, now)
+            let lastTurn = sessions[i].lastActivity
+            sessions[i].importedAt = written > lastTurn.addingTimeInterval(3_600) ? written : lastTurn
         }
-        markIndexDirty()
-        save()
+        scheduleIndexSave()
     }
 
     // Projects whose folder has since been moved or deleted; sessions there cannot run.
