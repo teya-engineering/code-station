@@ -121,6 +121,8 @@ struct SessionScrollTests {
     func submittingAndQueuingPromptsResumeFollowingALongTranscript(multiline: Bool) async throws {
         let pane = try Pane()
         defer { pane.close() }
+        // Claude takes prompts as soon as it starts, so only this setting holds the second one back.
+        pane.settings.midTurnPromptDelivery = .afterTurn
         let scroll = try await pane.transcript()
         let editor = try #require(pane.views.compactMap { $0 as? NSTextView }
             .first { $0.isEditable })
@@ -201,6 +203,7 @@ struct SessionScrollTests {
     private final class Pane {
         let harness: RunnerHarness
         let terminals = TerminalStore(registry: ShellRegistry(directory: ShellNotes.scratch()))
+        let settings: AppSettings
         let window: NSWindow
         let view: NSView
 
@@ -228,6 +231,7 @@ struct SessionScrollTests {
             let preferences = scratchDefaults()
             let settings = AppSettings(agentAvatarURL: harness.scratch.path("avatar.png"),
                                        preferences: preferences)
+            self.settings = settings
             let hosting = NSHostingController(rootView:
                 SessionView(sessionID: harness.session.id, transcriptFind: find)
                     .environment(\._accessibilityReduceMotion, reduceMotion)
