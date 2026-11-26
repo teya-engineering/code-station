@@ -296,6 +296,11 @@ struct TranscriptLineChart: View {
         return min(max(middle, half), max(geometry.width - half, half))
     }
 
+    private func snap(_ x: CGFloat, _ geometry: ChartGeometry) -> Double? {
+        let held = min(max(x, geometry.leading), geometry.width - geometry.trailing)
+        return model.snapped(geometry.time(at: held, in: shown), in: shown)
+    }
+
     // What takes the pointer and the keys. It sits over the drawing, which is one image,
     // and speaks for it: the plot is named, and its value is whatever the strip reads.
     private func surface(_ geometry: ChartGeometry) -> some View {
@@ -314,15 +319,11 @@ struct TranscriptLineChart: View {
             }
             .gesture(DragGesture(minimumDistance: 5)
                 .onChanged { drag in
-                    func snap(_ x: CGFloat) -> Double? {
-                        let held = min(max(x, geometry.leading), geometry.width - geometry.trailing)
-                        return model.snapped(geometry.time(at: held, in: shown), in: shown)
-                    }
-                    guard let end = snap(drag.location.x) else { return }
+                    guard let end = snap(drag.location.x, geometry) else { return }
                     if !dragging {
                         dragging = true
                         hover = nil
-                        selection = Selection(anchor: snap(drag.startLocation.x) ?? end, end: end)
+                        selection = Selection(anchor: snap(drag.startLocation.x, geometry) ?? end, end: end)
                     } else {
                         selection?.end = end
                     }

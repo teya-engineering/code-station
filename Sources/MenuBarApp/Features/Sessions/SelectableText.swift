@@ -332,7 +332,11 @@ final class TranscriptLayoutManager: NSLayoutManager {
     }
 
     func draws(_ color: NSColor, over characters: NSRange) -> Bool {
-        guard dropsSelectionFill, let selected = firstTextView?.selectedRange(), selected.length > 0,
+        guard dropsSelectionFill else { return true }
+        // AppKit only lays out and draws text on the main thread, but NSLayoutManager is
+        // not marked as main-actor, so the compiler cannot see that on its own.
+        nonisolated(unsafe) let textView = firstTextView
+        guard let selected = MainActor.assumeIsolated({ textView?.selectedRange() }), selected.length > 0,
               characters.location >= selected.location,
               NSMaxRange(characters) <= NSMaxRange(selected) else { return true }
         return ownBackground(at: characters.location) == color
