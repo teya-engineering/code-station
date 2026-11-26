@@ -99,10 +99,15 @@ final class AgentSessionConnection: @unchecked Sendable {
         lock.withLock { !closed && !ending && activeTurnID != nil }
     }
 
-    func refreshTasks() -> Bool {
+    func refreshTasks(at date: Date = Date()) -> Bool {
         lock.withLock {
             guard !closed else { return true }
-            if requests.hasExpired(at: Date(), timeout: 180) { return false }
+            if requests.hasExpired(at: date, timeout: 180, where: { request in
+                // ACP answers a prompt only when the whole turn ends, including time
+                // spent waiting for permission. It is not a short-lived RPC.
+                if launch.agent == .kiro, case .send = request { return false }
+                return true
+            }) { return false }
             if idle { requestTasks() }
             return !writeFailed
         }
@@ -573,13 +578,39 @@ private extension AgentSessionConnection {
         guard capability == "fs_write",
               [.acceptEdits, .auto].contains(launch.permissionMode),
               let resource, !resource.isEmpty else { return false }
-        // Kiro names a file inside the workspace relative to it.
-        guard resource.hasPrefix("/") else { return !resource.hasPrefix("..") }
-        let path = URL(fileURLWithPath: resource).standardizedFileURL.path
+        let absolute = resource.hasPrefix("/") ? resource : launch.directory + "/" + resource
+        guard let path = Self.resolvedWritePath(absolute) else { return false }
         return ([launch.directory] + launch.directories).contains { root in
-            let root = URL(fileURLWithPath: root).standardizedFileURL.path
+            guard let root = Self.resolvedWritePath(root) else { return false }
             return path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
         }
+    }
+
+    private static func resolvedWritePath(_ path: String) -> String? {
+        guard path.hasPrefix("/"), !path.contains("\0") else { return nil }
+        var resolved = ""
+        // Resolve links before consuming '..', even when the file or its parents are
+        // still to be created. URL normalization alone can miss both cases.
+        for component in path.split(separator: "/") {
+            if component == "." { continue }
+            if component == ".." {
+                resolved = String(resolved.prefix(upTo: resolved.lastIndex(of: "/") ?? resolved.startIndex))
+                continue
+            }
+            let candidate = resolved + "/" + component
+            if let canonical = realpath(candidate, nil) {
+                resolved = String(cString: canonical)
+                free(canonical)
+            } else {
+                guard errno == ENOENT else { return nil }
+                var attributes = stat()
+                // A dangling link also fails realpath with ENOENT. It must ask, since
+                // creating its target could otherwise turn this into an outside write.
+                guard lstat(candidate, &attributes) != 0, errno == ENOENT else { return nil }
+                resolved = candidate
+            }
+        }
+        return resolved.isEmpty ? "/" : resolved
     }
 
     func serverRequest(id: Any, method: String, params: [String: Any]) -> [StreamEvent] {

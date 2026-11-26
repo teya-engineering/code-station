@@ -390,9 +390,8 @@ enum SecondOpinion {
                 + model + (reviewer.effort.map { ["--effort", $0] } ?? [])
                 + addDirectories.flatMap { ["--add-dir", $0] }
         case .kiro:
-            // Only reading tools are trusted. A run that cannot ask refuses every other
-            // tool outright, writes and the shell included, so the review stays read-only.
-            return ["chat", "--no-interactive", "--trust-tools=fs_read,grep,glob"]
+            // run selects a profile that denies writes even when Kiro's saved rules allow them.
+            return ["chat", "--agent-engine", "v3", "--no-interactive"]
                 + model + ["--", prompt]
         }
     }
@@ -466,9 +465,10 @@ enum SecondOpinion {
     // off by name; with it, only the ones the session keeps off are turned off.
     static func run(agent: AgentKind, executable: String, searchPath: String, directory: String,
                     timeout: Duration, writing: String, servers: ServerAccess? = nil,
+                    environment: [String: String] = ProcessInfo.processInfo.environment,
                     activity: @escaping @Sendable (String) -> Void,
                     arguments: (_ codexServers: [DisabledMCPServer], _ copilotServers: [String]) -> [String]) async -> Result<String, Failure> {
-        var environment = ProcessInfo.processInfo.environment
+        var environment = environment
         environment["PATH"] = searchPath
         let output: CommandRunner.Output
         do {
@@ -490,10 +490,14 @@ enum SecondOpinion {
                 }
                 codexServers = servers
             }
+            let kiroProfile = agent == .kiro ? try KiroReviewProfile(environment: environment) : nil
+            defer { kiroProfile?.remove() }
+            var launchArguments = arguments(codexServers, agent == .copilot ? copilotServers() : [])
+            if let kiroProfile { launchArguments.insert(contentsOf: ["--agent", kiroProfile.name], at: 1) }
             let reader = ActivityReader(agent: agent, writing: writing, report: activity)
             output = try await CommandRunner.run(
                 executable: executable,
-                arguments: arguments(codexServers, agent == .copilot ? copilotServers() : []),
+                arguments: launchArguments,
                 currentDirectory: URL(fileURLWithPath: directory),
                 environment: environment,
                 outputChunkHandler: { reader.take($0) },

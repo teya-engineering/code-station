@@ -44,6 +44,50 @@ struct KiroConnectionTests {
         #expect(try wire.lastRequest()["method"] as? String == "session/prompt")
     }
 
+    @Test func aPromptCanOutliveTheRPCDeadlineAndFinishNormally() throws {
+        let wire = try KiroWire()
+        try wire.open()
+        let later = Date().addingTimeInterval(181)
+        _ = try wire.update(Self.chunk("agent_message_chunk", "Still working"))
+        #expect(wire.connection.refreshTasks(at: later))
+        let events = try wire.respond(wire.promptRequest(), ["stopReason": "end_turn"])
+        #expect(events.contains { if case .finished(false, nil) = $0 { true } else { false } })
+        #expect(wire.connection.send("Continue"))
+        #expect(wire.connection.refreshTasks(at: later))
+    }
+
+    @Test func waitingForPermissionDoesNotExpireThePrompt() throws {
+        let wire = try KiroWire()
+        try wire.open()
+        let events = try wire.askPermission(id: 41, capability: "shell", resource: "npm test")
+        guard case .permissionRequest(let request)? = events.first else {
+            Issue.record("Expected a permission request")
+            return
+        }
+        #expect(wire.connection.refreshTasks(at: Date().addingTimeInterval(181)))
+        #expect(wire.connection.answer(request, with: .deny))
+        #expect(wire.connection.cancelTasks())
+        let finished = try wire.respond(wire.promptRequest(), ["stopReason": "cancelled"])
+        #expect(finished.contains { if case .finished(false, _) = $0 { true } else { false } })
+    }
+
+    @Test(arguments: ["initialize", "session/new", "session/set_config_option"])
+    func unansweredSetupRequestsStillExpire(_ method: String) throws {
+        let wire = try KiroWire(settings: SessionSettings(model: "claude-haiku-4.5"))
+        #expect(wire.connection.start("Hello"))
+        if method != "initialize" {
+            _ = try wire.respond(wire.lastRequest(), ["protocolVersion": 1])
+        }
+        if method == "session/set_config_option" {
+            _ = try wire.respond(wire.lastRequest(), [
+                "sessionId": "sess_1", "configOptions": [Self.option("model", "auto")],
+            ])
+        }
+        #expect(try wire.lastRequest()["method"] as? String == method)
+        #expect(wire.connection.refreshTasks())
+        #expect(!wire.connection.refreshTasks(at: Date().addingTimeInterval(181)))
+    }
+
     @Test func leavesOptionsAloneWhenTheSessionAlreadyHasThem() throws {
         let wire = try KiroWire(settings: SessionSettings(model: "auto"))
         try wire.open(options: [Self.option("model", "auto"), Self.option("mode", "vibe")])
@@ -131,6 +175,68 @@ struct KiroConnectionTests {
         try wire.open()
         let events = try wire.askPermission(id: 42, capability: "fs_write", resource: "/etc/hosts")
         #expect(events.count == 1)
+    }
+
+    @Test(arguments: ["../outside.txt", "./../outside.txt", "nested/../../outside.txt",
+                      "/tmp/project-other/file.txt", "hello\0.txt"])
+    func asksAboutPathsThatEscapeTheWorkspace(_ path: String) throws {
+        let wire = try KiroWire(settings: SessionSettings(permissionMode: .acceptEdits))
+        try wire.open()
+        let sent = wire.output.messages.count
+        let events = try wire.askPermission(id: 42, capability: "fs_write", resource: path)
+        #expect(events.count == 1)
+        #expect(wire.output.messages.count == sent)
+    }
+
+    @Test(arguments: ["hello.txt", "./hello.txt", "nested/../hello.txt", "..hidden/file.txt"])
+    func allowsRelativePathsThatStayInsideTheWorkspace(_ path: String) throws {
+        let wire = try KiroWire(settings: SessionSettings(permissionMode: .acceptEdits))
+        try wire.open()
+        #expect(try wire.askPermission(id: 42, capability: "fs_write", resource: path).isEmpty)
+        #expect(try Self.optionID(in: wire.lastRequest()) == "accept")
+    }
+
+    @Test(arguments: ["link/existing.txt", "link/new/file.txt", "link/../outside.txt"])
+    func asksAboutSymlinksThatLeadOutsideTheWorkspace(_ path: String) throws {
+        let scratch = ScratchDirectory(prefix: "kiro-paths")
+        let workspace = scratch.path("workspace")
+        let outside = scratch.path("outside")
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data().write(to: outside.appendingPathComponent("existing.txt"))
+        try FileManager.default.createSymbolicLink(at: workspace.appendingPathComponent("link"),
+                                                  withDestinationURL: outside)
+        let wire = try KiroWire(settings: SessionSettings(permissionMode: .acceptEdits), directory: workspace.path)
+        try wire.open()
+        let events = try wire.askPermission(id: 42, capability: "fs_write", resource: path)
+        #expect(events.count == 1)
+    }
+
+    @Test func allowsAttachedFoldersAndWorkspaceAliases() throws {
+        let scratch = ScratchDirectory(prefix: "kiro-paths")
+        let workspace = scratch.path("workspace")
+        let attached = scratch.path("attached")
+        let alias = scratch.path("alias")
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: attached, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: workspace)
+        let wire = try KiroWire(settings: SessionSettings(permissionMode: .acceptEdits),
+                                directory: alias.path, addDirectories: [attached.path])
+        try wire.open()
+        for path in ["new.txt", workspace.appendingPathComponent("new.txt").path, "../attached/new.txt"] {
+            #expect(try wire.askPermission(id: 42, capability: "fs_write", resource: path).isEmpty)
+            #expect(try Self.optionID(in: wire.lastRequest()) == "accept")
+        }
+    }
+
+    @Test(arguments: ["link", "link/new.txt"])
+    func asksAboutDanglingSymlinks(_ path: String) throws {
+        let scratch = ScratchDirectory(prefix: "kiro-paths")
+        try FileManager.default.createSymbolicLink(at: scratch.path("link"),
+                                                  withDestinationURL: scratch.path("../missing"))
+        let wire = try KiroWire(settings: SessionSettings(permissionMode: .acceptEdits), directory: scratch.url.path)
+        try wire.open()
+        #expect(try wire.askPermission(id: 42, capability: "fs_write", resource: path).count == 1)
     }
 
     @Test(arguments: [(PermissionAnswer.allowOnce, "accept"), (.allowAlways, "always-accept"),
@@ -369,12 +475,14 @@ private final class KiroWire {
     let output = Output()
     let connection: AgentSessionConnection
 
-    init(settings: SessionSettings = SessionSettings(), resume: String? = nil) throws {
+    init(settings: SessionSettings = SessionSettings(), resume: String? = nil,
+         directory: String = "/tmp/project", addDirectories: [String] = []) throws {
         let output = self.output
         connection = AgentSessionConnection(launch: try AgentServerLaunch(
             configuration: AgentLaunchConfiguration(agent: .kiro, settings: settings,
-                                                    defaults: SessionSettings(), resume: resume),
-            directory: "/tmp/project")) {
+                                                    defaults: SessionSettings(), addDirectories: addDirectories,
+                                                    resume: resume),
+            directory: directory)) {
                 output.append($0)
                 return true
             }

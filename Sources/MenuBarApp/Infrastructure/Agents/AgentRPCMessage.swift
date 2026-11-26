@@ -40,7 +40,8 @@ struct AgentRequestTracker<Request> {
         pending.removeValue(forKey: id)?.request
     }
 
-    func hasExpired(at date: Date, timeout: TimeInterval) -> Bool {
-        pending.values.contains { date.timeIntervalSince($0.started) > timeout }
+    func hasExpired(at date: Date, timeout: TimeInterval,
+                    where shouldExpire: (Request) -> Bool = { _ in true }) -> Bool {
+        pending.values.contains { shouldExpire($0.request) && date.timeIntervalSince($0.started) > timeout }
     }
 }
