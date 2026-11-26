@@ -244,7 +244,7 @@ final class OldSessionsWatch {
             let id: UUID
             let isBusy: Bool
             let isOpen: Bool
-            let lastActivity: Date
+            let cleanupActivity: Date
             let reasons: [CleanupReason]
         }
 
@@ -267,7 +267,7 @@ final class OldSessionsWatch {
                     RefreshRule.Session(id: $0.id,
                                         isBusy: runner.isBusy($0.id),
                                         isOpen: store.selection == .session($0.id),
-                                        lastActivity: $0.lastActivity,
+                                        cleanupActivity: $0.cleanupActivity,
                                         reasons: OldSessionSweep.reasons(of: $0, cost: nil, store: store, now: Date()))
                 },
             nextOldAt: OldSessions.nextOldAt(cleanupRule.minimumDays, in: sessions,

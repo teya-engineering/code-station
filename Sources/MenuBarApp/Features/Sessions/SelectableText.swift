@@ -346,8 +346,22 @@ private final class LinkTextView: NSTextView {
     // A copy changes nothing on screen, so this is how the click shows.
     var note: ((_ text: String, _ icon: String) -> Void)?
     // Absent for a text view outside a transcript, such as one in a file preview,
-    // which selects on its own exactly as AppKit intends.
-    var selection: TranscriptSelection?
+    // which selects on its own exactly as AppKit intends, highlight included.
+    var selection: TranscriptSelection? {
+        didSet {
+            guard (selection == nil) != (oldValue == nil) else { return }
+            if selection == nil {
+                selectedTextAttributes = nativeSelectedTextAttributes
+            } else {
+                // A selection that spans blocks is painted by the view itself, in one
+                // colour for every block it reaches. AppKit would dim it everywhere but
+                // the block the drag started in, since only that one is first responder.
+                nativeSelectedTextAttributes = selectedTextAttributes
+                selectedTextAttributes = [.backgroundColor: NSColor.clear]
+            }
+        }
+    }
+    private var nativeSelectedTextAttributes: [NSAttributedString.Key: Any] = [:]
     weak var find: TranscriptFind?
     var reflows = true
 
@@ -716,10 +730,6 @@ private struct LinkAwareText: NSViewRepresentable {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
-        // The highlight is drawn by the view itself, in one colour for every block a
-        // selection reaches. AppKit would instead dim it everywhere but the block the
-        // drag started in, since only that one is the first responder.
-        view.selectedTextAttributes = [.backgroundColor: NSColor.clear]
         view.openLink = openLink
         view.linkHoverChanged = linkHoverChanged
         view.showMenu = showMenu

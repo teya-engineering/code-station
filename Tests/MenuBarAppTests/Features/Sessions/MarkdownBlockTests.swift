@@ -128,6 +128,68 @@ struct MarkdownBlockTests {
         #expect(kinds(text).count == 2)
     }
 
+    @Test func drawsATableInsideAnItemAsATable() {
+        let text = """
+        - **Main config:** one line
+        - **Local config:** set to:
+
+          | Repo | Name |
+          |---|---|
+          | helper | `laime` |
+          | api | `test` |
+        - **Tests:** after the table
+        """
+        #expect(kinds(text) == [
+            .list([
+                MarkdownListItem(depth: 0, marker: "•", text: "**Main config:** one line"),
+                MarkdownListItem(depth: 0, marker: "•", text: "**Local config:** set to:"),
+            ]),
+            .table(MarkdownTable(header: ["Repo", "Name"], alignments: [.leading, .leading],
+                                 rows: [["helper", "`laime`"], ["api", "`test`"]])),
+            .list([MarkdownListItem(depth: 0, marker: "•", text: "**Tests:** after the table")]),
+        ])
+    }
+
+    @Test func keepsTheNumberingOfAnOrderedListThatABlockCutsShort() {
+        let text = """
+        1. first
+           > quoted
+        2. second
+        """
+        #expect(kinds(text) == [
+            .list([MarkdownListItem(depth: 0, marker: "1.", text: "first")]),
+            .quote("quoted"),
+            .list([MarkdownListItem(depth: 0, marker: "2.", text: "second")]),
+        ])
+    }
+
+    @Test func drawsAHeadingAndARuleInsideANestedItem() {
+        let text = """
+        - top
+          - inner
+            ### Title
+            ***
+            more
+        """
+        #expect(kinds(text) == [
+            .list([
+                MarkdownListItem(depth: 0, marker: "•", text: "top"),
+                MarkdownListItem(depth: 1, marker: "◦", text: "inner"),
+            ]),
+            .heading(level: 3, text: "Title"),
+            .rule,
+            .list([MarkdownListItem(depth: 1, marker: "", text: "more")]),
+        ])
+    }
+
+    @Test func keepsTheMarkerOfAnItemThatOpensWithABlock() {
+        #expect(kinds("- > quoted\n- next") == [
+            .list([MarkdownListItem(depth: 0, marker: "•", text: "")]),
+            .quote("quoted"),
+            .list([MarkdownListItem(depth: 0, marker: "•", text: "next")]),
+        ])
+    }
+
     @Test func joinsAnIndentedLineToTheItemAboveIt() {
         let text = "1. first line\n   still the first\n2. second"
         guard case .list(let items) = kinds(text).first else {

@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 
 // A chart drawn in the transcript from the data the reply carried. Everything here is the
@@ -6,354 +5,24 @@ import SwiftUI
 // picture pasted into it.
 struct TranscriptChartView: View {
     let spec: TranscriptChartSpec
-
-    @State private var hovered: Hover?
-    @State private var readoutSize: CGSize = .zero
-    @State private var showsSummary = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    // Where the pointer is, kept alongside the reading it picked out so the readout can
-    // ride the pointer while the marks stay snapped to real measurements.
-    private struct Hover: Equatable {
-        let value: Double
-        let location: CGPoint
-    }
+    // Whether the chart plays its arrival. One that streamed into a reply does not.
+    var arrives = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            if spec.title != nil || spec.caption != nil {
-                VStack(alignment: .leading, spacing: Space.xxs) {
-                    if let title = spec.title {
-                        Text(title)
-                            .scaledText(Typography.Size.body, .semibold)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let caption = spec.caption {
-                        Text(caption)
-                            .scaledText(Typography.Size.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
+        Group {
             switch spec.kind {
             case .stat:
-                TranscriptStatTile(spec: spec)
+                TranscriptStatTile(spec: spec, arrives: arrives)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card))
             case .bar:
-                bars
+                TranscriptBarChart(spec: spec, arrives: arrives).padding(Space.lg)
             case .line, .area:
-                timeSeries
+                TranscriptLineChart(spec: spec, arrives: arrives).padding(Space.lg)
             }
-
-            if spec.series.count > 1 {
-                TranscriptChartLegend(spec: spec)
-            }
-
-            footer
         }
-        .smoothlyResizes(when: showsSummary)
-        .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border))
-    }
-
-    // MARK: - Lines and areas
-
-    private var timeSeries: some View {
-        Chart {
-            ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
-                ForEach(series.points.indices, id: \.self) { position in
-                    let point = series.points[position]
-                    // The wash is filled from the floor of the scale rather than from
-                    // zero, which on a scale that starts at nine hundred would spill out
-                    // of the plot and down the card.
-                    if spec.kind == .area {
-                        AreaMark(x: .value("x", point.x.number ?? 0),
-                                 yStart: .value(spec.unit ?? "value", verticalDomain.lowerBound),
-                                 yEnd: .value(spec.unit ?? "value", point.y))
-                            .foregroundStyle(TranscriptChartPalette.colour(index).opacity(0.10))
-                            .interpolationMethod(.monotone)
-                    }
-                    LineMark(x: .value("x", point.x.number ?? 0),
-                             y: .value(spec.unit ?? "value", point.y),
-                             series: .value("series", series.label))
-                        .foregroundStyle(TranscriptChartPalette.colour(index))
-                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                        .interpolationMethod(.monotone)
-                }
-
-                // The end of a line is where the eye lands, so the series is named there
-                // when the lines have separated enough for the name to belong to one of
-                // them. When they converge the legend carries identity instead.
-                if labelsEnds, let last = series.points.last {
-                    PointMark(x: .value("x", last.x.number ?? 0),
-                              y: .value(spec.unit ?? "value", last.y))
-                        .symbolSize(64)
-                        .foregroundStyle(TranscriptChartPalette.colour(index))
-                        .annotation(position: .trailing, spacing: Space.sm) {
-                            Text(series.label)
-                                .scaledText(Typography.Size.micro, .medium)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                }
-            }
-
-            ForEach(spec.rules) { rule in
-                if rule.axis == .y {
-                    RuleMark(y: .value("", rule.value))
-                        .foregroundStyle(Theme.attentionText)
-                        .lineStyle(StrokeStyle(lineWidth: 1))
-                        .annotation(position: .top, alignment: .trailing, spacing: Space.xxs) {
-                            ruleLabel(rule)
-                        }
-                } else {
-                    RuleMark(x: .value("", rule.value))
-                        .foregroundStyle(Theme.attentionText)
-                        .lineStyle(StrokeStyle(lineWidth: 1))
-                        .annotation(position: .top, alignment: .leading, spacing: Space.xxs) {
-                            ruleLabel(rule)
-                        }
-                }
-            }
-
-            if let hovered, let x = snapped(hovered.value) {
-                RuleMark(x: .value("", x))
-                    .foregroundStyle(Theme.chartGrid)
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-            }
-        }
-        .chartXScale(domain: horizontalDomain)
-        .chartYScale(domain: verticalDomain)
-        .chartLegend(.hidden)
-        .chartXAxis {
-            AxisMarks(preset: .aligned) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1))
-                    .foregroundStyle(Theme.chartGrid)
-                AxisValueLabel {
-                    if let raw = value.as(Double.self) {
-                        Text(TranscriptChartFormat.axis(raw, isTime: spec.isTime))
-                            .scaledText(Typography.Size.micro)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .chartYAxis {
-            AxisMarks(preset: .aligned, position: .leading) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1))
-                    .foregroundStyle(Theme.chartGrid)
-                AxisValueLabel {
-                    if let raw = value.as(Double.self) {
-                        Text(TranscriptChartFormat.compact(raw))
-                            .scaledText(Typography.Size.micro)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        // The pointer aims at a moment, never at a two-point line, so the readout snaps to
-        // the nearest reading and names every series at once. It then rides the pointer,
-        // which keeps the numbers where the eye already is instead of asking it to travel
-        // to a corner and back for every reading along the line.
-        .chartOverlay { proxy in
-            GeometryReader { geometry in
-                if let plot = proxy.plotFrame {
-                    Rectangle()
-                        .fill(.clear)
-                        .contentShape(Rectangle())
-                        .onContinuousHover { phase in
-                            switch phase {
-                            case .active(let location):
-                                let inside = location.x - geometry[plot].origin.x
-                                if let value = proxy.value(atX: inside, as: Double.self) {
-                                    hovered = Hover(value: value, location: location)
-                                } else {
-                                    hovered = nil
-                                }
-                            case .ended:
-                                hovered = nil
-                            }
-                        }
-
-                    if let hovered, let x = snapped(hovered.value) {
-                        TranscriptChartReadout(spec: spec, x: x)
-                            .fixedSize()
-                            .background(
-                                GeometryReader { card in
-                                    Color.clear.onChange(of: card.size, initial: true) {
-                                        readoutSize = card.size
-                                    }
-                                }
-                            )
-                            .offset(TranscriptChartReadout.placement(
-                                pointer: hovered.location, card: readoutSize,
-                                within: geometry.size))
-                            .allowsHitTesting(false)
-                    }
-                }
-            }
-        }
-        .frame(height: 200)
-        // A moment marked on the x axis writes its name above the plot, which needs room
-        // of its own or it crowds whatever the chart is captioned with.
-        .padding(.top, spec.rules.contains { $0.axis == .x } ? 12 : 0)
-    }
-
-    private func ruleLabel(_ rule: TranscriptChartSpec.Rule) -> some View {
-        Text(rule.label ?? TranscriptChartFormat.compact(rule.value))
-            .scaledText(Typography.Size.micro, .medium)
-            .foregroundStyle(Theme.attentionText)
-            .lineLimit(1)
-    }
-
-    // Measurements rather than zero to the peak: an incident is read from the shape of
-    // the change, and a queue that never drops below nine hundred would otherwise draw
-    // itself flat along the top of the plot.
-    private var verticalDomain: ClosedRange<Double> {
-        let values = spec.series.flatMap(\.values)
-            + spec.rules.filter { $0.axis == .y }.map(\.value)
-        let low = values.min() ?? 0
-        let high = values.max() ?? 1
-        guard high > low else { return low...(low + 1) }
-        let padding = (high - low) * 0.08
-        return (low - padding)...(high + padding)
-    }
-
-    // A numeric scale left to itself reaches back to zero, which for unix seconds means
-    // an hour of readings drawn as one stroke at the right hand edge.
-    private var horizontalDomain: ClosedRange<Double> {
-        let positions = spec.series.flatMap { $0.points.compactMap(\.x.number) }
-            + spec.rules.filter { $0.axis == .x }.map(\.value)
-        let low = positions.min() ?? 0
-        let high = positions.max() ?? 1
-        guard high > low else { return low...(low + 1) }
-        // Room for the names that ride the ends, which would otherwise be drawn past the
-        // edge of the plot and clipped.
-        return low...(high + (labelsEnds ? (high - low) * 0.18 : 0))
-    }
-
-    // Names ride the lines only while the lines are apart at the right edge. Nudging
-    // labels off converging lines detaches them from what they name.
-    private var labelsEnds: Bool {
-        guard (2...4).contains(spec.series.count) else { return spec.series.count == 1 }
-        let ends = spec.series.compactMap(\.points.last?.y).sorted()
-        guard ends.count == spec.series.count else { return false }
-        let span = verticalDomain.upperBound - verticalDomain.lowerBound
-        return zip(ends, ends.dropFirst()).allSatisfy { $1 - $0 >= span * 0.08 }
-    }
-
-    private func snapped(_ x: Double) -> Double? {
-        let positions = spec.series.flatMap { $0.points.compactMap(\.x.number) }
-        return positions.min { abs($0 - x) < abs($1 - x) }
-    }
-
-    // MARK: - Bars
-
-    // Drawn along the x axis because the things being compared are named: endpoints, pods
-    // and queues have long names, and a horizontal bar lets them be read straight.
-    private var bars: some View {
-        Chart {
-            ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
-                ForEach(series.points.indices, id: \.self) { position in
-                    let point = series.points[position]
-                    BarMark(x: .value(spec.unit ?? "value", point.y),
-                            y: .value("category", point.x.category ?? ""),
-                            height: .fixed(spec.series.count > 1 ? 14 : 22))
-                        .foregroundStyle(TranscriptChartPalette.colour(index))
-                        .position(by: .value("series", series.label))
-                        .cornerRadius(Radius.tag)
-                        .annotation(position: .trailing, spacing: Space.sm) {
-                            if spec.series.count == 1 {
-                                Text(TranscriptChartFormat.value(point.y, unit: spec.unit))
-                                    .scaledText(Typography.Size.micro, .medium)
-                                    .monospacedDigit()
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                }
-            }
-
-            ForEach(spec.rules.filter { $0.axis == .y }) { rule in
-                RuleMark(x: .value("", rule.value))
-                    .foregroundStyle(Theme.attentionText)
-                    .lineStyle(StrokeStyle(lineWidth: 1))
-                    .annotation(position: .top, alignment: .trailing, spacing: Space.xxs) {
-                        ruleLabel(rule)
-                    }
-            }
-        }
-        .chartLegend(.hidden)
-        .chartXAxis {
-            AxisMarks(preset: .aligned) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1))
-                    .foregroundStyle(Theme.chartGrid)
-                AxisValueLabel {
-                    if let raw = value.as(Double.self) {
-                        Text(TranscriptChartFormat.compact(raw))
-                            .scaledText(Typography.Size.micro)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .chartYAxis {
-            AxisMarks(preset: .aligned, position: .leading) { value in
-                AxisValueLabel(horizontalSpacing: Space.md) {
-                    if let name = value.as(String.self) {
-                        Text(name)
-                            .scaledText(Typography.Size.micro)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .frame(height: min(max(CGFloat(categoryCount) * rowHeight + 34, 96), 460))
-    }
-
-    private var categoryCount: Int {
-        Set(spec.series.flatMap { $0.points.compactMap(\.x.category) }).count
-    }
-
-    private var rowHeight: CGFloat {
-        spec.series.count > 1 ? CGFloat(spec.series.count) * 18 + 10 : 32
-    }
-
-    // MARK: - Footer
-
-    @ViewBuilder private var footer: some View {
-        let omitted = spec.omittedSeriesCount
-        HStack(spacing: Space.md) {
-            if omitted > 0 {
-                Text("\(counted(omitted, "more series")) not shown.")
-                    .scaledText(Typography.Size.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-            if spec.kind != .stat {
-                Button { showsSummary.toggle() } label: {
-                    Text(showsSummary ? "Hide values" : "Values")
-                        .scaledText(Typography.Size.caption, .medium)
-                        .foregroundStyle(Theme.accent)
-                        .contentTransition(.opacity)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hoverLift()
-            }
-        }
-
-        if showsSummary {
-            TranscriptChartSummary(spec: spec)
-                .transition(reduceMotion ? AnyTransition.opacity.animation(Motion.reveal) : .fold)
-        }
     }
 }
 
@@ -367,8 +36,8 @@ enum TranscriptChartPalette {
 
 // MARK: - Legend
 
-// Always present once there are two series, so identity never rests on matching colours
-// from memory. A line is keyed by a stroke and a fill by a swatch, mirroring the mark.
+// The key of a bar chart with more than one series, so identity never rests on matching
+// colours from memory. A line chart needs none: its readout strip names every series.
 struct TranscriptChartLegend: View {
     let spec: TranscriptChartSpec
 
@@ -376,15 +45,9 @@ struct TranscriptChartLegend: View {
         FlowRow(spacing: Space.lg) {
             ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
                 HStack(spacing: Space.sm) {
-                    if spec.kind == .line {
-                        Capsule()
-                            .fill(TranscriptChartPalette.colour(index))
-                            .frame(width: 14, height: 2)
-                    } else {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(TranscriptChartPalette.colour(index))
-                            .frame(width: 9, height: 9)
-                    }
+                    RoundedRectangle(cornerRadius: Radius.tag / 2)
+                        .fill(TranscriptChartPalette.colour(index))
+                        .frame(width: Space.md, height: Space.md)
                     Text(series.label)
                         .scaledText(Typography.Size.caption)
                         .foregroundStyle(.secondary)
@@ -444,168 +107,409 @@ struct FlowRow: Layout {
     }
 }
 
-// MARK: - Hover readout
+// MARK: - Bars
 
-// One card for every series at the hovered moment. The number leads and the name follows,
-// because the reader already knows which series they are chasing and wants the value.
-struct TranscriptChartReadout: View {
+// Drawn along the x axis because the things being compared are named: endpoints, pods
+// and queues have long names, and a horizontal bar lets them be read straight. A name
+// wraps rather than being cut, since the end of a pod's name is the part that tells it
+// from the next one.
+struct TranscriptBarChart: View {
     let spec: TranscriptChartSpec
-    let x: Double
+    let arrives: Bool
 
-    // Room between the pointer and the card, so the card never sits under the cursor and
-    // hides the very reading it is naming.
-    private nonisolated static let gap: CGFloat = 16
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.textScale) private var textScale
+    @State private var grown: Bool
+    @State private var width: CGFloat = 0
 
-    // The card follows the pointer, but it is the plot that decides where it can go: it
-    // swaps to the other side of the pointer rather than run off the right edge, and it
-    // is held inside the plot on both axes so no part of it is ever clipped away.
-    nonisolated static func placement(pointer: CGPoint, card: CGSize, within plot: CGSize) -> CGSize {
-        let right = pointer.x + gap
-        let left = pointer.x - gap - card.width
-        let x = right + card.width <= plot.width || left < 0 ? right : left
-        let y = pointer.y - card.height / 2
-        return CGSize(width: min(max(0, x), max(0, plot.width - card.width)),
-                      height: min(max(0, y), max(0, plot.height - card.height)))
+    private let categories: [String]
+    private let peak: Double
+    private let levels: [TranscriptChartSpec.Rule]
+
+    // Past this many rows the bars scroll inside the card instead of running down the page.
+    private static let openRows = 12
+
+    init(spec: TranscriptChartSpec, arrives: Bool = true) {
+        self.spec = spec
+        self.arrives = arrives
+        _grown = State(initialValue: !arrives)
+        var seen = Set<String>()
+        categories = spec.series.flatMap { $0.points.compactMap(\.x.category) }.filter { seen.insert($0).inserted }
+        levels = spec.rules.filter { $0.axis == .y }
+        peak = max((spec.series.flatMap(\.values) + levels.map(\.value)).max() ?? 0, .leastNonzeroMagnitude)
+    }
+
+    // A short unit rides with each number. A longer one is said once under the bars.
+    private var inlineUnit: String? { spec.unit.flatMap { $0.count <= 3 ? $0 : nil } }
+
+    private var nameWidth: CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: Typography.Size.caption * textScale, weight: .regular)
+        let widest = categories.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        return min(widest.rounded(.up) + Space.xs, width * ChartMetrics.barNameShare)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            Text(TranscriptChartFormat.axis(x, isTime: spec.isTime, long: true))
-                .scaledText(Typography.Size.micro)
-                .foregroundStyle(.secondary)
-            ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
-                if let point = nearest(in: series) {
-                    HStack(spacing: Space.sm) {
-                        Capsule()
-                            .fill(TranscriptChartPalette.colour(index))
-                            .frame(width: 10, height: 2)
-                        Text(TranscriptChartFormat.value(point.y, unit: spec.unit))
-                            .scaledText(Typography.Size.caption, .semibold)
-                            .monospacedDigit()
-                        Text(series.label)
-                            .scaledText(Typography.Size.micro)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
+        VStack(alignment: .leading, spacing: Space.md) {
+            ChartHeading(title: spec.title, caption: spec.caption)
+            if categories.count > Self.openRows {
+                ScrollView { rows }.scrollCap(ScrollCap.tall)
+            } else {
+                rows
             }
+            if spec.series.count > 1 { TranscriptChartLegend(spec: spec) }
+            footer
         }
-        .padding(.horizontal, Space.md)
-        .padding(.vertical, Space.sm)
-        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.background))
-        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.border))
-    }
-
-    private func nearest(in series: TranscriptChartSpec.Series) -> TranscriptChartSpec.Point? {
-        series.points.min { first, second in
-            abs((first.x.number ?? 0) - x) < abs((second.x.number ?? 0) - x)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onAppear {
+            guard !grown else { return }
+            if reduceMotion { grown = true } else { withAnimation { grown = true } }
         }
     }
-}
 
-// MARK: - Summary
-
-// What the hover shows, reachable without a pointer. A transcript chart is usually read
-// for its extremes and where it ended up, so those are the columns.
-struct TranscriptChartSummary: View {
-    let spec: TranscriptChartSpec
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(spec.series.enumerated()), id: \.element.id) { index, series in
+    private var rows: some View {
+        let nameWidth = nameWidth
+        return VStack(spacing: 0) {
+            ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
                 if index > 0 { Rectangle().fill(Theme.hairline).frame(height: 1) }
-                HStack(spacing: Space.md) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(TranscriptChartPalette.colour(index))
-                        .frame(width: 7, height: 7)
-                    Text(series.label)
-                        .scaledText(Typography.Size.caption)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    ForEach(columns(of: series), id: \.name) { column in
-                        VStack(alignment: .trailing, spacing: 1) {
-                            Text(column.name)
-                                .scaledText(Typography.Size.micro)
-                                .foregroundStyle(.tertiary)
-                            Text(column.value)
-                                .scaledText(Typography.Size.caption, .medium)
-                                .monospacedDigit()
+                HStack(alignment: .center, spacing: Space.lg) {
+                    Text(category)
+                        .scaledMono(Typography.Size.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: nameWidth, alignment: .leading)
+                    VStack(spacing: Space.xxs) {
+                        ForEach(Array(spec.series.enumerated()), id: \.element.id) { slot, series in
+                            if let value = series.points.first(where: { $0.x.category == category })?.y {
+                                bar(value, slot: slot, row: index)
+                            }
                         }
-                        .frame(minWidth: 52, alignment: .trailing)
                     }
                 }
                 .padding(.vertical, Space.sm)
-                .padding(.horizontal, Space.md)
+                .padding(.horizontal, Space.sm)
+                .hoverFill(cornerRadius: Radius.inset)
+                .accessibilityElement(children: .combine)
             }
         }
         .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Theme.sunken))
     }
 
-    private func columns(of series: TranscriptChartSpec.Series) -> [(name: String, value: String)] {
-        let values = series.values
-        guard let low = values.min(), let high = values.max(), let last = values.last else { return [] }
-        return [("min", TranscriptChartFormat.value(low, unit: spec.unit)),
-                ("max", TranscriptChartFormat.value(high, unit: spec.unit)),
-                ("last", TranscriptChartFormat.value(last, unit: spec.unit))]
+    private func bar(_ value: Double, slot: Int, row: Int) -> some View {
+        let label = TranscriptChartFormat.value(value, unit: inlineUnit)
+        let waiting = min(row, ChartMotion.staggerLimit)
+        return GeometryReader { proxy in
+            // Room is kept for the number, so the longest bar and its value both fit.
+            let room = max(proxy.size.width - ChartMetrics.barValueRoom * textScale, 1)
+            let length = room * CGFloat(max(value, 0) / peak)
+            ZStack(alignment: .leading) {
+                HStack(spacing: Space.md) {
+                    if value <= 0 {
+                        // Nothing to draw a bar from, so zero is a hairline where a bar would start.
+                        Rectangle().fill(.tertiary).frame(width: 1)
+                    } else {
+                        RoundedRectangle(cornerRadius: Radius.tag)
+                            .fill(TranscriptChartPalette.colour(slot))
+                            .frame(width: max(length * (grown ? 1 : ChartMotion.zoomGrowth), 2))
+                    }
+                    Text(label)
+                        .scaledMono(Typography.Size.caption, .semibold)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                ForEach(levels) { level in
+                    Rectangle()
+                        .fill((level.tone ?? .warn).ink)
+                        .frame(width: 1)
+                        .offset(x: room * CGFloat(max(level.value, 0) / peak))
+                }
+            }
+        }
+        .frame(height: ChartMetrics.barHeight * textScale)
+        .motion(ChartMotion.restack(bar: waiting, of: ChartMotion.staggerLimit + 1), value: grown)
+    }
+
+    @ViewBuilder private var footer: some View {
+        let longUnit = inlineUnit == nil ? spec.unit : nil
+        if longUnit != nil || !levels.isEmpty || spec.omittedSeriesCount > 0 {
+            FlowRow(spacing: Space.lg) {
+                if let longUnit {
+                    Text("in \(longUnit)").scaledText(Typography.Size.caption).foregroundStyle(.secondary)
+                }
+                ForEach(levels) { level in
+                    HStack(spacing: Space.sm) {
+                        Rectangle().fill((level.tone ?? .warn).ink).frame(width: 1, height: Space.lg)
+                        Text([level.label, TranscriptChartFormat.value(level.value, unit: spec.unit)]
+                            .compactMap { $0 }.joined(separator: " "))
+                            .scaledText(Typography.Size.caption, .medium)
+                            .foregroundStyle((level.tone ?? .warn).ink)
+                    }
+                }
+                if spec.omittedSeriesCount > 0 {
+                    Text("\(counted(spec.omittedSeriesCount, "more series")) not shown.")
+                        .scaledText(Typography.Size.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 }
 
 // MARK: - Stat
 
-// One number, at the size that says it is the finding. The sparkline underneath is the
-// same series in the same colour, small enough to read as context rather than a chart.
+// One number, at the size that says it is the finding, with a sentence for how it moved.
+// The series behind it runs along the bottom edge of the tile, small enough to read as
+// context rather than a chart. With a level to reach, a meter to that level takes its place.
 struct TranscriptStatTile: View {
     let spec: TranscriptChartSpec
+    let arrives: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.textScale) private var textScale
+    @State private var landed: Bool
+
+    init(spec: TranscriptChartSpec, arrives: Bool = true) {
+        self.spec = spec
+        self.arrives = arrives
+        _landed = State(initialValue: !arrives)
+    }
+
+    private var target: TranscriptChartSpec.Rule? {
+        spec.rules.first { $0.axis == .y && $0.value > 0 }
+    }
+
+    private var spark: [Double]? {
+        guard target == nil, let values = spec.series.first?.values, values.count > 1 else { return nil }
+        return values
+    }
 
     var body: some View {
-        HStack(alignment: .center, spacing: Space.xl) {
-            VStack(alignment: .leading, spacing: Space.xs) {
-                Text(TranscriptChartFormat.value(spec.value ?? 0, unit: spec.unit))
-                    .scaledText(30, .semibold)
-                if let delta = spec.delta {
-                    HStack(spacing: Space.xs) {
-                        Image(systemName: delta.value >= 0 ? "arrow.up.right" : "arrow.down.right")
-                            .font(.system(size: 9, weight: .bold))
-                        Text(TranscriptChartFormat.value(abs(delta.value), unit: spec.unit))
-                            .scaledText(Typography.Size.caption, .semibold)
-                            .monospacedDigit()
-                        if let label = delta.label {
-                            Text(label)
-                                .scaledText(Typography.Size.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .foregroundStyle(isGood(delta) ? Theme.addition : Theme.deletion)
+        VStack(alignment: .leading, spacing: Space.xs) {
+            if let title = spec.title {
+                Text(title)
+                    .scaledText(Typography.Size.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                CountingFigure(value: spec.value ?? 0, share: landed ? 1 : 0)
+                    .scaledSerif(Typography.Size.figure)
+                if let unit = spec.unit {
+                    Text(unit).scaledText(Typography.Size.detail).foregroundStyle(.secondary)
                 }
             }
-            .textSelection(.enabled)
-
-            if let series = spec.series.first, series.points.count > 1 {
-                Chart {
-                    ForEach(series.points.indices, id: \.self) { position in
-                        let point = series.points[position]
-                        LineMark(x: .value("x", point.x.number ?? Double(position)),
-                                 y: .value("value", point.y))
-                            .foregroundStyle(TranscriptChartPalette.colour(0))
-                            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                            .interpolationMethod(.monotone)
-                    }
-                }
-                .chartXAxis(.hidden)
-                .chartYAxis(.hidden)
-                .chartLegend(.hidden)
-                .frame(height: 40)
-                .frame(maxWidth: 200)
+            if let target { meter(to: target) }
+            if let delta = spec.delta { change(delta) }
+            if let caption = spec.caption {
+                Text(caption)
+                    .scaledText(Typography.Size.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+        .padding(Space.xl)
+        .padding(.bottom, spark == nil ? 0 : ChartMetrics.sparkHeight - Space.xl)
+        .frame(maxWidth: .infinity, minHeight: ChartMetrics.statMinHeight * textScale, alignment: .topLeading)
+        .background(alignment: .bottom) {
+            if let spark {
+                StatSpark(values: spark, colour: TranscriptChartPalette.colour(0), drawn: landed)
+                    .frame(height: ChartMetrics.sparkHeight)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .onAppear {
+            guard !landed else { return }
+            if reduceMotion { landed = true } else { withAnimation(ChartMotion.count) { landed = true } }
+        }
     }
 
-    private func isGood(_ delta: TranscriptChartSpec.Delta) -> Bool {
-        delta.value >= 0 ? delta.risingIsGood : !delta.risingIsGood
+    // How it moved, as words: the size of the move and which way, then what it is
+    // measured against. The colour says whether that was the good way to go.
+    private func change(_ delta: TranscriptChartSpec.Delta) -> some View {
+        let good = delta.value >= 0 ? delta.risingIsGood : !delta.risingIsGood
+        let size = TranscriptChartFormat.value(abs(delta.value), unit: spec.unit)
+        return (Text("\(size) \(delta.value >= 0 ? "higher" : "lower")")
+            .fontWeight(.semibold)
+            .foregroundStyle(good ? Theme.addition : Theme.warningText)
+            + Text(delta.label.map { " \($0)" } ?? "").foregroundStyle(.secondary))
+            .scaledText(Typography.Size.detail)
+            .fixedSize(horizontal: false, vertical: true)
     }
+
+    private func meter(to target: TranscriptChartSpec.Rule) -> some View {
+        let share = min(max((spec.value ?? 0) / target.value, 0), 1)
+        let ink = (target.tone ?? .warn).ink
+        return VStack(spacing: Space.xs) {
+            Meter(fraction: landed ? share : share * Double(ChartMotion.zoomGrowth),
+                  colour: TranscriptChartPalette.colour(0), height: ChartMetrics.meterHeight)
+                .overlay(alignment: .trailing) {
+                    Capsule().fill(ink).frame(width: 2, height: ChartMetrics.meterHeight + Space.md)
+                }
+                .motion(ChartMotion.sparkDraw, value: landed)
+            HStack {
+                Text(TranscriptChartFormat.compact(spec.value ?? 0))
+                    .scaledMono(Typography.Size.micro)
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: Space.md)
+                Text(target.label ?? TranscriptChartFormat.value(target.value, unit: spec.unit))
+                    .scaledText(Typography.Size.micro, .semibold)
+                    .foregroundStyle(ink)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, Space.sm)
+    }
+}
+
+// A number that counts up to its value as `share` goes from nothing to one.
+nonisolated private struct CountingFigure: View, Animatable {
+    let value: Double
+    var share: Double
+
+    var animatableData: Double {
+        get { share }
+        set { share = newValue }
+    }
+
+    var body: some View {
+        Text(TranscriptChartFormat.compact(share >= 1 ? value : value * share))
+            .monospacedDigit()
+    }
+}
+
+// The readings behind a headline number, as a line that draws itself along the bottom
+// of the tile over a faint wash.
+private struct StatSpark: View {
+    let values: [Double]
+    let colour: Color
+    let drawn: Bool
+
+    private struct Line: Shape {
+        let values: [Double]
+        var closed = false
+
+        func path(in rect: CGRect) -> Path {
+            guard values.count > 1, let low = values.min(), let high = values.max() else { return Path() }
+            let range = max(high - low, .ulpOfOne)
+            // Kept off the top and bottom edges, so the stroke is never cut in half.
+            let room = rect.height - Space.md
+            var path = Path()
+            path.addLines(values.enumerated().map { index, value in
+                CGPoint(x: rect.minX + rect.width * CGFloat(index) / CGFloat(values.count - 1),
+                        y: rect.minY + Space.xs + room * CGFloat(1 - (value - low) / range))
+            })
+            if closed {
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+                path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+                path.closeSubpath()
+            }
+            return path
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Line(values: values, closed: true)
+                .fill(colour.opacity(drawn ? 0.09 : 0))
+            Line(values: values)
+                .trim(from: 0, to: drawn ? 1 : 0)
+                .stroke(colour, style: StrokeStyle(lineWidth: ChartMetrics.sparkLineWidth, lineJoin: .round))
+        }
+        .motion(ChartMotion.sparkDraw, value: drawn)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Not ready
+
+// What stands in for a chart while the agent is still writing its block: the room it
+// will take, with a streak running along the line it will become.
+struct ChartArrivingCard: View {
+    private static let ghost = [CGPoint(x: 0, y: 0.2), CGPoint(x: 0.6, y: 0.2),
+                                CGPoint(x: 0.66, y: 0.85), CGPoint(x: 1, y: 0.74)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            skeleton(0.55)
+            skeleton(0.32)
+            CometPath(points: Self.ghost, colour: TranscriptChartPalette.colour(0))
+                .frame(height: ChartMetrics.cometHeight)
+            Text("The agent is writing out the chart. It draws once the block is complete.")
+                .scaledText(Typography.Size.detail)
+                .foregroundStyle(.secondary)
+        }
+        .padding(Space.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Chart arriving")
+        .accessibilityValue("The agent is writing out the chart")
+    }
+
+    private func skeleton(_ share: CGFloat) -> some View {
+        GeometryReader { proxy in
+            Capsule().fill(Theme.field).frame(width: proxy.size.width * share)
+        }
+        .frame(height: Space.md)
+    }
+}
+
+// A chart block that did not draw, with the way to get it. A block that could not be
+// read is a failure and says so in the warning colours. One that was whole but empty is
+// an answer, and offers a wider window to look in.
+struct ChartMissingCard: View {
+    let failure: TranscriptChartSpec.Failure
+
+    @Environment(\.askAgent) private var askAgent
+    @State private var asked = false
+
+    private var isEmpty: Bool { if case .noReadings = failure { true } else { false } }
+
+    private var detail: String {
+        switch failure {
+        case .unreadable:
+            "The block the agent wrote could not be read, so nothing was drawn."
+        case .noReadings(let title):
+            "\(title.map { "\"\($0)\"" } ?? "The chart") named its series, but none of them had a reading."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Text(isEmpty ? "No readings in this window" : "This chart could not be read")
+                .scaledText(Typography.Size.body, .semibold)
+            Text(detail)
+                .scaledText(Typography.Size.detail)
+                .opacity(isEmpty ? 1 : 0.85)
+                .foregroundStyle(isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.warningText))
+                .fixedSize(horizontal: false, vertical: true)
+            if let askAgent {
+                Group {
+                    if asked {
+                        Text("Asked the agent")
+                            .font(Typography.label)
+                            .foregroundStyle(.secondary)
+                            .transition(.fadeIn)
+                    } else {
+                        InlineAskButton(title: isEmpty ? "Ask for the last 6 hours"
+                                                       : "Ask the agent to draw it again") {
+                            askAgent(isEmpty ? ChartFollowUp.widen(title: title) : ChartFollowUp.drawAgain())
+                            asked = true
+                        }
+                    }
+                }
+                .padding(.top, Space.xs)
+            }
+        }
+        .foregroundStyle(isEmpty ? Color.primary : Theme.warningText)
+        .padding(Space.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(isEmpty ? Theme.card : Theme.warningBackground))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(isEmpty ? Theme.border : Color.clear))
+        .motion(Motion.reveal, value: asked)
+    }
+
+    private var title: String? { if case .noReadings(let title) = failure { title } else { nil } }
 }
 
 // MARK: - Numbers
@@ -626,10 +530,58 @@ enum TranscriptChartFormat {
         return magnitude == 0 ? "0" : String(format: "%.3g", number)
     }
 
-    static func axis(_ number: Double, isTime: Bool, long: Bool = false) -> String {
+    // A change, which always says which way it went.
+    static func signed(_ number: Double) -> String {
+        number > 0 ? "+" + compact(number) : number < 0 ? "-" + compact(-number) : "0"
+    }
+
+    // Always a 24-hour clock: a reading at "02:15" in a 12-hour locale could be either
+    // end of the day.
+    static func clock(_ seconds: Double, seconds showsSeconds: Bool = false,
+                      in zone: TimeZone = .current) -> String {
+        let local = Int(seconds.rounded(.down)) + zone.secondsFromGMT(for: Date(timeIntervalSince1970: seconds))
+        let day = ((local % 86_400) + 86_400) % 86_400
+        let clock = String(format: "%02d:%02d", day / 3600, day % 3600 / 60)
+        return showsSeconds ? clock + String(format: ":%02d", day % 60) : clock
+    }
+
+    private static func day(_ seconds: Double, in zone: TimeZone) -> String {
+        var style = Date.FormatStyle.dateTime.day().month(.abbreviated)
+        style.timeZone = zone
+        return Date(timeIntervalSince1970: seconds).formatted(style)
+    }
+
+    // A mark on the time axis. Marks a day or more apart name the day, and marks closer
+    // than a minute carry the seconds.
+    static func tick(_ number: Double, isTime: Bool, step: Double, span: Double,
+                     in zone: TimeZone = .current) -> String {
         guard isTime else { return compact(number) }
-        let date = Date(timeIntervalSince1970: number)
-        return date.formatted(.dateTime.hour().minute().second(long ? .twoDigits : .omitted))
+        if step >= 86_400 { return day(number, in: zone) }
+        return clock(number, seconds: step < 60, in: zone)
+    }
+
+    // One moment, as the strip and the flags write it. Across more than a day the day is
+    // part of it, and inside a few minutes the seconds are.
+    static func moment(_ number: Double, isTime: Bool, span: Double, in zone: TimeZone = .current) -> String {
+        guard isTime else { return compact(number) }
+        let time = clock(number, seconds: span <= 600, in: zone)
+        return span > 86_400 ? "\(day(number, in: zone)) \(time)" : time
+    }
+
+    // How long a stretch of time is, in the largest two units that fit.
+    static func span(_ seconds: Double) -> String {
+        if seconds < 120 { return "\(Int(seconds.rounded())) s" }
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 60 { return "\(minutes) min" }
+        if minutes < 2880 { return minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(minutes % 60) min" }
+        return "\(minutes / 1440) d"
+    }
+
+    // The clock the times are written in, named beside them so "10:52" is never
+    // mistaken for another zone's.
+    static var zone: String {
+        let zone = TimeZone.current
+        return zone.secondsFromGMT() == 0 ? "UTC" : zone.abbreviation() ?? zone.identifier
     }
 
     private static func trimmed(_ number: Double) -> String {

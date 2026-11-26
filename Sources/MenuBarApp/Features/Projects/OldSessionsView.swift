@@ -388,7 +388,7 @@ struct OldSessionsView: View {
 
     // "last turn 9 days ago · 4 turns · ⑂ code-station/pty-test · clean"
     private func detail(_ row: Row) -> String {
-        var parts = ["last turn " + SessionAge.phrase(since: row.session.lastActivity)]
+        var parts = [SessionAge.cleanupPhrase(of: row.session)]
         if store.isUnread(row.id) { parts.append("unread") }
         if row.session.snooze?.isActive() == true { parts.append("snoozed") }
         if let turns = row.session.usage?.turns, turns > 0 {

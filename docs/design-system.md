@@ -58,7 +58,7 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `projectTint(for:)` | A project's own colour. The same one wherever the project shows up. |
 | `agentClaudeCode`, `agentCodex`, `agentCopilot` | An agent's own colour, as the tile behind its symbol wherever it speaks (`ReviewAvatar`, `LineupTiles`). The rest of a lineup sits on the second opinion's plum. On the header rail the lineup stays grey until pointed at. |
 | `RailTint` | Which tool this is, while it is pointed at. Each header rail shortcut has one, set by its `RailTool`, and it shows only under the pointer or keyboard focus, as a wash behind the seat, the glyph's ink and a square dot in the tooltip. The colour follows the tool into the panel it opens: the glyph at the head of that panel takes `RailTool.mark`. An open seat keeps the accent, since green means chosen. |
-| `chartSeries` | Chart lines, in a fixed order. |
+| `chartSeries` | Chart lines, in a fixed order. A series is never red: on a chart, `deletion` means a reading past its limit or a failed span. |
 
 Where a colour has a `...Text` twin, use the twin for words and the plain one for dots and fills. The twins are tuned to be readable, and `WarningContrastTests` checks them. For a badge, lay the plain colour faintly behind its twin with `Theme.wash(_:light:dark:)`, which takes a separate strength for each appearance.
 
@@ -69,6 +69,7 @@ Roles come from `Typography` (`Tokens.swift`). A role fixes the size and the fac
 | Role | Looks like | Use |
 | --- | --- | --- |
 | `display` | Serif 22 | The name of a whole screen. |
+| `Size.figure` | Serif 34 | The one number a stat tile is there to show. Set with `.scaledSerif`. |
 | `title` | Serif 17 | The name of a pane, sheet, card or empty state. |
 | `body` | 13 | Text that is read: a sentence, a row's name, a field's value. |
 | `detail` | 12 | The sentence under a name. |
@@ -150,6 +151,10 @@ Controls that share a row share a step. Pass the step to `ActionButton(height:)`
 
 `SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
 
+### Chart sizes
+
+A chart in a reply is drawn by hand, so its sizes come from `ChartMetrics` (`Tokens.swift`): the height of the first lane and of the lanes under it, the rail above the plot where moments are named, the flags in it, the axes, the line and dot sizes, the bar and stat tile sizes, and the log rhythm strip. Take a size from there before writing a number in a chart view.
+
 ### Scroll cap
 
 A block that scrolls inside a taller page, such as tool output, log lines or a trace in the transcript, grows with its content up to a cap from `ScrollCap` (`Tokens.swift`) and then scrolls.
@@ -203,8 +208,9 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 - A mark carried from one place to another, such as a tile dropped into a group, is a `FlightView` drawn in an overlay above both places (`Motion/Flight.swift`). The flying view must be plain SwiftUI, since it is scaled on the way. Where it lands, `.landingRings(_:colour:cornerRadius:)` sends out two rings in its colour. Under Reduce Motion neither is drawn: the flight lands at once.
 - Words put into a text field by a pick, such as a slash command chosen from the menu, are marked where they land with `TextWash.play(over:in:colour:)` (`Motion/TextWash.swift`): a short wash of the colour that fades on `Motion.washDuration`. Core Animation plays it, so the text is not drawn again, and an edit clears it. Leave it out under Reduce Motion.
 - A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
+- A line chart arrives by drawing itself: the lines draw left to right on `ChartMotion.lineDraw`, the washes fade in behind them, each marked moment lands as the line passes it (`ChartMotion.landed`), and the end dots grow last (`ChartMotion.endDot`). A change of view moves the time axis and every scale together on `ChartMotion.zoom`. Bars, log volume bars and trace spans grow from `zoomGrowth` of their size on `ChartMotion.restack`, and stop taking turns after `staggerLimit`. A headline number counts up on `ChartMotion.count`. A chart that streamed into a reply plays none of this. Under Reduce Motion nothing draws, zooms, grows or counts.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
-- Something on its way along a line, such as a request sent and not yet answered, is a `CometLine` (`Motion/CometLine.swift`): a streak that runs the length of the line it is given. Under Reduce Motion the line is lit and holds still.
+- Something on its way along a line, such as a request sent and not yet answered, is a `CometLine` (`Motion/CometLine.swift`): a streak that runs the length of the line it is given. Under Reduce Motion the line is lit and holds still. `CometPath` runs the same streak along a bent path over a dotted ghost of it, for something that will be a line once it arrives, such as a chart still being written. Under Reduce Motion only the ghost is drawn.
 - A header rail shortcut gives its seat a `tool:` (`Motion/RailSignature.swift`). Its glyph is drawn as layers by `RailGlyph` and plays a short act while pointed at, never at rest. One wash per rail (`.railWash()` on the row, `.railSeat` on each seat) floods in from where the pointer came, slides from seat to seat and leaves on `Motion.leave`. The seat's hint slides with it: a `Tooltip` with `glides: true` waits `Motion.railHandoff` for the next source and moves there on `Motion.control` instead of fading out and in. Keyboard focus shows the colour without the act. Under Reduce Motion the colour and wash stay as a plain fade, with no act, slide or flood.
 - Motion confirms what the person did and never makes them wait. The brand wordmark's colour flow is decorative and runs only while hovered; other motion answers an action or shows work in progress.
 
@@ -254,6 +260,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A button with words | `ActionButton`. The tone says how much it matters: `.green` or `.dark` for the main action, `.outlined` beside it, `.danger` to delete. One main action per screen or card. |
 | A button that is only an icon | `GlyphButton`, with an `.appTooltip` that names it. Use `circular: true` for an opaque round button that overlaps a surface's edge. |
 | A small link in a line of text or a header | `InlineLink`, `GlyphLink` |
+| A small accent action under a result, such as a follow-up for the agent | `InlineAskButton`. It ends in an arrow when the click sends something on; pass `arrow: false` for one that opens a fold in place. |
 | Copy to the clipboard | `CopyButton` |
 | Add a new item to a list | `NewItemButton` |
 
@@ -316,6 +323,9 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | How far through a short list the person is | `ProgressRing` (`Layout/ProgressRing.swift`): a 14-point ring beside a count such as "3 of 7 viewed". The arc draws round with `Motion.draw`. The words carry the count, so the ring stays out of the accessibility tree. |
 | A few readings on one slim line, each with a closer look | A row of cells, each a dot, a name, the reading and a `ChangeFigure`. Resting on a cell opens a `ReadingPeek` (`Layout/StatParts.swift`) above it, as the content of a hanging `Tooltip` with `side: .above`: the name, the reading, how it moved in words ("18% less than yesterday"), and a `Sparkline` that draws itself out from the left. The figures roll with `.numericText` when the reading moves. |
 | A run of readings, as a line | `Sparkline`. Pass a long run through `Sparkline.thinned` first, so it keeps its shape at a small size. |
+| Evidence in a reply: a chart, a headline number or bars | `TranscriptChartView` (`Features/Sessions`), from a `TranscriptChartSpec`. A line or area chart gives each unit its own lane on one time axis, names its series in a readout strip that also shows the reading under the pointer, and names moments in a rail of flags above the plot. Do not add a floating readout or a second axis. Colours for a mark's tone come from `TranscriptChartSpec.Tone` (`ink`, `wash`, `mark`). |
+| A chart block that is not ready | `ChartArrivingCard` while it is being written, `ChartMissingCard` when it could not be read or came back empty. Each offers the ask that gets the chart. |
+| How busy a log was, above its lines | `LogRhythmStrip` with a `LogRhythm`: stacked bars by level. Pointing at a bar lights its lines and the other way round. Only for a whole query result, never for lines someone picked. |
 | A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means; pass `icon:` to lead with an `IconBadge` |
 | One thing's share of a whole, beside others | `ShareBarRow`, one per thing, sharing one `scale`. The bar draws out with `Motion.draw` when the row arrives. |
 | A count by weekday and hour | `HeatGrid`: hovering a cell says what it holds on the line under the grid, with a less-to-more key beside it |

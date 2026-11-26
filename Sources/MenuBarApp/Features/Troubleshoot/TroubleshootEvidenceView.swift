@@ -5,6 +5,8 @@ import SwiftUI
 // found them. Each card goes back to the reply it came from, where the reasoning is.
 struct TroubleshootEvidenceView: View {
     @Environment(SessionRunner.self) private var runner
+    @Environment(\.askAgent) private var askAgent
+    @State private var note = TransientNote()
 
     let session: ChatSession
     let showInConversation: (UUID, String?) -> Void
@@ -37,6 +39,19 @@ struct TroubleshootEvidenceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
+        .environment(\.askAgent, notedAsk)
+        .headerNote(note, alignment: .top, top: Space.lg)
+    }
+
+    // An ask made from this board is answered in the conversation, on another tab, so
+    // nothing here moves. The note is the trace the click leaves.
+    private var notedAsk: AgentAsk? {
+        askAgent.map { ask in
+            AgentAsk(sessionID: ask.sessionID) { [note] text in
+                ask(text)
+                note.show("Asked the agent. The answer lands in the conversation.", icon: "arrow.up.message")
+            }
+        }
     }
 
     private func heading(count: Int) -> some View {

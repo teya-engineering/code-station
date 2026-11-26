@@ -20,6 +20,48 @@ struct SteerTests {
     wait
     """
 
+    @Test func steeringWorksBeforeClaudeProducesAnAnswer() async throws {
+        let harness = try RunnerHarness(agent: .claudeCode, script: """
+        wait_for "$folder/initialize"
+        printf '%s\\n' '{"type":"system","subtype":"init","session_id":"steer-thinking"}'
+        cat > "$folder/stdin.txt"
+        """)
+        defer { harness.tearDown() }
+        let id = harness.session.id
+        let runner = harness.runner
+        let store = harness.store
+
+        runner.send("Start the work", sessionID: id)
+        runner.send("Also check the tests", delivery: .afterTurn, sessionID: id)
+        let queued = try #require(runner.queued(id).first)
+
+        #expect(runner.state(id) == .starting)
+        #expect(!runner.canSteer(id))
+        #expect(!runner.steer(queued.id, sessionID: id))
+        #expect(runner.queued(id).map(\.id) == [queued.id])
+
+        try Data().write(to: harness.scratch.path("initialize"))
+        try #require(await waitUntil { store.session(id)?.claudeSessionID == "steer-thinking" })
+        try #require(runner.canSteer(id))
+        #expect(store.transcript(of: id).filter { $0.role == .assistant }.allSatisfy { $0.isEmpty })
+
+        #expect(runner.steer(queued.id, sessionID: id))
+        runner.send("And check the docs", delivery: .now, sessionID: id)
+
+        #expect(runner.queued(id).isEmpty)
+        let stdin = harness.scratch.path("stdin.txt")
+        #expect(await waitUntil {
+            guard let input = try? String(contentsOf: stdin, encoding: .utf8) else { return false }
+            return input.contains("Also check the tests") && input.contains("And check the docs")
+        })
+        let prompts = store.transcript(of: id).filter { $0.role == .user }
+        #expect(prompts.map(\.text) == ["Start the work", "Also check the tests", "And check the docs"])
+        #expect(prompts.dropFirst().allSatisfy { $0.steered == true })
+
+        runner.stop(id)
+        #expect(await waitUntil { !runner.state(id).isBusy })
+    }
+
     @Test func aPromptSentDuringATurnGoesStraightToClaudeCode() async throws {
         let harness = try RunnerHarness(agent: .claudeCode, script: Self.claude)
         defer { harness.tearDown() }
