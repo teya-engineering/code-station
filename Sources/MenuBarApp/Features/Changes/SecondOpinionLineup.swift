@@ -598,12 +598,10 @@ struct SecondOpinionLineupButton: View {
 
 // MARK: - Under an answer
 
-// The tiles beside an answer's copy button, or on a file in Changes: click them to ask
-// the lineup about that one thing. The card hangs off the tiles, so the place they sit
+// The tiles beside an answer's copy button: click them to ask the lineup about that
+// one answer. The card hangs off the tiles, so the place they sit
 // is passed on as they are clicked.
 struct AnswerLineupButton: View {
-    var subject = "this answer"
-    var accessibilityName = "Get a second opinion on this answer"
     let action: () -> Void
 
     @Environment(\.secondOpinionLineup) private var lineup
@@ -629,10 +627,10 @@ struct AnswerLineupButton: View {
         .anchorsSecondOpinion { frame = $0 }
         .appTooltip {
             Tooltip(title: "Get a second opinion",
-                    subtitle: lineup.isEmpty ? "Another agent reviews \(subject)"
-                        : "\(SecondOpinionLineup.names(lineup)) \(lineup.count > 1 ? "review" : "reviews") \(subject)")
+                    subtitle: lineup.isEmpty ? "Another agent reviews this answer"
+                        : "\(SecondOpinionLineup.names(lineup)) \(lineup.count > 1 ? "review" : "reviews") this answer")
         }
-        .accessibilityLabel(accessibilityName)
+        .accessibilityLabel("Get a second opinion on this answer")
     }
 }
 

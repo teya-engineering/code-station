@@ -73,7 +73,7 @@ struct SessionSecondOpinionTests {
         let opinion = SessionSecondOpinion()
         opinion.lanesOpen = true
         opinion.anchor = CGRect(x: 1, y: 2, width: 3, height: 4)
-        #expect(opinion.open(session, on: nil, anchor: nil, origin: nil, file: nil,
+        #expect(opinion.open(session, on: nil, anchor: nil,
                              screen: .init(), runner: runner, gitStats: gitStats))
 
         #expect(opinion.ask?.stop == .answer)
@@ -97,7 +97,7 @@ struct SessionSecondOpinionTests {
         let pressed = CGRect(x: 10, y: 20, width: 30, height: 40)
         opinion.anchor = pressed
         #expect(opinion.open(session, on: SessionSecondOpinion.answerSubject(answer, in: session),
-                             anchor: answer.id, origin: nil, file: nil,
+                             anchor: answer.id,
                              screen: .init(), runner: runner, gitStats: gitStats))
 
         #expect(opinion.ask?.facts.origin == .answer)
@@ -111,14 +111,14 @@ struct SessionSecondOpinionTests {
         var empty = session
         empty.messages = []
         let opinion = SessionSecondOpinion()
-        #expect(!opinion.open(empty, on: nil, anchor: nil, origin: nil, file: nil,
+        #expect(!opinion.open(empty, on: nil, anchor: nil,
                               screen: .init(), runner: runner, gitStats: gitStats))
         #expect(opinion.ask == nil)
     }
 
     @Test func aReviewOfTheChangesIsLeftForTheChangesScreenToStart() throws {
         let opinion = SessionSecondOpinion()
-        #expect(opinion.open(session, on: nil, anchor: nil, origin: nil, file: nil,
+        #expect(opinion.open(session, on: nil, anchor: nil,
                              screen: .init(), runner: runner, gitStats: gitStats))
         let ask = try #require(opinion.ask)
         let lineup = [SecondOpinion.Reviewer(agent: .codex)]
@@ -143,7 +143,7 @@ struct SessionSecondOpinionTests {
 
     @Test func aDesignReviewWithoutADesignStartsNothing() throws {
         let opinion = SessionSecondOpinion()
-        #expect(opinion.open(session, on: nil, anchor: nil, origin: nil, file: nil,
+        #expect(opinion.open(session, on: nil, anchor: nil,
                              screen: .init(), runner: runner, gitStats: gitStats))
         let choice = SecondOpinionAskChoice(stop: .design, lineup: [], chatFocus: [], chatReading: .init(),
                                             changesFocus: [], designFocus: [], designReading: .init(), note: "")

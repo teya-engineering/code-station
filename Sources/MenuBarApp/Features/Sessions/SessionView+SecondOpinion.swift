@@ -104,9 +104,8 @@ extension SessionView {
     }
 
     func askForSecondOpinion(_ session: ChatSession, on picked: ChatSecondOpinion.Subject? = nil,
-                                     anchor: UUID? = nil, origin: SecondOpinionOrigin? = nil,
-                                     file: (root: String, path: String)? = nil) {
-        guard secondOpinion.open(session, on: picked, anchor: anchor, origin: origin, file: file,
+                             anchor: UUID? = nil) {
+        guard secondOpinion.open(session, on: picked, anchor: anchor,
                                  screen: opinionScreen(session), runner: runner, gitStats: gitStats)
         else { return }
         // Return should ask, not send whatever is in the composer.

@@ -299,9 +299,6 @@ struct SessionView: View {
             .overlay(alignment: .topLeading) { opinionLayer(session) }
             .coordinateSpace(.named(SecondOpinionAskCard.space))
             .environment(\.secondOpinionAnchor, SecondOpinionAnchorAction { secondOpinion.anchor = $0 })
-            .environment(\.askSecondOpinionOnFile, AskSecondOpinionOnFileAction { root, path in
-                askForSecondOpinion(session, origin: .file, file: (root, path))
-            })
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
                 installed: runner.catalog.availableAgents, author: session.agent))
             .onChange(of: tab) {

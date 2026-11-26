@@ -22,7 +22,7 @@ enum SecondOpinionStop: Hashable, CaseIterable {
 
 // Where the ask was opened from. Each way in proposes its own subject first.
 enum SecondOpinionOrigin: Equatable {
-    case header, answer, file
+    case header, answer
 }
 
 // Everything the ask needs to know about the session, read once as it opens.
@@ -110,8 +110,8 @@ enum SecondOpinionAsk {
         return stops
     }
 
-    // What a click proposes before the person changes anything. Under an answer or on a
-    // file it is that thing. From the header it is named by where the work stands: a plan
+    // What a click proposes before the person changes anything. Under an answer it is
+    // that answer. From the header it is named by where the work stands: a plan
     // waiting on an answer first, then the design when it is on screen, then the changes
     // as the Changes screen compares them: the whole branch when it shows that, else the
     // uncommitted changes, so a review never misses work that is not committed yet.
@@ -123,7 +123,6 @@ enum SecondOpinionAsk {
         }
         let preferred: [SecondOpinionStop] = switch facts.origin {
         case .answer: [.answer]
-        case .file: [.file]
         case .header:
             (facts.answer?.subject.kind == .plan ? [.answer] : [])
                 + (facts.showsDesign ? [.design] : [])

@@ -21,20 +21,11 @@ struct SecondOpinionAnchorAction {
     func callAsFunction(_ frame: CGRect) { perform(frame) }
 }
 
-struct AskSecondOpinionOnFileAction {
-    let perform: (_ root: String, _ path: String) -> Void
-
-    func callAsFunction(_ root: String, _ path: String) { perform(root, path) }
-}
-
 extension EnvironmentValues {
     // Where in the session the control that opens an ask sits, recorded as it is pressed
     // so the card can hang off it. A button under an answer only shows while the pointer
     // is on the answer, so its place is taken at the click, not looked up afterwards.
     @Entry var secondOpinionAnchor = SecondOpinionAnchorAction { _ in }
-    // Opens the ask on one changed file, from that file's header in Changes. Nil where
-    // the Changes screen is not inside a session that can ask.
-    @Entry var askSecondOpinionOnFile: AskSecondOpinionOnFileAction? = nil
 }
 
 // The anchored ask: one column of choices, each made once, over a receipt of what the
@@ -96,7 +87,7 @@ struct SecondOpinionAskCard: View {
         self.close = close
         self.defaults = defaults
         self.maxHeight = maxHeight
-        _context = State(initialValue: SecondOpinionContext(facts: facts, comparison: facts.origin == .file ? .changesTab : defaults.comparison))
+        _context = State(initialValue: SecondOpinionContext(facts: facts, comparison: defaults.comparison))
         _lineup = State(initialValue: lineup)
         _usual = State(initialValue: defaults.lineup)
         _chatFocus = State(initialValue: defaults.chatFocus)
@@ -228,7 +219,7 @@ struct SecondOpinionAskCard: View {
         HStack(spacing: Space.xxs) {
             if stops.contains(where: { $0.kind == .changes }) {
                 subjectPill("Changes", icon: "plus.forwardslash.minus", selected: stop.kind == .changes) {
-                    stop = facts.file != nil && facts.origin == .file ? .file : .uncommitted
+                    stop = .uncommitted
                 }
             }
             if facts.answer != nil {
@@ -308,7 +299,7 @@ struct SecondOpinionAskCard: View {
                 }]
                 if let file = facts.file {
                     entries.append(.item("Only " + file.name, checked: stop == .file,
-                                         subtitle: "The file you opened this from") { choose { stop = .file } })
+                                         subtitle: "The file open in Changes") { choose { stop = .file } })
                 }
                 if facts.canReadSince {
                     entries.append(.item("Since my last review", checked: stop == .sinceReview,

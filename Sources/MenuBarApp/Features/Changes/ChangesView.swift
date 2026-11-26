@@ -37,7 +37,6 @@ struct ChangesView: View {
     @Environment(GitStatsCache.self) var gitStats
     @Environment(AppSettings.self) var appSettings
     @Environment(\.accessibilityReduceMotion) var reduceMotion
-    @Environment(\.askSecondOpinionOnFile) private var askSecondOpinionOnFile
     @Environment(\.showExternalNote) private var showExternalNote
     @Environment(\.openShell) private var openShell
 
@@ -784,12 +783,6 @@ struct ChangesView: View {
                 if model.loadingDiff { ChangesProgressLabel(title: "Reading diff…", compact: true) }
                 Spacer()
                 if mode == .changes, review != nil, !orderedComments.isEmpty { commentNavigation }
-                if mode == .changes, review != nil, let file = shownFile, let askOnFile = askSecondOpinionOnFile {
-                    AnswerLineupButton(subject: "only " + file.fileName,
-                                       accessibilityName: "Get a second opinion on " + file.fileName) {
-                        askOnFile(repoRoot, file.path)
-                    }
-                }
                 if mode == .changes, let file = shownFile, let viewed = viewedState(file, in: root) {
                     ViewedToggle(isOn: viewed == .viewed, edited: viewed.isEdited) {
                         toggleViewed(file, in: root, advance: true)
