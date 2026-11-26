@@ -153,7 +153,7 @@ struct SelectableText: View {
     // travel in the string, so the size and weight here are only what a run that carries
     // none of its own falls back to.
     init(prose: AttributedString, lineSpacing: CGFloat = 0, width: TextWidth = .fills,
-         linksLocalServers: Bool = true) {
+         linksLocalServers: Bool = true, role: TranscriptTextRole = .block) {
         self.init(attributed: prose,
                   size: 13.5,
                   weight: .regular,
@@ -163,7 +163,7 @@ struct SelectableText: View {
                   alignment: .leading,
                   width: width,
                   italic: false,
-                  role: .block,
+                  role: role,
                   linksLocalServers: linksLocalServers)
     }
 
@@ -185,7 +185,7 @@ struct SelectableText: View {
                   alignment: .leading,
                   width: width,
                   italic: italic,
-                  role: .block,
+                  role: .plain(monospaced: design == .monospaced),
                   linksLocalServers: false)
     }
 
@@ -473,8 +473,8 @@ private final class LinkTextView: NSTextView {
                 note?(isFile ? "Copied the path" : "Copied the link", "checkmark")
             })
         }
-        if let text = selectedTextForMenu {
-            let copied = selection?.selectedContent
+        let copied = selection?.selectedContent
+        if let text = copied?.text ?? ownSelectedText {
             entries.append(.item("Copy", icon: "doc.on.doc") { [note] in
                 if let copied {
                     Pasteboard.copy(copied.plain, html: copied.html)
@@ -496,8 +496,9 @@ private final class LinkTextView: NSTextView {
                                               in: content))
     }
 
-    private var selectedTextForMenu: String? {
-        if let selection { return selection.selectedText }
+    // Only used when the view is not part of a transcript selection.
+    private var ownSelectedText: String? {
+        guard selection == nil else { return nil }
         let range = selectedRange()
         guard range.length > 0, let storage = textStorage,
               NSMaxRange(range) <= storage.length else { return nil }

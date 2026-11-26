@@ -943,6 +943,97 @@ struct TranscriptSelectionTests {
         #expect(pasteboard.string(forType: .html) == "<ul><li>one</li></ul>")
     }
 
+    // The marker is drawn beside the words, not typed in them, so words picked from one
+    // item copy, search and reply as just those words.
+    @Test func wordsFromInsideOneListItemComeWithoutTheMarker() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "- apples are ripe\n- pears", selection: selection)
+        defer { page.close() }
+
+        let view = try #require(page.views.first { $0.string.contains("ripe") })
+        let start = (view.string as NSString).range(of: "ripe").location
+        selection.begin(in: view, at: view.point(atCharacter: start))
+        selection.extend(toWindowPoint: page.windowPoint(of: view, character: start + 4))
+        let copied = try #require(selection.selectedContent)
+
+        #expect(selection.selectedText == "ripe")
+        #expect(copied.plain == "ripe")
+        #expect(!copied.html.contains("<li>"))
+    }
+
+    @Test func aSearchOrReplyFromSeveralItemsLeavesTheMarkersOut() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "- apples\n- pears", selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+
+        #expect(selection.selectedText == "apples\npears")
+        #expect(selection.selectedContent?.plain == "- apples\n- pears")
+    }
+
+    @Test func textAfterAnImageIsTheSameItemGoingOn() {
+        let copied = TranscriptClipboard([
+            piece("see", .listItem(depth: 0, marker: "1.")),
+            piece("for details", .listItem(depth: 0, marker: "")),
+            piece("next", .listItem(depth: 0, marker: "2.")),
+        ])
+
+        #expect(copied.plain == "1. see\n\n  for details\n2. next")
+        #expect(copied.html.contains("<ol><li>see<br><br>for details</li><li>next</li></ol>"))
+    }
+
+    @Test func aParagraphOfAnOuterItemLandsAfterItsNestedList() {
+        let copied = TranscriptClipboard([
+            piece("outer", .listItem(depth: 0, marker: "•")),
+            piece("inner", .listItem(depth: 1, marker: "•")),
+            piece("more about outer", .listItem(depth: 0, marker: "")),
+        ])
+
+        #expect(copied.plain == "- outer\n  - inner\n\n  more about outer")
+        #expect(copied.html.contains(
+            "<ul><li>outer<ul><li>inner</li></ul>more about outer</li></ul>"))
+    }
+
+    // Mail, Notes and chats read the HTML first, which would fold the spaces away.
+    @Test func textShownAsItArrivedKeepsItsSpacing() {
+        let copied = TranscriptClipboard([
+            piece("a  b\n  c <d>", .plain(monospaced: true)),
+        ])
+
+        #expect(copied.plain == "a  b\n  c <d>")
+        #expect(copied.html.contains(
+            "<p style=\"white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace\">"
+                + "a  b\n  c &lt;d&gt;</p>"))
+    }
+
+    @Test func aSelectionEdgeOnABlockBreakAddsNoEmptyParagraph() {
+        let text = NSMutableAttributedString(string: "\nsecond")
+        text.addAttribute(.transcriptBlockBreak, value: true, range: NSRange(location: 0, length: 1))
+
+        let copied = TranscriptClipboard([TranscriptClipboard.Piece(role: .block, text: text)])
+
+        #expect(copied.plain == "second")
+        #expect(copied.html == "<meta charset=\"utf-8\"><p>second</p>")
+    }
+
+    @Test func aQuoteInASentPromptCopiesAsAQuote() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(selection: selection) {
+            SentPromptText(text: "Look at this:\n\n> quoted line")
+        }
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<blockquote><p>quoted line</p></blockquote>"))
+    }
+
+    private func piece(_ text: String, _ role: TranscriptTextRole) -> TranscriptClipboard.Piece {
+        TranscriptClipboard.Piece(role: role, text: NSAttributedString(string: text))
+    }
+
     private func parts(of selection: TranscriptSelection) throws -> [String] {
         try #require(selection.selectedText).components(separatedBy: "\n\n")
     }

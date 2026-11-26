@@ -127,13 +127,20 @@ struct MarkdownBlockView: View, Equatable {
                 }
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
             } else {
+                // Only the first piece of text carries a list item's marker. The text
+                // after an image is the same item going on.
+                let firstText = parts.firstIndex {
+                    if case .text(let piece) = $0 { !piece.isBlank } else { false }
+                }
                 VStack(alignment: centered ? .center : .leading, spacing: Space.md) {
-                    ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                    ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                         switch part {
                         case .text(let piece):
                             let trimmed = piece.trimmed
                             if !trimmed.isEmpty {
-                                paragraphText(trimmed, lineSpacing: lineSpacing, role: role)
+                                paragraphText(trimmed,
+                                              lineSpacing: lineSpacing,
+                                              role: index == firstText ? role : role.continued)
                             }
                         case .image(let alt, let url, let attributes):
                             imagePreview(url: url, label: alt, attributes: attributes)

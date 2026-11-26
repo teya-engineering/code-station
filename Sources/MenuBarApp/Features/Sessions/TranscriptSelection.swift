@@ -4,14 +4,22 @@ import SwiftUI
 // What a piece of the transcript is, as far as copying it is concerned. A table cell
 // also knows which table and row it belongs to, so a selection over a table can be put
 // back together as a grid. A list item keeps its marker, which is drawn beside the text
-// rather than typed in it.
+// rather than typed in it. Text shown exactly as it arrived keeps its spacing.
 enum TranscriptTextRole: Equatable {
     case block
     case heading(level: Int)
+    // An empty marker is a later piece of the item above, such as text after an image.
     case listItem(depth: Int, marker: String)
     case quote
     case code
+    case plain(monospaced: Bool)
     case tableCell(table: UUID, row: Int)
+
+    // The rest of a list item after its first piece, which has no marker of its own.
+    var continued: TranscriptTextRole {
+        guard case .listItem(let depth, _) = self else { return self }
+        return .listItem(depth: depth, marker: "")
+    }
 }
 
 // One selection running across the many text views a transcript is built from.
@@ -111,7 +119,9 @@ final class TranscriptSelection {
 
     // MARK: - Reading
 
-    var selectedText: String? { selectedContent?.plain }
+    // The words as they appear in the transcript, without the list markers drawn
+    // beside them, so a search or a reply finds the same text.
+    var selectedText: String? { selectedContent?.text }
 
     var selectedContent: TranscriptClipboard? {
         let pieces = placed().compactMap { block -> TranscriptClipboard.Piece? in

@@ -3,19 +3,30 @@ import AppKit
 // What a copy out of the transcript puts on the clipboard. Plain text for anything that
 // only reads text, and HTML for anything that keeps formatting, such as a chat, a mail
 // or a document, so lists, emphasis, code and links paste the way they were read.
-struct TranscriptClipboard: Equatable {
+struct TranscriptClipboard {
     struct Piece {
         let role: TranscriptTextRole
         let text: NSAttributedString
     }
 
+    // The text to paste, with each list item's marker in front of it.
     let plain: String
-    let html: String
+    // The words as they appear in the transcript, with no markers added.
+    let text: String
+    private let groups: [Group]
+
+    // Built only when the copy is made, since a search or a menu needs just the text.
+    var html: String { "<meta charset=\"utf-8\">" + Self.html(groups) }
 
     init(_ pieces: [Piece]) {
-        let groups = Self.grouped(pieces)
-        plain = Self.plain(groups)
-        html = "<meta charset=\"utf-8\">" + Self.html(groups)
+        // Words picked from inside one list item are a run of its text, not a list.
+        var pieces = pieces
+        if pieces.count == 1, case .listItem = pieces[0].role {
+            pieces[0] = Piece(role: .block, text: pieces[0].text)
+        }
+        groups = Self.grouped(pieces)
+        plain = Self.plain(groups, markers: true)
+        text = Self.plain(groups, markers: false)
     }
 
     // Every cell taken from one table is a single group, so the table reads as a grid.
@@ -50,12 +61,13 @@ struct TranscriptClipboard: Equatable {
 
     // Blocks are joined by a blank line because that is the gap the transcript draws
     // between them. The items of a list sit on lines of their own, as they are drawn.
-    private static func plain(_ groups: [Group]) -> String {
+    private static func plain(_ groups: [Group], markers: Bool) -> String {
         var result = ""
         var previousWasItem = false
         for group in groups {
-            let text: String
+            var text: String
             var isItem = false
+            var startsItem = false
             switch group {
             case .table(let rows):
                 // A tab between cells and a newline between rows is what a spreadsheet
@@ -63,16 +75,22 @@ struct TranscriptClipboard: Equatable {
                 text = rows.map { $0.cells.map(\.string).joined(separator: "\t") }
                     .joined(separator: "\n")
             case .piece(let piece):
+                text = withBlankLines(piece.text)
+                if text.isBlank { continue }
                 if case .listItem(let depth, let marker) = piece.role {
                     isItem = true
-                    let indent = String(repeating: "  ", count: depth)
-                    let prefix = marker.isEmpty ? "  " : plainMarker(marker) + " "
-                    text = indent + prefix + withBlankLines(piece.text)
-                } else {
-                    text = withBlankLines(piece.text)
+                    startsItem = !marker.isEmpty
+                    if markers {
+                        let indent = String(repeating: "  ", count: depth)
+                        let prefix = marker.isEmpty ? "  " : plainMarker(marker) + " "
+                        // Later lines line up under the text, not under the marker.
+                        let hanging = "\n" + indent + String(repeating: " ", count: prefix.count)
+                        text = indent + prefix + text.replacingOccurrences(of: "\n", with: hanging)
+                    }
                 }
             }
-            if !result.isEmpty { result += previousWasItem && isItem ? "\n" : "\n\n" }
+            // A further paragraph of an item is a block of its own, after a blank line.
+            if !result.isEmpty { result += previousWasItem && startsItem ? "\n" : "\n\n" }
             result += text
             previousWasItem = isItem
         }
@@ -87,13 +105,9 @@ struct TranscriptClipboard: Equatable {
     // screen drawn rather than typed. The blank line a reader sees between them has to
     // be put back on the way to the clipboard.
     private static func withBlankLines(_ piece: NSAttributedString) -> String {
-        let text = NSMutableString(string: piece.string)
-        // Back to front, so replacing one does not move the next.
-        for paragraph in paragraphs(of: piece).dropFirst().reversed() {
-            text.replaceCharacters(in: NSRange(location: paragraph.location - 1, length: 1),
-                                   with: "\n\n")
-        }
-        return text as String
+        let string = piece.string as NSString
+        return paragraphs(of: piece).map { string.substring(with: $0) }
+            .joined(separator: "\n\n")
     }
 
     // MARK: - HTML
@@ -108,8 +122,10 @@ struct TranscriptClipboard: Equatable {
                 result += html(group)
                 continue
             }
+            let paragraphs = paragraphs(of: piece.text)
+            guard !paragraphs.isEmpty else { continue }
             result += lists.item(depth: depth, marker: marker)
-            result += paragraphs(of: piece.text)
+            result += paragraphs
                 .map { inline(piece.text, in: $0) }
                 .joined(separator: "<br><br>")
         }
@@ -128,7 +144,13 @@ struct TranscriptClipboard: Equatable {
         case .piece(let piece):
             switch piece.role {
             case .code:
-                return "<pre><code>\(escaped(piece.text.string))</code></pre>"
+                return "<pre><code>\(piece.text.string.htmlEscaped)</code></pre>"
+            case .plain(let monospaced):
+                // Text shown as it arrived keeps its runs of spaces and its line breaks,
+                // which HTML would otherwise fold away, and still wraps like a paragraph.
+                guard !piece.text.string.isEmpty else { return "" }
+                let font = monospaced ? ";font-family:ui-monospace,Menlo,monospace" : ""
+                return "<p style=\"white-space:pre-wrap\(font)\">\(piece.text.string.htmlEscaped)</p>"
             case .quote:
                 return "<blockquote>\(blocks(piece.text, heading: nil))</blockquote>"
             case .heading(let level):
@@ -143,9 +165,8 @@ struct TranscriptClipboard: Equatable {
     // by the heading level its opening character carries.
     private static func blocks(_ text: NSAttributedString, heading: Int?) -> String {
         paragraphs(of: text).map { range in
-            let level = heading ?? (range.length > 0
-                ? text.attribute(.transcriptHeading, at: range.location, effectiveRange: nil) as? Int
-                : nil)
+            let level = heading
+                ?? text.attribute(.transcriptHeading, at: range.location, effectiveRange: nil) as? Int
             let tag = level.map { "h\(min(max($0, 1), 6))" } ?? "p"
             return "<\(tag)>\(inline(text, in: range))</\(tag)>"
         }.joined()
@@ -176,26 +197,21 @@ struct TranscriptClipboard: Equatable {
         }
 
         return runs.map { run in
-            var html = escaped(run.text).replacingOccurrences(of: "\n", with: "<br>")
+            var html = run.text.htmlEscaped.replacingOccurrences(of: "\n", with: "<br>")
             if run.intent.contains(.code) { html = "<code>\(html)</code>" }
             if run.intent.contains(.emphasized) { html = "<em>\(html)</em>" }
             if run.intent.contains(.stronglyEmphasized) { html = "<strong>\(html)</strong>" }
             if run.intent.contains(.strikethrough) { html = "<s>\(html)</s>" }
-            if let link = run.link { html = "<a href=\"\(escaped(link))\">\(html)</a>" }
+            if let link = run.link { html = "<a href=\"\(link.htmlEscaped)\">\(html)</a>" }
             return html
         }.joined()
     }
 
-    private static func escaped(_ text: String) -> String {
-        text.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-    }
-
     // MARK: - Paragraphs
 
-    // The ranges between the newlines that separate blocks sharing a text view.
+    // The ranges between the newlines that separate blocks sharing a text view. A
+    // selection that starts or ends on one of those newlines leaves an empty range at
+    // its edge, which holds nothing to copy and is left out.
     private static func paragraphs(of text: NSAttributedString) -> [NSRange] {
         var ranges: [NSRange] = []
         var start = 0
@@ -208,7 +224,7 @@ struct TranscriptClipboard: Equatable {
             }
         }
         ranges.append(NSRange(location: start, length: text.length - start))
-        return ranges
+        return ranges.filter { $0.length > 0 }
     }
 }
 
@@ -218,8 +234,16 @@ private struct ListNesting {
     private var open: [(depth: Int, tag: String)] = []
 
     mutating func item(depth: Int, marker: String) -> String {
-        // A paragraph that carries on the item above stays inside it.
-        if marker.isEmpty, !open.isEmpty { return "<br><br>" }
+        // A paragraph that carries on an item stays inside that item. Lists nested in
+        // it close first, so the paragraph does not land in their last item.
+        if marker.isEmpty, open.contains(where: { $0.depth == depth }) {
+            var html = ""
+            while let last = open.last, last.depth > depth {
+                html += "</li></\(last.tag)>"
+                open.removeLast()
+            }
+            return html.isEmpty ? "<br><br>" : html
+        }
 
         let number = Int(marker.prefix { $0.isNumber })
         let tag = number == nil ? "ul" : "ol"
