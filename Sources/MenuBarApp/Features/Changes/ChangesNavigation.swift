@@ -114,6 +114,9 @@ final class ChangesNavigationMemory {
     // Each project's chosen comparison, including committed work and viewed identities.
     // The shared Git cache holds only uncommitted work.
     var snapshots: [String: GitSnapshot] = [:]
+    var roles: [String: [String: FileRole]] = [:]
+    // Sections the user opened or closed against their default. Generated starts folded.
+    var flippedSections: [String: Set<FileRole>] = [:]
     // How far through the changed files the reviewer is, read by the turn's footer, which
     // sits outside the screen that counts them.
     var viewedTally: ViewedTally?

@@ -141,6 +141,10 @@ final class ChangesModel {
                 navigation.compareRefs[root] = nil
                 screen.fetchFailed("\(picked) is no longer available. Comparing with \(base.ref).")
             }
+            let roles = await FileRole.roles(of: fresh.files, at: fresh.root)
+            guard !Task.isCancelled, generation == refreshGeneration else { return }
+            fresh.files = FileRole.allCases.flatMap { role in fresh.files.filter { roles[$0.path] == role } }
+            navigation.roles[root] = roles
             snapshot = fresh
             navigation.snapshots[root] = fresh
             checkedAt = Date()
