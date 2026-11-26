@@ -251,9 +251,72 @@ struct ImportedSessionStoreTests {
         #expect(session.claudeSessionID == "claude-abc")
         #expect(session.title == "Imported")
         #expect(session.createdAt == Date(timeIntervalSince1970: 1_000))
+        // The conversation keeps its own dates, while cleanup counts from the import.
+        #expect(session.lastActivity == Date(timeIntervalSince1970: 2_000))
+        let importedAt = try #require(session.importedAt)
+        #expect(abs(importedAt.timeIntervalSinceNow) < 60)
+        #expect(session.cleanupActivity == importedAt)
         #expect(reopened.transcript(of: id).map(\.text) == ["hello there", "hi"])
         // Nothing imported can be wound back to: the app never checkpointed it.
         #expect(reopened.transcript(of: id).allSatisfy { $0.checkpoint == nil })
+    }
+
+    // An import made before imports were dated is dated by its transcript file once, so
+    // an update does not suddenly offer it for deletion by its original conversation.
+    @Test func anImportFromBeforeImportsWereDatedIsDatedByItsTranscript() async throws {
+        let project = try TestStore.project(in: store)
+        let made = try await importUndated("claude-undated", into: project)
+        let written = Date().addingTimeInterval(-2 * 86_400).rounded()
+        try FileManager.default.setAttributes([.creationDate: written], ofItemAtPath: transcriptPath(made.id))
+
+        let reopened = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
+        #expect(reopened.session(made.id)?.importedAt == written)
+        // The session that was open stays open.
+        #expect(reopened.selection == .session(made.id))
+
+        // Written back, so the next launch does not need the file again.
+        #expect(reopened.save())
+        try FileManager.default.removeItem(atPath: transcriptPath(made.id))
+        let again = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
+        #expect(again.session(made.id)?.importedAt == written)
+    }
+
+    // A transcript last written by a turn is a used session, which ages from that turn.
+    @Test func anUndatedImportUsedSinceAgesFromItsLastTurn() async throws {
+        let project = try TestStore.project(in: store)
+        let lastTurn = Date().addingTimeInterval(-3 * 86_400 - 60).rounded()
+        let made = try await importUndated("claude-used", into: project, lastTurn: lastTurn)
+        try FileManager.default.setAttributes([.creationDate: lastTurn.addingTimeInterval(20)],
+                                              ofItemAtPath: transcriptPath(made.id))
+
+        let reopened = ProjectStore(preferences: scratch.preferences.store, storeURL: store.storeURL)
+        let session = try #require(reopened.session(made.id))
+        #expect(session.importedAt == lastTurn)
+        #expect(session.cleanupActivity == lastTurn)
+        #expect(SessionAge.cleanupPhrase(of: session) == "last turn 3 days ago")
+    }
+
+    // Imports the session, selects it, then takes its import date out of the index, as an
+    // index written before imports were dated would have it.
+    private func importUndated(_ id: String, into project: Project,
+                               lastTurn: Date = Date(timeIntervalSince1970: 1_000)) async throws -> ChatSession {
+        let messages = [ChatMessage(role: .user, text: "hello there", date: lastTurn)]
+        let made = try await store.importSession(
+            .init(candidate: candidate(id, cwd: project.path), messages: messages),
+            into: project.id).get()
+        store.selectSession(made.id)
+
+        var saved = try JSONSerialization.jsonObject(with: Data(contentsOf: store.storeURL)) as! [String: Any]
+        var sessions = saved["sessions"] as! [[String: Any]]
+        for i in sessions.indices { sessions[i].removeValue(forKey: "importedAt") }
+        saved["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: saved).write(to: store.storeURL)
+        return made
+    }
+
+    private func transcriptPath(_ sessionID: UUID) -> String {
+        store.storeURL.deletingLastPathComponent()
+            .appendingPathComponent("projects-transcripts/\(sessionID.uuidString).json").path
     }
 
     @Test func anUntitledSessionIsNamedAfterItsFirstPrompt() async throws {
@@ -329,6 +392,7 @@ struct ImportedSessionStoreTests {
         store.append(prompt, to: made.id)
         let fork = try #require(store.forkSession(made.id, before: prompt.id))
         #expect(fork.importedOrigin == made.importedOrigin)
+        #expect(fork.importedAt == made.importedAt)
         #expect(fork.knownAgentSessionIDs == made.knownAgentSessionIDs)
     }
 }
@@ -355,4 +419,9 @@ struct ImportedSessionOriginTests {
         #expect(home.historyOverride(environment: ["CLAUDE_CONFIG_DIR": "/work/claude"], home: self.home)
             == "/Users/someone/.claude")
     }
+}
+
+private extension Date {
+    // File dates keep whole seconds, so the one set on the file is the one read back.
+    func rounded() -> Date { Date(timeIntervalSince1970: timeIntervalSince1970.rounded()) }
 }
