@@ -318,6 +318,24 @@ struct SelectableText: View {
     }
 }
 
+// Leaves the selection to LinkTextView, which paints it in the app's own colour.
+//
+// Clearing the background in selectedTextAttributes only reaches the text view that has
+// keyboard focus. AppKit fills a selection in every other view with the system's grey,
+// on top of the app's highlight, so a selection across several blocks came out green in
+// the block the drag started in and grey in the rest. A background the text itself asks
+// for is still drawn.
+private final class SelectionlessLayoutManager: NSLayoutManager {
+    override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int,
+                                          forCharacterRange charRange: NSRange, color: NSColor) {
+        guard let storage = textStorage, charRange.location < storage.length,
+              let own = storage.attribute(.backgroundColor, at: charRange.location,
+                                          effectiveRange: nil) as? NSColor,
+              own == color else { return }
+        super.fillBackgroundRectArray(rectArray, count: rectCount, forCharacterRange: charRange, color: color)
+    }
+}
+
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
 // which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
 private final class LinkTextView: NSTextView {
@@ -671,6 +689,7 @@ private struct LinkAwareText: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextView {
         let view = LinkTextView(usingTextLayoutManager: false)
+        view.textContainer?.replaceLayoutManager(SelectionlessLayoutManager())
         view.isEditable = false
         view.isSelectable = true
         // Per-link hints belong to TooltipPresenter, including their Finder action.
