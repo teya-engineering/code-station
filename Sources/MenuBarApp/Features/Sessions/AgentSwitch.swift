@@ -89,18 +89,21 @@ enum NoteWriter: Hashable, Sendable {
     case app
 }
 
-// How freely an agent may act, across the three agents' own access settings. Each agent
+// How freely an agent may act, across the agents' own access settings. Each agent
 // names its levels differently, so a switch has to map one onto another.
 enum AgentAccess: Equatable, Hashable, Sendable {
     case claudeCode(PermissionMode)
     case codex(CodexSandboxMode)
     case copilot(CopilotAccessMode)
+    // Kiro reads the same modes as Claude Code, minus "Risky only".
+    case kiro(PermissionMode)
 
     var title: String {
         switch self {
         case .claudeCode(let mode): mode.shortTitle
         case .codex(let mode): mode.summary
         case .copilot(let mode): mode.summary
+        case .kiro(let mode): mode.shortTitle
         }
     }
 
@@ -109,6 +112,7 @@ enum AgentAccess: Equatable, Hashable, Sendable {
         case .claudeCode(let mode): mode.detail
         case .codex(let mode): mode.detail
         case .copilot(let mode): mode.detail
+        case .kiro(let mode): mode.detail(for: .kiro)
         }
     }
 
@@ -117,6 +121,7 @@ enum AgentAccess: Equatable, Hashable, Sendable {
         case .claudeCode(let mode): TrustTone(mode)
         case .codex(let mode): TrustTone(mode)
         case .copilot(let mode): TrustTone(mode)
+        case .kiro(let mode): TrustTone(mode)
         }
     }
 
@@ -127,6 +132,7 @@ enum AgentAccess: Equatable, Hashable, Sendable {
         case .claudeCode: PermissionMode.allCases.map(AgentAccess.claudeCode)
         case .codex: CodexSandboxMode.allCases.map(AgentAccess.codex)
         case .copilot: CopilotAccessMode.allCases.map(AgentAccess.copilot)
+        case .kiro: PermissionMode.choices(for: .kiro).map(AgentAccess.kiro)
         }
     }
 
@@ -140,6 +146,8 @@ enum AgentAccess: Equatable, Hashable, Sendable {
             .codex(settings?.codexSandboxMode ?? defaults.codexSandboxMode ?? .workspaceWrite)
         case .copilot:
             .copilot(settings?.copilotAccessMode ?? defaults.copilotAccessMode ?? .workspace)
+        case .kiro:
+            .kiro(kiroMode(settings?.permissionMode ?? defaults.permissionMode ?? .fallback))
         }
     }
 
@@ -147,7 +155,7 @@ enum AgentAccess: Equatable, Hashable, Sendable {
     // only gets looser on a switch when the person picks it.
     func nearest(on agent: AgentKind) -> AgentAccess {
         switch (self, agent) {
-        case (.claudeCode, .claudeCode), (.codex, .codex), (.copilot, .copilot):
+        case (.claudeCode, .claudeCode), (.codex, .codex), (.copilot, .copilot), (.kiro, .kiro):
             return self
         case (.claudeCode(let mode), .codex):
             // Codex cannot stop mid-turn to ask. Claude judging each step itself is closest
@@ -163,7 +171,22 @@ enum AgentAccess: Equatable, Hashable, Sendable {
             return .copilot(mode == .fullAccess ? .fullAccess : .workspace)
         case (.copilot(let mode), .codex):
             return .codex(mode == .fullAccess ? .fullAccess : .workspaceWrite)
+        case (.claudeCode(let mode), .kiro):
+            return .kiro(Self.kiroMode(mode))
+        case (.kiro(let mode), .claudeCode):
+            return .claudeCode(mode)
+        case (.kiro, .codex):
+            return .codex(.workspaceWrite)
+        case (.kiro, .copilot):
+            return .copilot(.workspace)
+        case (.codex, .kiro), (.copilot, .kiro):
+            return .kiro(.acceptEdits)
         }
+    }
+
+    // Kiro has no judge of its own for risky steps, so "Risky only" runs there as "Allow edits".
+    private static func kiroMode(_ mode: PermissionMode) -> PermissionMode {
+        mode == .auto ? .acceptEdits : mode
     }
 
     // Puts this level into the session's settings, on the field its agent reads.
@@ -172,6 +195,7 @@ enum AgentAccess: Equatable, Hashable, Sendable {
         case .claudeCode(let mode): settings.permissionMode = mode
         case .codex(let mode): settings.codexSandboxMode = mode
         case .copilot(let mode): settings.copilotAccessMode = mode
+        case .kiro(let mode): settings.permissionMode = mode
         }
     }
 }
@@ -184,6 +208,7 @@ enum AgentSwitch {
         case .claudeCode: return "Asks before risky steps. Takes prompts mid-turn."
         case .codex: return "Runs in a sandbox. Takes prompts mid-turn."
         case .copilot: return "Prompts sent mid-turn wait for the turn to end."
+        case .kiro: return "Beta. Prompts sent mid-turn wait for the turn to end."
         }
     }
 
