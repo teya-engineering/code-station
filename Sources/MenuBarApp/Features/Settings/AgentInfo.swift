@@ -380,7 +380,7 @@ enum AgentAccount {
 }
 
 // Runs "<cli> --version" and hands back the line it printed.
-private nonisolated func cliVersion(at path: String, searchPath: String) async -> String? {
+nonisolated func cliVersion(at path: String, searchPath: String) async -> String? {
     var env = ProcessInfo.processInfo.environment
     env["PATH"] = searchPath
     guard let output = try? await CommandRunner.run(

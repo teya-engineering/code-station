@@ -270,7 +270,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 
 | Need | Use |
 | --- | --- |
-| Pick one from a list | `.appMenu`, or `OptionMenu` for the ready-made dropdown |
+| Pick one from a list | `.appMenu`, or `OptionMenu` for the ready-made dropdown. A menu with more than one kind of row can label each run with `.heading`, and say what the rows do with a `.note`. Pass `opens:` a counter to open the menu from a key or an event, the way a click would. |
 | Pick one of a few, all visible | `ChoicePill`s in an `HStack` |
 | Pick one of a few as a segmented track, such as the subject of a review | `ChoicePill`s with `icon:` and a shared `thumb:` namespace, in an `HStack` on a `Theme.field` track. The fill slides to the pick on `Motion.control`. |
 | A choice in that row that carries a value of its own, such as which branch to compare with | `MenuChoicePill` (`Controls/MenuChoicePill.swift`), beside the `ChoicePill`s. The words pick the choice; the chevron opens an `.appMenu` of values, and so do the words once the choice is picked. Pass `monospaced: true` for a value the machine made, such as a branch. |
@@ -339,7 +339,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A whole split into a few parts, as a ring | `ShareDonut`: the parts round a ring with the leading share in the middle and a key beside it |
 | A note set apart inside a card, such as a tip | `.washSurface(tint:)`: a faint wash of the note's colour with an edge in the same colour |
 | Work the person is waiting on, with how far it has got | `ProgressCard`: a `LoopSpinner`, a title, a sentence and a `Meter` with "120 of 412 sessions". On its own in an empty pane for a first load; `compact: true` for a tinted strip over content already on screen while more arrives. |
-| Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
+| Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. A control held while a turn runs passes `locked: true` and shows `LockChevron`, which swaps the chevron for a clock in place. When the hold ends, `.unlockWave(_:index:)` lifts each control in turn and crosses it once with a brand sweep. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
 | A pull request and its state | `PullRequestMark` (`Layout/PullRequestMarks.swift`): GitHub's pull, draft, merged and closed marks, in the state's ink. `PullRequestLight` is the state as one dot, the size of a session's light, and an empty ring while the state is not known. Take the colours and the mark from `PullRequestTone`. |
@@ -354,6 +354,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | --- | --- |
 | Tell or ask the person something | `Dialog.notice`, `Dialog.confirm`, shown through `DialogPresenter` |
 | Confirm a deletion | `Dialog.impact`: a row for each thing that goes, a row for each thing that stays, and a warning for anything that cannot be restored |
+| The same goes-and-stays rows inside a dialog that draws itself | `ImpactRowView` (`Controls/Dialog.swift`), one per row, with `start:` to stagger their arrival |
 | Say what an action already did, with a way back | `Dialog.receipt` (`Controls/ReceiptDialog.swift`): the impact card with a deck on top showing the group and the new member landing in it, a plus row for what came in, tick rows for what stays, an optional choice, and Undo in the footer. Return, Escape and a click outside all close it, since the action is already done. Use it for a cheap action that is fully undone, instead of asking first. |
 | A right-click menu | `.appContextMenu` |
 | A hint on hover | `.appTooltip` |

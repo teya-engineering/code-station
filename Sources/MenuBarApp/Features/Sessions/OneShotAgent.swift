@@ -40,6 +40,41 @@ enum OneShotAgent {
         return collected(output.output.split(separator: "\n").map(String.init), agent: agent)
     }
 
+    // A question with no tools and no MCP servers, on a quick model where the CLI has
+    // one. Codex merges an empty server table with the person's own config, so each
+    // enabled server has to be switched off by name for the run. Kiro's saved rules
+    // still allow what they allow, so it runs under a throwaway profile with no tools.
+    static func ask(agent: AgentKind, at path: String, searchPath: String,
+                    workingDirectory: String, prompt: String, model: String? = nil,
+                    environment: [String: String] = ProcessInfo.processInfo.environment,
+                    timeout: Duration, purpose: String) async -> String? {
+        var disabledMCPServers: [DisabledMCPServer] = []
+        if agent == .codex {
+            guard let servers = try? await CodexCodeManager.enabledServers(
+                at: path, searchPath: searchPath, in: workingDirectory, timeout: .seconds(5)) else {
+                SessionLog.note("codex \(purpose) could not list MCP servers")
+                return nil
+            }
+            disabledMCPServers = servers
+        }
+        var arguments = PromptSuggestion.arguments(for: agent, prompt: prompt, model: model,
+                                                   disabledMCPServers: disabledMCPServers)
+        var kiroProfile: KiroReviewProfile?
+        if agent == .kiro {
+            guard let profile = try? KiroReviewProfile(environment: environment, readsFiles: false) else {
+                SessionLog.note("kiro \(purpose) could not create its profile")
+                return nil
+            }
+            kiroProfile = profile
+            arguments.insert(contentsOf: ["--agent", profile.name], at: 1)
+        }
+        defer { kiroProfile?.remove() }
+        return await read(
+            agent: agent, at: path, arguments: arguments,
+            searchPath: searchPath, workingDirectory: workingDirectory, environment: environment,
+            timeout: timeout, purpose: purpose)
+    }
+
     // What a run's output lines come to, read the way `read` reads them.
     static func collected(_ lines: [String], agent: AgentKind) -> String? {
         let collector = Collector(agent: agent)

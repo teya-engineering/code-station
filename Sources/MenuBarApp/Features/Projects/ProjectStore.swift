@@ -1222,10 +1222,21 @@ final class ProjectStore {
         saveIndex()
     }
 
-    // What the next turn in this session runs with. The agent stays fixed on the session,
-    // while the model and other run controls can change between turns.
+    // What the next turn in this session runs with. The agent, model and other run
+    // controls can all change between turns.
     func setSettings(_ settings: SessionSettings, for sessionID: UUID) {
         update(sessionID) { $0.settings = settings }
+    }
+
+    // Moves the session to another agent between turns. Every agent's resume id is left
+    // where it is, so the one handing over keeps its conversation for a switch back.
+    func switchAgent(_ sessionID: UUID, to agent: AgentKind, settings: SessionSettings,
+                     record: AgentSwitchRecord) {
+        update(sessionID) {
+            $0.agent = agent
+            $0.settings = settings
+            $0.agentSwitches.append(record)
+        }
     }
 
     func setDesignAmbitionRan(_ ambition: DesignAmbition, for sessionID: UUID) {
@@ -1961,9 +1972,13 @@ final class ProjectStore {
     // a turn on either of those seals itself and everything before it.
     func rewindableMessageIDs(in sessionID: UUID) -> Set<UUID> {
         var ids: Set<UUID> = []
+        let current = session(sessionID)?.agent
         for message in transcript(of: sessionID).reversed() {
+            // Winding back past a switch would leave the session on an agent that never
+            // saw the turns it is being wound back to.
+            if message.marker?.kind == .agent { break }
             guard message.role == .user, let checkpoint = message.checkpoint else { continue }
-            guard !checkpoint.agent.reusesConversationID else { break }
+            guard !checkpoint.agent.reusesConversationID, checkpoint.agent == current else { break }
             ids.insert(message.id)
         }
         return ids

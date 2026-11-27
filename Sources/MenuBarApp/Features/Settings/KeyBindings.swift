@@ -11,6 +11,7 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
     case runLastCommand, savedCommands, stopCommand
     case previewAddress, previewBack, previewForward
     case stopTurn, editSuggestion, sendSuggestion, cancelSuggestion
+    case switchAgent, changeModel, changeEffort
     case dictate, stopDictating, throwAwayTake
     case branches, commitSelected, askWholeChange, stepFindings, triageFinding, toggleViewed, nextNotViewed
     case saveFile, findInFile, findInFiles, findFileNames, closeFile, renameFile, trashFile
@@ -141,6 +142,15 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
         case .stopTurn:
             Info(title: "Stop the turn", detail: "Call off the agent while it is working.",
                  keys: KeyCombo(KeyCombo.escape, []), scope: .pane(.conversation))
+        case .switchAgent:
+            Info(title: "Switch agent", detail: "Open the agents this session can continue in.",
+                 keys: KeyCombo("a", [.command, .control]), scope: .pane(.session), canChange: true)
+        case .changeModel:
+            Info(title: "Change model", detail: "Open the models for the next turn.",
+                 keys: KeyCombo("m", [.command, .control]), scope: .pane(.session), canChange: true)
+        case .changeEffort:
+            Info(title: "Change effort", detail: "Open the effort levels for the next turn.",
+                 keys: KeyCombo("e", [.command, .control]), scope: .pane(.session), canChange: true)
         case .editSuggestion:
             Info(title: "Edit the suggestion", detail: "Put the suggested next prompt in the composer to change it.",
                  keys: KeyCombo(KeyCombo.tab, []), scope: .pane(.conversation))
@@ -259,7 +269,7 @@ enum AppCommand: String, CaseIterable, Identifiable, Sendable {
     static let groups: [(title: String, commands: [AppCommand])] = [
         ("Moving around", [.goBack, .goForward, .commandPalette, .filterSidebar, .nextWaiting]),
         ("Sessions", [.newSession, .switchTab, .terminal, .maximizeTerminal, .findInConversation,
-                      .runLastCommand, .savedCommands, .stopCommand, .stopTurn, .editSuggestion,
+                      .runLastCommand, .savedCommands, .stopCommand, .stopTurn, .switchAgent, .changeModel, .changeEffort, .editSuggestion,
                       .sendSuggestion, .cancelSuggestion, .dictate, .stopDictating, .throwAwayTake]),
         ("Preview", [.previewAddress, .previewBack, .previewForward]),
         ("Changes", [.branches, .commitSelected, .askWholeChange, .stepFindings, .triageFinding,

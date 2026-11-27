@@ -54,11 +54,13 @@ struct EffortPill: View {
     let title: String
     let lit: Int
     var form = false
+    // Held for the length of a turn: the words go quiet and the chevron becomes a clock.
+    var locked = false
 
     // The level as it was before this change, read while the change is being drawn so
     // the word knows which way to roll.
     @State private var previous: Int?
-    // A locked pill has no menu to open, so it shows no chevron.
+    // A disabled pill has no menu to open, so it shows no chevron.
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
@@ -67,10 +69,12 @@ struct EffortPill: View {
                 EffortMeter(lit: lit)
                 RollingText(title, rising: lit >= (previous ?? lit),
                             font: Typography.label)
+                    .foregroundStyle(locked ? .secondary : .primary)
                 if form { Spacer(minLength: 0) }
-                if isEnabled { MenuChevron(size: 8) }
+                if isEnabled || locked { LockChevron(locked: locked) }
             }
         }
+        .motion(Motion.reveal, value: locked)
         .onChange(of: lit, initial: true) { _, now in previous = now }
     }
 }
@@ -140,6 +144,74 @@ struct ShieldPill: View {
 }
 
 // MARK: - Shared pieces
+
+// A menu control's chevron, or a clock while the control is held until a turn ends. The
+// two symbols swap in place, so the control says it is waiting without moving.
+struct LockChevron: View {
+    let locked: Bool
+    var size: CGFloat = 8
+
+    @Environment(\.menuIsOpen) private var open
+
+    var body: some View {
+        Image(systemName: locked ? "clock" : "chevron.down")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .contentTransition(.symbolEffect(.replace))
+            .rotationEffect(.degrees(open && !locked ? 180 : 0))
+            .motion(Motion.reveal, value: open)
+            .motion(Motion.control, value: locked)
+            .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    // The control lifts a point or two and a brand-coloured sweep crosses it once, each
+    // control a beat after the one before, so a row unlocking reads left to right. Each
+    // new `wave` plays it once; nothing plays under Reduce Motion.
+    func unlockWave(_ wave: Int, index: Int) -> some View {
+        modifier(UnlockWave(wave: wave, index: index))
+    }
+}
+
+private struct UnlockWave: ViewModifier {
+    let wave: Int
+    let index: Int
+
+    @State private var lifted = false
+    @State private var sweep: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var delay: Double { Double(index) * Motion.stagger * 3 }
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: lifted ? -Space.xxs : 0)
+            .overlay {
+                GeometryReader { geometry in
+                    LinearGradient(colors: [Theme.brand.opacity(0), Theme.brand.opacity(0.55),
+                                            Theme.brand.opacity(0)],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: geometry.size.width * 0.6)
+                        .offset(x: sweep * geometry.size.width)
+                        .opacity(sweep > -1 && sweep < 1 ? 1 : 0)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: ControlHeight.md))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .onChange(of: wave) { _, _ in
+                guard !reduceMotion else { return }
+                sweep = -0.6
+                withAnimation(Motion.draw.delay(delay)) { sweep = 1 }
+                withAnimation(Motion.pop.delay(delay)) {
+                    lifted = true
+                } completion: {
+                    withAnimation(Motion.pop) { lifted = false }
+                }
+            }
+    }
+}
 
 // The rounded pill every menu control on the bar is drawn on, so they share one height
 // and one way of answering the pointer.

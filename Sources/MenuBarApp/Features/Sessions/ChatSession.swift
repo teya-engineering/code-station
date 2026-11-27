@@ -48,9 +48,9 @@ enum SessionMode: String, Codable, Equatable, Sendable {
     }
 }
 
-// A conversation with one coding agent in a project's directory. The agent is chosen
-// when the session is created and stays with it, so every visible turn belongs to the
-// same underlying conversation.
+// A conversation with a coding agent in a project's directory. The agent is chosen when
+// the session is created and can be swapped between turns. Each agent keeps its own
+// conversation under its own resume id, so going back to one picks up where it stopped.
 //
 // The conversation itself is kept in a file of its own rather than in this record, so
 // the app can hold every session it has ever had while only the open one costs anything.
@@ -78,6 +78,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     var troubleshootEnvironment: String?
     var troubleshootTimeWindow: String?
     var agent: AgentKind
+    // Every time the session moved to another agent, oldest first. Empty for a session
+    // that has only ever had one.
+    var agentSwitches: [AgentSwitchRecord] = []
     var mode: SessionMode = .chat
     // Design is the origin of a session, while the phase says what the agent is doing
     // now. Keeping them separate lets implementation retain the approved canvas and its
@@ -92,8 +95,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // A hidden Design conversation can borrow another session's checkout without owning
     // its worktree. User-created Design sessions hold their own conversation directly.
     var designSourceSessionID: UUID?
-    // Resume ids written before agents were pinned are kept so those conversations can
-    // still be recovered. New sessions only fill the id belonging to their chosen agent.
+    // One resume id per agent. Only the current agent's id is used for the next turn;
+    // the others wait for a switch back.
     var claudeSessionID: String?
     var codexSessionID: String?
     var copilotSessionID: String?
@@ -221,6 +224,22 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
+    // Every agent this session has run on, in the order it first came to each one.
+    var agentsUsed: [AgentKind] {
+        var seen: [AgentKind] = []
+        for agent in [agentSwitches.first?.from ?? agent] + agentSwitches.map(\.to)
+            where !seen.contains(agent) {
+            seen.append(agent)
+        }
+        return seen
+    }
+
+    // The model and effort an agent had when the session last moved away from it, so a
+    // switch back starts where that agent left off.
+    func lastRun(of agent: AgentKind) -> AgentSwitchRecord? {
+        agentSwitches.last { $0.from == agent }
+    }
+
     // Whether any agent still holds a conversation this session could resume. An empty
     // id is the same as none: it is never handed to a CLI as something to resume.
     var hasAgentConversation: Bool {
@@ -261,7 +280,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         case importedAt
         case isTroubleshooting
         case troubleshootEnvironment, troubleshootTimeWindow
-        case agent, mode, designPhase
+        case agent, agentSwitches, mode, designPhase
         case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
         case handedOffDesignRevisionID, designSourceSessionID
         case claudeSessionID, codexSessionID, copilotSessionID, kiroSessionID, createdAt
@@ -340,6 +359,8 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
                                                          forKey: .sidebarPlacement)
         messages = try container.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
         transcriptLoaded = !messages.isEmpty
+        agentSwitches = try container.decodeIfPresent([AgentSwitchRecord].self,
+                                                      forKey: .agentSwitches) ?? []
         agent = try container.decodeIfPresent(AgentKind.self, forKey: .agent)
             ?? Self.inferredAgent(claudeSessionID: claudeSessionID,
                                   codexSessionID: codexSessionID,
@@ -363,6 +384,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(troubleshootEnvironment, forKey: .troubleshootEnvironment)
         try container.encodeIfPresent(troubleshootTimeWindow, forKey: .troubleshootTimeWindow)
         try container.encode(agent, forKey: .agent)
+        if !agentSwitches.isEmpty { try container.encode(agentSwitches, forKey: .agentSwitches) }
         try container.encode(mode, forKey: .mode)
         try container.encodeIfPresent(designPhase, forKey: .designPhase)
         if !designRevisions.isEmpty {

@@ -88,6 +88,7 @@ extension SessionView {
                     .environment(\.transcriptFind, transcriptFind)
                     .environment(\.transcriptReply, replyAction)
                     .environment(\.explorerRoots, explorerRoots(for: session))
+                    .environment(\.switchAgentBack, switchAgentBack)
                     .padding(.horizontal, Space.xxxl)
                     .padding(.vertical, Space.xxl)
                     // Capped so prose keeps a readable line length, and centered so a
@@ -630,4 +631,23 @@ extension SessionView {
         for byte in text.utf8 where byte == UInt8(ascii: "\n") { count += 1 }
         return count
     }
+}
+
+extension SessionView {
+    // The way back from an agent switch marker. It reviews the switch like any other, and
+    // is held while a turn runs for the same reason the agent chip is.
+    var switchAgentBack: SwitchAgentBack {
+        SwitchAgentBack(available: !runner.state(sessionID).isBusy) { [store, runner, dialogs, sessionID] agent in
+            AgentSwitchDialog.open(agent, in: sessionID, store: store, runner: runner, dialogs: dialogs)
+        }
+    }
+}
+
+struct SwitchAgentBack {
+    let available: Bool
+    let action: @MainActor (AgentKind) -> Void
+}
+
+extension EnvironmentValues {
+    @Entry var switchAgentBack: SwitchAgentBack? = nil
 }

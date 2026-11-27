@@ -371,26 +371,7 @@ private struct ImpactDialogCard: View {
                                 let start = rowStart(index)
                                 Rectangle().fill(Theme.border).frame(height: 1)
                                     .draws(after: start)
-                                HStack(alignment: compact ? .top : .center, spacing: compact ? 10 : 14) {
-                                    Image(systemName: row.kept ? "checkmark" : "minus")
-                                        .font(.system(size: compact ? 13 : 19, weight: .medium))
-                                        .foregroundStyle(row.kept ? Theme.accent : Theme.deletion)
-                                        .frame(width: compact ? 22 : 34, height: compact ? 22 : 34)
-                                        .background(row.kept ? Theme.accent.opacity(0.10) : Theme.warningBackground,
-                                                    in: Circle())
-                                        .accessibilityHidden(true)
-                                        .arrives(after: start + 0.04, growing: 0.5, animation: Motion.pop)
-                                    VStack(alignment: .leading, spacing: Space.xs) {
-                                        Text(row.title).font(Typography.body.weight(.medium))
-                                        Text(row.detail)
-                                            .font(Typography.detail)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .arrives(after: start + 0.06, sliding: 6)
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(.vertical, compact ? 12 : 17)
-                                .accessibilityElement(children: .combine)
+                                ImpactRowView(row: row, compact: compact, start: start)
                             }
                             Rectangle().fill(Theme.border).frame(height: 1)
                                 .draws(after: rowStart(impact.rows.count))
@@ -448,6 +429,40 @@ private struct ImpactDialogCard: View {
             focusedAction = dialog.actions.first { $0.kind == .cancel }?.id
         }
         .onDisappear { presenter.restoreFocus() }
+    }
+}
+
+// One thing a change takes away, marked with a minus, or leaves in place, marked with a
+// tick. The mark lands and the words slide in `start` seconds after the card arrives, so
+// a list of them reads top to bottom.
+struct ImpactRowView: View {
+    let row: Dialog.Impact.Row
+    var compact = false
+    var start: Double = 0
+
+    var body: some View {
+        HStack(alignment: compact ? .top : .center, spacing: compact ? 10 : 14) {
+            Image(systemName: row.kept ? "checkmark" : "minus")
+                .font(.system(size: compact ? 13 : 19, weight: .medium))
+                .foregroundStyle(row.kept ? Theme.accent : Theme.deletion)
+                .frame(width: compact ? 22 : 34, height: compact ? 22 : 34)
+                .background(row.kept ? Theme.accent.opacity(0.10) : Theme.warningBackground,
+                            in: Circle())
+                .accessibilityHidden(true)
+                .arrives(after: start + 0.04, growing: 0.5, animation: Motion.pop)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(row.title).font(Typography.body.weight(.medium))
+                Text(row.detail)
+                    .font(Typography.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .arrives(after: start + 0.06, sliding: 6)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, compact ? 12 : 17)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(row.kept ? "Stays" : "Goes"): \(row.title). \(row.detail)")
     }
 }
 

@@ -119,6 +119,10 @@ struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     // A prompt sent into a turn that was already running, rather than starting one.
     // Optional so older conversations still decode.
     var steered: Bool?
+    // Set on a system line that marks a change to the agent, model or effort, so the
+    // transcript can draw it as a marker rather than a plain note. The text still says
+    // the same thing in words, for copying and find.
+    var marker: SettingsMarker?
 
     mutating func recordAgentTask(_ record: AgentTaskRecord) {
         var record = record

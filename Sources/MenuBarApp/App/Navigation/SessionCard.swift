@@ -137,6 +137,7 @@ struct SessionCard: View {
         if session.isPinned { labels.append("Pinned") }
         if let snoozed { labels.append("Snoozed \(snoozed.phrase())") }
         if uncommitted { labels.append("Uncommitted changes") }
+        if session.agentsUsed.count > 1 { labels.append("Now on \(session.agent.title)") }
         if connected { labels.append("Phone connected") }
         if worktrees.isComplete { labels.append("In a worktree") }
         if worktrees.isPartial { labels.append("Partly in a worktree") }
@@ -179,6 +180,18 @@ struct SessionCard: View {
                 // Review threads on this session's pull request still waiting for an answer.
                 if pullRequestReviews.waitingCount(session.id) > 0 {
                     MonoChip(text: "\(pullRequestReviews.waitingCount(session.id)) REVIEW", size: Typography.Size.micro, tint: Theme.attentionText)
+                }
+                // Only a session that has moved between agents names them here. One that
+                // has kept to one agent has nothing to tell apart.
+                let agents = session.agentsUsed
+                if agents.count > 1 {
+                    HStack(spacing: -Space.xs) {
+                        ForEach(agents.filter { $0 != session.agent } + [session.agent]) { agent in
+                            ReviewAvatar(agent: agent, size: Space.xl, muted: agent != session.agent)
+                        }
+                    }
+                    .motion(Motion.control, value: session.agent)
+                    .accessibilityHidden(true)
                 }
                 Spacer(minLength: 4)
                 Text(RelativeTime.short(waiting ? waitingSince ?? session.lastActivity
@@ -231,6 +244,9 @@ struct SessionCard: View {
         }
         if let branch {
             rows.append(Tooltip.Row(label: "Branch", value: branch))
+        }
+        if session.agentsUsed.count > 1 {
+            rows.append(Tooltip.Row(label: "Agents", value: "\(session.agent.title), after \(session.agentsUsed.filter { $0 != session.agent }.map(\.title).formatted(.list(type: .and)))"))
         }
         if appSettings.showsCost(for: session.agent), let usage = session.usage, usage.turns > 0 {
             // Kiro counts in plan credits rather than dollars.

@@ -55,8 +55,7 @@ extension SessionView {
     }
 
     // The choices the next turn will run on, on the line the eye is already on when
-    // hitting send: the session's fixed agent, its model, and the rest of the run
-    // controls. What the session has done and where belongs on the status strip, not
+    // hitting send: the session's agent, its model, and the rest of the run controls. What the session has done and where belongs on the status strip, not
     // here - this line is only ever about what happens next.
     //
     // The saved commands sit at the end of it, behind one Run button, for the same
@@ -67,8 +66,10 @@ extension SessionView {
             if session.settings?.mcpServersEnabled == false {
                 MonoChip(text: "MCP off", size: Typography.Size.caption, bordered: true)
             }
-            SessionRunSettingsControls(sessionID: sessionID)
-            Spacer(minLength: 12)
+            SessionRunSettingsControls(sessionID: sessionID, takesShortcuts: true)
+            Spacer(minLength: Space.lg)
+            RunSettingsLockHint(agent: session.agent, locked: runner.state(sessionID).isBusy,
+                                canSwitch: !session.isDesignSession && !session.isTroubleshooting)
 
             // Ad-hoc tasks run in a private folder the app made for one prompt, so there
             // is nothing there worth saving a command against.

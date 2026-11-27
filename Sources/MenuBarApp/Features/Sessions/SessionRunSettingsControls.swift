@@ -3,31 +3,48 @@ import SwiftUI
 // The settings for the next turn are shared by Chat and Design. Both surfaces use this
 // view so a choice has the same meaning and follows the same app default in either mode.
 //
-// Each control shows its own state rather than only its name: the model by name, the
-// effort as a meter, and how much the agent asks before it acts as a shield coloured by
-// how far it is trusted. Design adds how far the look is pushed, which means nothing to a
-// Chat turn and so is only shown there.
+// Each control shows its own state rather than only its name: the agent by its tile, the
+// model by name, the effort as a meter, and how much the agent asks before it acts as a
+// shield coloured by how far it is trusted. Design adds how far the look is pushed, which
+// means nothing to a Chat turn and so is only shown there.
+//
+// The agent, model and effort only change between turns, so a turn never runs on mixed
+// settings. While one runs they are locked: a click opens a note on why and when they
+// unlock, with a way to stop the turn or have the menu open once it ends.
 struct SessionRunSettingsControls: View {
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(AppSettings.self) private var appSettings
+    @Environment(\.keyBindings) private var keyBindings
 
     let sessionID: UUID
     var wraps = false
     var showsDesignAmbition = false
+    // Only one composer on screen answers the keys that open these menus.
+    var takesShortcuts = false
+
+    enum Locked: Hashable { case agent, model, effort }
+
+    @State private var opens: [Locked: Int] = [:]
+    @State private var openWhenUnlocked: Locked?
+    @State private var unlockWave = 0
+    @State private var flashes: [Locked: Int] = [:]
 
     var body: some View {
         if let session = store.session(sessionID) {
             let agent = session.agent
+            let locked = runner.state(sessionID).isBusy
             let layout = wraps ? AnyLayout(FlowRow(spacing: Space.md)) : AnyLayout(HStackLayout(spacing: Space.md))
             layout {
-                AgentPill(agent: agent)
-                    .appTooltip(["This session always runs on \(agent.title).", agent.betaNote]
-                        .compactMap { $0 }.joined(separator: " "))
-                    .accessibilityLabel("Agent: \(agent.title)\(agent.isBeta ? ", beta" : "")")
-                modelControl(session, lastRan: session.usage?.model(for: agent))
-                if agent.choosesEffort { effortControl(agent: agent) }
+                agentControl(session, locked: locked)
+                    .unlockWave(unlockWave, index: 0)
+                modelControl(session, lastRan: session.usage?.model(for: agent), locked: locked)
+                    .unlockWave(unlockWave, index: 1)
+                if agent.choosesEffort {
+                    effortControl(session, locked: locked)
+                        .unlockWave(unlockWave, index: 2)
+                }
                 switch agent {
                 case .claudeCode, .kiro: permissionsControl(agent: agent)
                 case .codex: codexAccessControl(agent: agent)
@@ -35,8 +52,32 @@ struct SessionRunSettingsControls: View {
                 }
                 if showsDesignAmbition { ambitionControl }
             }
+            .background { if takesShortcuts { shortcutKeys } }
             .task(id: agent) { await runner.catalog.discoverModels(for: agent) }
+            .onChange(of: locked) { wasLocked, nowLocked in
+                guard wasLocked, !nowLocked else { return }
+                unlockWave += 1
+                if let kind = openWhenUnlocked {
+                    openWhenUnlocked = nil
+                    opens[kind, default: 0] += 1
+                }
+            }
+            .onChange(of: agent) { _, _ in
+                flashes[.agent, default: 0] += 1
+            }
         }
+    }
+
+    private var shortcutKeys: some View {
+        ZStack {
+            Button("") { opens[.agent, default: 0] += 1 }.appShortcut(.switchAgent)
+            Button("") { opens[.model, default: 0] += 1 }.appShortcut(.changeModel)
+            Button("") { opens[.effort, default: 0] += 1 }.appShortcut(.changeEffort)
+        }
+        .buttonStyle(.plain)
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
     }
 
     private var sessionSettings: SessionSettings {
@@ -49,20 +90,129 @@ struct SessionRunSettingsControls: View {
         store.setSettings(updated, for: sessionID)
     }
 
+    // MARK: - Agent
+
+    // Design and diagnosis turns are written for the agent they started on, so only a
+    // plain Chat session can move to another agent.
+    private func canSwitchAgent(_ session: ChatSession) -> Bool {
+        session.mode == .chat && !session.isDesignSession && !session.isTroubleshooting
+    }
+
+    @ViewBuilder private func agentControl(_ session: ChatSession, locked: Bool) -> some View {
+        let agent = session.agent
+        if canSwitchAgent(session) {
+            AgentChip(agent: agent, locked: locked)
+                .landingRings(flashes[.agent], colour: agent.tint, cornerRadius: ControlHeight.md, reach: 1.25)
+                .appMenu(edge: .top, opens: opens[.agent] ?? 0) {
+                    runner.state(sessionID).isBusy ? waitEntries(.agent) : agentEntries()
+                }
+                .appTooltip(locked ? lockedHelp("agent")
+                                   : keyBindings.tooltip("Switch agent", for: .switchAgent))
+                .accessibilityLabel("Agent: \(agent.title)\(agent.isBeta ? ", beta" : "")")
+                .accessibilityHint(locked ? lockedHelp("agent") : "Opens the agents this session can continue in.")
+        } else {
+            AgentPill(agent: agent)
+                .appTooltip(["This session always runs on \(agent.title).", agent.betaNote]
+                    .compactMap { $0 }.joined(separator: " "))
+                .accessibilityLabel("Agent: \(agent.title)\(agent.isBeta ? ", beta" : "")")
+        }
+    }
+
+    private func agentEntries() -> [MenuEntry] {
+        guard let session = store.session(sessionID) else { return [] }
+        let agent = session.agent
+        let used = session.agentsUsed
+        var entries: [MenuEntry] = [
+            .heading("This session"),
+            .item(agent.title, icon: agent.symbol, iconTint: agent.tint, checked: true,
+                  subtitle: currentRunSummary(session), disabled: true) {},
+            .heading("Continue this session in"),
+        ]
+        for other in AgentKind.allCases where other != agent {
+            let installed = runner.catalog.isAvailable(other)
+            let returning = used.contains(other)
+            entries.append(.item(
+                other.title, icon: other.symbol, iconTint: other.tint,
+                badge: returning ? "BACK" : nil, badgeTint: other.tint,
+                subtitle: installed ? AgentSwitch.blurb(for: other, returning: returning)
+                                    : "Not installed. \(other.installHint)",
+                monospacedSubtitle: !installed,
+                disabled: !installed) {
+                    AgentSwitchDialog.open(other, in: sessionID, store: store, runner: runner,
+                                           dialogs: dialogs)
+                })
+        }
+        entries.append(.note("The worktree stays as it is. You check what the next agent is told before anything is sent."))
+        return entries
+    }
+
+    private func currentRunSummary(_ session: ChatSession) -> String {
+        let agent = session.agent
+        let model = runner.catalog.validModel(session.settings?.model, for: agent)
+        let modelTitle = model.map { runner.catalog.modelTitle($0) }
+            ?? session.usage?.model(for: agent).map { ModelChoice.shortName(of: $0) }
+            ?? "Default model"
+        let effort = runner.catalog.validEffort(
+            session.settings?.effort ?? runner.catalog.defaults(for: agent).effort,
+            for: agent, model: model)
+        let effortTitle = effort.map { "\(runner.catalog.effortTitle($0, for: agent, model: model)) effort" }
+        return [modelTitle, effortTitle].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    // MARK: - Waiting for the turn
+
+    private func lockedHelp(_ word: String) -> String {
+        "You can change the \(word) when this turn ends."
+    }
+
+    // What a locked control opens: why it is locked, what the turn is doing, and the two
+    // things the person can do about it.
+    private func waitEntries(_ kind: Locked) -> [MenuEntry] {
+        guard let session = store.session(sessionID) else { return [] }
+        let word = switch kind {
+        case .agent: "agent"
+        case .model: "model"
+        case .effort: "effort"
+        }
+        var entries: [MenuEntry] = [
+            .heading("\(AgentSwitch.shortName(of: session.agent)) is still working"),
+            .note("The agent, model and effort stay the same for the whole turn. You can change the \(word) as soon as this turn ends."),
+        ]
+        if let tool = runner.runningTool(sessionID) {
+            let label = ToolPresentationCache.presentation(
+                for: tool, projectPath: store.workingDirectory(for: session) ?? "").label
+            entries.append(.item(label, icon: "hourglass", disabled: true) {})
+        }
+        entries += [
+            .separator,
+            .item("Open this when the turn ends", checked: openWhenUnlocked == kind) {
+                openWhenUnlocked = openWhenUnlocked == kind ? nil : kind
+            },
+            .item("Stop the turn", kind: .destructive, icon: "stop.fill",
+                  subtitle: "Ends the turn now, which unlocks the \(word).") {
+                runner.stop(sessionID)
+            },
+        ]
+        return entries
+    }
+
     // MARK: - Model
 
-    private func modelControl(_ session: ChatSession, lastRan: String?) -> some View {
+    private func modelControl(_ session: ChatSession, lastRan: String?, locked: Bool) -> some View {
         let agent = session.agent
         let model = runner.catalog.validModel(sessionSettings.model, for: agent)
-        let choose = { (id: String?) in chooseModel(id, for: session, lastRan: lastRan) }
+        let choose = { (id: String?) in chooseModel(id, for: session) }
         let title = model.map { runner.catalog.modelTitle($0) }
             ?? lastRan.map { ModelChoice.shortName(of: $0) }
             ?? "Default"
         let help = "The model this session will use for its next turn."
 
-        return ModelPill(title: title)
-            .appMenu(edge: .top) {
+        return ModelPill(title: title, locked: locked)
+            .landingRings(flashes[.model], colour: Theme.brand, cornerRadius: ControlHeight.md, reach: 1.25)
+            .appMenu(edge: .top, opens: opens[.model] ?? 0) {
+                if runner.state(sessionID).isBusy { return waitEntries(.model) }
                 var entries: [MenuEntry] = [
+                    .heading("\(agent.title) model"),
                     .item("Use \(agent.title) default", checked: model == nil) { choose(nil) },
                     .separator,
                 ]
@@ -72,34 +222,24 @@ struct SessionRunSettingsControls: View {
                                        subtitle: option.detail) { choose(id) }
                     }
                 }
+                entries.append(.note("Used from your next prompt. The conversation carries on as it is, though a different model may not reuse the cached context."))
                 return entries
             }
-            .appTooltip(model == nil ? help : "\(help) Overridden for this session.")
+            .appTooltip(locked ? lockedHelp("model")
+                        : model == nil ? keyBindings.tooltip(help, for: .changeModel)
+                        : keyBindings.tooltip("\(help) Overridden for this session.", for: .changeModel))
             .accessibilityLabel("Model: \(title)")
+            .accessibilityHint(locked ? lockedHelp("model") : "")
     }
 
-    private func chooseModel(_ model: String?, for session: ChatSession, lastRan: String?) {
+    private func chooseModel(_ model: String?, for session: ChatSession) {
         let current = runner.catalog.validModel(sessionSettings.model, for: session.agent)
-        guard model != current else { return }
-        guard session.hasAgentConversation else {
-            setModel(model, for: session.agent)
-            return
-        }
-
-        let currentTitle = current.map { runner.catalog.modelTitle($0) }
-            ?? lastRan.map { ModelChoice.shortName(of: $0) }
-            ?? "the \(session.agent.title) default"
-        let nextTitle = model.map { runner.catalog.modelTitle($0) }
-            ?? "the \(session.agent.title) default"
-        dialogs.show(.confirm(
-            "Change from \(currentTitle) to \(nextTitle)?",
-            message: "The next turn will resume this conversation using \(nextTitle). "
-                + "The conversation and files stay in place. If this selects a different "
-                + "model, cached context may not carry over, so processing the existing "
-                + "context can use more input tokens.",
-            action: "Change model", kind: .primary) {
-                setModel(model, for: session.agent)
-            })
+        guard model != current, !runner.state(sessionID).isBusy else { return }
+        setModel(model, for: session.agent)
+        flashes[.model, default: 0] += 1
+        let title = model.map { runner.catalog.modelTitle($0) } ?? "the \(session.agent.title) default"
+        mark(.model, value: model.map { runner.catalog.modelTitle($0) } ?? "\(session.agent.title) default",
+             text: "Model changed to \(title).")
     }
 
     private func setModel(_ model: String?, for agent: AgentKind) {
@@ -112,42 +252,77 @@ struct SessionRunSettingsControls: View {
         }
     }
 
+    // A change made between turns is marked where the next turn will start, so the
+    // transcript says which settings each turn ran on. A session with nothing in it yet has
+    // no turn to set the change against.
+    private func mark(_ kind: SettingsMarker.Kind, value: String, text: String) {
+        guard let session = store.session(sessionID),
+              !store.transcript(of: sessionID).isEmpty else { return }
+        var message = ChatMessage(role: .system, text: text)
+        message.marker = SettingsMarker(kind: kind, agent: session.agent, value: value)
+        store.append(message, to: sessionID)
+    }
+
     // MARK: - Effort
 
-    private func effortControl(agent: AgentKind) -> some View {
+    @ViewBuilder private func effortControl(_ session: ChatSession, locked: Bool) -> some View {
+        let agent = session.agent
         let settings = sessionSettings
         let model = runner.catalog.validModel(settings.model, for: agent)
-        let override = runner.catalog.validEffort(settings.effort, for: agent, model: model)
-        let appDefault = runner.catalog.validEffort(runner.catalog.defaults(for: agent).effort,
-                                            for: agent, model: model)
-        let chosen = override ?? appDefault
         let levels = runner.catalog.effortOptions(for: agent, model: model).compactMap(\.id)
-        let title = chosen.map { runner.catalog.effortTitle($0, for: agent, model: model) } ?? "Default"
-        let inheritedEffort = appDefault.map { runner.catalog.effortTitle($0, for: agent, model: model) }
-            ?? "\(agent.title) settings"
-        let help = "How long the model thinks before it answers. Inherit Code Station's default, or choose a level for this run."
+        // An agent with no effort setting gets no control for one, rather than one that
+        // can only ever say Default.
+        if !levels.isEmpty {
+            let override = runner.catalog.validEffort(settings.effort, for: agent, model: model)
+            let appDefault = runner.catalog.validEffort(runner.catalog.defaults(for: agent).effort,
+                                                        for: agent, model: model)
+            let chosen = override ?? appDefault
+            let title = chosen.map { runner.catalog.effortTitle($0, for: agent, model: model) } ?? "Default"
+            let inheritedEffort = appDefault.map { runner.catalog.effortTitle($0, for: agent, model: model) }
+                ?? "\(agent.title) settings"
+            let help = "How long the model thinks before it answers. Inherit Code Station's default, or choose a level for this run."
 
-        return EffortPill(title: title, lit: EffortMeter.lit(for: chosen, among: levels))
-            .appMenu(edge: .top) {
-                var entries: [MenuEntry] = [
-                    .item("Use Code Station default (\(inheritedEffort))",
-                          meter: EffortMeter.lit(for: appDefault, among: levels),
-                          checked: override == nil) {
-                        changeSettings { $0.effort = nil }
-                    },
-                    .separator,
-                ]
-                entries += levels.map { level in
-                    MenuEntry.item(runner.catalog.effortTitle(level, for: agent, model: model),
-                                   meter: EffortMeter.lit(for: level, among: levels),
-                                   checked: override == level) {
-                        changeSettings { $0.effort = level }
+            EffortPill(title: title, lit: EffortMeter.lit(for: chosen, among: levels), locked: locked)
+                .landingRings(flashes[.effort], colour: Theme.brand, cornerRadius: ControlHeight.md, reach: 1.25)
+                .appMenu(edge: .top, opens: opens[.effort] ?? 0) {
+                    if runner.state(sessionID).isBusy { return waitEntries(.effort) }
+                    var entries: [MenuEntry] = [
+                        .heading("Effort"),
+                        .item("Use Code Station default (\(inheritedEffort))",
+                              meter: EffortMeter.lit(for: appDefault, among: levels),
+                              checked: override == nil) {
+                            chooseEffort(nil, agent: agent, model: model, appDefault: appDefault)
+                        },
+                        .separator,
+                    ]
+                    entries += levels.map { level in
+                        MenuEntry.item(runner.catalog.effortTitle(level, for: agent, model: model),
+                                       meter: EffortMeter.lit(for: level, among: levels),
+                                       checked: override == level) {
+                            chooseEffort(level, agent: agent, model: model, appDefault: appDefault)
+                        }
                     }
+                    entries.append(.note("Used from your next prompt."))
+                    return entries
                 }
-                return entries
-            }
-            .appTooltip(override != nil ? "\(help) Overridden for this session." : help)
-            .accessibilityLabel("Effort: \(title)")
+                .appTooltip(locked ? lockedHelp("effort")
+                            : keyBindings.tooltip(override != nil ? "\(help) Overridden for this session." : help,
+                                                  for: .changeEffort))
+                .accessibilityLabel("Effort: \(title)")
+                .accessibilityHint(locked ? lockedHelp("effort") : "")
+        }
+    }
+
+    private func chooseEffort(_ level: String?, agent: AgentKind, model: String?, appDefault: String?) {
+        let override = runner.catalog.validEffort(sessionSettings.effort, for: agent, model: model)
+        guard level != override, !runner.state(sessionID).isBusy else { return }
+        let before = override ?? appDefault
+        changeSettings { $0.effort = level }
+        let after = level ?? appDefault
+        guard before != after else { return }
+        flashes[.effort, default: 0] += 1
+        let title = after.map { runner.catalog.effortTitle($0, for: agent, model: model) } ?? "the default"
+        mark(.effort, value: title, text: "Effort changed to \(title).")
     }
 
     // MARK: - Design ambition
@@ -287,8 +462,8 @@ struct SessionRunSettingsControls: View {
 
 // MARK: - Agent
 
-// The agent is fixed for the life of a session, so it sits on the same capsule as the
-// controls beside it but drawn as an outline, with no chevron and no answer to the pointer.
+// A session that cannot change its agent shows it on the same capsule as the controls
+// beside it, but drawn as an outline, with no chevron and no answer to the pointer.
 private struct AgentPill: View {
     let agent: AgentKind
 
@@ -312,10 +487,30 @@ private struct AgentPill: View {
     }
 }
 
+// The agent on its own tile and colour. Locked, the tile greys out and the words go quiet.
+private struct AgentChip: View {
+    let agent: AgentKind
+    let locked: Bool
+
+    var body: some View {
+        BarPill {
+            HStack(spacing: Space.sm) {
+                ReviewAvatar(agent: agent, size: ControlHeight.xs - Space.xs, muted: locked)
+                RollingText(agent.title, font: Typography.label)
+                    .foregroundStyle(locked ? .secondary : .primary)
+                if agent.isBeta { BetaChip() }
+                LockChevron(locked: locked)
+            }
+        }
+        .motion(Motion.reveal, value: locked)
+    }
+}
+
 // MARK: - Model
 
 private struct ModelPill: View {
     let title: String
+    var locked = false
 
     var body: some View {
         BarPill {
@@ -324,9 +519,11 @@ private struct ModelPill: View {
                     .font(Typography.label)
                     .foregroundStyle(.secondary)
                 RollingText(title, font: Typography.label)
-                MenuChevron(size: 8)
+                    .foregroundStyle(locked ? .secondary : .primary)
+                LockChevron(locked: locked)
             }
         }
+        .motion(Motion.reveal, value: locked)
     }
 }
 
@@ -392,5 +589,39 @@ private struct AmbitionPill: View {
 
     private func rank(_ ambition: DesignAmbition) -> Int {
         DesignAmbition.allCases.firstIndex(of: ambition) ?? 0
+    }
+}
+
+// Says on the right of the composer bar why the agent, model and effort cannot be changed
+// while a turn runs, and when they can. Between turns it names the key for switching.
+struct RunSettingsLockHint: View {
+    let agent: AgentKind
+    let locked: Bool
+    var canSwitch = true
+
+    @Environment(\.keyBindings) private var keyBindings
+
+    var body: some View {
+        Group {
+            if locked {
+                Label("Unlocks when \(AgentSwitch.shortName(of: agent)) finishes", systemImage: "lock")
+                    .id("locked")
+            } else if canSwitch, let keys = keyBindings.keys(for: .switchAgent) {
+                HStack(spacing: Space.xs) {
+                    Keycap(keys.compactLabel)
+                    Text("switch agent")
+                }
+                .id("unlocked")
+            }
+        }
+        .font(Typography.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        // The hint is the first thing to give way when the bar is short of room.
+        .layoutPriority(-1)
+        .transition(.opacity.combined(with: .offset(y: Space.xs)))
+        .motion(Motion.reveal, value: locked)
+        .accessibilityElement(children: .combine)
     }
 }

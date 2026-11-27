@@ -72,6 +72,10 @@ struct MessageView: View, Equatable {
             }
         case .assistant:
             assistantBody
+        case .system where message.marker != nil:
+            if let marker = message.marker {
+                SettingsMarkerView(marker: marker, date: message.date)
+            }
         case .system:
             HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                 SelectableText(plain: message.text,

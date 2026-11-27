@@ -147,7 +147,7 @@ enum PromptSuggestion {
             return arguments
 
         case .kiro:
-            // `read` adds a profile with no tools. A flag that trusts no tool is not enough,
+            // `OneShotAgent.ask` adds a profile with no tools. A flag that trusts no tool is not enough,
             // since the person's saved rules still allow what they allow.
             var arguments = ["chat", "--agent-engine", "v3", "--no-interactive"]
             if let model = quickModel(for: agent) { arguments += ["--model", model] }
@@ -161,33 +161,10 @@ enum PromptSuggestion {
     static func read(agent: AgentKind, at path: String, searchPath: String,
                      workingDirectory: String, prompt: String, model: String? = nil,
                      environment: [String: String] = ProcessInfo.processInfo.environment) async -> String? {
-        var disabledMCPServers: [DisabledMCPServer] = []
-        if agent == .codex {
-            // An empty mcp_servers table merges with the user's config, so each enabled
-            // server must be switched off by name for this invocation.
-            guard let servers = try? await CodexCodeManager.enabledServers(
-                at: path, searchPath: searchPath, in: workingDirectory, timeout: .seconds(5)) else {
-                SessionLog.note("codex prompt suggestion could not list MCP servers")
-                return nil
-            }
-            disabledMCPServers = servers
-        }
-        var launchArguments = arguments(for: agent, prompt: prompt, model: model,
-                                        disabledMCPServers: disabledMCPServers)
-        var kiroProfile: KiroReviewProfile?
-        if agent == .kiro {
-            guard let profile = try? KiroReviewProfile(environment: environment, readsFiles: false) else {
-                SessionLog.note("kiro prompt suggestion could not create its profile")
-                return nil
-            }
-            kiroProfile = profile
-            launchArguments.insert(contentsOf: ["--agent", profile.name], at: 1)
-        }
-        defer { kiroProfile?.remove() }
-        guard let response = await OneShotAgent.read(
-            agent: agent, at: path, arguments: launchArguments,
-            searchPath: searchPath, workingDirectory: workingDirectory, environment: environment,
-            timeout: .seconds(45), purpose: "prompt suggestion") else { return nil }
+        guard let response = await OneShotAgent.ask(
+            agent: agent, at: path, searchPath: searchPath, workingDirectory: workingDirectory,
+            prompt: prompt, model: model, environment: environment, timeout: .seconds(45),
+            purpose: "prompt suggestion") else { return nil }
         let suggestion = cleaned(response)
         if suggestion == nil {
             SessionLog.note(response.trimmed.lowercased() == "none"

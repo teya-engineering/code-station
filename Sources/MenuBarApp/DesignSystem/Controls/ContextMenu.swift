@@ -17,6 +17,11 @@ enum MenuEntry {
     case icons([MenuItem])
     case separator
     case fileSubject(String)
+    // A small capitals label over a run of rows, for a menu that offers more than one
+    // kind of choice.
+    case heading(String)
+    // A quiet line of text that says what the rows around it do. It cannot be picked.
+    case note(String)
 
     static func item(_ label: String,
                      kind: MenuItem.Kind = .plain,
@@ -229,13 +234,17 @@ extension View {
     // at the bottom of the window can anchor the menu to its top edge instead, and
     // matching the width makes the menu read as the button unfolding. A refresh keeps
     // slow external state current without delaying the menu opening.
+    //
+    // Each new value of `opens` opens the menu as a click would, for a key or an event
+    // that should bring the same menu up without the pointer.
     func appMenu(edge: VerticalEdge = .bottom,
                  matchWidth: Bool = false,
                  showsFocusRing: Bool = false,
+                 opens: Int = 0,
                  refreshOnOpen: (() async -> Void)? = nil,
                  _ entries: @escaping () -> [MenuEntry]) -> some View {
         modifier(AppMenuButton(edge: edge, matchWidth: matchWidth, showsFocusRing: showsFocusRing,
-                               refreshOnOpen: refreshOnOpen, entries: entries))
+                               opens: opens, refreshOnOpen: refreshOnOpen, entries: entries))
     }
 }
 
@@ -256,6 +265,7 @@ private struct AppMenuButton: ViewModifier {
     let edge: VerticalEdge
     let matchWidth: Bool
     let showsFocusRing: Bool
+    let opens: Int
     let refreshOnOpen: (() async -> Void)?
     let entries: () -> [MenuEntry]
 
@@ -290,6 +300,9 @@ private struct AppMenuButton: ViewModifier {
         .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
         .onChange(of: isOpen) { wasOpen, nowOpen in
             if wasOpen && !nowOpen && !presenter.isOpen && dialogs?.current == nil { triggerFocused = true }
+        }
+        .onChange(of: opens) { _, _ in
+            if isOpen { presenter.dismiss() } else { open() }
         }
     }
 
@@ -454,7 +467,7 @@ struct ContextMenuHost: View {
             case .item(let item): [item]
             case .searchable(let searchable): searchable.items
             case .icons(let icons): icons
-            case .cards, .separator, .fileSubject: []
+            case .cards, .separator, .fileSubject, .heading, .note: []
             }
         }
         let hasChecks = items.contains(where: \.checked)
@@ -528,6 +541,25 @@ struct ContextMenuHost: View {
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, Space.xs)
                         .transition(.fadeIn)
+                case .heading(let title):
+                    Text(title.uppercased())
+                        .font(Typography.caps)
+                        .kerning(Typography.capsKerning)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.top, Space.sm)
+                        .padding(.bottom, Space.xs)
+                        .accessibilityAddTraits(.isHeader)
+                        .transition(.fadeIn)
+                case .note(let text):
+                    Text(text)
+                        .font(Typography.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: menuSubtitleMaximumWidth, alignment: .leading)
+                        .padding(.horizontal, Space.lg)
+                        .padding(.vertical, Space.xs)
+                        .transition(.fadeIn)
                 }
             }
         }
@@ -535,7 +567,7 @@ struct ContextMenuHost: View {
         .onAppear {
             guard presenter.entries.allSatisfy({
                 switch $0 {
-                case .item, .separator, .fileSubject: true
+                case .item, .separator, .fileSubject, .heading, .note: true
                 default: false
                 }
             }) else { return }
