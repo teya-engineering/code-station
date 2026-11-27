@@ -26,6 +26,14 @@ final class AgentSwitchDraft {
         let command: String?
     }
 
+    // The uncommitted changes the next agent will find in the folder.
+    enum Worktree: Equatable {
+        case reading
+        case files([GitChange])
+        // Not a git folder, or git could not be asked.
+        case unknown
+    }
+
     let sessionID: UUID
     let from: AgentKind
     let to: AgentKind
@@ -35,8 +43,9 @@ final class AgentSwitchDraft {
     let fromEffortTitle: String?
     let fromModel: String?
     let fromEffort: String?
-    let currentAccess: AgentAccess
-    let branch: String?
+    // The session's own worktree branch, or the branch the folder is on once git has
+    // been asked.
+    private(set) var branch: String?
     let contextWindow: Int?
 
     var handoff: AgentHandoff = .note
@@ -45,6 +54,14 @@ final class AgentSwitchDraft {
     }
     private(set) var noteEdited = false
     private(set) var isDrafting = false
+    private(set) var writer: NoteWriter = .outgoing
+    // The writer that was asked and did not answer, while the app's plain list stands in
+    // for its note.
+    private(set) var silentWriter: NoteWriter?
+    private(set) var worktree: Worktree = .reading
+    // The explanation behind the question mark. Kept here so Escape can put it away
+    // before it closes the dialog.
+    var showsWhy = false
     var model: String? {
         didSet { if oldValue != model { keepEffortValid() } }
     }
@@ -55,6 +72,13 @@ final class AgentSwitchDraft {
     private(set) var failure: Failure?
     private(set) var stepSeconds: [Step: Double] = [:]
     private(set) var installedVersion: String?
+
+    // The transcript as the next agent would read it, with its size and its last lines.
+    let transcriptText: String
+    let transcriptTokens: Int
+    let transcriptTail: [String]
+    let messageCount: Int
+    let toolCallCount: Int
 
     let catalog: AgentCatalog
     private let store: ProjectStore
@@ -88,8 +112,6 @@ final class AgentSwitchDraft {
                                              for: from, model: fromModel)
         self.fromEffort = fromEffort
         fromEffortTitle = fromEffort.map { catalog.effortTitle($0, for: from, model: fromModel) }
-        currentAccess = AgentAccess.current(for: from, settings: settings,
-                                            defaults: catalog.defaults(for: from))
         access = AgentAccess.current(for: from, settings: settings,
                                      defaults: catalog.defaults(for: from)).nearest(on: to)
         branch = session.worktreeBranch
@@ -104,10 +126,23 @@ final class AgentSwitchDraft {
         effort = [fromEffort, lastRun?.effort, catalog.defaults(for: to).effort]
             .lazy.compactMap { catalog.validEffort($0, for: to, model: model) }.first
 
-        projectPath = session.worktreePath ?? store.project(session.projectID)?.path ?? ""
+        let projectPath = session.worktreePath ?? store.project(session.projectID)?.path ?? ""
+        self.projectPath = projectPath
         workingDirectory = store.workingDirectories(for: session).first
-        unseen = AgentSwitch.unseenMessages(store.transcript(of: sessionID), by: to)
+        let unseen = AgentSwitch.unseenMessages(store.transcript(of: sessionID), by: to)
+        self.unseen = unseen
+        let transcript = AgentSwitch.plainTranscript(unseen, agent: from, projectPath: projectPath)
+        transcriptText = transcript
+        transcriptTokens = AgentSwitch.estimatedTokens(transcript)
+        transcriptTail = transcript.isEmpty ? [] : transcript
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .suffix(Self.tailLines).map(String.init)
+        messageCount = unseen.count { $0.role == .user || $0.role == .assistant }
+        toolCallCount = unseen.reduce(0) { $0 + $1.tools.count }
     }
+
+    // Enough to fill the preview, with the lines above fading out.
+    private static let tailLines = 12
 
     var effortLevels: [String] {
         catalog.effortOptions(for: to, model: model).compactMap(\.id)
@@ -115,15 +150,6 @@ final class AgentSwitchDraft {
 
     var modelOptions: [ModelChoice.Option] {
         catalog.modelOptions(for: to).filter { $0.id != nil }
-    }
-
-    var warnings: [AgentSwitchWarning] {
-        AgentSwitch.warnings(from: from, to: to, currentAccess: currentAccess,
-                             newAccess: access, returning: returning)
-    }
-
-    var transcriptText: String {
-        AgentSwitch.plainTranscript(unseen, agent: from, projectPath: projectPath)
     }
 
     // What goes over to the next agent in the chosen form, as text.
@@ -135,12 +161,32 @@ final class AgentSwitchDraft {
         }
     }
 
-    var handoffTokens: Int { AgentSwitch.estimatedTokens(handoffText) }
+    var handoffTokens: Int { tokens(of: handoff) }
 
-    var handoffShare: Double? {
-        guard let contextWindow else { return nil }
-        return min(1, Double(handoffTokens) / Double(contextWindow))
+    func tokens(of handoff: AgentHandoff) -> Int {
+        switch handoff {
+        case .note: AgentSwitch.estimatedTokens(note)
+        case .transcript: transcriptTokens
+        case .worktree: 0
+        }
     }
+
+    // How much of the context window a handoff takes, when the window's size is known.
+    func share(of handoff: AgentHandoff) -> Double? {
+        guard let contextWindow else { return nil }
+        return min(1, Double(tokens(of: handoff)) / Double(contextWindow))
+    }
+
+    func title(of writer: NoteWriter) -> String {
+        switch writer {
+        case .outgoing: from.title
+        case .incoming: to.title
+        case .app: "Code Station"
+        }
+    }
+
+    // The agent taking over can only write the note when its CLI is installed.
+    var incomingCanWrite: Bool { catalog.isAvailable(to) }
 
     var canStart: Bool {
         guard phase == .review || isFailed else { return false }
@@ -171,23 +217,34 @@ final class AgentSwitchDraft {
 
     // MARK: - The note
 
-    // The agent handing over knows the work best, so it is asked to write the note in a
-    // throwaway run. When that fails, a plain note built from the transcript stands in,
-    // so the dialog always has something to send.
-    func draftNote() {
+    // The agent handing over knows the work best, so it writes the note unless the person
+    // picks another writer: the agent taking over, or the app's own plain list. An agent
+    // writes in a throwaway run. When it does not answer, the plain list stands in and
+    // the dialog says so, so there is always something to send and the person can tell
+    // which note they got.
+    func draftNote(by newWriter: NoteWriter? = nil) {
         draftTask?.cancel()
-        setNote("")
+        if let newWriter { writer = newWriter }
+        silentWriter = nil
         noteEdited = false
+        let plain = AgentSwitch.plainNote(unseen, projectPath: projectPath)
+        let asked = writer
+        guard asked != .app else {
+            setNote(plain)
+            isDrafting = false
+            return
+        }
+        setNote("")
         isDrafting = true
-        let fallback = AgentSwitch.plainNote(unseen, projectPath: projectPath)
+        let agent = asked == .outgoing ? from : to
         let prompt = AgentSwitch.notePrompt(
             transcript: AgentSwitch.plainTranscript(unseen, agent: from, projectPath: projectPath,
                                                     limit: 40_000),
-            from: from, to: to)
-        let path = catalog.executable(for: from)
+            from: from, to: to, writer: asked)
+        let path = catalog.executable(for: agent)
         let directory = workingDirectory
-        let agent = from
-        let model = from == .codex ? fromModel : nil
+        let agentModel = asked == .outgoing ? fromModel : model
+        let model = agent == .codex ? agentModel : nil
         draftTask = Task { [weak self] in
             var written: String?
             if let path, let directory {
@@ -197,9 +254,26 @@ final class AgentSwitchDraft {
                     timeout: .seconds(90), purpose: "handoff note")
             }
             guard !Task.isCancelled, let self else { return }
-            if !noteEdited { setNote(Self.cleanedNote(written) ?? fallback) }
+            if let note = Self.cleanedNote(written) {
+                if !noteEdited { setNote(note) }
+            } else {
+                if !noteEdited { setNote(plain) }
+                writer = .app
+                silentWriter = asked
+            }
             isDrafting = false
         }
+    }
+
+    // Read once when the dialog opens, for the preview of what a cold start finds.
+    func readWorktree() async {
+        guard let workingDirectory else {
+            worktree = .unknown
+            return
+        }
+        let snapshot = await GitInspector.snapshot(at: workingDirectory, lane: .interactive)
+        worktree = snapshot.state == .ready ? .files(snapshot.files) : .unknown
+        if branch == nil, snapshot.state == .ready, snapshot.onBranch { branch = snapshot.branch }
     }
 
     private func setNote(_ text: String) {
@@ -226,6 +300,7 @@ final class AgentSwitchDraft {
 
     func start(onFinish: @escaping @MainActor () -> Void) {
         guard canStart else { return }
+        showsWhy = false
         failure = nil
         stepSeconds = [:]
         runTask = Task { [weak self] in

@@ -1,5 +1,26 @@
 import SwiftUI
 
+// MARK: - Model
+
+struct ModelPill: View {
+    let title: String
+    var locked = false
+
+    var body: some View {
+        BarPill {
+            HStack(spacing: Space.sm) {
+                Image(systemName: "cpu")
+                    .font(Typography.label)
+                    .foregroundStyle(.secondary)
+                RollingText(title, font: Typography.label)
+                    .foregroundStyle(locked ? .secondary : .primary)
+                LockChevron(locked: locked)
+            }
+        }
+        .motion(Motion.reveal, value: locked)
+    }
+}
+
 // MARK: - Effort
 
 // Four bars, lit from the left as the level rises. Each bar changes on its own beat, in

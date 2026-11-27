@@ -17,6 +17,9 @@ struct SheetAction {
     // the sheet can point at what is missing instead of the click doing nothing.
     var blockedReason: String? = nil
     var onBlockedClick: (() -> Void)? = nil
+    // Told when the pointer comes onto the button and leaves it, for a sheet that shows
+    // what the action will do before it is clicked.
+    var onHover: ((Bool) -> Void)? = nil
     let action: () -> Void
 }
 
@@ -38,6 +41,9 @@ struct SheetFooter<Leading: View>: View {
     private let secondary: SheetAction?
     private let dismissTitle: String?
     private let dismissTone: ButtonTone
+    // The key that dismisses, written on the button, for a sheet whose way out is a
+    // choice of its own rather than a plain Cancel.
+    private let dismissHint: String?
     private let primaryLast: Bool
     private let dismiss: () -> Void
     private let leading: Leading
@@ -47,6 +53,7 @@ struct SheetFooter<Leading: View>: View {
          secondary: SheetAction? = nil,
          dismissTitle: String? = nil,
          dismissTone: ButtonTone = .dark,
+         dismissHint: String? = nil,
          primaryLast: Bool = false,
          dismiss: @escaping () -> Void,
          @ViewBuilder leading: () -> Leading) {
@@ -55,6 +62,7 @@ struct SheetFooter<Leading: View>: View {
         self.secondary = secondary
         self.dismissTitle = dismissTitle
         self.dismissTone = dismissTone
+        self.dismissHint = dismissHint
         self.primaryLast = primaryLast
         self.dismiss = dismiss
         self.leading = leading()
@@ -96,6 +104,7 @@ struct SheetFooter<Leading: View>: View {
                             }
                         }
                         .disabled(!primary.enabled)
+                        .onPointerHover { primary.onHover?($0) }
                         .overlay { blockedCatcher(for: primary) }
                         .accessibilityHint(primary.enabled ? "" : primary.blockedReason ?? "")
                 }
@@ -109,7 +118,8 @@ struct SheetFooter<Leading: View>: View {
 
     private var dismissButton: some View {
         ActionButton(title: dismissTitle ?? (primary == nil && secondary == nil ? "Done" : "Cancel"),
-                     tone: dismissTone, size: Typography.Size.body, keyboardShortcut: .cancelAction, action: dismiss)
+                     tone: dismissTone, size: Typography.Size.body, shortcut: dismissHint,
+                     keyboardShortcut: .cancelAction, action: dismiss)
     }
 
     // A disabled button takes no clicks and shows no hint, so a clear layer laid over it

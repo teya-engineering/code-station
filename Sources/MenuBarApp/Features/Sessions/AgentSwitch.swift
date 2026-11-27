@@ -29,16 +29,16 @@ struct SettingsMarker: Codable, Equatable, Sendable {
     var note: String?
 }
 
-// How much of the session the next agent is given when it takes over.
+// How much of the session the next agent is given when it takes over, from least to most.
 enum AgentHandoff: String, Codable, Sendable, CaseIterable, Identifiable {
+    // Nothing from the chat. The new agent starts cold on the files as they are.
+    case worktree
     // A short note written from the transcript. Small, and it can be read and changed
     // before it goes.
     case note
     // Every message as plain text. The new agent cannot reuse another agent's memory, so
     // this is the most it can be given, at the cost of a large first prompt.
     case transcript
-    // Nothing from the chat. The new agent starts cold on the files as they are.
-    case worktree
 
     var id: String { rawValue }
 
@@ -50,7 +50,24 @@ enum AgentHandoff: String, Codable, Sendable, CaseIterable, Identifiable {
         }
     }
 
-    // What the new agent read, as the moving chip in the progress view names it.
+    // One line under the title, on what picking it means for the next agent.
+    var blurb: String {
+        switch self {
+        case .note: "A short brief you can edit"
+        case .transcript: "Every message, as plain text"
+        case .worktree: "Starts cold on the files"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .note: "doc.text"
+        case .transcript: "text.alignleft"
+        case .worktree: "arrow.triangle.branch"
+        }
+    }
+
+    // What travels to the new agent, as the chip on the relay names it.
     var carried: String {
         switch self {
         case .note: "Handoff note"
@@ -58,6 +75,18 @@ enum AgentHandoff: String, Codable, Sendable, CaseIterable, Identifiable {
         case .worktree: "Worktree"
         }
     }
+}
+
+// Who writes the handoff note.
+enum NoteWriter: Hashable, Sendable {
+    // The agent handing over. It knows the work best, but it may be the reason for the
+    // switch.
+    case outgoing
+    // The agent taking over. It reads the transcript as text and writes its own brief, so
+    // it still answers when the outgoing agent is down.
+    case incoming
+    // No agent: the first ask, the edits and the commands, listed by the app. Ready at once.
+    case app
 }
 
 // How freely an agent may act, across the three agents' own access settings. Each agent
@@ -147,18 +176,6 @@ enum AgentAccess: Equatable, Hashable, Sendable {
     }
 }
 
-// Something the person should know before an agent switch goes ahead. Only real
-// differences in how the next agent behaves are listed.
-struct AgentSwitchWarning: Equatable, Identifiable, Sendable {
-    enum Tone: Equatable, Sendable { case info, caution, danger }
-
-    let tone: Tone
-    let title: String
-    let detail: String
-
-    var id: String { title }
-}
-
 enum AgentSwitch {
     // One line under an agent in the agent menu, on how it differs from the one in use.
     static func blurb(for agent: AgentKind, returning: Bool) -> String {
@@ -175,48 +192,12 @@ enum AgentSwitch {
         agent == .claudeCode ? "Claude" : agent.title
     }
 
-    static func warnings(from: AgentKind, to: AgentKind, currentAccess: AgentAccess,
-                         newAccess: AgentAccess, returning: Bool) -> [AgentSwitchWarning] {
-        var warnings: [AgentSwitchWarning] = []
-        if newAccess.isUnrestricted {
-            warnings.append(AgentSwitchWarning(
-                tone: .danger,
-                title: "Full access lets \(to.title) run anything on this Mac",
-                detail: "No sandbox and no questions. It can reach your GPG agent, keychain prompts "
-                    + "and the network. Pick this only if the next step needs it, such as a signed commit."))
-        } else if newAccess.title != currentAccess.title {
-            let detail: String = switch newAccess {
-            case .codex(let mode):
-                "Codex can't stop mid-turn to ask you. "
-                    + (mode == .workspaceWrite ? "It will refuse anything outside the worktree. "
-                                               : "It approves sandboxed steps on its own. ")
-                    + "The sandbox also blocks the GPG agent, so signed commits will fail."
-            case .copilot:
-                "Copilot can't stop mid-turn to ask you. Tools run without asking inside this "
-                    + "session's folders, and files elsewhere and web addresses stay blocked."
-            case .claudeCode(let mode):
-                mode.detail
-            }
-            warnings.append(AgentSwitchWarning(
-                tone: .caution,
-                title: "Access changes from \"\(currentAccess.title)\" to \"\(newAccess.title)\"",
-                detail: detail))
-        }
-        if to == .copilot {
-            warnings.append(AgentSwitchWarning(
-                tone: .caution,
-                title: "Prompts you send mid-turn will wait",
-                detail: "Copilot cannot be steered while it works. A prompt sent during a turn "
-                    + "waits until that turn ends."))
-        }
-        if returning {
-            warnings.append(AgentSwitchWarning(
-                tone: .info,
-                title: "\(to.title) resumes its own conversation",
-                detail: "It still remembers everything up to when it handed over. What it is "
-                    + "given only covers what \(from.title) did after that."))
-        }
-        return warnings
+    // The one thing the switch dialog warns about. What every other access level allows is
+    // said in the access menu, where the level is picked.
+    static func fullAccessWarning(for agent: AgentKind) -> (title: String, detail: String) {
+        (title: "Full access lets \(agent.title) run anything on this Mac",
+         detail: "No sandbox and no questions. It can reach your GPG agent, keychain prompts "
+            + "and the network. Pick this only if the next step needs it, such as a signed commit.")
     }
 
     // MARK: - What the next agent reads
@@ -268,11 +249,15 @@ enum AgentSwitch {
     // A rough count, used only to say how big a handoff is.
     static func estimatedTokens(_ text: String) -> Int { (text.utf8.count + 3) / 4 }
 
-    // Asked of the agent that is handing over, in a throwaway run that never touches its
-    // conversation.
-    static func notePrompt(transcript: String, from: AgentKind, to: AgentKind) -> String {
-        """
-        Do not use tools and do not change any files. Below is a conversation between a person and \(from.title), a coding agent, working in a code repository. \(to.title) takes over the work next and has not seen any of it. Write a short handoff note for \(to.title) in Markdown with three sections: "## Goal" with one or two sentences, "## Done so far" with bullets on what changed, which files, and which commands ran and how they ended, and "## Open questions" with bullets, or "- None". Use plain, short sentences. Name files and commands exactly. Only say what the conversation shows. Return only the note.
+    // Asked of the agent that writes the note, in a throwaway run that never touches a
+    // conversation. The agent taking over is asked to write the note for itself.
+    static func notePrompt(transcript: String, from: AgentKind, to: AgentKind,
+                           writer: NoteWriter = .outgoing) -> String {
+        let reader = writer == .incoming
+            ? "You are \(to.title). You take over the work next and have not seen any of it. Write a short handoff note for yourself"
+            : "\(to.title) takes over the work next and has not seen any of it. Write a short handoff note for \(to.title)"
+        return """
+        Do not use tools and do not change any files. Below is a conversation between a person and \(from.title), a coding agent, working in a code repository. \(reader) in Markdown with three sections: "## Goal" with one or two sentences, "## Done so far" with bullets on what changed, which files, and which commands ran and how they ended, and "## Open questions" with bullets, or "- None". Use plain, short sentences. Name files and commands exactly. Only say what the conversation shows. Return only the note.
 
         <conversation>
         \(transcript)
@@ -280,8 +265,8 @@ enum AgentSwitch {
         """
     }
 
-    // The note the dialog falls back to when the agent cannot write one: the first ask as
-    // the goal, and the latest asks and calls as what was done.
+    // The note the app writes itself, and the one that stands in when an agent does not
+    // answer: the first ask as the goal, and the latest asks and calls as what was done.
     static func plainNote(_ messages: [ChatMessage], projectPath: String) -> String {
         let prompts = messages.filter { $0.role == .user }.map(\.text.trimmed).filter { !$0.isEmpty }
         let goal = prompts.first.map { firstLine($0) } ?? "Carry on with the work in this folder."

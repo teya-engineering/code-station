@@ -208,6 +208,9 @@ struct ChoicePill: View {
     var icon: String? = nil
     // How many items the choice covers, such as the rows a filter would show.
     var count: Int? = nil
+    // A third line the machine made, such as the size of what the choice carries. Only
+    // drawn under a detail.
+    var reading: String? = nil
     let choose: () -> Void
 
     @State private var hovering = false
@@ -258,13 +261,26 @@ struct ChoicePill: View {
             }
             if let detail {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(Typography.body.weight(.semibold))
-                        .lineLimit(1)
+                    HStack(spacing: Space.sm) {
+                        if let icon {
+                            Image(systemName: icon).font(Typography.label)
+                        }
+                        Text(title)
+                            .font(Typography.body.weight(.semibold))
+                            .lineLimit(1)
+                    }
                     Text(detail)
                         .font(Typography.caption)
                         .lineLimit(1)
                         .opacity(0.8)
+                    if let reading {
+                        Text(reading)
+                            .font(Typography.data)
+                            .lineLimit(1)
+                            .opacity(0.6)
+                            .contentTransition(.numericText())
+                            .padding(.top, Space.xs)
+                    }
                 }
                 .foregroundStyle(selected ? Color.white : Color.primary)
             } else {

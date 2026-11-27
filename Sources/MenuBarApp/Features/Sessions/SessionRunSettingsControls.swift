@@ -506,27 +506,6 @@ private struct AgentChip: View {
     }
 }
 
-// MARK: - Model
-
-private struct ModelPill: View {
-    let title: String
-    var locked = false
-
-    var body: some View {
-        BarPill {
-            HStack(spacing: Space.sm) {
-                Image(systemName: "cpu")
-                    .font(Typography.label)
-                    .foregroundStyle(.secondary)
-                RollingText(title, font: Typography.label)
-                    .foregroundStyle(locked ? .secondary : .primary)
-                LockChevron(locked: locked)
-            }
-        }
-        .motion(Motion.reveal, value: locked)
-    }
-}
-
 // MARK: - Design ambition
 
 // Each level has its own colour, quiet to loud like the shield: Restrained stays plain,

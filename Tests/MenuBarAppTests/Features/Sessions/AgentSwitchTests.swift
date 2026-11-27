@@ -43,39 +43,30 @@ struct AgentSwitchTests {
 
     // MARK: - Warnings
 
-    @Test func onlyRealDifferencesAreWarnedAbout() {
-        let same = AgentSwitch.warnings(from: .claudeCode, to: .codex,
-                                        currentAccess: .codex(.workspaceWrite),
-                                        newAccess: .codex(.workspaceWrite), returning: false)
-        #expect(same.isEmpty)
+    @Test func onlyFullAccessIsWarnedAbout() {
+        let warning = AgentSwitch.fullAccessWarning(for: .copilot)
 
-        let looser = AgentSwitch.warnings(from: .claudeCode, to: .codex,
-                                          currentAccess: .claudeCode(.auto),
-                                          newAccess: .codex(.fullAccess), returning: false)
-        #expect(looser.map(\.tone) == [.danger])
-
-        let changed = AgentSwitch.warnings(from: .claudeCode, to: .codex,
-                                           currentAccess: .claudeCode(.auto),
-                                           newAccess: .codex(.approveForMe), returning: false)
-        #expect(changed.map(\.tone) == [.caution])
-        #expect(changed.first?.title == "Access changes from \"Risky only\" to \"Sandboxed + auto\"")
-    }
-
-    @Test func copilotAndGoingBackEachSayWhatIsDifferent() {
-        let toCopilot = AgentSwitch.warnings(from: .codex, to: .copilot,
-                                             currentAccess: .codex(.workspaceWrite),
-                                             newAccess: .copilot(.workspace), returning: false)
-        #expect(toCopilot.contains { $0.title == "Prompts you send mid-turn will wait" })
-
-        let back = AgentSwitch.warnings(from: .codex, to: .claudeCode,
-                                        currentAccess: .codex(.workspaceWrite),
-                                        newAccess: .claudeCode(.acceptEdits), returning: true)
-        #expect(back.last == AgentSwitchWarning(
-            tone: .info, title: "Claude Code resumes its own conversation",
-            detail: back.last?.detail ?? ""))
+        #expect(warning.title == "Full access lets Copilot run anything on this Mac")
+        #expect(AgentAccess.copilot(.fullAccess).isUnrestricted)
+        #expect(!AgentAccess.copilot(.workspace).isUnrestricted)
     }
 
     // MARK: - What the next agent is handed
+
+    @Test func handoffsRunFromLeastToMost() {
+        #expect(AgentHandoff.allCases == [.worktree, .note, .transcript])
+    }
+
+    @Test func theAgentTakingOverIsAskedToWriteForItself() {
+        let outgoing = AgentSwitch.notePrompt(transcript: "Person:\nShip it", from: .claudeCode, to: .copilot)
+        let incoming = AgentSwitch.notePrompt(transcript: "Person:\nShip it", from: .claudeCode,
+                                              to: .copilot, writer: .incoming)
+
+        #expect(outgoing.contains("Write a short handoff note for Copilot in Markdown"))
+        #expect(incoming.contains("You are Copilot."))
+        #expect(incoming.contains("Write a short handoff note for yourself in Markdown"))
+        #expect(incoming.contains("<conversation>\nPerson:\nShip it\n</conversation>"))
+    }
 
     @Test func anAgentComingBackOnlySeesWhatHappenedSinceItLeft() {
         var marker = ChatMessage(role: .system, text: "Switched from Claude Code to Codex.")
@@ -190,6 +181,67 @@ struct AgentSwitchTests {
         store.append(after, to: session.id)
 
         #expect(store.rewindableMessageIDs(in: session.id) == [after.id])
+    }
+
+    // MARK: - The note
+
+    private func draft(to target: AgentKind, paths: [AgentKind: String]) throws -> AgentSwitchDraft {
+        let runner = SessionRunner(store: store, preferences: testPreferences.store, paths: paths)
+        let session = store.newSession(in: project.id)
+        store.append(ChatMessage(role: .user, text: "Stop the transcript jumping"), to: session.id)
+        store.append(ChatMessage(role: .assistant, text: "Pinned the scroll position."), to: session.id)
+        return try #require(AgentSwitchDraft(sessionID: session.id, to: target, store: store, runner: runner))
+    }
+
+    @Test func theAppsOwnNoteIsReadyAtOnce() throws {
+        let draft = try draft(to: .codex, paths: [:])
+
+        draft.draftNote(by: .app)
+
+        #expect(!draft.isDrafting)
+        #expect(draft.writer == .app)
+        #expect(draft.silentWriter == nil)
+        #expect(draft.note.hasPrefix("## Goal\nStop the transcript jumping\n"))
+        #expect(draft.canStart)
+    }
+
+    @Test func aWriterThatDoesNotAnswerLeavesThePlainListAndSaysSo() async throws {
+        // Claude Code is not installed here, so it cannot be asked.
+        let draft = try draft(to: .codex, paths: [:])
+
+        draft.draftNote()
+        #expect(draft.isDrafting)
+        #expect(!draft.canStart)
+
+        #expect(await waitUntil { !draft.isDrafting })
+        #expect(draft.silentWriter == .outgoing)
+        #expect(draft.writer == .app)
+        #expect(draft.note.hasPrefix("## Goal\nStop the transcript jumping\n"))
+        #expect(draft.canStart)
+    }
+
+    @Test func anotherHandoffCanGoWhileTheNoteIsBeingWritten() throws {
+        let draft = try draft(to: .codex, paths: [:])
+
+        draft.draftNote()
+        defer { draft.cancel() }
+
+        #expect(draft.isDrafting)
+        draft.handoff = .transcript
+        #expect(draft.canStart)
+        draft.handoff = .worktree
+        #expect(draft.canStart)
+    }
+
+    @Test func eachHandoffSaysHowBigItIs() throws {
+        let draft = try draft(to: .codex, paths: [:])
+        draft.draftNote(by: .app)
+
+        #expect(draft.tokens(of: .worktree) == 0)
+        #expect(draft.tokens(of: .note) == AgentSwitch.estimatedTokens(draft.note))
+        #expect(draft.tokens(of: .transcript) == AgentSwitch.estimatedTokens(draft.transcriptText))
+        #expect(draft.messageCount == 2)
+        #expect(draft.transcriptTail.last == "Pinned the scroll position.")
     }
 
     // MARK: - Handing over
