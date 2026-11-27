@@ -267,3 +267,8 @@ enum ReviewMetrics {
     static let findingsWidth: CGFloat = 1000
     static let findingsListWidth: CGFloat = 280
 }
+
+enum SkillsMetrics {
+    // One column per agent, narrow enough that four leave the package names room.
+    static let hostColumnWidth: CGFloat = 160
+}

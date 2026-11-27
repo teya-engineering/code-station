@@ -39,11 +39,20 @@ enum ModelChoice {
         Option(id: "gpt-5.4", title: "GPT-5.4", detail: "OpenAI's everyday model."),
     ]
 
+    // Kiro's free plan lists these; a paid plan adds more, which the live catalog shows.
+    static let kiroFallback: [Option] = [
+        Option(id: nil, title: "Default", detail: "Whatever Kiro is set to use."),
+        Option(id: "auto", title: "Auto", detail: "Kiro picks the model for each request."),
+        Option(id: "claude-sonnet-4.5", title: "Claude Sonnet 4.5", detail: "The everyday balance of speed and depth."),
+        Option(id: "claude-haiku-4.5", title: "Claude Haiku 4.5", detail: "The fastest Claude model; best for small, mechanical work."),
+    ]
+
     static func fallback(for agent: AgentKind) -> [Option] {
         switch agent {
         case .claudeCode: claude
         case .codex: codexFallback
         case .copilot: copilotFallback
+        case .kiro: kiroFallback
         }
     }
 
@@ -67,9 +76,9 @@ enum ModelChoice {
                 guard !claude.contains(where: { $0.id == id }), !id.hasPrefix("claude-")
                 else { return nil }
             }
-        case .copilot:
-            // Copilot's catalog names Claude models too, so nothing about the id itself
-            // says whether it belongs here. Without a catalog the CLI is left to judge.
+        case .copilot, .kiro:
+            // Copilot's and Kiro's catalogs name Claude models too, so nothing about the id
+            // itself says whether it belongs here. Without a catalog the CLI is left to judge.
             if let discovered {
                 guard discovered.contains(where: { $0.id == id }) else { return nil }
             }

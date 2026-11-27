@@ -21,7 +21,7 @@ struct SecondOpinionLineupTests {
     }
 
     @Test func withNobodyToAskItSaysWhatToInstall() {
-        #expect(SecondOpinionLineup.installHint(author: .claudeCode) == "Install Codex or Copilot to ask for a second opinion")
+        #expect(SecondOpinionLineup.installHint(author: .claudeCode) == "Install Codex, Copilot or Kiro to ask for a second opinion")
     }
 
     @Test func onceAskedTheTilesAreWhoeverWasAsked() {

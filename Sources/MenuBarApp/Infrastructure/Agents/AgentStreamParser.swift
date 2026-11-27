@@ -17,6 +17,8 @@ struct AgentStreamParser: Sendable {
         case .claudeCode: StreamEvent.parse(line, projectPath: projectPath)
         case .codex: StreamEvent.parseCodex(line)
         case .copilot: copilot.parse(line)
+        // `kiro-cli chat --no-interactive` prints the answer as plain text.
+        case .kiro: line.isBlank ? [] : [StreamEvent.text(line)]
         }
     }
 }

@@ -97,6 +97,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     var claudeSessionID: String?
     var codexSessionID: String?
     var copilotSessionID: String?
+    var kiroSessionID: String?
     var importedOrigin: ImportedSessionOrigin?
     var knownAgentSessionIDs: Set<String>? = []
     var createdAt: Date = Date()
@@ -176,7 +177,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // came from a version that did not save dates.
     var hasStarted: Bool {
         summary.lastMessageAt != nil || claudeSessionID != nil || codexSessionID != nil
-            || copilotSessionID != nil
+            || copilotSessionID != nil || kiroSessionID != nil
     }
 
     // The shell command behind a running task. A task is reported by its description,
@@ -216,6 +217,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         case .claudeCode: claudeSessionID
         case .codex: codexSessionID
         case .copilot: copilotSessionID
+        case .kiro: kiroSessionID
         }
     }
 
@@ -262,7 +264,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         case agent, mode, designPhase
         case designRevisions, approvedDesignRevisionID, sourceDesignSessionID
         case handedOffDesignRevisionID, designSourceSessionID
-        case claudeSessionID, codexSessionID, copilotSessionID, createdAt
+        case claudeSessionID, codexSessionID, copilotSessionID, kiroSessionID, createdAt
         case importedOrigin, knownAgentSessionIDs
         case worktreePath, worktreeBranch
         case workspaceID, sessionProjects, settings, designAmbitionRan, usage, agentAvatarName
@@ -314,6 +316,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         claudeSessionID = try container.decodeIfPresent(String.self, forKey: .claudeSessionID)
         codexSessionID = try container.decodeIfPresent(String.self, forKey: .codexSessionID)
         copilotSessionID = try container.decodeIfPresent(String.self, forKey: .copilotSessionID)
+        kiroSessionID = try container.decodeIfPresent(String.self, forKey: .kiroSessionID)
         importedOrigin = try container.decodeIfPresent(ImportedSessionOrigin.self, forKey: .importedOrigin)
         knownAgentSessionIDs = try container.decodeIfPresent(Set<String>.self, forKey: .knownAgentSessionIDs)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -374,6 +377,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(claudeSessionID, forKey: .claudeSessionID)
         try container.encodeIfPresent(codexSessionID, forKey: .codexSessionID)
         try container.encodeIfPresent(copilotSessionID, forKey: .copilotSessionID)
+        try container.encodeIfPresent(kiroSessionID, forKey: .kiroSessionID)
         try container.encodeIfPresent(importedOrigin, forKey: .importedOrigin)
         try container.encodeIfPresent(knownAgentSessionIDs, forKey: .knownAgentSessionIDs)
         try container.encode(createdAt, forKey: .createdAt)

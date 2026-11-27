@@ -310,6 +310,8 @@ struct ConfigManagerView: View {
                 case .claudeCode: claude.work(on: name)
                 case .codex: codex.work(on: name)
                 case .copilot: copilot.work(on: name)
+                // The app does not read Kiro's own MCP configuration, so it lists none of Kiro's.
+                case .kiro: nil
                 }
             })
     }

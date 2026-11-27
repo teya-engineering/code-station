@@ -715,6 +715,9 @@ extension SessionView {
         if appSettings.showsCost(for: agent), usage.costUSD > 0 {
             rows.append(Tooltip.Row(label: "Spent", value: Money.short(usage.costUSD)))
         }
+        if appSettings.showsCost(for: agent), let credits = usage.credits, credits > 0 {
+            rows.append(Tooltip.Row(label: "Spent", value: Money.credits(credits)))
+        }
         let turns = counted(usage.turns, "turn")
         let note = if !agent.asksPermissions {
             clearable

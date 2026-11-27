@@ -140,7 +140,7 @@ struct ProjectPersistence: Sendable {
                 let read = readTranscriptContents(at: url)
                 guard read.error == nil else { continuation.resume(returning: nil); return }
                 let ids = read.messages.compactMap(\.checkpoint).flatMap { checkpoint in
-                    [(AgentKind.claudeCode, checkpoint.claudeSessionID), (.codex, checkpoint.codexSessionID), (.copilot, checkpoint.copilotSessionID)]
+                    [(AgentKind.claudeCode, checkpoint.claudeSessionID), (.codex, checkpoint.codexSessionID), (.copilot, checkpoint.copilotSessionID), (.kiro, checkpoint.kiroSessionID)]
                         .compactMap { agent, id in id.map { ImportedSessionOrigin.key(agent: agent, sessionID: $0) } }
                 }
                 continuation.resume(returning: Set(ids))

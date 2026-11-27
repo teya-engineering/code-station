@@ -21,6 +21,8 @@ enum EffortChoice {
     // in for every other case.
     static func all(for agent: AgentKind, model: String? = nil,
                     discovered: [ModelChoice.Option]? = nil) -> [Option] {
+        // Kiro's ACP server takes no effort level, so there is nothing to choose.
+        if agent == .kiro { return [levels[0]] }
         guard agent != .claudeCode, let discovered else { return levels }
         let selected = model.flatMap { selected in
             discovered.first { $0.id == selected }

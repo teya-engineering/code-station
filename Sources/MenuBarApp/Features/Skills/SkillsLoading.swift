@@ -249,11 +249,14 @@ extension SkillsManager {
         return Set(rows.compactMap { $0["name"] as? String })
     }
 
-    nonisolated static func loadInstallations(marketplaces: Set<String>) async
+    nonisolated static func loadInstallations(marketplaces: Set<String>,
+                                              kiroShelf: KiroSkillShelf) async
         -> [SkillHost: InstallationLoad] {
         await withTaskGroup(of: (SkillHost, InstallationLoad).self) { group in
             for host in SkillHost.allCases {
-                group.addTask { (host, await loadInstallations(for: host, marketplaces: marketplaces)) }
+                group.addTask {
+                    (host, await loadInstallations(for: host, marketplaces: marketplaces, kiroShelf: kiroShelf))
+                }
             }
             var loads: [SkillHost: InstallationLoad] = [:]
             for await (host, load) in group { loads[host] = load }
@@ -262,10 +265,15 @@ extension SkillsManager {
     }
 
     nonisolated static func loadInstallations(for host: SkillHost,
-                                                      marketplaces: Set<String>) async
+                                              marketplaces: Set<String>,
+                                              kiroShelf: KiroSkillShelf) async
         -> InstallationLoad {
         guard !marketplaces.isEmpty, ProcessManager.resolve(host.command) != nil else {
             return InstallationLoad(installations: [:], failure: nil)
+        }
+        if host.copiesSkills {
+            return InstallationLoad(installations: kiroShelf.installations(marketplaces: marketplaces),
+                                    failure: nil)
         }
         let result = await run(host.command, host.listArguments)
         guard result.ok else {

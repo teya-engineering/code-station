@@ -92,6 +92,7 @@ struct ConversationCheckpoint: Codable, Equatable, Sendable {
     var claudeSessionID: String?
     var codexSessionID: String?
     var copilotSessionID: String? = nil
+    var kiroSessionID: String? = nil
 }
 
 struct ChatMessage: Identifiable, Codable, Equatable, Sendable {

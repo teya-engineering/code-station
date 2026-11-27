@@ -6,11 +6,33 @@ struct SkillMarketplace: Decodable, Equatable, Sendable {
         let description: String
         let version: String?
         let category: String?
+        // Where the package's files sit, when it is kept in the marketplace's own
+        // repository. A package fetched from elsewhere names an object here and reads nil.
+        var source: String? = nil
 
         var marketplace = ""
 
         enum CodingKeys: String, CodingKey {
-            case name, description, version, category
+            case name, description, version, category, source
+        }
+
+        init(name: String, description: String, version: String?, category: String?,
+             source: String? = nil, marketplace: String = "") {
+            self.name = name
+            self.description = description
+            self.version = version
+            self.category = category
+            self.source = source
+            self.marketplace = marketplace
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            description = try container.decode(String.self, forKey: .description)
+            version = try container.decodeIfPresent(String.self, forKey: .version)
+            category = try container.decodeIfPresent(String.self, forKey: .category)
+            source = try? container.decodeIfPresent(String.self, forKey: .source)
         }
 
         var id: String { marketplace.isEmpty ? name : "\(name)@\(marketplace)" }
@@ -43,12 +65,15 @@ struct SkillMarketplaceConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-// The CLIs that install plugins from the marketplace. All three read the same
-// marketplace format, so one catalogue serves every host; only the commands differ.
+// The agents that install plugins from the marketplace. Claude Code, Codex and Copilot
+// read the same marketplace format through their own plugin commands, so one catalogue
+// serves every host and only the commands differ. Kiro has no plugin command: the app
+// copies a package's skills to where Kiro loads them (see KiroSkillShelf).
 enum SkillHost: String, CaseIterable, Identifiable, Sendable {
     case claude
     case codex
     case copilot
+    case kiro
 
     var id: String { rawValue }
 
@@ -57,10 +82,15 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         case .claude: "Claude Code"
         case .codex: "Codex"
         case .copilot: "Copilot"
+        case .kiro: "Kiro"
         }
     }
 
-    var command: String { rawValue }
+    var command: String { self == .kiro ? AgentKind.kiro.command : rawValue }
+
+    // Installed by copying files rather than through the agent's own commands, so the
+    // argument lists below are never run for it.
+    var copiesSkills: Bool { self == .kiro }
 
     // Copilot's `plugin list` has no JSON form; its `plugins` command lists everything it
     // has configured, plugins included, and does.
@@ -68,6 +98,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude, .codex: ["plugin", "list", "--json"]
         case .copilot: ["plugins", "list", "--json"]
+        case .kiro: []
         }
     }
 
@@ -75,6 +106,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude, .codex: ["plugin", "marketplace", "list", "--json"]
         case .copilot: ["plugin", "marketplace", "list"]
+        case .kiro: []
         }
     }
 
@@ -82,6 +114,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         return switch self {
         case .claude, .copilot: ["plugin", "marketplace", "add", source]
         case .codex: ["plugin", "marketplace", "add", source, "--json"]
+        case .kiro: []
         }
     }
 
@@ -89,6 +122,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         return switch self {
         case .claude, .copilot: ["plugin", "marketplace", "update", name]
         case .codex: ["plugin", "marketplace", "upgrade", name, "--json"]
+        case .kiro: []
         }
     }
 
@@ -98,6 +132,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         case .claude: ["plugin", "install", selector, "--scope", "user"]
         case .codex: ["plugin", "add", selector, "--json"]
         case .copilot: ["plugin", "install", selector]
+        case .kiro: []
         }
     }
 
@@ -107,6 +142,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         case .claude: ["plugin", "uninstall", selector, "--scope", "user"]
         case .codex: ["plugin", "remove", selector, "--json"]
         case .copilot: ["plugin", "uninstall", selector]
+        case .kiro: []
         }
     }
 
@@ -118,6 +154,7 @@ enum SkillHost: String, CaseIterable, Identifiable, Sendable {
         // refreshed marketplace snapshot.
         case .codex: ["plugin", "add", selector, "--json"]
         case .copilot: ["plugin", "update", selector]
+        case .kiro: []
         }
     }
 }

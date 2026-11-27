@@ -68,7 +68,7 @@ private struct AgentMark: View {
             AgentStrokes(path: Self.asterisk).stroke(style: stroke).frame(width: side, height: side)
         case .codex:
             AgentStrokes(path: Self.ring).stroke(style: stroke).frame(width: side, height: side)
-        case .copilot, nil:
+        case .copilot, .kiro, nil:
             Image(systemName: agent?.symbol ?? "person.fill")
                 .font(.system(size: size * 0.5, weight: .semibold))
         }
@@ -114,6 +114,7 @@ extension AgentKind {
         case .claudeCode: Theme.agentClaudeCode
         case .codex: Theme.agentCodex
         case .copilot: Theme.agentCopilot
+        case .kiro: Theme.agentKiro
         }
     }
 }

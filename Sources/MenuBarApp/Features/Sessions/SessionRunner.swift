@@ -766,6 +766,7 @@ final class SessionRunner {
         store.restoreAgentSessionIDs(claudeSessionID: checkpoint.claudeSessionID,
                                      codexSessionID: checkpoint.codexSessionID,
                                      copilotSessionID: checkpoint.copilotSessionID,
+                                     kiroSessionID: checkpoint.kiroSessionID,
                                      for: sessionID)
         // How full the window was described the discarded turns; the next turn
         // measures the conversation as it stands now.
@@ -1060,7 +1061,8 @@ final class SessionRunner {
         let checkpoint = ConversationCheckpoint(agent: session.agent,
                                                 claudeSessionID: session.claudeSessionID,
                                                 codexSessionID: session.codexSessionID,
-                                                copilotSessionID: session.copilotSessionID)
+                                                copilotSessionID: session.copilotSessionID,
+                                                kiroSessionID: session.kiroSessionID)
         let titleSession = store.session(store.userFacingSessionID(for: sessionID)) ?? session
         let isFirstTurn = !next.isAppCommand && !session.hasStarted && !titleSession.hasStarted
             && titleSession.title == "New session"
@@ -1415,8 +1417,14 @@ final class SessionRunner {
                                         ambition: (session.settings?.designAmbition ?? catalog.designAmbition))
             } ?? implementationReference.map(AgentInstructions.implementationSystemPrompt),
             suggestsPrompts: suggestsPrompts,
-            discovered: catalog.discoveredModels[agent])
-        let serverLaunch = persistentAgentSessions && agent != .claudeCode
+            discovered: catalog.discoveredModels[agent],
+            kiroMCPServers: agent == .kiro
+                ? KiroMCPServer.handedTo(session.settings ?? SessionSettings(),
+                                         from: configs?.servers ?? [],
+                                         resolve: { ProcessManager.resolve($0) })
+                : [])
+        // Kiro has no one-shot streaming mode, so it is always run as a session server.
+        let serverLaunch = (persistentAgentSessions || agent == .kiro) && agent != .claudeCode
             ? try AgentServerLaunch(configuration: configuration, directory: workingDirectories[0]) : nil
         return TurnPlan(agent: agent, arguments: serverLaunch?.arguments ?? configuration.arguments, prompt: promptForAgent,
                         resumeSessionID: resume, presetSessionID: presetSessionID,
@@ -1636,6 +1644,9 @@ final class SessionRunner {
                 // close before it starts, so the pipe is shut straight away.
                 sent = true
                 turn.closeInput()
+            case .kiro:
+                // Only reached without a session server, which Kiro always has.
+                sent = false
             }
         }
         guard sent else {
@@ -1798,7 +1809,7 @@ final class SessionRunner {
         if case .stalled = state(sessionID) {
             setState(.streaming, for: sessionID)
         }
-        for event in events {
+        for event in StreamEvent.mergingChunks(events) {
             if event.isAnswering {
                 turn.answered = true
                 records[sessionID]?.hasFinishedResponse = false
@@ -1887,6 +1898,41 @@ final class SessionRunner {
                     thought.toolOffset = message.tools.count
                     thought.date = Date()
                     message.thinking = (message.thinking ?? []) + [thought]
+                }
+
+            case .textChunk(let text, let continuing):
+                setState(.streaming, for: sessionID)
+                if turn.summary != nil {
+                    if !continuing, !turn.summaryText.isEmpty { turn.summaryText += "\n\n" }
+                    turn.summaryText += text
+                    continue
+                }
+                freshReply(turn, sessionID: sessionID)
+                store.updateMessage(turn.messageID, in: sessionID) { message in
+                    // A piece that opens a block is spaced from what came before, the
+                    // same as a whole block; the rest of the block runs straight on.
+                    if !continuing {
+                        if !message.text.isEmpty { message.text += "\n\n" }
+                        message.textMarks = (message.textMarks ?? [])
+                            + [TextMark(offset: message.text.count, date: Date())]
+                    }
+                    message.text += text
+                }
+
+            case .thinkingChunk(let text, let continuing):
+                setState(.streaming, for: sessionID)
+                freshReply(turn, sessionID: sessionID)
+                store.updateMessage(turn.messageID, in: sessionID) { message in
+                    if continuing, var thoughts = message.thinking, !thoughts.isEmpty {
+                        thoughts[thoughts.count - 1].text += text
+                        message.thinking = thoughts
+                    } else {
+                        var thought = ThinkingSegment(text: text)
+                        thought.textOffset = message.text.count
+                        thought.toolOffset = message.tools.count
+                        thought.date = Date()
+                        message.thinking = (message.thinking ?? []) + [thought]
+                    }
                 }
 
             case .agentText(let parentID, let text):

@@ -110,7 +110,7 @@ struct PromptSuggestionTests {
         #expect(!FileManager.default.fileExists(atPath: scratch.path("started").path))
     }
 
-    @Test(arguments: [AgentKind.claudeCode, .codex, .copilot], [0, 7])
+    @Test(arguments: [AgentKind.claudeCode, .codex, .copilot, .kiro], [0, 7])
     func readsTheLastLineOnlyWhenTheCommandSucceeds(agent: AgentKind, status: Int) async throws {
         let scratch = ScratchDirectory(prefix: "prompt-suggestion")
         let executable = scratch.path("agent")
@@ -121,6 +121,8 @@ struct PromptSuggestionTests {
             #"{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"Run the tests"}}"#
         case .copilot:
             #"{"type":"assistant.message","data":{"messageId":"answer","content":"Run the tests"}}"#
+        case .kiro:
+            "Run the tests"
         }
         try FixtureCLI.write("""
             cat >/dev/null
@@ -131,9 +133,44 @@ struct PromptSuggestionTests {
 
         let suggestion = await PromptSuggestion.read(
             agent: agent, at: executable.path, searchPath: "/usr/bin:/bin",
-            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt")
+            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt",
+            environment: ["KIRO_HOME": scratch.path(".kiro").path])
 
         #expect(suggestion == (status == 0 ? "Run the tests" : nil))
+    }
+
+    // Kiro's saved rules can allow tools whatever the command line says, so the run gets
+    // a profile of its own that has no tools and denies every kind of access.
+    @Test func kiroAnswersUnderAProfileWithNoTools() async throws {
+        let scratch = ScratchDirectory(prefix: "prompt-suggestion")
+        let agents = scratch.path(".kiro/agents")
+        let executable = scratch.path("agent")
+        try FixtureCLI.write("""
+            printf '%s\\n' "$@" > arguments
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = --agent ]; then cp "\(agents.path)/$2.json" profile.json || exit 8; break; fi
+                shift
+            done
+            printf 'Run the tests'
+            """, to: executable)
+
+        let suggestion = await PromptSuggestion.read(
+            agent: .kiro, at: executable.path, searchPath: "/usr/bin:/bin",
+            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt",
+            environment: ["KIRO_HOME": scratch.path(".kiro").path])
+
+        #expect(suggestion == "Run the tests")
+        let arguments = try String(contentsOf: scratch.path("arguments"), encoding: .utf8)
+        #expect(arguments.contains("--agent-engine\nv3\n"))
+        let profile = try #require(JSONSerialization.jsonObject(
+            with: Data(contentsOf: scratch.path("profile.json"))) as? [String: Any])
+        #expect(profile["tools"] as? [String] == [])
+        let rules = try #require((profile["permissions"] as? [String: Any])?["rules"] as? [[String: String]])
+        for capability in ["fs_read", "fs_write", "shell", "mcp", "subagent", "power"] {
+            #expect(rules.contains(["capability": capability, "effect": "deny"]))
+        }
+        #expect(!rules.contains { $0["effect"] == "allow" })
+        #expect(try FileManager.default.contentsOfDirectory(atPath: agents.path).isEmpty)
     }
 
     @Test func dropsTruncatedOutput() async throws {
@@ -185,7 +222,7 @@ struct PromptSuggestionRunnerTests {
         #expect(!(try Self.arguments(harness).contains("--prompt-suggestions")))
     }
 
-    @Test(arguments: [AgentKind.codex, .copilot])
+    @Test(arguments: [AgentKind.codex, .copilot, .kiro])
     func asksTheCLIsThatCannotPredictInARunOfTheirOwn(agent: AgentKind) async throws {
         let harness = try RunnerHarness(agent: agent, script: Self.script(agent),
                                         promptSuggestionsEnabled: { true })
@@ -286,6 +323,7 @@ struct PromptSuggestionRunnerTests {
         case .claudeCode: "IFS= read -r input"
         case .codex: ""
         case .copilot: "input=\"$*\""
+        case .kiro: ""
         }
         let turn = switch agent {
         case .claudeCode:
@@ -306,6 +344,11 @@ struct PromptSuggestionRunnerTests {
             printf '%s\\n' '{"type":"assistant.message","data":{"messageId":"answer","content":"Work complete"}}'
             printf '%s\\n' '{"type":"result","sessionId":"copilot-1","exitCode":0}'
             """
+        case .kiro:
+            FixtureCLI.kiroServer(onPrompt: """
+                kiro_say 'Work complete'
+                kiro_end
+                """)
         }
         let suggestion = switch agent {
         case .claudeCode:
@@ -324,6 +367,9 @@ struct PromptSuggestionRunnerTests {
             printf '%s\\n' '{"type":"assistant.message","data":{"messageId":"answer","content":"Add a regression test"}}'
             printf '%s\\n' '{"type":"result","sessionId":"copilot-1","exitCode":0}'
             """
+        case .kiro:
+            // `kiro-cli chat --no-interactive` prints the answer as plain text.
+            "printf 'Add a regression test\\n'"
         }
         // Codex drains stdin even when the prompt is an argument. An open input pipe
         // would keep it from reaching the suggestion request.

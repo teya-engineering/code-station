@@ -115,7 +115,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
             switch source {
             case .claudeCode: isRemote
             case .codex: auth != .none
-            case .copilot: false
+            case .copilot, .kiro: false
             }
         }
 
@@ -123,6 +123,7 @@ struct AgentConfiguredServer: Identifiable, Equatable {
             switch source {
             case .claudeCode: isRemote && health == .connected
             case .codex, .copilot: auth == .signedIn
+            case .kiro: false
             }
         }
 
@@ -233,6 +234,7 @@ extension AgentKind {
         case .claudeCode: "Restart your Claude Code session to load the change."
         case .codex: "The next Codex turn loads the change."
         case .copilot: "The next Copilot turn loads the change."
+        case .kiro: "The next Kiro session loads the change."
         }
     }
 }

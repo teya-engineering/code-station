@@ -12,6 +12,17 @@ enum PermissionMode: String, Codable, Sendable, CaseIterable, Identifiable {
     // default it would make every new session read-only, so it is not offered there.
     static let defaultChoices = allCases.filter { $0 != .plan }
 
+    // The modes an agent can honour. Kiro has no judge of its own for which steps are
+    // risky, so "Risky only" is not offered there; a session that holds it from another
+    // agent runs as "Allow edits".
+    static func choices(for agent: AgentKind) -> [PermissionMode] {
+        agent == .kiro ? [.acceptEdits, .manual, .plan] : allCases
+    }
+
+    static func defaultChoices(for agent: AgentKind) -> [PermissionMode] {
+        choices(for: agent).filter { $0 != .plan }
+    }
+
     // The mode a session goes back to once its plan is approved. A stored plan mode is
     // skipped, or approving the plan would start the next turn planning all over again.
     static func afterPlan(_ stored: PermissionMode?) -> PermissionMode {
@@ -55,6 +66,20 @@ enum PermissionMode: String, Codable, Sendable, CaseIterable, Identifiable {
             "Claude Code judges each step and only asks about the ones that can do damage."
         case .plan:
             "Claude Code reads and plans but changes nothing. Approving the plan puts the session back in its usual mode."
+        }
+    }
+
+    // The same modes as Kiro applies them. The app answers Kiro's questions about edits
+    // inside the session's folders, and Kiro plans in a mode of its own.
+    func detail(for agent: AgentKind) -> String {
+        guard agent == .kiro else { return detail }
+        return switch self {
+        case .acceptEdits, .auto:
+            "Edits to files in this session's folders go through on their own. Commands and anything else are asked about."
+        case .manual:
+            "Every edit and every command waits for an answer."
+        case .plan:
+            "Kiro plans in its own Plan mode and changes nothing. Choose another mode to carry the plan out."
         }
     }
 }

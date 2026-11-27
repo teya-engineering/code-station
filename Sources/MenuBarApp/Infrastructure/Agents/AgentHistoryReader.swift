@@ -10,12 +10,14 @@ enum AgentHistoryReader {
 
     static func list(agent: AgentKind, folder: String, root: URL,
                      executable: String? = nil) async throws -> [ExternalSessionCandidate] {
-        try await run(Exchange(agent: agent, folder: folder, root: root), executable: executable,
-                      timeout: .seconds(15)).candidates
+        if agent == .kiro { return try await KiroHistoryReader.list(folder: folder, root: root, executable: executable) }
+        return try await run(Exchange(agent: agent, folder: folder, root: root), executable: executable,
+                             timeout: .seconds(15)).candidates
     }
 
     static func prepare(_ candidate: ExternalSessionCandidate,
                         executable: String? = nil) async throws -> Reading {
+        if candidate.agent == .kiro { return try await KiroHistoryReader.prepare(candidate, executable: executable) }
         let root = URL(fileURLWithPath: candidate.origin.configDirectory, isDirectory: true)
         var reading = try await run(Exchange(agent: candidate.agent, folder: candidate.cwd,
                                              root: root, candidate: candidate), executable: executable)

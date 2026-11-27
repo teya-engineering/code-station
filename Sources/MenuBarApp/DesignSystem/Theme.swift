@@ -323,6 +323,7 @@ enum Theme {
     static let agentClaudeCode = Color(red: 0.878, green: 0.416, blue: 0.122)
     static let agentCodex = Color(red: 0.184, green: 0.639, blue: 0.333)
     static let agentCopilot = Color(red: 0.541, green: 0.333, blue: 0.851)
+    static let agentKiro = Color(red: 0.184, green: 0.498, blue: 0.851)
 
     // Which tool a shortcut on the header rail is, while it is pointed at. The rail is grey
     // at rest, so nothing asks for the eye until a hand reaches for it. Each tool takes one

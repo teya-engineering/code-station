@@ -18,7 +18,11 @@ enum SecondOpinionLineup {
 
     // The agents worth installing to have someone to ask, for when nobody is.
     static func installHint(author: AgentKind) -> String {
-        "Install \(AgentKind.allCases.filter { $0 != author }.map(\.title).joined(separator: " or ")) to ask for a second opinion"
+        let names = AgentKind.allCases.filter { $0 != author }.map(\.title)
+        let listed = names.count > 2
+            ? names.dropLast().joined(separator: ", ") + " or " + names[names.count - 1]
+            : names.joined(separator: " or ")
+        return "Install \(listed) to ask for a second opinion"
     }
 
     // The tiles for where things stand. Once asked, the lineup is whoever was asked.

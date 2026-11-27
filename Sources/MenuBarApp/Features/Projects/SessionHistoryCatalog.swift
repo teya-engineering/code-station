@@ -69,7 +69,7 @@ actor SessionHistoryCatalog {
             return Listing(candidates: ClaudeSessionCatalog.sessions(in: key.folder, root: key.root,
                                                                      read: claudeCandidate))
         }
-        let history = key.root.appendingPathComponent(key.agent == .codex ? "sessions" : "session-state")
+        let history = key.root.appendingPathComponent(key.agent == .copilot ? "session-state" : "sessions")
         guard FileManager.default.fileExists(atPath: history.path) else { return Listing() }
         do {
             return Listing(candidates: try await readAgentHistory(key.agent, key.folder, key.root))
@@ -99,6 +99,9 @@ actor SessionHistoryCatalog {
             roots[agent] = path.map { URL(fileURLWithPath: $0, isDirectory: true) }
                 ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".\(agent.rawValue)")
         }
+        // Kiro's own server lists its history, from wherever KIRO_HOME points it, so there
+        // is no folder to choose.
+        roots[.kiro] = AgentKind.kiro.configDirectory(environment: environment)
         return roots
     }
 

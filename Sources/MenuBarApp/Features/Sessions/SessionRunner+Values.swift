@@ -10,6 +10,9 @@ extension SessionRunner {
         case .claudeCode: "No conversation found with session ID"
         case .codex: nil
         case .copilot: "No session, task, or name matched"
+        // Loading an id Kiro does not know quietly opens an empty session under it, so
+        // there is no message to watch for.
+        case .kiro: nil
         }
     }
 
@@ -24,6 +27,8 @@ extension SessionRunner {
                       "refresh token", "401 unauthorized"]
         case .copilot: ["copilot login", "not authenticated", "not logged in",
                         "no authentication information"]
+        case .kiro: ["authentication required", "kiro-cli login", "not logged in",
+                     "token has expired", "session has expired"]
         }
         let lowered = message.lowercased()
         return phrases.contains { lowered.contains($0) }
@@ -177,6 +182,7 @@ extension SessionRunner {
         guard let recorded else { return totals }
         var grown = totals
         grown.costUSD = max(0, totals.costUSD - recorded.costUSD)
+        grown.credits = max(0, totals.credits - recorded.credits)
         grown.inputTokens = max(0, totals.inputTokens - recorded.inputTokens)
         grown.outputTokens = max(0, totals.outputTokens - recorded.outputTokens)
         grown.cacheReadTokens = max(0, totals.cacheReadTokens - recorded.cacheReadTokens)

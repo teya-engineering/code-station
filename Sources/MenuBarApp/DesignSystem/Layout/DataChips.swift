@@ -67,6 +67,15 @@ struct MonoChip: View {
     }
 }
 
+// Marks something the app offers before it is supported in full, such as an agent in
+// beta. The same tint as a ChoiceBlock badge, so a BETA heading and a BETA chip match.
+struct BetaChip: View {
+    var body: some View {
+        MonoChip(text: "BETA", size: Typography.Size.micro, tint: Theme.secret)
+            .accessibilityLabel("Beta")
+    }
+}
+
 // One changed file as a row of bars: its name, then a green bar for lines added and a red
 // one for lines removed, both measured on the same scale as the other rows beside it, so
 // the biggest change is seen first. A file outside what is picked keeps its grey bars and

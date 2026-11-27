@@ -494,11 +494,12 @@ struct TaskDetailView: View {
 
     private func runChoices(_ task: Project) -> [RunChoice] {
         let access = switch runAgent(task) {
-        case .claudeCode: permissionsChoice(task)
+        case .claudeCode, .kiro: permissionsChoice(task)
         case .codex: codexAccessChoice(task)
         case .copilot: copilotAccessChoice(task)
         }
-        return [modelChoice(task), effortChoice(task), access]
+        let agent = runAgent(task)
+        return [modelChoice(task)] + (agent.choosesEffort ? [effortChoice(task)] : []) + [access]
     }
 
     private func agentChoice(_ task: Project) -> RunChoice {
@@ -578,7 +579,7 @@ struct TaskDetailView: View {
             overridden: override != nil,
             help: "How much the agent asks before it acts.",
             defaultTitle: defaultTitle((defaults.permissionMode ?? .fallback).shortTitle),
-            options: PermissionMode.allCases.map { (id: $0.rawValue, title: $0.title) },
+            options: PermissionMode.choices(for: agent).map { (id: $0.rawValue, title: $0.title) },
             selection: Binding(get: { override?.rawValue },
                                set: { mode in
                                    changeSpec(task) { $0.permissionMode = mode.flatMap(PermissionMode.init(rawValue:)) }

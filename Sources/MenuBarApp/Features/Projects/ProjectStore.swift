@@ -1342,6 +1342,7 @@ final class ProjectStore {
         implementation.claudeSessionID = nil
         implementation.codexSessionID = nil
         implementation.copilotSessionID = nil
+        implementation.kiroSessionID = nil
         implementation.usage = nil
         implementation.summary = SessionSummary()
         implementation.messages = []
@@ -1842,7 +1843,7 @@ final class ProjectStore {
         loadTranscript(i)
         sessions[i].messages.append(message)
         if let checkpoint = message.checkpoint {
-            for (agent, id) in [(AgentKind.claudeCode, checkpoint.claudeSessionID), (.codex, checkpoint.codexSessionID), (.copilot, checkpoint.copilotSessionID)] {
+            for (agent, id) in [(AgentKind.claudeCode, checkpoint.claudeSessionID), (.codex, checkpoint.codexSessionID), (.copilot, checkpoint.copilotSessionID), (.kiro, checkpoint.kiroSessionID)] {
                 if let id { sessions[i].knownAgentSessionIDs?.insert(ImportedSessionOrigin.key(agent: agent, sessionID: id)) }
             }
         }
@@ -1936,6 +1937,7 @@ final class ProjectStore {
             case .claudeCode: session.claudeSessionID = agentID
             case .codex: session.codexSessionID = agentID
             case .copilot: session.copilotSessionID = agentID
+            case .kiro: session.kiroSessionID = agentID
             }
         }
     }
@@ -1949,6 +1951,7 @@ final class ProjectStore {
             case .claudeCode: $0.claudeSessionID = nil
             case .codex: $0.codexSessionID = nil
             case .copilot: $0.copilotSessionID = nil
+            case .kiro: $0.kiroSessionID = nil
             }
         }
     }
@@ -1984,11 +1987,13 @@ final class ProjectStore {
     // session is on now: the checkpoint speaks for all of them.
     func restoreAgentSessionIDs(claudeSessionID: String?, codexSessionID: String?,
                                 copilotSessionID: String? = nil,
+                                kiroSessionID: String? = nil,
                                 for sessionID: UUID) {
         update(sessionID) {
             $0.claudeSessionID = claudeSessionID
             $0.codexSessionID = codexSessionID
             $0.copilotSessionID = copilotSessionID
+            $0.kiroSessionID = kiroSessionID
         }
     }
 
@@ -2105,6 +2110,7 @@ final class ProjectStore {
         case .claudeCode: session.claudeSessionID = resumeID
         case .codex: session.codexSessionID = resumeID
         case .copilot: session.copilotSessionID = resumeID
+        case .kiro: session.kiroSessionID = resumeID
         }
         session.importedOrigin = item.candidate.origin
         session.importedAt = Date()

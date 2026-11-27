@@ -7,17 +7,20 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
     case claudeCode = "claude"
     case codex = "codex"
     case copilot = "copilot"
+    case kiro = "kiro"
 
     var id: String { rawValue }
 
-    // The executable the agent is run through.
-    var command: String { rawValue }
+    // The executable the agent is run through. Kiro's CLI is named for the product, not
+    // the agent, so it is the one whose command differs from its stored name.
+    var command: String { self == .kiro ? "kiro-cli" : rawValue }
 
     var title: String {
         switch self {
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .copilot: "Copilot"
+        case .kiro: "Kiro"
         }
     }
 
@@ -27,16 +30,30 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .claudeCode: "Anthropic"
         case .codex: "OpenAI"
         case .copilot: "GitHub"
+        case .kiro: "AWS"
         }
     }
 
-    var blurb: String { "\(vendor)'s coding agent." }
+    // Beta leads, so a menu that cuts the line short still shows it.
+    var blurb: String { isBeta ? "Beta · \(vendor)'s coding agent." : "\(vendor)'s coding agent." }
+
+    // An agent the app runs but does not yet support in full. It is marked BETA wherever
+    // it can be picked, and says what that means where its settings are.
+    var isBeta: Bool { self == .kiro }
+
+    // What beta means for this agent, in one sentence a person can act on.
+    var betaNote: String? {
+        guard isBeta else { return nil }
+        return "\(title) support is in beta. Sessions, permissions, models, credits, Code Station's MCP servers, "
+            + "importing past sessions and marketplace skills work. A marketplace package brings only its skills to \(title)."
+    }
 
     var symbol: String {
         switch self {
         case .claudeCode: "brain.head.profile"
         case .codex: "sparkles"
         case .copilot: "airplane"
+        case .kiro: "cloud"
         }
     }
 
@@ -45,6 +62,7 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .claudeCode: "npm install -g @anthropic-ai/claude-code"
         case .codex: "npm install -g @openai/codex"
         case .copilot: "npm install -g @github/copilot"
+        case .kiro: "brew install --cask kiro-cli"
         }
     }
 
@@ -56,6 +74,7 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         case .claudeCode: "2.1.154" // --prompt-suggestions
         case .codex: "0.147.0" // --approve-for-me
         case .copilot: "1.0.32" // --session-id
+        case .kiro: "3.5.0" // ACP v3 model choice through session/set_config_option
         }
     }
 
@@ -78,24 +97,32 @@ enum AgentKind: String, CaseIterable, Codable, Sendable, Identifiable {
         return numbers.compactMap { $0 }
     }
 
-    // What signing in means for each CLI, typed into a shell as-is.
+    // What signing in means for each CLI, typed into a shell as-is. Kiro's opens its own
+    // menu of every way in, an organisation's sign-in included.
     var loginCommand: String {
         switch self {
         case .claudeCode: "claude /login"
         case .codex: "codex login"
         case .copilot: "copilot login"
+        case .kiro: "kiro-cli login"
         }
     }
 
     // Whether tool access can be approved interactively. Codex and Copilot keep the
     // access policy chosen in settings, even though their servers accept follow-ups.
-    var asksPermissions: Bool { self == .claudeCode }
+    // Kiro asks over ACP for each call its access mode does not already allow.
+    var asksPermissions: Bool { self == .claudeCode || self == .kiro }
 
     // Whether a prompt sent during a turn can reach the agent before that turn ends.
     // Claude Code takes a message written to its open input at its next step, and Codex
     // has a request for steering its active turn. Copilot holds a second message until
-    // the turn is over, which is no better than the app's own queue.
-    var canSteer: Bool { self != .copilot }
+    // the turn is over, which is no better than the app's own queue. ACP has no way to
+    // add to a running prompt, so Kiro waits the same way.
+    var canSteer: Bool { self != .copilot && self != .kiro }
+
+    // Whether the CLI takes an effort level at all. Kiro's ACP server has none, so its
+    // effort control would offer nothing but "Default" and is left out.
+    var choosesEffort: Bool { self != .kiro }
 
     // Whether the CLI predicts the next prompt itself and reports it on its stream. The
     // others have to be asked in a run of their own, so a suggestion costs them far more.

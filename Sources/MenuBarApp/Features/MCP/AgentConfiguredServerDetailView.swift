@@ -113,6 +113,8 @@ struct AgentConfiguredServerDetailView: View {
             case .claudeCode: claude.checkedAt
             case .codex: codex.checkedAt
             case .copilot: copilot.checkedAt
+            // The app does not read Kiro's own MCP configuration, so no server here comes from Kiro.
+            case .kiro: nil
             }
         }
         guard !dates.contains(where: { $0 == nil }) else { return nil }
@@ -382,6 +384,8 @@ struct AgentConfiguredServerDetailView: View {
         case .claudeCode: claude.serverWork
         case .codex: codex.serverWork
         case .copilot: copilot.serverWork
+        // The app does not read Kiro's own MCP configuration, so no server here comes from Kiro.
+        case .kiro: AgentServerWork()
         }
     }
 
@@ -391,6 +395,7 @@ struct AgentConfiguredServerDetailView: View {
             case .claudeCode: claude.checkHealth(of: server.name)
             case .codex: codex.refresh(store.servers)
             case .copilot: copilot.refresh(store.servers)
+            case .kiro: break
             }
         }
     }
@@ -404,6 +409,7 @@ struct AgentConfiguredServerDetailView: View {
             case .claudeCode: break
             case .codex: codex.setEnabled(enabled, for: server.name, servers: store.servers)
             case .copilot: copilot.setEnabled(enabled, for: server.name, servers: store.servers)
+            case .kiro: break
             }
         }
     }
@@ -413,7 +419,7 @@ struct AgentConfiguredServerDetailView: View {
         switch registration.source {
         case .claudeCode: claude.signIn(server.name)
         case .codex: codex.signIn(server.name, servers: store.servers)
-        case .copilot: break
+        case .copilot, .kiro: break
         }
     }
 
@@ -422,7 +428,7 @@ struct AgentConfiguredServerDetailView: View {
         switch registration.source {
         case .claudeCode: claude.signOut(server.name)
         case .codex: codex.signOut(server.name, servers: store.servers)
-        case .copilot: break
+        case .copilot, .kiro: break
         }
     }
 

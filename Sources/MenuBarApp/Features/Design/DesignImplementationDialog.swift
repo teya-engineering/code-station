@@ -148,11 +148,21 @@ struct DesignImplementationDialog: View {
             }
             FormPair {
                 LabeledField("Effort") {
-                    EffortPill(title: draft.effortTitle,
-                               lit: EffortMeter.lit(for: draft.effort, among: draft.effortLevels), form: true)
-                        .appMenu(matchWidth: true, showsFocusRing: true) { effortEntries }
-                        .focused($focus, equals: .effort)
-                        .accessibilityLabel("Effort: \(draft.effortTitle)")
+                    // Kiro takes no effort level, so its field stays on Default with
+                    // nothing to open; the row keeps its place beside Permissions.
+                    if draft.agent.choosesEffort {
+                        EffortPill(title: draft.effortTitle,
+                                   lit: EffortMeter.lit(for: draft.effort, among: draft.effortLevels), form: true)
+                            .appMenu(matchWidth: true, showsFocusRing: true) { effortEntries }
+                            .focused($focus, equals: .effort)
+                            .accessibilityLabel("Effort: \(draft.effortTitle)")
+                    } else {
+                        EffortPill(title: "Default", lit: 0, form: true)
+                            .disabled(true)
+                            .appTooltip("\(draft.agent.title) has no effort setting.")
+                            .accessibilityLabel("Effort: Default")
+                            .accessibilityHint("\(draft.agent.title) has no effort setting.")
+                    }
                 }
                 LabeledField("Permissions") {
                     ShieldPill(tone: permissionTone, title: draft.permissionTitle, form: true)
@@ -236,7 +246,7 @@ struct DesignImplementationDialog: View {
 
     private var permissionTone: TrustTone {
         switch draft.agent {
-        case .claudeCode: TrustTone(draft.permission)
+        case .claudeCode, .kiro: TrustTone(draft.permission)
         case .codex: TrustTone(draft.codexAccess)
         case .copilot: TrustTone(draft.copilotAccess)
         }
@@ -245,10 +255,11 @@ struct DesignImplementationDialog: View {
     private var permissionEntries: [MenuEntry] {
         let defaults = draft.catalog.defaults(for: draft.agent)
         switch draft.agent {
-        case .claudeCode:
+        case .claudeCode, .kiro:
+            let agent = draft.agent
             return permissions(defaultTitle: (defaults.permissionMode ?? .fallback).shortTitle,
-                               selected: draft.settings.permissionMode, choices: PermissionMode.allCases,
-                               title: { $0.shortTitle }, detail: { $0.detail }, tone: { TrustTone($0) }) { mode in
+                               selected: draft.settings.permissionMode, choices: PermissionMode.choices(for: agent),
+                               title: { $0.shortTitle }, detail: { $0.detail(for: agent) }, tone: { TrustTone($0) }) { mode in
                 draft.edit { $0.permissionMode = mode }
             }
         case .codex:

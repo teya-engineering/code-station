@@ -12,6 +12,11 @@ enum StreamEvent: Sendable {
     // What the model worked out to itself before answering. It is part of the turn but
     // not of the answer, so it is kept apart from the text.
     case thinking(String)
+    // A piece of text or thinking as it is written, for an agent that streams its reply.
+    // `continuing` says it carries on the block the last piece began; otherwise it opens
+    // a new one, the way a whole `.text` or `.thinking` block would.
+    case textChunk(String, continuing: Bool)
+    case thinkingChunk(String, continuing: Bool)
     // Something an agent said while working, named by the call that started it. It is
     // not part of the conversation - the agent reports back through its result - so it
     // is only worth the one line that says the agent is still going.
@@ -141,13 +146,32 @@ extension StreamEvent {
     // very long output is cut down before it reaches the store.
     static let maxToolOutput = 20_000
 
+    // Kiro streams its reply a few words at a time, and each piece written to the store
+    // lays out the transcript again. A piece that runs on from the one before it in the
+    // same read is joined to it first, so one read costs one write.
+    static func mergingChunks(_ events: [StreamEvent]) -> [StreamEvent] {
+        var merged: [StreamEvent] = []
+        merged.reserveCapacity(events.count)
+        for event in events {
+            switch (merged.last, event) {
+            case (.textChunk(let before, let continuing)?, .textChunk(let text, true)):
+                merged[merged.count - 1] = .textChunk(before + text, continuing: continuing)
+            case (.thinkingChunk(let before, let continuing)?, .thinkingChunk(let text, true)):
+                merged[merged.count - 1] = .thinkingChunk(before + text, continuing: continuing)
+            default:
+                merged.append(event)
+            }
+        }
+        return merged
+    }
+
     // Whether this is the turn answering rather than the CLI reporting on itself. A
     // result that arrives before any of these has answered nothing, which is what tells
     // a turn the app did not ask for apart from the one it is reading.
     var isAnswering: Bool {
         switch self {
-        case .text, .thinking, .agentText, .toolUse, .toolResult, .permissionRequest,
-             .compacted:
+        case .text, .thinking, .textChunk, .thinkingChunk, .agentText, .toolUse, .toolResult,
+             .permissionRequest, .compacted:
             true
         default:
             false
@@ -166,6 +190,10 @@ extension StreamEvent {
             "text bytes=\(text.utf8.count)"
         case .thinking(let text):
             "thinking bytes=\(text.utf8.count)"
+        case .textChunk(let text, let continuing):
+            "text chunk bytes=\(text.utf8.count) continuing=\(continuing)"
+        case .thinkingChunk(let text, let continuing):
+            "thinking chunk bytes=\(text.utf8.count) continuing=\(continuing)"
         case .agentText(let parentID, let text):
             "agent text parent=\(parentID) bytes=\(text.utf8.count)"
         case .toolUse(let tool):

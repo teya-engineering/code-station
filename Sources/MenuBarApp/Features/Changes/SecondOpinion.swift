@@ -121,13 +121,15 @@ enum SecondOpinion {
         switch reviewer.agent {
         case .claudeCode: return "anthropic"
         case .codex: return "openai"
-        case .copilot:
+        case .copilot, .kiro:
             guard let model = reviewer.model?.lowercased(), model != "auto" else { return nil }
             if model.hasPrefix("claude") { return "anthropic" }
             if model.hasPrefix("gpt") || model.hasPrefix("o1") || model.hasPrefix("o3") || model.hasPrefix("o4") {
                 return "openai"
             }
             if model.hasPrefix("gemini") { return "google" }
+            if model.hasPrefix("deepseek") { return "deepseek" }
+            if model.hasPrefix("qwen") { return "alibaba" }
             return nil
         }
     }
@@ -387,6 +389,10 @@ enum SecondOpinion {
                 + mcp
                 + model + (reviewer.effort.map { ["--effort", $0] } ?? [])
                 + addDirectories.flatMap { ["--add-dir", $0] }
+        case .kiro:
+            // run selects a profile that denies writes even when Kiro's saved rules allow them.
+            return ["chat", "--agent-engine", "v3", "--no-interactive"]
+                + model + ["--", prompt]
         }
     }
 
@@ -459,9 +465,10 @@ enum SecondOpinion {
     // off by name; with it, only the ones the session keeps off are turned off.
     static func run(agent: AgentKind, executable: String, searchPath: String, directory: String,
                     timeout: Duration, writing: String, servers: ServerAccess? = nil,
+                    environment: [String: String] = ProcessInfo.processInfo.environment,
                     activity: @escaping @Sendable (String) -> Void,
                     arguments: (_ codexServers: [DisabledMCPServer], _ copilotServers: [String]) -> [String]) async -> Result<String, Failure> {
-        var environment = ProcessInfo.processInfo.environment
+        var environment = environment
         environment["PATH"] = searchPath
         let output: CommandRunner.Output
         do {
@@ -483,10 +490,14 @@ enum SecondOpinion {
                 }
                 codexServers = servers
             }
+            let kiroProfile = agent == .kiro ? try KiroReviewProfile(environment: environment) : nil
+            defer { kiroProfile?.remove() }
+            var launchArguments = arguments(codexServers, agent == .copilot ? copilotServers() : [])
+            if let kiroProfile { launchArguments.insert(contentsOf: ["--agent", kiroProfile.name], at: 1) }
             let reader = ActivityReader(agent: agent, writing: writing, report: activity)
             output = try await CommandRunner.run(
                 executable: executable,
-                arguments: arguments(codexServers, agent == .copilot ? copilotServers() : []),
+                arguments: launchArguments,
                 currentDirectory: URL(fileURLWithPath: directory),
                 environment: environment,
                 outputChunkHandler: { reader.take($0) },
@@ -594,6 +605,9 @@ enum SecondOpinion {
                 for case .text(let text) in parser.parse(String(line)) { parts.append(text) }
             }
             return parts.joined(separator: "\n")
+        case .kiro:
+            // Kiro prints the answer itself, and its tool notes go to stderr.
+            return output
         }
     }
 

@@ -54,7 +54,7 @@ Pull requests and pushes to `main` run the suite on macOS. Tests live in `Tests/
 
 CI splits the discovered suites across two separate Mac runners, keeping tests serial on each. Each batch of at most 25 suites gets a fresh process so UI state does not build up across the whole run. It caches the build and dependencies for the selected toolchain and SDK, and saves the cache before tests run. `Scripts/ci-tests.py` runs the compiled bundle through `Scripts/TestMain.swift`, which keeps the main run loop alive until Swift Testing finishes. AppKit can stop that loop during a test, causing Swift's default async entry point to exit early. The runner checks Swift Testing's event report for every batch so a process that exits early cannot pass. The `test` check passes only when both runners finish successfully.
 
-Live background-task tests are opt-in because they use the installed agents and their signed-in accounts. They start `sleep 600`, send a follow-up, and cancel the task. Set `CODE_STATION_LIVE_AGENT_TESTS=1` and filter to `AgentSessionLiveTests`; optionally set `CODE_STATION_LIVE_AGENT=codex` or `copilot` to test only one. Codex uses an account-advertised model for this disposable test. Normal test runs use protocol fixtures and make no model calls.
+Live background-task tests are opt-in because they use the installed agents and their signed-in accounts. They start `sleep 600`, send a follow-up, and cancel the task. Set `CODE_STATION_LIVE_AGENT_TESTS=1` and filter to `AgentSessionLiveTests`; optionally set `CODE_STATION_LIVE_AGENT=codex`, `copilot` or `kiro` to test only one. The Kiro test also hands a session a throwaway MCP server and checks the credits it reports. Codex uses an account-advertised model for this disposable test. Normal test runs use protocol fixtures and make no model calls.
 
 Add tests for behavior and business logic. Trivial view wiring, accessors, and framework behavior do not need dedicated tests.
 
@@ -82,6 +82,7 @@ All docs live in [`docs/`](docs). The decisions behind how the app is built are 
 - [Own design system](docs/adrs/0006-own-design-system.md)
 - [Dispatch requests](docs/adrs/0007-dispatch-requests.md)
 - [Evidence blocks](docs/adrs/0008-evidence-blocks.md)
+- [Kiro agent](docs/adrs/0009-kiro-agent.md)
 
 Guides for working on specific areas:
 

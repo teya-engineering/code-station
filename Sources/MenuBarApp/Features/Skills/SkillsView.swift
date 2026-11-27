@@ -240,7 +240,7 @@ struct SkillsView: View {
                         .frame(width: 6, height: 6)
                     Text(hostHeading(host))
                 }
-                .frame(width: 190, alignment: .leading)
+                .frame(width: SkillsMetrics.hostColumnWidth, alignment: .leading)
             }
         }
         .font(Typography.caps)
@@ -283,7 +283,7 @@ struct SkillsView: View {
 
                 ForEach(SkillHost.allCases) { host in
                     hostControl(plugin, host: host)
-                        .frame(width: 190)
+                        .frame(width: SkillsMetrics.hostColumnWidth)
                 }
             }
 

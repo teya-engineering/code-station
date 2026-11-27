@@ -14,6 +14,8 @@ struct SessionFacts: Equatable {
     // Left out when the agent reports no cost. Codex reports none, and a $0.00 there reads
     // as free rather than as unknown.
     var cost: Double?
+    // Plan credits used, for an agent that counts in credits rather than dollars.
+    var credits: Double?
     var context: Double?
     var agent: AgentKind = .claudeCode
 
@@ -45,7 +47,7 @@ struct SessionFacts: Equatable {
     // Nothing to open the card for.
     var isEmpty: Bool {
         namedBranch == nil && changes == nil && pullRequests.isEmpty && model == nil
-            && cost == nil && context == nil
+            && cost == nil && credits == nil && context == nil
     }
 
     var pullRequestCount: Int {
@@ -224,7 +226,9 @@ extension SessionFacts {
             pullRequestStatuses: Dictionary(reviews.map { ($0.pullRequest.url, $0.status) },
                                             uniquingKeysWith: { first, _ in first }),
             model: session.usage?.model(for: session.agent).map(modelTitle),
-            cost: showsCost ? session.usage?.costUSD : nil,
+            // Kiro counts in plan credits, so it shows those rather than a dollar figure.
+            cost: showsCost && session.agent != .kiro ? session.usage?.costUSD : nil,
+            credits: showsCost && session.agent == .kiro ? session.usage?.credits : nil,
             context: session.usage?.contextFraction(for: session.agent),
             agent: session.agent)
     }
@@ -704,7 +708,8 @@ struct SessionFactsChip: View {
                         .transition(.fadeIn)
                 }
             }
-            if let cost = facts.cost { costRow(cost).transition(.fadeIn) }
+            if let cost = facts.cost { costRow(Money.short(cost)).transition(.fadeIn) }
+            if let credits = facts.credits { costRow(Money.credits(credits), verb: "used").transition(.fadeIn) }
         }
         .background(Theme.sunken)
     }
@@ -883,12 +888,13 @@ struct SessionFactsChip: View {
         .padding(.vertical, Space.xs)
     }
 
-    private func costRow(_ cost: Double) -> some View {
+    private func costRow(_ amount: String, verb: String = "spent") -> some View {
         row("Cost") {
             HStack(spacing: Space.md) {
-                Text(Money.short(cost))
+                Text(amount)
                     .font(Typography.code)
-                Text("spent this session")
+                    .contentTransition(.numericText())
+                Text("\(verb) this session")
                     .font(Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

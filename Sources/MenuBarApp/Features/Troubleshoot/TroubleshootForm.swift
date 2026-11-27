@@ -12,6 +12,7 @@ enum TroubleshootSkills {
         case .claudeCode: .claude
         case .codex: .codex
         case .copilot: .copilot
+        case .kiro: .kiro
         }
     }
 
@@ -397,6 +398,14 @@ enum TroubleshootMCPState: Equatable {
                     disabledNames: Set(codex.entries.compactMap {
                         $0.value.enabled ? nil : $0.key
                     }))
+        case .kiro:
+            // Kiro is handed the app's servers when the session opens, so a server is
+            // there unless it is switched off in the app or Kiro cannot reach it.
+            resolve(enabled: enabled, servers: servers, hasStartedCheck: true,
+                    isRefreshing: false,
+                    registeredNames: Set(servers.filter { KiroMCPServer($0, resolve: { _ in nil }) != nil }
+                        .map(\.name)),
+                    disabledNames: Set(servers.filter(\.disabled).map(\.name)))
         }
     }
 

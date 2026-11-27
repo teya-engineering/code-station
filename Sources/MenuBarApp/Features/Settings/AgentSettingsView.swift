@@ -11,6 +11,7 @@ struct AgentSettingsView: View {
     @State private var claude = ClaudeAgentInfo()
     @State private var codex = CodexAgentInfo()
     @State private var copilot = CopilotAgentInfo()
+    @State private var kiro = KiroAgentInfo()
     @State private var loggingIn: AgentKind?
 
     let requestedAgent: AgentKind?
@@ -45,6 +46,7 @@ struct AgentSettingsView: View {
         claude.refresh()
         codex.refresh()
         copilot.refresh()
+        kiro.refresh()
         Task { await runner.catalog.refreshDiscoveredModels() }
     }
 
@@ -195,13 +197,33 @@ struct AgentSettingsView: View {
                     Task { await usageMonitor?.refresh(.copilot) }
                     Task { await runner.catalog.refreshDiscoveredModels() }
                 })
+        case .kiro:
+            AgentProfile(
+                heading: "KIRO",
+                path: kiro.path,
+                version: kiro.version,
+                account: kiro.account?.summary
+                    ?? (kiro.isCheckingAccount ? "Checking…" : kiro.accountProblem),
+                signedIn: kiro.account != nil,
+                plan: nil,
+                usage: [],
+                usageCheckedAt: nil,
+                usageLoading: false,
+                usageEmptyMessage: "Kiro does not share its account allowance with other apps. Your plan's credits are on app.kiro.dev.",
+                usageNote: "Kiro counts usage in credits from your plan.",
+                fileTitle: "Kiro settings",
+                configFile: ".kiro/settings/cli.json",
+                refresh: {
+                    kiro.refresh()
+                    Task { await runner.catalog.refreshDiscoveredModels() }
+                })
         }
     }
 
     private func agentSection(for agent: AgentKind) -> some View {
         let profile = profile(for: agent)
         return VStack(alignment: .leading, spacing: Space.xxl) {
-            ChoiceBlock(profile.heading) {
+            ChoiceBlock(profile.heading, note: agent.betaNote, badge: agent.isBeta ? "BETA" : nil) {
                 SettingsCard {
                     statusRow(installed: profile.path != nil,
                               signedIn: profile.signedIn,
@@ -221,7 +243,7 @@ struct AgentSettingsView: View {
             .id(SettingsSearchTarget.agentDetails.id)
             accountUsage(profile).id(SettingsSearchTarget.agentUsage.id)
             model(for: agent).id(SettingsSearchTarget.agentModel.id)
-            effort(for: agent).id(SettingsSearchTarget.agentEffort.id)
+            if agent.choosesEffort { effort(for: agent).id(SettingsSearchTarget.agentEffort.id) }
             permissions(for: agent).id(SettingsSearchTarget.agentPermissions.id)
             cost(for: agent).id(SettingsSearchTarget.agentCost.id)
             files(title: profile.fileTitle,
@@ -305,20 +327,22 @@ struct AgentSettingsView: View {
 
     @ViewBuilder private func permissions(for agent: AgentKind) -> some View {
         switch agent {
-        case .claudeCode: claudePermissions
+        case .claudeCode, .kiro: claudePermissions(for: agent)
         case .codex: codexPermissions
         case .copilot: copilotPermissions
         }
     }
 
-    private var claudePermissions: some View {
-        ChoiceBlock("PERMISSIONS") {
+    private func claudePermissions(for agent: AgentKind) -> some View {
+        ChoiceBlock("PERMISSIONS", note: agent == .kiro
+                    ? "Used by every Kiro session unless that session has its own choice. Changes apply from its next turn."
+                    : nil) {
             SettingsCard {
-                let modes = PermissionMode.defaultChoices
+                let modes = PermissionMode.defaultChoices(for: agent)
                 ForEach(modes.indices, id: \.self) { index in
                     let choice = modes[index]
                     OptionRow(title: choice.title,
-                              detail: choice.detail,
+                              detail: choice.detail(for: agent),
                               selected: (defaults.permissionMode ?? .fallback) == choice) {
                         change { $0.permissionMode = choice }
                     }
@@ -365,13 +389,18 @@ struct AgentSettingsView: View {
     // Hiding it only takes the figure off the screen. Sessions still record what they
     // spent, so turning this back on shows the full total rather than starting again.
     private func cost(for agent: AgentKind) -> some View {
-        ChoiceBlock("COST", note: agent == .claudeCode
-                    ? nil
-                    : "\(agent.title) reports no cost of its own, so its sessions have nothing to show until it does.") {
+        let note: String? = switch agent {
+        case .claudeCode: nil
+        case .kiro: "Kiro counts usage in plan credits, so its sessions show the credits they used rather than dollars."
+        default: "\(agent.title) reports no cost of its own, so its sessions have nothing to show until it does."
+        }
+        return ChoiceBlock("COST", note: note) {
             SettingsCard {
                 SettingsToggleRow(
                     "Show what a session has spent",
-                    detail: "The dollar figure on the session bar, and the Spent line in the hints.",
+                    detail: agent == .kiro
+                        ? "The credits on the session bar, and the Spent line in the hints."
+                        : "The dollar figure on the session bar, and the Spent line in the hints.",
                     isOn: Binding(get: { appSettings.showsCost(for: agent) },
                                   set: { appSettings.setShowsCost($0, for: agent) }))
                     .padding(.horizontal, Space.lg)

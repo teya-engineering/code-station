@@ -58,6 +58,8 @@ struct EffortPill: View {
     // The level as it was before this change, read while the change is being drawn so
     // the word knows which way to roll.
     @State private var previous: Int?
+    // A locked pill has no menu to open, so it shows no chevron.
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         BarPill(form: form) {
@@ -66,7 +68,7 @@ struct EffortPill: View {
                 RollingText(title, rising: lit >= (previous ?? lit),
                             font: Typography.label)
                 if form { Spacer(minLength: 0) }
-                MenuChevron(size: 8)
+                if isEnabled { MenuChevron(size: 8) }
             }
         }
         .onChange(of: lit, initial: true) { _, now in previous = now }
@@ -148,6 +150,9 @@ struct BarPill<Content: View>: View {
 
     @State private var hovering = false
     @Environment(\.menuIsOpen) private var open
+    // A pill with nothing to open is drawn dimmed and does not answer the pointer, the
+    // same way the shared buttons do.
+    @Environment(\.isEnabled) private var isEnabled
 
     init(fill: Color = Theme.field, form: Bool = false, @ViewBuilder content: () -> Content) {
         self.fill = fill
@@ -166,11 +171,12 @@ struct BarPill<Content: View>: View {
             .frame(maxWidth: form ? .infinity : nil)
             .frame(height: form ? ControlHeight.xl : ControlHeight.md)
             .background(shape.fill(fill))
-            .overlay(shape.fill(Color.primary.opacity(hovering || open ? 0.05 : 0)))
+            .overlay(shape.fill(Color.primary.opacity((hovering && isEnabled) || open ? 0.05 : 0)))
             .overlay(shape.strokeBorder(form ? Theme.border : .clear))
+            .opacity(isEnabled ? 1 : 0.4)
             .contentShape(shape)
             .fixedSize(horizontal: !form, vertical: true)
-            .hoverLift(hovering)
+            .hoverLift(hovering && isEnabled)
             .onPointerHover { hovering = $0 }
             .motion(Motion.hover, value: hovering)
     }

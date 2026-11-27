@@ -56,7 +56,7 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `brand`, `listen...` | The app itself. Lime on screen means the microphone is open. |
 | `showcase`, `snooze...` | A Design session going all out, and a snoozed item. |
 | `projectTint(for:)` | A project's own colour. The same one wherever the project shows up. |
-| `agentClaudeCode`, `agentCodex`, `agentCopilot` | An agent's own colour, as the tile behind its symbol wherever it speaks (`ReviewAvatar`, `LineupTiles`). The rest of a lineup sits on the second opinion's plum. On the header rail the lineup stays grey until pointed at. |
+| `agentClaudeCode`, `agentCodex`, `agentCopilot`, `agentKiro` | An agent's own colour, as the tile behind its symbol wherever it speaks (`ReviewAvatar`, `LineupTiles`). The rest of a lineup sits on the second opinion's plum. On the header rail the lineup stays grey until pointed at. |
 | `RailTint` | Which tool this is, while it is pointed at. Each header rail shortcut has one, set by its `RailTool`, and it shows only under the pointer or keyboard focus, as a wash behind the seat, the glyph's ink and a square dot in the tooltip. The colour follows the tool into the panel it opens: the glyph at the head of that panel takes `RailTool.mark`. An open seat keeps the accent, since green means chosen. |
 | `chartSeries` | Chart lines, in a fixed order. A series is never red: on a chart, `deletion` means a reading past its limit or a failed span. |
 
@@ -148,6 +148,8 @@ Controls that share a row share a step. Pass the step to `ActionButton(height:)`
 `FileReferenceMetrics` supplies the compact file menu, reader, outline and reading widths. `FileReferenceSubject` keeps a filename and optional path readable with middle truncation, while `FileReferenceMark` is the plain document mark used in menus and flights. `DocumentLoading` shows a reading skeleton with a `LoopSpinner` while a file arrives. A `.fileSubject(path)` menu entry gives file actions their 256-point menu and 32-point rows; `MenuItem.help` carries a disabled action's tooltip and accessible reason.
 
 `DispatchMetrics` supplies the sizes of the Dispatch sheet: the request list, the address card, a parameter row and its columns, and the response header.
+
+`SkillsMetrics` sets the width of each agent's column in the skills list.
 
 `SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
 
@@ -313,6 +315,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Need | Use |
 | --- | --- |
 | A small tag or value | `MonoChip` |
+| Something offered before it is supported in full | `BetaChip` beside its name. A settings group says it with `ChoiceBlock(badge: "BETA")` and a note on what beta means. |
 | Lines added and removed | `DiffPair` |
 | Changed files as bars, to compare their size | `FileBarRow`, one per file, sharing one `scale`. A file left out keeps grey bars; one brought in draws its colour. Pass `nameWidth` for compact previews. |
 | Lines added and removed as bars in a list whose names need the room | `DiffBar`: two short bars on a fixed length (`ReviewMetrics.receiptBarWidth`), on a `scale` the rows share. |

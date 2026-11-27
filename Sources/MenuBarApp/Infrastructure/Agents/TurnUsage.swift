@@ -4,6 +4,8 @@ import Foundation
 // turn including every tool call inside it.
 struct TurnUsage: Equatable, Sendable {
     var costUSD: Double = 0
+    // Plan credits, for an agent that counts in credits rather than dollars (Kiro).
+    var credits: Double = 0
     var inputTokens = 0
     var outputTokens = 0
     var cacheReadTokens = 0

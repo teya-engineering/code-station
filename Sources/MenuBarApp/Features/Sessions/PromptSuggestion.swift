@@ -109,6 +109,8 @@ enum PromptSuggestion {
         case .claudeCode: "haiku"
         case .codex: nil
         case .copilot: "auto"
+        // On every Kiro plan, and a fraction of the credits "auto" costs.
+        case .kiro: "claude-haiku-4.5"
         }
     }
 
@@ -143,13 +145,22 @@ enum PromptSuggestion {
                              "--no-ask-user", "--disable-builtin-mcps", "--log-level", "none"]
             if let model = quickModel(for: agent) { arguments += ["--model", model] }
             return arguments
+
+        case .kiro:
+            // `read` adds a profile with no tools. A flag that trusts no tool is not enough,
+            // since the person's saved rules still allow what they allow.
+            var arguments = ["chat", "--agent-engine", "v3", "--no-interactive"]
+            if let model = quickModel(for: agent) { arguments += ["--model", model] }
+            arguments += ["--", prompt]
+            return arguments
         }
     }
 
     // Nil whenever anything at all goes wrong. Nothing depends on this answering, and a
     // failure here must never reach the session it was asked about.
     static func read(agent: AgentKind, at path: String, searchPath: String,
-                     workingDirectory: String, prompt: String, model: String? = nil) async -> String? {
+                     workingDirectory: String, prompt: String, model: String? = nil,
+                     environment: [String: String] = ProcessInfo.processInfo.environment) async -> String? {
         var disabledMCPServers: [DisabledMCPServer] = []
         if agent == .codex {
             // An empty mcp_servers table merges with the user's config, so each enabled
@@ -161,11 +172,21 @@ enum PromptSuggestion {
             }
             disabledMCPServers = servers
         }
+        var launchArguments = arguments(for: agent, prompt: prompt, model: model,
+                                        disabledMCPServers: disabledMCPServers)
+        var kiroProfile: KiroReviewProfile?
+        if agent == .kiro {
+            guard let profile = try? KiroReviewProfile(environment: environment, readsFiles: false) else {
+                SessionLog.note("kiro prompt suggestion could not create its profile")
+                return nil
+            }
+            kiroProfile = profile
+            launchArguments.insert(contentsOf: ["--agent", profile.name], at: 1)
+        }
+        defer { kiroProfile?.remove() }
         guard let response = await OneShotAgent.read(
-            agent: agent, at: path,
-            arguments: arguments(for: agent, prompt: prompt, model: model,
-                                 disabledMCPServers: disabledMCPServers),
-            searchPath: searchPath, workingDirectory: workingDirectory,
+            agent: agent, at: path, arguments: launchArguments,
+            searchPath: searchPath, workingDirectory: workingDirectory, environment: environment,
             timeout: .seconds(45), purpose: "prompt suggestion") else { return nil }
         let suggestion = cleaned(response)
         if suggestion == nil {

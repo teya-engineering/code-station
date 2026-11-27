@@ -156,6 +156,19 @@ struct AgentCommandsTests {
         #expect(found.first { $0.name == "tidy" }?.summary == "From the configured folder")
     }
 
+    @Test func kiroOffersItsSkillsAsCommands() throws {
+        _ = try write("---\nname: adr-writer\ndescription: Write an ADR\n---\nWrite it.\n",
+                      to: "home/.kiro/skills/adr-writer/SKILL.md")
+        _ = try write("---\nname: local\ndescription: The project's skill\n---\n",
+                      to: "project/.kiro/skills/local/SKILL.md")
+
+        let found = AgentCommands.all(for: .kiro, workingDirectories: [scratch.path("project").path],
+                                      home: scratch.path("home"))
+
+        #expect(found.first { $0.name == "adr-writer" }?.summary == "Write an ADR")
+        #expect(found.first { $0.name == "local" }?.scope == .project)
+    }
+
     // Skill descriptions are long and usually folded over several lines; the menu has
     // room for one.
     @Test func aDescriptionWrittenOverSeveralLinesReadsAsOne() {
