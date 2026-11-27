@@ -117,17 +117,11 @@ struct SessionRunSettingsControls: View {
         guard let session = store.session(sessionID) else { return [] }
         let agent = session.agent
         let used = session.agentsUsed
-        var entries: [MenuEntry] = [
-            .heading("This session"),
-            .item(agent.title, icon: agent.symbol, iconTint: agent.tint, checked: true,
-                  subtitle: currentRunSummary(session), disabled: true) {},
-        ]
         let others = AgentKind.allCases.filter { $0 != agent && runner.catalog.isAvailable($0) }
         guard !others.isEmpty else {
-            entries.append(.note("No other agent is installed, so this session can only run on \(agent.title)."))
-            return entries
+            return [.note("No other agent is installed, so this session can only run on \(agent.title).")]
         }
-        entries.append(.heading("Continue this session in"))
+        var entries: [MenuEntry] = [.heading("Continue this session in")]
         for other in others {
             let returning = used.contains(other)
             entries.append(.item(
@@ -138,21 +132,7 @@ struct SessionRunSettingsControls: View {
                                            dialogs: dialogs)
                 })
         }
-        entries.append(.note("The worktree stays as it is. You check what the next agent is told before anything is sent."))
         return entries
-    }
-
-    private func currentRunSummary(_ session: ChatSession) -> String {
-        let agent = session.agent
-        let model = runner.catalog.validModel(session.settings?.model, for: agent)
-        let modelTitle = model.map { runner.catalog.modelTitle($0) }
-            ?? session.usage?.model(for: agent).map { ModelChoice.shortName(of: $0) }
-            ?? "Default model"
-        let effort = runner.catalog.validEffort(
-            session.settings?.effort ?? runner.catalog.defaults(for: agent).effort,
-            for: agent, model: model)
-        let effortTitle = effort.map { "\(runner.catalog.effortTitle($0, for: agent, model: model)) effort" }
-        return [modelTitle, effortTitle].compactMap { $0 }.joined(separator: " · ")
     }
 
     // MARK: - Waiting for the turn
