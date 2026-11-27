@@ -301,8 +301,7 @@ struct SessionFactsChip: View {
     @Environment(MenuPresenter.self) private var menus
     @FocusedValue(\.sessionFactsPreview) private var focusedPreview
     @FocusState private var chipFocused: Bool
-    private enum PreviewControl: Hashable { case attach, pin, close }
-    @FocusState private var previewControl: PreviewControl?
+    @FocusState private var attachFocused: Bool
     @State private var focusDismissed = false
     @State private var layout = SessionFactsLayout()
     @State private var cardAnchor = FrameAnchor()
@@ -610,36 +609,20 @@ struct SessionFactsChip: View {
             }
             Spacer(minLength: Space.xs)
             if let attachProject {
-                GlyphButton(icon: "plus.rectangle.on.folder", side: ControlHeight.sm) {
+                ActionButton(title: "Attach project", tone: .outlined, height: ControlHeight.md,
+                             icon: "plus.rectangle.on.folder") {
                     closeCard()
                     chipFocused = true
                     attachProject()
                 }
                 .disabled(attachDisabled)
-                .focused($previewControl, equals: .attach)
+                .focused($attachFocused)
                 .focusEffectDisabled()
-                .overlay(FocusRingStroke(focused: previewControl == .attach))
-                .appTooltip("Attach project")
+                .overlay(FocusRingStroke(focused: attachFocused, cornerRadius: ControlHeight.md * 0.25 + 2))
                 .accessibilityLabel("Attach a project to this session")
             }
-            GlyphButton(icon: pinned ? "pin.fill" : "pin", side: ControlHeight.sm, active: pinned) {
-                if pinned { closeCard() } else { pinned = true }
-            }
-            .focused($previewControl, equals: .pin)
-            .focusEffectDisabled()
-            .overlay(FocusRingStroke(focused: previewControl == .pin))
-            .accessibilityLabel(pinned ? "Unpin session details" : "Pin session details")
-            GlyphButton(icon: "xmark", side: ControlHeight.sm) {
-                closeCard()
-                chipFocused = true
-            }
-            .focused($previewControl, equals: .close)
-            .focusEffectDisabled()
-            .overlay(FocusRingStroke(focused: previewControl == .close))
-            .accessibilityLabel("Close session details")
         }
         .padding(Space.lg)
-        .motion(Motion.control, value: pinned)
     }
 
     private var bodyHeight: CGFloat {
