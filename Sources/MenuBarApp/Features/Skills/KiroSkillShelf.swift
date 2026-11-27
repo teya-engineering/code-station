@@ -1,6 +1,6 @@
 import Foundation
 
-// Kiro has no plugin command, but its agent loads every `~/.kiro/skills/<name>/SKILL.md`.
+// Kiro has no plugin command, but its agent loads every `skills/<name>/SKILL.md` in its home.
 // So a marketplace package reaches Kiro by copying the package's skills there. Each copy
 // carries a marker naming the package it came from, which is how the installed list is
 // read back and how an update or removal finds the copies, never touching a skill the
@@ -23,8 +23,8 @@ struct KiroSkillShelf: Sendable {
     let directory: URL
 
     static var standard: KiroSkillShelf {
-        KiroSkillShelf(directory: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".kiro/skills", isDirectory: true))
+        KiroSkillShelf(directory: AgentKind.kiro.configDirectory()
+            .appendingPathComponent("skills", isDirectory: true))
     }
 
     // Installed packages, keyed `package@marketplace`, for the marketplaces asked about.
@@ -68,10 +68,28 @@ struct KiroSkillShelf: Sendable {
             try files.copyItem(at: skill, to: copy)
             try markerData.write(to: copy.appendingPathComponent(Self.markerName))
         }
-        try remove(package: package, marketplace: marketplace)
-        for skill in skills {
-            try files.moveItem(at: staging.appendingPathComponent(skill.lastPathComponent),
-                               to: directory.appendingPathComponent(skill.lastPathComponent))
+        // The old copies are set aside rather than deleted, so a move that fails can put
+        // the package back the way it was.
+        let previous = staging.appendingPathComponent(".previous", isDirectory: true)
+        try files.createDirectory(at: previous, withIntermediateDirectories: true)
+        var setAside: [URL] = []
+        var placed: [URL] = []
+        do {
+            for (folder, marker) in markers() where marker.package == package && marker.marketplace == marketplace {
+                try files.moveItem(at: folder, to: previous.appendingPathComponent(folder.lastPathComponent))
+                setAside.append(folder)
+            }
+            for skill in skills {
+                let target = directory.appendingPathComponent(skill.lastPathComponent)
+                try files.moveItem(at: staging.appendingPathComponent(skill.lastPathComponent), to: target)
+                placed.append(target)
+            }
+        } catch {
+            for target in placed { try? files.removeItem(at: target) }
+            for folder in setAside {
+                try? files.moveItem(at: previous.appendingPathComponent(folder.lastPathComponent), to: folder)
+            }
+            throw error
         }
     }
 
@@ -108,7 +126,9 @@ struct KiroSkillShelf: Sendable {
             throw Failure(message: "Kiro can only take packages kept in the marketplace's own repository.")
         }
         let folder = marketplaceRoot.appendingPathComponent(source, isDirectory: true).standardizedFileURL
-        guard folder.path.hasPrefix(marketplaceRoot.standardizedFileURL.path + "/") else {
+        let root = marketplaceRoot.standardizedFileURL.path
+        // A marketplace of one package often keeps it at its own root, as "./".
+        guard folder.path == root || folder.path.hasPrefix(root + "/") else {
             throw Failure(message: "Kiro can only take packages kept in the marketplace's own repository.")
         }
         return folder

@@ -79,8 +79,7 @@ enum KiroCLI {
 
     // Who is signed in, asked two ways. `whoami` names the account but does not speak for
     // every kind of sign-in: an organisation's sign-in is reported as nobody at all. Kiro's
-    // own database holds a token for whichever way was used and loses it on logout, so a
-    // token there is a sign-in whatever `whoami` said.
+    // own database holds a token for whichever way was used and loses it on logout.
     static func account(at path: String, searchPath: String) async -> AccountReading {
         let stored = storedSignIn()
         let asked: AccountReading
@@ -99,6 +98,11 @@ enum KiroCLI {
             if account.method == "Signed in to Kiro" { account.accountType = kept.accountType }
             return .signedIn(account)
         case (.signedIn, _): return asked
+        // An expired token stays in the database until the next login, so for any sign-in
+        // whoami can see, its "nobody" is the better answer. Only an organisation's
+        // sign-in, which whoami never sees, is taken from the database over it.
+        case (.signedOut, .signedIn(let kept)?):
+            return kept.accountType == "Organization" ? .signedIn(kept) : asked
         case (_, .signedIn?): return stored ?? asked
         // A key in the environment signs in without anything in the database, so only
         // whoami can say there is nobody.

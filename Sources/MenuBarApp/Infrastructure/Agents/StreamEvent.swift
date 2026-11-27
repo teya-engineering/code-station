@@ -146,6 +146,25 @@ extension StreamEvent {
     // very long output is cut down before it reaches the store.
     static let maxToolOutput = 20_000
 
+    // Kiro streams its reply a few words at a time, and each piece written to the store
+    // lays out the transcript again. A piece that runs on from the one before it in the
+    // same read is joined to it first, so one read costs one write.
+    static func mergingChunks(_ events: [StreamEvent]) -> [StreamEvent] {
+        var merged: [StreamEvent] = []
+        merged.reserveCapacity(events.count)
+        for event in events {
+            switch (merged.last, event) {
+            case (.textChunk(let before, let continuing)?, .textChunk(let text, true)):
+                merged[merged.count - 1] = .textChunk(before + text, continuing: continuing)
+            case (.thinkingChunk(let before, let continuing)?, .thinkingChunk(let text, true)):
+                merged[merged.count - 1] = .thinkingChunk(before + text, continuing: continuing)
+            default:
+                merged.append(event)
+            }
+        }
+        return merged
+    }
+
     // Whether this is the turn answering rather than the CLI reporting on itself. A
     // result that arrives before any of these has answered nothing, which is what tells
     // a turn the app did not ask for apart from the one it is reading.

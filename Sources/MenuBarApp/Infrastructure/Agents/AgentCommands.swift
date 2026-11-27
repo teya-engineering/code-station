@@ -150,12 +150,13 @@ enum AgentCommands {
                 + [Folder(url: home.appendingPathComponent(".copilot/prompts"), scope: .user, holds: .commands)]
         case .kiro:
             // Kiro offers each skill as a command too, the marketplace's included.
+            let base = agent.configDirectory(environment: environment, home: home)
             return roots.map { Folder(url: $0.appendingPathComponent(".kiro/prompts"), scope: .project,
                                       holds: .commands) }
-                + [Folder(url: home.appendingPathComponent(".kiro/prompts"), scope: .user, holds: .commands)]
+                + [Folder(url: base.appendingPathComponent("prompts"), scope: .user, holds: .commands)]
                 + roots.map { Folder(url: $0.appendingPathComponent(".kiro/skills"), scope: .project,
                                      holds: .skills) }
-                + [Folder(url: home.appendingPathComponent(".kiro/skills"), scope: .user, holds: .skills)]
+                + [Folder(url: base.appendingPathComponent("skills"), scope: .user, holds: .skills)]
         }
     }
 

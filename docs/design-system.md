@@ -141,6 +141,8 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
+`SkillsMetrics` sets the width of each agent's column in the skills list.
+
 `SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
 
 ### Scroll cap

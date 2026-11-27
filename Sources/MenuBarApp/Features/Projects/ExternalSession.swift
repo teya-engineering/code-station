@@ -58,8 +58,6 @@ extension AgentKind {
         case .claudeCode: "CLAUDE_CONFIG_DIR"
         case .codex: "CODEX_HOME"
         case .copilot: "COPILOT_HOME"
-        // Kiro reads its history from ~/.kiro and has no variable to move it, so an
-        // imported Kiro session always resumes from the default folder.
         case .kiro: "KIRO_HOME"
         }
     }
@@ -68,7 +66,15 @@ extension AgentKind {
     // environment. An empty variable counts as unset.
     func configDirectory(environment: [String: String] = ProcessInfo.processInfo.environment,
                          home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        environment[historyEnvironmentVariable].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? home.appendingPathComponent(".\(rawValue)")
+        let fallback = home.appendingPathComponent(".\(rawValue)")
+        guard let path = environment[historyEnvironmentVariable], !path.isEmpty else { return fallback }
+        guard self == .kiro else { return URL(fileURLWithPath: path) }
+        // Kiro ignores a KIRO_HOME that is relative, the root, or holds the home folder.
+        let resolvedHome = home.resolvingSymlinksInPath().standardizedFileURL.path
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL
+        let resolved = candidate.resolvingSymlinksInPath().path
+        guard path.hasPrefix("/"), resolved != "/", resolved != resolvedHome,
+              !resolvedHome.hasPrefix(resolved + "/") else { return fallback }
+        return candidate
     }
 }

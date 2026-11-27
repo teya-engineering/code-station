@@ -133,9 +133,44 @@ struct PromptSuggestionTests {
 
         let suggestion = await PromptSuggestion.read(
             agent: agent, at: executable.path, searchPath: "/usr/bin:/bin",
-            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt")
+            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt",
+            environment: ["KIRO_HOME": scratch.path(".kiro").path])
 
         #expect(suggestion == (status == 0 ? "Run the tests" : nil))
+    }
+
+    // Kiro's saved rules can allow tools whatever the command line says, so the run gets
+    // a profile of its own that has no tools and denies every kind of access.
+    @Test func kiroAnswersUnderAProfileWithNoTools() async throws {
+        let scratch = ScratchDirectory(prefix: "prompt-suggestion")
+        let agents = scratch.path(".kiro/agents")
+        let executable = scratch.path("agent")
+        try FixtureCLI.write("""
+            printf '%s\\n' "$@" > arguments
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = --agent ]; then cp "\(agents.path)/$2.json" profile.json || exit 8; break; fi
+                shift
+            done
+            printf 'Run the tests'
+            """, to: executable)
+
+        let suggestion = await PromptSuggestion.read(
+            agent: .kiro, at: executable.path, searchPath: "/usr/bin:/bin",
+            workingDirectory: scratch.url.path, prompt: "Suggest the next prompt",
+            environment: ["KIRO_HOME": scratch.path(".kiro").path])
+
+        #expect(suggestion == "Run the tests")
+        let arguments = try String(contentsOf: scratch.path("arguments"), encoding: .utf8)
+        #expect(arguments.contains("--agent-engine\nv3\n"))
+        let profile = try #require(JSONSerialization.jsonObject(
+            with: Data(contentsOf: scratch.path("profile.json"))) as? [String: Any])
+        #expect(profile["tools"] as? [String] == [])
+        let rules = try #require((profile["permissions"] as? [String: Any])?["rules"] as? [[String: String]])
+        for capability in ["fs_read", "fs_write", "shell", "mcp", "subagent", "power"] {
+            #expect(rules.contains(["capability": capability, "effect": "deny"]))
+        }
+        #expect(!rules.contains { $0["effect"] == "allow" })
+        #expect(try FileManager.default.contentsOfDirectory(atPath: agents.path).isEmpty)
     }
 
     @Test func dropsTruncatedOutput() async throws {

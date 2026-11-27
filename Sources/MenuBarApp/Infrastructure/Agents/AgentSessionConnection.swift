@@ -9,8 +9,9 @@ final class AgentSessionConnection: @unchecked Sendable {
         case agentStatus(String, Int)
         case cancel, ignore
         case steer
-        // Kiro: a session option set before the first prompt, such as the model.
-        case configure
+        // Kiro: a session option set before the first prompt, such as the model. One that
+        // is optional is skipped when Kiro refuses it, rather than failing the turn.
+        case configure(optional: Bool)
     }
 
     private let lock = NSLock()
@@ -38,7 +39,7 @@ final class AgentSessionConnection: @unchecked Sendable {
     // Kiro's permission requests waiting on the person, by the id the card carries.
     private var kiroPermissions: [String: (id: Any, options: [[String: Any]])] = [:]
     // Kiro session options still to be set before the first prompt goes out.
-    private var kiroOptions: [(id: String, value: String)] = []
+    private var kiroOptions: [KiroOption] = []
     private var usageBaseline: [String: Int]?
     private var activeTurnID: String?
     private var questions: [String: (id: Any, method: String, params: [String: Any])] = [:]
@@ -113,7 +114,12 @@ final class AgentSessionConnection: @unchecked Sendable {
         }
     }
 
-    func close() { lock.withLock { closed = true } }
+    func close() {
+        lock.withLock {
+            closed = true
+            kiroPermissions = [:]
+        }
+    }
 
     func cancelTasks() -> Bool {
         lock.withLock {
@@ -250,6 +256,11 @@ final class AgentSessionConnection: @unchecked Sendable {
             }
             return [.steerAccepted(requestID: id)]
         }
+        if case .configure(optional: true) = kind, let error = message.error {
+            SessionLog.note("kiro skipped a session option: \(error.message)")
+            configureKiroOrSend()
+            return []
+        }
         if let error = message.error {
             return [.finished(isError: true, message: "\(launch.agent.title) session request failed: "
                               + error.message)]
@@ -265,7 +276,9 @@ final class AgentSessionConnection: @unchecked Sendable {
                 guard let sessionID else {
                     return [.finished(isError: true, message: "Kiro did not return a session ID.")]
                 }
-                kiroOptions = kiroSessionOptions(current: result["configOptions"] as? [[String: Any]])
+                kiroOptions = Self.kiroSessionOptions(current: result["configOptions"] as? [[String: Any]],
+                                                      model: launch.model,
+                                                      planning: launch.permissionMode == .plan)
                 configureKiroOrSend()
                 return [.initialized(sessionID: sessionID)]
             }
@@ -328,8 +341,10 @@ final class AgentSessionConnection: @unchecked Sendable {
         case .configure:
             configureKiroOrSend()
         case .send where launch.agent == .kiro:
-            // The prompt's answer is the end of the turn: ACP has nothing else to wait on.
+            // The prompt's answer is the end of the turn: ACP has nothing else to wait on,
+            // and no request the turn made can still be answered.
             idle = true
+            kiroPermissions = [:]
             var events = kiro.finish()
             switch result["stopReason"] as? String {
             case "refusal":
@@ -348,23 +363,43 @@ final class AgentSessionConnection: @unchecked Sendable {
         return []
     }
 
+    struct KiroOption: Equatable {
+        let id: String
+        let value: String
+        var optional = false
+    }
+
     // The options a Kiro session is opened with before its first prompt: the model the
     // session chose, and Kiro's own planning mode for a plan-first session. An option the
     // session already has is not set again.
-    private func kiroSessionOptions(current: [[String: Any]]?) -> [(id: String, value: String)] {
+    static func kiroSessionOptions(current: [[String: Any]]?, model: String?,
+                                   planning: Bool) -> [KiroOption] {
+        let mode = current?.first { $0["id"] as? String == "mode" }
         func now(_ id: String) -> String? {
             current?.first { $0["id"] as? String == id }?["currentValue"] as? String
         }
-        var wanted: [(id: String, value: String)] = []
-        if let model = launch.model, now("model") != model { wanted.append(("model", model)) }
+        var wanted: [KiroOption] = []
+        if let model, now("model") != model { wanted.append(KiroOption(id: "model", value: model)) }
         // Planning is asked for outright. Leaving it is only sent to a session Kiro says
-        // is still planning, which a resumed one can be.
-        if launch.permissionMode == .plan {
-            if now("mode") != "plan" { wanted.append(("mode", "plan")) }
+        // is still planning, which a resumed one can be. The way out is one of the modes
+        // Kiro lists, and if it refuses, the turn still goes ahead in plan mode, which
+        // only asks more of the person, never less.
+        if planning {
+            if now("mode") != "plan" { wanted.append(KiroOption(id: "mode", value: "plan")) }
         } else if now("mode") == "plan" {
-            wanted.append(("mode", "vibe"))
+            let listed = selectValues(mode?["options"]).filter { $0 != "plan" }
+            let leave = listed.first { $0 == "vibe" } ?? listed.first ?? "vibe"
+            wanted.append(KiroOption(id: "mode", value: leave, optional: true))
         }
         return wanted
+    }
+
+    // The values of an ACP select option, whose choices can be listed flat or in groups.
+    private static func selectValues(_ options: Any?) -> [String] {
+        (options as? [[String: Any]] ?? []).flatMap { entry -> [String] in
+            if let value = entry["value"] as? String { return [value] }
+            return selectValues(entry["options"])
+        }
     }
 
     private func configureKiroOrSend() {
@@ -375,7 +410,8 @@ final class AgentSessionConnection: @unchecked Sendable {
         }
         let option = kiroOptions.removeFirst()
         request("session/set_config_option",
-                ["sessionId": sessionID, "configId": option.id, "value": option.value], as: .configure)
+                ["sessionId": sessionID, "configId": option.id, "value": option.value],
+                as: .configure(optional: option.optional))
     }
 
     private func taskEvents() -> [StreamEvent] {

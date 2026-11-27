@@ -176,7 +176,7 @@ struct BarPill<Content: View>: View {
             .opacity(isEnabled ? 1 : 0.4)
             .contentShape(shape)
             .fixedSize(horizontal: !form, vertical: true)
-            .hoverLift(hovering)
+            .hoverLift(hovering && isEnabled)
             .onPointerHover { hovering = $0 }
             .motion(Motion.hover, value: hovering)
     }

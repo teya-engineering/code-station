@@ -9,11 +9,12 @@ struct KiroSkillShelfTests {
 
     // A marketplace checkout with one package holding two skills and an agent Kiro has
     // no place for.
-    private func marketplace(version: String = "1.0.0", body: String = "Write docs.") throws -> URL {
+    private func marketplace(version: String = "1.0.0", body: String = "Write docs.",
+                             skills: [String] = ["readme-writer", "adr-writer"]) throws -> URL {
         let root = scratch.path("market-\(version)")
         let package = root.appendingPathComponent("plugins/docs")
         let files = FileManager.default
-        for skill in ["readme-writer", "adr-writer"] {
+        for skill in skills {
             let folder = package.appendingPathComponent("skills/\(skill)")
             try files.createDirectory(at: folder.appendingPathComponent("references"), withIntermediateDirectories: true)
             try Data("---\nname: \(skill)\ndescription: \(skill)\n---\n\(body)\n".utf8)
@@ -64,6 +65,33 @@ struct KiroSkillShelfTests {
         try shelf.remove(package: "docs", marketplace: "team")
         #expect(skillNames() == ["my-own"])
         #expect(shelf.installations(marketplaces: ["team"]).isEmpty)
+    }
+
+    // A dangling link is not seen as a skill by the name check, but still blocks the move,
+    // which makes the update fail part way through.
+    @Test func anUpdateThatFailsPartWayLeavesTheOldInstallInPlace() throws {
+        let first = try KiroSkillShelf.packageFolder(source: "./plugins/docs", marketplaceRoot: try marketplace())
+        try shelf.install(package: "docs", marketplace: "team", version: "1.0.0", from: first)
+        try FileManager.default.createSymbolicLink(at: shelf.directory.appendingPathComponent("zeta"),
+                                                   withDestinationURL: scratch.path("missing"))
+        let second = try KiroSkillShelf.packageFolder(
+            source: "./plugins/docs",
+            marketplaceRoot: try marketplace(version: "2.0.0", body: "New.",
+                                             skills: ["readme-writer", "adr-writer", "zeta"]))
+
+        #expect(throws: (any Error).self) {
+            try shelf.install(package: "docs", marketplace: "team", version: "2.0.0", from: second)
+        }
+        #expect(shelf.installations(marketplaces: ["team"])["docs@team"]?.version == "1.0.0")
+        let skill = try String(contentsOf: shelf.directory.appendingPathComponent("readme-writer/SKILL.md"), encoding: .utf8)
+        #expect(skill.contains("Write docs."))
+        #expect(skillNames() == ["adr-writer", "readme-writer", "zeta"])
+    }
+
+    @Test func aPackageAtTheMarketplaceRootCanBeCopied() throws {
+        let root = scratch.path("market")
+        #expect(try KiroSkillShelf.packageFolder(source: "./", marketplaceRoot: root).path
+            == root.standardizedFileURL.path)
     }
 
     @Test func aSkillOfTheSameNameFromElsewhereStopsTheInstall() throws {

@@ -62,6 +62,7 @@ enum KiroHistoryReader {
         private var promptDate: Date?
         private var failure: AgentFailure?
         private var complete = false
+        private var pages = 0
 
         init(folder: String, root: URL, candidate: ExternalSessionCandidate?) {
             self.folder = folder
@@ -129,7 +130,12 @@ enum KiroHistoryReader {
                 guard let rows = result["sessions"] as? [[String: Any]] else {
                     return fail("Kiro returned an unreadable session list.")
                 }
-                reading.candidates = rows.compactMap(candidate(from:))
+                reading.candidates += rows.compactMap(candidate(from:))
+                pages += 1
+                // The page limit keeps a server that repeats its cursor from looping forever.
+                if let cursor = result["nextCursor"] as? String, !cursor.isEmpty, pages < 100 {
+                    return .write(request(.list, "session/list", ["cwd": folder, "cursor": cursor]))
+                }
             case .fork:
                 guard let id = result["sessionId"] as? String, !id.isEmpty,
                       id != candidate?.sessionID else {
@@ -154,8 +160,10 @@ enum KiroHistoryReader {
             let meta = (update["_meta"] as? [String: Any])?["kiro"] as? [String: Any]
             let date = ClaudeTranscriptImport.date(meta?["timestamp"])
             if update["sessionUpdate"] as? String == "user_message_chunk" {
+                // Chunks without an id run on into the prompt before them, since splitting
+                // one prompt into several messages is worse than joining two.
                 let id = meta?["messageId"] as? String
-                if id == nil || id != promptID { closePrompt() }
+                if id != promptID { closePrompt() }
                 promptID = id
                 promptDate = promptDate ?? date
                 promptText += (update["content"] as? [String: Any])?["text"] as? String ?? ""

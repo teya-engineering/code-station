@@ -102,6 +102,48 @@ struct KiroConnectionTests {
         #expect((set["params"] as? [String: Any])?["value"] as? String == "plan")
     }
 
+    // A resumed session can still be planning. The way out is a mode Kiro lists, flat or
+    // in groups, rather than a name the app assumes.
+    @Test func leavesPlanModeThroughAModeKiroLists() throws {
+        let wire = try KiroWire()
+        var mode = Self.option("mode", "plan")
+        mode["options"] = [["value": "plan", "name": "Plan"],
+                           ["group": "build", "name": "Build", "options": [["value": "build", "name": "Build"]]]]
+        try wire.open(options: [mode])
+        let set = try wire.lastRequest()
+        #expect(set["method"] as? String == "session/set_config_option")
+        #expect((set["params"] as? [String: Any])?["value"] as? String == "build")
+    }
+
+    // Staying in plan mode only asks more of the person, so a refusal does not stop the turn.
+    @Test func aRefusedWayOutOfPlanModeStillSendsThePrompt() throws {
+        let wire = try KiroWire()
+        try wire.open(options: [Self.option("mode", "plan")])
+        let set = try wire.lastRequest()
+        #expect((set["params"] as? [String: Any])?["value"] as? String == "vibe")
+        let events = wire.connection.receive(try wire.frame([
+            "jsonrpc": "2.0", "id": try #require(set["id"]),
+            "error": ["code": -32602, "message": "Unknown mode"]]))
+        #expect(events.isEmpty)
+        #expect(try wire.lastRequest()["method"] as? String == "session/prompt")
+    }
+
+    @Test func joinsPiecesThatRunOnSoOneReadIsOneWrite() {
+        let merged = StreamEvent.mergingChunks([
+            .textChunk("I'll ", continuing: false), .textChunk("create ", continuing: true),
+            .textChunk("it.", continuing: true), .thinkingChunk("Hm", continuing: false),
+            .thinkingChunk("m.", continuing: true), .textChunk("Done.", continuing: false),
+            .textChunk(" Bye.", continuing: true),
+        ])
+        guard merged.count == 3,
+              case .textChunk("I'll create it.", false) = merged[0],
+              case .thinkingChunk("Hmm.", false) = merged[1],
+              case .textChunk("Done. Bye.", false) = merged[2] else {
+            Issue.record("\(merged)")
+            return
+        }
+    }
+
     @Test func foldsChunksAndToolCallsOntoTheTurn() throws {
         let wire = try KiroWire()
         try wire.open()
@@ -419,8 +461,34 @@ struct KiroServiceTests {
         #expect(KiroCLI.combined(asked: .unknown("error"), stored: organisation) == organisation)
         #expect(KiroCLI.combined(asked: .signedOut, stored: .signedOut) == .signedOut)
         #expect(KiroCLI.combined(asked: .unknown("error"), stored: nil) == .unknown("error"))
+        let social = KiroCLI.AccountReading.signedIn(KiroCLI.Account(accountType: "Social"))
+        #expect(KiroCLI.combined(asked: .unknown("error"), stored: social) == social)
         let github = KiroCLI.AccountReading.signedIn(KiroCLI.Account(provider: "GitHub", email: "a@b.c"))
         #expect(KiroCLI.combined(asked: github, stored: .signedIn(KiroCLI.Account(accountType: "Social"))) == github)
+    }
+
+    // Kiro takes KIRO_HOME only as an absolute folder that does not hold the home folder.
+    @Test func followsKiroHomeTheWayKiroDoes() {
+        let home = URL(fileURLWithPath: "/Users/someone")
+        func folder(_ value: String?) -> String {
+            AgentKind.kiro.configDirectory(environment: value.map { ["KIRO_HOME": $0] } ?? [:], home: home).path
+        }
+        #expect(folder(nil) == "/Users/someone/.kiro")
+        #expect(folder("") == "/Users/someone/.kiro")
+        #expect(folder("/opt/kiro") == "/opt/kiro")
+        #expect(folder("relative/kiro") == "/Users/someone/.kiro")
+        #expect(folder("/") == "/Users/someone/.kiro")
+        #expect(folder("/Users") == "/Users/someone/.kiro")
+        #expect(folder("/Users/someone") == "/Users/someone/.kiro")
+        let origin = ImportedSessionOrigin(sessionID: "s", agent: .kiro, configDirectory: "/opt/kiro")
+        #expect(origin.historyOverride(environment: ["KIRO_HOME": "/opt/kiro"], home: home) == nil)
+    }
+
+    // A GitHub or Google token outlives its expiry in the database, so whoami's "nobody" wins.
+    @Test func aStaleSocialTokenDoesNotOutweighWhoami() {
+        let social = KiroCLI.AccountReading.signedIn(KiroCLI.Account(accountType: "Social"))
+        #expect(KiroCLI.combined(asked: .signedOut, stored: social) == .signedOut)
+        #expect(KiroCLI.combined(asked: .signedOut, stored: .signedIn(KiroCLI.Account())) == .signedOut)
     }
 
     private static func database(keys: [String]) throws -> URL {

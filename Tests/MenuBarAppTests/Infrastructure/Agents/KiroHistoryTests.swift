@@ -18,8 +18,10 @@ struct KiroHistoryTests {
                 case "$line" in
                     *'"initialize"'*)
                         printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\\n' "$id" ;;
+                    *'"cursor":"page2"'*)
+                        printf '{"jsonrpc":"2.0","id":%s,"result":{"sessions":[{"sessionId":"sess_older","cwd":"\(folder)","title":"An older session","updatedAt":"2026-11-01T10:00:00.000Z"}]}}\n' "$id" ;;
                     *'/list"'*)
-                        printf '{"jsonrpc":"2.0","id":%s,"result":{"sessions":[{"sessionId":"sess_old","cwd":"\(folder)","title":"Fix the login retry","updatedAt":"2026-11-19T23:42:46.054Z","_meta":{"kiro":{"createdAt":"2026-11-19T11:31:03.387Z","source":"local"}}},{"sessionId":"sess_cloud","cwd":"\(folder)","title":"In the cloud","_meta":{"kiro":{"source":"remote"}}},{"sessionId":"sess_other","cwd":"/elsewhere","title":"Other folder"},{"sessionId":"sess_blank","cwd":"\(folder)","title":"New Session"}]}}\\n' "$id" ;;
+                        printf '{"jsonrpc":"2.0","id":%s,"result":{"nextCursor":"page2","sessions":[{"sessionId":"sess_old","cwd":"\(folder)","title":"Fix the login retry","updatedAt":"2026-11-19T23:42:46.054Z","_meta":{"kiro":{"createdAt":"2026-11-19T11:31:03.387Z","source":"local"}}},{"sessionId":"sess_cloud","cwd":"\(folder)","title":"In the cloud","_meta":{"kiro":{"source":"remote"}}},{"sessionId":"sess_other","cwd":"/elsewhere","title":"Other folder"},{"sessionId":"sess_blank","cwd":"\(folder)","title":"New Session"}]}}\\n' "$id" ;;
                     *'/fork"'*)
                         printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"sess_fork"}}\\n' "$id" ;;
                     *'/load"'*)
@@ -30,7 +32,8 @@ struct KiroHistoryTests {
                         \(replay(#"{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":"retry()","_meta":{"kiro":{"replay":true}}}"#))
                         \(replay(#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Fixed "},"_meta":{"kiro":{"replay":true}}}"#))
                         \(replay(#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"it."},"_meta":{"kiro":{"replay":true}}}"#))
-                        \(replay(#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Thanks"},"_meta":{"kiro":{"messageId":"m2","replay":true}}}"#))
+                        \(replay(#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Than"},"_meta":{"kiro":{"replay":true}}}"#))
+                        \(replay(#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"ks"},"_meta":{"kiro":{"replay":true}}}"#))
                         \(replay(#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Any time."},"_meta":{"kiro":{"replay":true}}}"#))
                         printf '{"jsonrpc":"2.0","id":%s,"result":{}}\\n' "$id" ;;
                 esac
@@ -39,11 +42,11 @@ struct KiroHistoryTests {
         return executable
     }
 
-    @Test func listsOnlyThisFoldersSessionsOnThisMac() async throws {
+    @Test func listsOnlyThisFoldersSessionsOnThisMacAcrossPages() async throws {
         let scratch = ScratchDirectory(prefix: "kiro-history")
         let found = try await KiroHistoryReader.list(folder: Self.folder, root: scratch.url,
                                                      executable: try Self.fakeKiro(in: scratch).path)
-        #expect(found.map(\.sessionID) == ["sess_old"])
+        #expect(found.map(\.sessionID) == ["sess_old", "sess_older"])
         #expect(found.first?.agent == .kiro)
         #expect(found.first?.displayTitle == "Fix the login retry")
         #expect(found.first?.lastActivity == ClaudeTranscriptImport.date("2026-11-19T23:42:46.054Z"))

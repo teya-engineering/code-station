@@ -1809,7 +1809,7 @@ final class SessionRunner {
         if case .stalled = state(sessionID) {
             setState(.streaming, for: sessionID)
         }
-        for event in events {
+        for event in StreamEvent.mergingChunks(events) {
             if event.isAnswering {
                 turn.answered = true
                 records[sessionID]?.hasFinishedResponse = false

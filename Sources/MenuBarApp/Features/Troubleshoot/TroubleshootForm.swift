@@ -7,7 +7,7 @@ import SwiftUI
 
 @MainActor
 enum TroubleshootSkills {
-    static func host(for agent: AgentKind) -> SkillHost? {
+    static func host(for agent: AgentKind) -> SkillHost {
         switch agent {
         case .claudeCode: .claude
         case .codex: .codex
@@ -18,10 +18,9 @@ enum TroubleshootSkills {
 
     static func available(_ manager: SkillsManager,
                           for agent: AgentKind) -> [SkillMarketplace.Plugin] {
-        guard let host = host(for: agent) else { return [] }
         var names = Set<String>()
         return manager.plugins.filter {
-            manager.installation(of: $0, on: host)?.enabled == true
+            manager.installation(of: $0, on: host(for: agent))?.enabled == true
                 && names.insert($0.name).inserted
         }
     }

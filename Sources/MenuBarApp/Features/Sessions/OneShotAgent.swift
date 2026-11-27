@@ -7,9 +7,10 @@ enum OneShotAgent {
     // Nil whenever anything at all goes wrong. Nothing depends on this answering, and a
     // failure here must never reach the session it was asked about.
     static func read(agent: AgentKind, at path: String, arguments: [String], searchPath: String,
-                     workingDirectory: String, timeout: Duration,
-                     purpose: String = "one-off") async -> String? {
-        var environment = ProcessInfo.processInfo.environment
+                     workingDirectory: String,
+                     environment: [String: String] = ProcessInfo.processInfo.environment,
+                     timeout: Duration, purpose: String = "one-off") async -> String? {
+        var environment = environment
         environment["PATH"] = searchPath
 
         // A line handler keeps stdin open for replies. Codex drains stdin before

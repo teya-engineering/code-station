@@ -1,33 +1,28 @@
 import Foundation
 
+// A throwaway Kiro agent profile for a run that must not change anything. A review may
+// read files; an answer such as a prompt suggestion gets no tools at all.
 struct KiroReviewProfile {
     let name: String
     private let file: URL
 
-    init(environment: [String: String], home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
-        let home = home.resolvingSymlinksInPath().standardizedFileURL
-        var root = home.appendingPathComponent(".kiro")
-        if let path = environment["KIRO_HOME"], path.hasPrefix("/") {
-            let candidate = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
-            // Kiro ignores roots that contain the person's home directory.
-            if candidate.path != "/", home.path != candidate.path,
-               !home.path.hasPrefix(candidate.path + "/") { root = candidate }
-        }
-        let directory = root.appendingPathComponent("agents")
+    init(environment: [String: String], home: URL = FileManager.default.homeDirectoryForCurrentUser,
+         readsFiles: Bool = true) throws {
+        let directory = AgentKind.kiro.configDirectory(environment: environment, home: home)
+            .appendingPathComponent("agents")
         name = "code-station-review-" + UUID().uuidString.lowercased()
         file = directory.appendingPathComponent(name + ".json")
         // Denials win over saved allowances in every Kiro scope. The tool list also
-        // keeps commands, other agents and external tools out of the review.
+        // keeps commands, other agents and external tools out of the run.
+        let denied = ["fs_write", "shell", "mcp", "subagent", "power"] + (readsFiles ? [] : ["fs_read"])
         let profile: [String: Any] = [
             "name": name,
-            "tools": ["read_file", "list_directory", "file_search", "grep_search"],
+            "tools": readsFiles ? ["read_file", "list_directory", "file_search", "grep_search"] : [],
             "includeMcpJson": false,
             "includePowers": false,
             "mcpServers": [String: String](),
-            "permissions": ["rules": [["capability": "fs_read", "effect": "allow"]]
-                + ["fs_write", "shell", "mcp", "subagent", "power"].map {
-                    ["capability": $0, "effect": "deny"]
-                }],
+            "permissions": ["rules": (readsFiles ? [["capability": "fs_read", "effect": "allow"]] : [])
+                + denied.map { ["capability": $0, "effect": "deny"] }],
         ]
         let data = try JSONSerialization.data(withJSONObject: profile)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
