@@ -27,7 +27,6 @@ struct SessionRunSettingsControls: View {
     enum Locked: Hashable { case agent, model, effort }
 
     @State private var opens: [Locked: Int] = [:]
-    @State private var openWhenUnlocked: Locked?
     @State private var unlockWave = 0
     @State private var flashes: [Locked: Int] = [:]
 
@@ -57,10 +56,6 @@ struct SessionRunSettingsControls: View {
             .onChange(of: locked) { wasLocked, nowLocked in
                 guard wasLocked, !nowLocked else { return }
                 unlockWave += 1
-                if let kind = openWhenUnlocked {
-                    openWhenUnlocked = nil
-                    opens[kind, default: 0] += 1
-                }
             }
             .onChange(of: agent) { _, _ in
                 flashes[.agent, default: 0] += 1
@@ -104,7 +99,7 @@ struct SessionRunSettingsControls: View {
             AgentChip(agent: agent, locked: locked)
                 .landingRings(flashes[.agent], colour: agent.tint, cornerRadius: ControlHeight.md, reach: 1.25)
                 .appMenu(edge: .top, opens: opens[.agent] ?? 0) {
-                    runner.state(sessionID).isBusy ? waitEntries(.agent) : agentEntries()
+                    runner.state(sessionID).isBusy ? waitEntries() : agentEntries()
                 }
                 .appTooltip(locked ? lockedHelp("agent")
                                    : keyBindings.tooltip("Switch agent", for: .switchAgent))
@@ -126,18 +121,19 @@ struct SessionRunSettingsControls: View {
             .heading("This session"),
             .item(agent.title, icon: agent.symbol, iconTint: agent.tint, checked: true,
                   subtitle: currentRunSummary(session), disabled: true) {},
-            .heading("Continue this session in"),
         ]
-        for other in AgentKind.allCases where other != agent {
-            let installed = runner.catalog.isAvailable(other)
+        let others = AgentKind.allCases.filter { $0 != agent && runner.catalog.isAvailable($0) }
+        guard !others.isEmpty else {
+            entries.append(.note("No other agent is installed, so this session can only run on \(agent.title)."))
+            return entries
+        }
+        entries.append(.heading("Continue this session in"))
+        for other in others {
             let returning = used.contains(other)
             entries.append(.item(
                 other.title, icon: other.symbol, iconTint: other.tint,
                 badge: returning ? "BACK" : other.isBeta ? "BETA" : nil, badgeTint: other.tint,
-                subtitle: installed ? AgentSwitch.blurb(for: other, returning: returning)
-                                    : "Not installed. \(other.installHint)",
-                monospacedSubtitle: !installed,
-                disabled: !installed) {
+                subtitle: AgentSwitch.blurb(for: other, returning: returning)) {
                     AgentSwitchDialog.open(other, in: sessionID, store: store, runner: runner,
                                            dialogs: dialogs)
                 })
@@ -165,35 +161,14 @@ struct SessionRunSettingsControls: View {
         "You can change the \(word) when this turn ends."
     }
 
-    // What a locked control opens: why it is locked, what the turn is doing, and the two
-    // things the person can do about it.
-    private func waitEntries(_ kind: Locked) -> [MenuEntry] {
+    private func waitEntries() -> [MenuEntry] {
         guard let session = store.session(sessionID) else { return [] }
-        let word = switch kind {
-        case .agent: "agent"
-        case .model: "model"
-        case .effort: "effort"
-        }
-        var entries: [MenuEntry] = [
-            .heading("\(AgentSwitch.shortName(of: session.agent)) is still working"),
-            .note("The agent, model and effort stay the same for the whole turn. You can change the \(word) as soon as this turn ends."),
-        ]
-        if let tool = runner.runningTool(sessionID) {
-            let label = ToolPresentationCache.presentation(
-                for: tool, projectPath: store.workingDirectory(for: session) ?? "").label
-            entries.append(.item(label, icon: "hourglass", disabled: true) {})
-        }
-        entries += [
-            .separator,
-            .item("Open this when the turn ends", checked: openWhenUnlocked == kind) {
-                openWhenUnlocked = openWhenUnlocked == kind ? nil : kind
-            },
-            .item("Stop the turn", kind: .destructive, icon: "stop.fill",
-                  subtitle: "Ends the turn now, which unlocks the \(word).") {
+        return [
+            .note("\(AgentSwitch.shortName(of: session.agent)) is still working."),
+            .item("Stop the turn", kind: .destructive, icon: "stop.fill") {
                 runner.stop(sessionID)
             },
         ]
-        return entries
     }
 
     // MARK: - Model
@@ -210,7 +185,7 @@ struct SessionRunSettingsControls: View {
         return ModelPill(title: title, locked: locked)
             .landingRings(flashes[.model], colour: Theme.brand, cornerRadius: ControlHeight.md, reach: 1.25)
             .appMenu(edge: .top, opens: opens[.model] ?? 0) {
-                if runner.state(sessionID).isBusy { return waitEntries(.model) }
+                if runner.state(sessionID).isBusy { return waitEntries() }
                 var entries: [MenuEntry] = [
                     .heading("\(agent.title) model"),
                     .item("Use \(agent.title) default", checked: model == nil) { choose(nil) },
@@ -285,7 +260,7 @@ struct SessionRunSettingsControls: View {
             EffortPill(title: title, lit: EffortMeter.lit(for: chosen, among: levels), locked: locked)
                 .landingRings(flashes[.effort], colour: Theme.brand, cornerRadius: ControlHeight.md, reach: 1.25)
                 .appMenu(edge: .top, opens: opens[.effort] ?? 0) {
-                    if runner.state(sessionID).isBusy { return waitEntries(.effort) }
+                    if runner.state(sessionID).isBusy { return waitEntries() }
                     var entries: [MenuEntry] = [
                         .heading("Effort"),
                         .item("Use Code Station default (\(inheritedEffort))",
