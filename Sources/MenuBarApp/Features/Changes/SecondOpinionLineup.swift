@@ -114,8 +114,18 @@ struct LineupTiles: View {
     var deals = 0
     var squashes = 0
     var shakes = 0
+    // Grey outlines with no colour, for a lineup resting on the header rail. Pointed at,
+    // each tile takes its agent's colour.
+    var muted = false
+    // Counts up each time the marks should hop, one after another.
+    var hops = 0
+    // A thin ring of the surface the lineup sits on, so overlapping tiles stay apart.
+    var ring: Color? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // The gap between two marks hopping, so the lineup reads left to right.
+    private static let hopStep: TimeInterval = 0.06
 
     private var nodding: Bool { !reduceMotion && marks.values.contains(.working) }
 
@@ -129,6 +139,7 @@ struct LineupTiles: View {
                 }
             }
         }
+        .motion(Motion.railFan, value: fanned)
         .accessibilityHidden(true)
     }
 
@@ -154,6 +165,18 @@ struct LineupTiles: View {
         return (CGFloat(index) - CGFloat(shown.count - 1) / 2) * size * 0.26
     }
 
+    // The outer tiles turn away from each other; a middle one rises a little instead.
+    private func fanAngle(at index: Int, isFront: Bool) -> Double {
+        guard fanned, !gathered, !reduceMotion, shown.count > 1 else { return 0 }
+        if index == 0 { return -7 }
+        return isFront ? 7 : 0
+    }
+
+    private func fanLift(at index: Int, isFront: Bool) -> CGFloat {
+        guard fanned, !gathered, !reduceMotion, index > 0, !isFront else { return 0 }
+        return -size / 15
+    }
+
     private func tile(_ tile: Tile, at index: Int) -> some View {
         let isFront = index == shown.count - 1
         let mark: SecondOpinionLineup.Mark? = switch tile {
@@ -166,7 +189,7 @@ struct LineupTiles: View {
                        depth: size * 0.14) {
             tileFace(tile, at: index, isFront: isFront, mark: mark)
         }
-        .offset(x: fanOffset(at: index))
+        .offset(x: fanOffset(at: index), y: fanLift(at: index, isFront: isFront))
         .zIndex(Double(index))
     }
 
@@ -175,19 +198,31 @@ struct LineupTiles: View {
         Group {
             switch tile {
             case .agent(let agent):
-                ReviewAvatar(agent: agent, size: size, hasFindings: mark == .findings, move: deals)
+                ReviewAvatar(agent: agent, size: size, hasFindings: mark == .findings, move: deals,
+                             muted: muted, hop: hops, hopDelay: Double(index) * Self.hopStep)
             case .more(let count):
+                // The rest of the lineup, in the second opinion's own plum.
+                let plum = Theme.RailTint.opinion.colour ?? Theme.field
                 Text("+\(count)")
-                    .font(.system(size: size * 0.48, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: size * 0.53, weight: .semibold))
+                    .foregroundStyle(muted ? Color.secondary : Theme.onFill)
                     .frame(width: size, height: size)
-                    .background(RoundedRectangle(cornerRadius: size * 0.3).fill(Theme.field))
-                    .overlay(RoundedRectangle(cornerRadius: size * 0.3).stroke(Theme.border))
+                    .background(RoundedRectangle(cornerRadius: size * 0.3).fill(muted ? Theme.statusBand : plum))
+                    .overlay(RoundedRectangle(cornerRadius: size * 0.3)
+                        .strokeBorder(muted ? Color.secondary : .clear, lineWidth: muted ? 1.3 : 1))
+                    .motion(Motion.reveal, value: muted)
             }
         }
         .modifier(TileMoves(size: size, index: index, deals: deals, squashes: squashes,
                             shakes: mark == .failed ? shakes : 0, reduceMotion: reduceMotion))
-        .rotationEffect(.degrees(fanned && !reduceMotion && shown.count > 1 ? (index == 0 ? -10 : isFront ? 9 : 0) : 0))
+        .background {
+            if let ring {
+                RoundedRectangle(cornerRadius: size * 0.3 + size * 0.1)
+                    .fill(ring)
+                    .padding(-size * 0.1)
+            }
+        }
+        .rotationEffect(.degrees(fanAngle(at: index, isFront: isFront)))
         // A badge on the front tile sits bottom right; on the others bottom left, so the
         // tile in front never hides it.
         .overlay(alignment: isFront ? .bottomTrailing : .bottomLeading) {
@@ -359,7 +394,9 @@ struct SecondOpinionLineupButton: View {
     let open: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(RailWash.self) private var wash: RailWash?
     @State private var hovering = false
+    @State private var hops = 0
     @State private var deals = 0
     @State private var squashes = 0
     @State private var shakes = 0
@@ -408,10 +445,19 @@ struct SecondOpinionLineupButton: View {
         }
         .buttonStyle(.plain)
         .disabled(shown == .rest && !canAsk)
-        .onPointerHover { hovering = $0 }
+        .onPointerHover { inside in
+            hovering = inside
+            if inside && shown == .rest && canAsk { hops += 1 }
+        }
+        // Only the resting lineup takes the tool's colour. Once a run starts, the chip's
+        // own colours say how it is going.
+        .railSeat("opinion", tool: .opinion, radius: Radius.card,
+                  active: hovering && shown == .rest && canAsk)
         .appTooltip {
             Tooltip(title: shown == .rest ? "Ask for a second opinion" : "Second opinion",
-                    subtitle: tooltipWords)
+                    subtitle: tooltipWords,
+                    tint: shown == .rest ? RailTool.opinion.tint.colour : nil,
+                    glides: true)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
@@ -439,7 +485,12 @@ struct SecondOpinionLineupButton: View {
                         fanned: hovering && shown == .rest && canAsk,
                         gathered: shown == .settled,
                         marks: shown == .rest ? [:] : SecondOpinionLineup.marks(runs: runs, status: status),
-                        deals: deals, squashes: squashes, shakes: shakes)
+                        deals: deals, squashes: squashes, shakes: shakes,
+                        // The rail is grey at rest. Pointed at, each reviewer steps
+                        // forward in its own colour and its mark hops, one after another.
+                        muted: shown == .rest && !(hovering && canAsk),
+                        hops: hops,
+                        ring: Theme.statusBand)
                 .padding(.horizontal, Space.xxs)
             words
         }
@@ -500,7 +551,8 @@ struct SecondOpinionLineupButton: View {
         let shape = RoundedRectangle(cornerRadius: Radius.card)
         switch shown {
         case .rest:
-            if hovering && canAsk { shape.fill(Theme.field) }
+            // Inside a rail, the rail's wash stands in for the hover fill.
+            if hovering && canAsk && wash == nil { shape.fill(Theme.field) }
         case .reviewing, .settled:
             shape.fill(hovering ? Theme.field : Theme.card).overlay(shape.strokeBorder(Theme.border))
         case .failed:
@@ -550,12 +602,10 @@ struct SecondOpinionLineupButton: View {
 
 // MARK: - Under an answer
 
-// The tiles beside an answer's copy button, or on a file in Changes: click them to ask
-// the lineup about that one thing. The card hangs off the tiles, so the place they sit
+// The tiles beside an answer's copy button: click them to ask the lineup about that
+// one answer. The card hangs off the tiles, so the place they sit
 // is passed on as they are clicked.
 struct AnswerLineupButton: View {
-    var subject = "this answer"
-    var accessibilityName = "Get a second opinion on this answer"
     let action: () -> Void
 
     @Environment(\.secondOpinionLineup) private var lineup
@@ -581,10 +631,10 @@ struct AnswerLineupButton: View {
         .anchorsSecondOpinion { frame = $0 }
         .appTooltip {
             Tooltip(title: "Get a second opinion",
-                    subtitle: lineup.isEmpty ? "Another agent reviews \(subject)"
-                        : "\(SecondOpinionLineup.names(lineup)) \(lineup.count > 1 ? "review" : "reviews") \(subject)")
+                    subtitle: lineup.isEmpty ? "Another agent reviews this answer"
+                        : "\(SecondOpinionLineup.names(lineup)) \(lineup.count > 1 ? "review" : "reviews") this answer")
         }
-        .accessibilityLabel(accessibilityName)
+        .accessibilityLabel("Get a second opinion on this answer")
     }
 }
 

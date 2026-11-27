@@ -20,6 +20,38 @@ struct TooltipTests {
         #expect(presenter.current?.title == "After")
     }
 
+    // Along the header rail the hint slides from one shortcut to the next. Leaving one
+    // shortcut waits a moment for the next to take over, so the card never goes out in
+    // between, and the next one knows where the card set off from.
+    @Test func aGlidingHintWaitsForTheNextSource() async throws {
+        let presenter = TooltipPresenter()
+        let find = UUID(), preview = UUID()
+        let findFrame = CGRect(x: 100, y: 10, width: 28, height: 28)
+        let previewFrame = CGRect(x: 140, y: 10, width: 28, height: 28)
+        presenter.show(Tooltip(title: "Find", glides: true), from: findFrame, owner: find)
+
+        presenter.hide(owner: find)
+        #expect(presenter.current?.title == "Find")
+        presenter.show(Tooltip(title: "Preview", glides: true), from: previewFrame, owner: preview)
+        try await Task.sleep(for: .seconds(Motion.railHandoff * 3))
+        #expect(presenter.current?.title == "Preview")
+        #expect(presenter.previousAnchor == findFrame)
+        #expect(presenter.anchor == previewFrame)
+
+        // Leaving the rail altogether still takes it away. A busy machine can run the
+        // delayed hide late, so wait for it rather than for a fixed time.
+        presenter.hide(owner: preview)
+        #expect(await waitUntil(timeout: .seconds(5)) { presenter.current == nil })
+    }
+
+    @Test func aPlainHintStillGoesAtOnce() {
+        let presenter = TooltipPresenter()
+        let owner = UUID()
+        presenter.show(Tooltip(title: "Plain"), from: .zero, owner: owner)
+        presenter.hide(owner: owner)
+        #expect(presenter.current == nil)
+    }
+
     @Test func focusedTooltipUpdatesWithContentAndHidesOnBlur() async {
         let presenter = TooltipPresenter()
         func source(_ text: String, focused: Bool) -> some View {

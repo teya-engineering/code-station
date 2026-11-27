@@ -61,7 +61,8 @@ struct MarkdownBlockView: View, Equatable {
                                size: heading.size,
                                weight: heading.weight,
                                design: heading.design,
-                               alignment: textAlignment)
+                               alignment: textAlignment,
+                               role: .heading(level: level))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .padding(.top, level <= 2 ? 6 : 2)
@@ -73,14 +74,19 @@ struct MarkdownBlockView: View, Equatable {
                     HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                         marker(item)
                             .frame(minWidth: 14, alignment: .trailing)
-                        paragraph(item.text, lineSpacing: 2)
+                        paragraph(item.text,
+                                  lineSpacing: 2,
+                                  role: .listItem(depth: item.depth, marker: item.marker))
                     }
                     .padding(.leading, CGFloat(item.depth) * 16 * textScale)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .quote(let text):
-            SelectableText(MarkdownBlock.displayText(text), size: 13, secondary: true)
+            SelectableText(MarkdownBlock.displayText(text),
+                           size: 13,
+                           secondary: true,
+                           role: .quote)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, Space.lg)
                 .overlay(alignment: .leading) {
@@ -98,7 +104,9 @@ struct MarkdownBlockView: View, Equatable {
 
     // A paragraph that holds images renders as text runs with each image between them
     // at reading size; without any it stays one piece of text.
-    @ViewBuilder private func paragraph(_ text: String, lineSpacing: CGFloat = 0) -> some View {
+    @ViewBuilder private func paragraph(_ text: String,
+                                        lineSpacing: CGFloat = 0,
+                                        role: TranscriptTextRole = .block) -> some View {
         let parts = MarkdownBlock.resolvedParts(text) {
             TranscriptImage.resolve($0, projectPath: projectPath)
         }
@@ -119,13 +127,20 @@ struct MarkdownBlockView: View, Equatable {
                 }
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
             } else {
+                // Only the first piece of text carries a list item's marker. The text
+                // after an image is the same item going on.
+                let firstText = parts.firstIndex {
+                    if case .text(let piece) = $0 { !piece.isBlank } else { false }
+                }
                 VStack(alignment: centered ? .center : .leading, spacing: Space.md) {
-                    ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                    ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                         switch part {
                         case .text(let piece):
                             let trimmed = piece.trimmed
                             if !trimmed.isEmpty {
-                                paragraphText(trimmed, lineSpacing: lineSpacing)
+                                paragraphText(trimmed,
+                                              lineSpacing: lineSpacing,
+                                              role: index == firstText ? role : role.continued)
                             }
                         case .image(let alt, let url, let attributes):
                             imagePreview(url: url, label: alt, attributes: attributes)
@@ -135,7 +150,7 @@ struct MarkdownBlockView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: frameAlignment)
             }
         } else {
-            paragraphText(MarkdownBlock.displayText(text), lineSpacing: lineSpacing)
+            paragraphText(MarkdownBlock.displayText(text), lineSpacing: lineSpacing, role: role)
         }
     }
 
@@ -154,8 +169,14 @@ struct MarkdownBlockView: View, Equatable {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func paragraphText(_ text: String, lineSpacing: CGFloat) -> some View {
-        SelectableText(text, size: 13.5, lineSpacing: lineSpacing, alignment: textAlignment)
+    private func paragraphText(_ text: String,
+                               lineSpacing: CGFloat,
+                               role: TranscriptTextRole) -> some View {
+        SelectableText(text,
+                       size: 13.5,
+                       lineSpacing: lineSpacing,
+                       alignment: textAlignment,
+                       role: role)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
     }
@@ -198,15 +219,17 @@ struct MarkdownProse<Code: View>: View {
     var lazy = false
     // Draws HTML blocks rather than printing their tags. See MarkdownBlock.parse.
     var html = false
+    var navigable = false
     let codeBlock: (MessageSegment) -> Code
 
-    init(text: String, projectPath: String, textScale: CGFloat, lazy: Bool = false, html: Bool = false,
+    init(text: String, projectPath: String, textScale: CGFloat, lazy: Bool = false, html: Bool = false, navigable: Bool = false,
          @ViewBuilder codeBlock: @escaping (MessageSegment) -> Code) {
         self.text = text
         self.projectPath = projectPath
         self.textScale = textScale
         self.lazy = lazy
         self.html = html
+        self.navigable = navigable
         self.codeBlock = codeBlock
     }
 
@@ -233,6 +256,7 @@ struct MarkdownProse<Code: View>: View {
 
         for (offset, block) in parsed.enumerated() {
             let isLast = offset == parsed.count - 1
+            if navigable, case .heading = block.kind { flush() }
             if block.sharesATextView, !isLast, !holdsImages(block) {
                 shared.append(block)
             } else {
@@ -283,38 +307,46 @@ struct MarkdownProse<Code: View>: View {
                 let blocks = document[segment.id]
                     ?? (settled ? MarkdownBlock.parse(settled: segment.text) : MarkdownBlock.parse(segment.text))
                 ForEach(proseRuns(blocks)) { run in
-                    ProseRunView(run: run,
-                                 projectPath: projectPath,
-                                 textScale: textScale)
-                        .equatable()
-                        .transition(.fadeIn)
+                    let prose = ProseRunView(run: run, projectPath: projectPath, textScale: textScale).equatable()
+                    Group {
+                        if navigable {
+                            prose.id(MarkdownLocation(segment: segment.id, block: run.id))
+                        } else {
+                            prose
+                        }
+                    }
+                    .transition(.fadeIn)
                 }
             }
         }
     }
 }
 
-// A chart in place of the block that carried it. A chart still arriving is left out
-// rather than drawn from half its data, and one that arrived broken says so: dropping it
-// would lose the evidence the agent gathered without admitting that it had.
+// A chart in place of the block that carried it. A chart still arriving holds its place
+// rather than being drawn from half its data, and one that arrived broken says so:
+// dropping it would lose the evidence the agent gathered without admitting that it had.
 struct TranscriptChartBlock: View, Equatable {
     let segment: MessageSegment
 
+    // Set once the block has been seen part way through. A chart the reader watched
+    // stream in then stands complete, since its arrival was not something they did.
+    @State private var streamed = false
+
     var body: some View {
         if segment.isOpen {
-            EmptyView()
+            ChartArrivingCard()
+                .onAppear { streamed = true }
         } else {
             switch TranscriptChartSpec.parse(segment.text) {
             case .success(let spec):
-                TranscriptChartView(spec: spec)
-            case .failure:
-                Text(TranscriptChartSpec.Failure.unreadable.localizedDescription)
-                    .scaledText(Typography.Size.detail)
-                    .foregroundStyle(Theme.warningText)
-                    .padding(.vertical, Space.xxs)
+                TranscriptChartView(spec: spec, arrives: !streamed)
+            case .failure(let failure):
+                ChartMissingCard(failure: failure)
             }
         }
     }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.segment == rhs.segment }
 }
 
 // A whole file rendered for the preview pane. Built lazily, since a document can run to

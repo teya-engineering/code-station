@@ -52,10 +52,33 @@ enum Motion {
     // A wash fading off words that have just been put into a field. It runs on the curve
     // a line draws on, held long enough for the eye to find where the words went.
     static let washDuration: TimeInterval = 0.7
+    static let wash = drawAnimation(duration: washDuration)
 
     // The step between rows that arrive together, such as a folder's files, so they
     // read as a list unfolding rather than a block appearing.
     static let stagger: TimeInterval = 0.02
+
+    // The header rail's signatures: what each shortcut's glyph plays while it is pointed
+    // at. An act plays once on arrival; a loop then runs for as long as the pointer stays.
+    static let railHopDuration: TimeInterval = 0.3
+    // The second opinion's reviewers fanning out: slower than a hover and landing just past
+    // its mark, so the tiles read as stepping forward rather than snapping apart.
+    static let railFanDuration: TimeInterval = 0.34
+    static let railFan = Animation.timingCurve(0.2, 0.9, 0.3, 1.12, duration: railFanDuration)
+    static let railFindDuration: TimeInterval = 1.14
+    static let railZipDuration: TimeInterval = 0.76
+    static let railBulbDuration: TimeInterval = 0.4
+    static let railGlobePeriod: TimeInterval = 3.2
+    static let railCaretPeriod: TimeInterval = 1.0
+    static let railBulbPeriod: TimeInterval = 3.6
+    static let railTypingPeriod: TimeInterval = 1.1
+    // How long the wash waits for the pointer to land on the next shortcut before it
+    // leaves. Short enough that leaving the rail still feels immediate, long enough to
+    // carry the wash across the gap between two groups.
+    static let railHandoff: TimeInterval = 0.06
+    // The wash flooding out from where the pointer came in: as long as a reveal, on the
+    // curve a line draws on.
+    static let flood = drawAnimation(duration: revealDuration)
 
     static let brandOrbitDuration: TimeInterval = 1.12
     static let brandGleamDuration: TimeInterval = 1.6
@@ -65,13 +88,23 @@ enum Motion {
     // Core Animation plays in AppKit views move the same way.
     private static let drawPoints: (Double, Double, Double, Double) = (0.2, 0.7, 0.1, 1)
 
-    private static func drawAnimation(duration: TimeInterval) -> Animation {
+    static func drawAnimation(duration: TimeInterval) -> Animation {
         .timingCurve(drawPoints.0, drawPoints.1, drawPoints.2, drawPoints.3, duration: duration)
     }
 
     static var drawCurve: CAMediaTimingFunction {
         CAMediaTimingFunction(controlPoints: Float(drawPoints.0), Float(drawPoints.1),
                               Float(drawPoints.2), Float(drawPoints.3))
+    }
+
+    // `pop` and `control` as Core Animation curves, for marks drawn in layers. A bezier
+    // that overshoots stands in for each spring, landing in the same time.
+    static var popCurve: CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
+    }
+
+    static var controlCurve: CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: 0.3, 1.3, 0.5, 1)
     }
 
     // How far a control swells under the pointer. Kept this small on purpose: at this

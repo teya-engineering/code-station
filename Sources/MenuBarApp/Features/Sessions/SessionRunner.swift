@@ -1827,6 +1827,11 @@ final class SessionRunner {
                 if !turn.stopRequested {
                     turn.agentSessionID = claudeSessionID
                     store.setAgentSessionID(claudeSessionID, agent: turn.agent, for: sessionID)
+                    // Claude can take prompts after initialization, even while it thinks
+                    // before its first answer or tool call.
+                    if turn.agent == .claudeCode, state(sessionID) == .starting {
+                        setState(.streaming, for: sessionID)
+                    }
                 }
                 // Every turn the CLI runs opens like this, the one a wakeup starts included.
                 // Once that one has begun there is nothing left to hold the process for.

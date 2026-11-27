@@ -2029,6 +2029,7 @@ final class ProjectStore {
         fork.settings = source.settings
         fork.agentAvatarName = source.agentAvatarName
         fork.importedOrigin = source.importedOrigin
+        fork.importedAt = source.importedAt
         fork.knownAgentSessionIDs = source.knownAgentSessionIDs
         fork.claudeSessionID = checkpoint.claudeSessionID
         fork.messages = Array(messages[..<m])
@@ -2112,6 +2113,7 @@ final class ProjectStore {
         case .kiro: session.kiroSessionID = resumeID
         }
         session.importedOrigin = item.candidate.origin
+        session.importedAt = Date()
         session.knownAgentSessionIDs = [item.candidate.id,
             ImportedSessionOrigin.key(agent: session.agent, sessionID: resumeID)]
         session.createdAt = item.candidate.startedAt ?? item.messages.first?.date ?? Date()
@@ -2442,6 +2444,7 @@ final class ProjectStore {
         let pendingIDs = Set(pendingSessionRemovals.map(\.id))
         sessions = saved.sessions.filter { !pendingIDs.contains($0.id) }
         moveTranscriptsOutOfTheIndex()
+        dateImportsMadeBeforeTheirDateWasKept()
         selectedProjectID = navigation.savedProjectID ?? saved.selectedProjectID ?? projects.first?.id
         if let id = navigation.savedSessionID ?? saved.selectedSessionID,
            sessions.contains(where: { $0.id == id }) {
@@ -2504,6 +2507,30 @@ final class ProjectStore {
             sessions[i].messages = []
             sessions[i].transcriptLoaded = false
         }
+    }
+
+    // A session imported before imports were dated would age by its original conversation,
+    // and could be offered for deletion, or taken, the first launch after an update. The
+    // transcript file is the nearest record of the import. Every save replaces the whole
+    // file, so its date is the last write: the import itself when the session was never
+    // used, or the last turn when it was. A last write close to the last turn means the
+    // session was used, and it ages from that turn like any other. Without a file, the
+    // clock starts now, which can keep a session too long but never too short.
+    // The write is left to the debounced save, so it runs after the selection is restored
+    // and off the main thread.
+    private func dateImportsMadeBeforeTheirDateWasKept(now: Date = Date()) {
+        let undated = sessions.indices.filter {
+            sessions[$0].importedOrigin != nil && sessions[$0].importedAt == nil
+        }
+        guard !undated.isEmpty else { return }
+        for i in undated {
+            let path = transcriptURL(sessions[i].id).path
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+            let written = min(attributes?[.creationDate] as? Date ?? now, now)
+            let lastTurn = sessions[i].lastActivity
+            sessions[i].importedAt = written > lastTurn.addingTimeInterval(3_600) ? written : lastTurn
+        }
+        scheduleIndexSave()
     }
 
     // Projects whose folder has since been moved or deleted; sessions there cannot run.

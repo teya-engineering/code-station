@@ -29,9 +29,21 @@ final class TerminalStore {
     private var terminals: [TerminalScope: [TerminalSession]] = [:]
     private var selected: [TerminalScope: UUID] = [:]
     private var open: Set<TerminalScope> = []
+    private var maximized: Set<TerminalScope> = []
     @ObservationIgnored private var visibleDrawers: Set<TerminalScope> = []
     private var heights: [TerminalScope: CGFloat] = [:]
     @ObservationIgnored private let registry: ShellRegistry
+
+    // Held here as well as in the settings, so a tab opened later starts at the same depth
+    // as the ones already open. A shallower size drops the oldest lines of every tab.
+    @ObservationIgnored var scrollback = Preferences.terminalScrollback.read() {
+        didSet {
+            guard scrollback != oldValue else { return }
+            for terminal in terminals.values.joined() {
+                terminal.surface.setScrollback(scrollback)
+            }
+        }
+    }
 
     init(registry: ShellRegistry = .shared) {
         self.registry = registry
@@ -62,6 +74,19 @@ final class TerminalStore {
         } else {
             open.remove(scope)
             setDrawerVisible(false, for: scope)
+        }
+    }
+
+    // A maximized drawer takes the whole screen below the header, the way the main content
+    // does while the drawer is shut. It is remembered per screen, like the height, so the
+    // drawer opens again the way it was left.
+    func isMaximized(_ scope: TerminalScope) -> Bool { isOpen(scope) && maximized.contains(scope) }
+
+    func setMaximized(_ isMaximized: Bool, for scope: TerminalScope) {
+        if isMaximized {
+            maximized.insert(scope)
+        } else {
+            maximized.remove(scope)
         }
     }
 
@@ -110,7 +135,8 @@ final class TerminalStore {
     @discardableResult
     func add(to scope: TerminalScope, directory: String) -> TerminalSession {
         let terminal = TerminalSession(directory: directory, name: nextName(in: scope),
-                                       registry: registry) { [weak self] terminal in
+                                       registry: registry,
+                                       scrollback: scrollback) { [weak self] terminal in
             self?.removeExited(terminal, from: scope)
         }
         terminal.start()
@@ -171,7 +197,7 @@ final class TerminalStore {
     }
 
     func stopEverything() {
-        for scope in Set(terminals.keys).union(open).union(heights.keys) { forget(scope) }
+        for scope in Set(terminals.keys).union(open).union(heights.keys).union(maximized) { forget(scope) }
     }
 
     // The one place a scope is torn down, so nothing stays keyed to a screen that is gone.
@@ -181,6 +207,7 @@ final class TerminalStore {
         selected[scope] = nil
         heights[scope] = nil
         open.remove(scope)
+        maximized.remove(scope)
         visibleDrawers.remove(scope)
     }
 }

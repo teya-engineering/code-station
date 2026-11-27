@@ -56,6 +56,26 @@ struct PullRequestReviewComment: Equatable, Sendable, Identifiable {
 
 struct PullRequestStatus: Equatable, Sendable {
     enum State: Sendable { case open, merged, closed }
+    // What the reviewers have settled on, in GitHub's own three words.
+    enum ReviewDecision: Sendable { case approved, changesRequested, reviewRequired }
+    // Where the pull request stands, as its badge says it. Merged and closed say it all; a
+    // draft is not up for review yet, whatever anyone said; an open one is wherever its
+    // reviewers left it.
+    enum Readiness: Sendable, CaseIterable {
+        case draft, inReview, approved, changesRequested, merged, closed
+
+        var label: String {
+            switch self {
+            case .draft: "Draft"
+            case .inReview: "In review"
+            case .approved: "Approved"
+            case .changesRequested: "Changes requested"
+            case .merged: "Merged"
+            case .closed: "Closed"
+            }
+        }
+    }
+
     var state: State
     var title: String
     var headBranch: String
@@ -64,12 +84,19 @@ struct PullRequestStatus: Equatable, Sendable {
     var baseBranch = ""
     var isDraft = false
     var createdAt: Date? = nil
+    var reviewDecision: ReviewDecision? = nil
 
-    var readinessLabel: String {
+    var readiness: Readiness {
         switch state {
-        case .open: isDraft ? "Draft" : "Open"
-        case .merged: "Merged"
-        case .closed: "Closed"
+        case .merged: return .merged
+        case .closed: return .closed
+        case .open:
+            if isDraft { return .draft }
+            switch reviewDecision {
+            case .approved?: return .approved
+            case .changesRequested?: return .changesRequested
+            case .reviewRequired?, nil: return .inReview
+            }
         }
     }
 }

@@ -8,11 +8,22 @@ struct DispatchResponseDocument {
         let limited: Bool
     }
 
+    // The one array a body can fold: the text up to and including its "[", what is
+    // inside, and the text from its "]" on. The three joined are the body, untouched.
+    struct Fold: Equatable {
+        let head: String
+        let inner: String
+        let tail: String
+        let count: Int
+    }
+
     static let structuredByteLimit = 1_048_576
     let isJSON: Bool
     let table: Table?
-    let collapsedBody: String?
+    let fold: Fold?
     let structuredLimitReached: Bool
+
+    var collapsedBody: String? { fold.map { $0.head + " … " + $0.tail } }
 
     init(body: String, truncated: Bool = false) {
         structuredLimitReached = body.utf8.count > Self.structuredByteLimit
@@ -20,12 +31,12 @@ struct DispatchResponseDocument {
               let value = try? JSONSerialization.jsonObject(with: Data(body.utf8), options: [.fragmentsAllowed]) else {
             isJSON = false
             table = nil
-            collapsedBody = nil
+            fold = nil
             return
         }
         isJSON = true
         table = Self.makeTable(value)
-        collapsedBody = Self.collapseArray(in: body)
+        fold = Self.foldableArray(in: body)
     }
 
     private static func makeTable(_ value: Any) -> Table {
@@ -62,8 +73,9 @@ struct DispatchResponseDocument {
 
     // Only folds a root array or an array directly inside the root object. The original
     // text around it is kept intact, including key order and exact number digits.
-    private static func collapseArray(in body: String) -> String? {
+    private static func foldableArray(in body: String) -> Fold? {
         var depth = 0
+        var commas = 0
         var quoted = false
         var escaped = false
         var start: String.Index?
@@ -82,12 +94,15 @@ struct DispatchResponseDocument {
                 depth += 1
             } else if character == "{" {
                 depth += 1
+            } else if character == ",", start != nil, depth == arrayDepth + 1 {
+                commas += 1
             } else if character == "]" || character == "}" {
                 depth -= 1
                 if character == "]", let start, depth == arrayDepth {
                     let content = body[body.index(after: start)..<index]
                     guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-                    return String(body[...start]) + " … " + String(body[index...])
+                    return Fold(head: String(body[...start]), inner: String(content),
+                                tail: String(body[index...]), count: commas + 1)
                 }
             }
         }

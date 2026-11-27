@@ -199,6 +199,27 @@ struct TranscriptSelectionTests {
         }
     }
 
+    // Text outside a transcript, such as a /btw answer or a file preview, has no
+    // selection across blocks, so AppKit has to draw its highlight.
+    @Test func textOutsideATranscriptKeepsTheSystemHighlight() throws {
+        let page = try Page(selection: TranscriptSelection()) {
+            Page.prose(markdown, separateBlocks: false)
+                .environment(\.transcriptSelection, nil)
+        }
+        defer { page.close() }
+        let view = try #require(page.views.first)
+
+        let selected = NSRange(location: 0, length: Self.first.count)
+        let box = view.box(around: selected)
+        let blank = view.paintedShare(in: box)
+        view.setSelectedRange(selected)
+        let highlighted = view.paintedShare(in: box)
+
+        try #require(blank > 0)
+        #expect(blank < 0.6)
+        #expect(highlighted > 0.9)
+    }
+
     // MARK: - Code blocks
 
     @Test func aSelectionRunsThroughACodeBlock() throws {
@@ -850,6 +871,190 @@ struct TranscriptSelectionTests {
         #expect(abs(shared.contentHeight - apart.contentHeight) < 1)
     }
 
+    // MARK: - Copying with formatting
+
+    // A chat or a mail takes the HTML and keeps the formatting. Anything else takes the
+    // text, which still needs the markers that are drawn beside each item.
+    @Test func aListCopiesAsAListInBothForms() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "Before.\n\n- **Apples:** ripe\n- Pears\n  - nested\n\nAfter.",
+                            selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.plain == "Before.\n\n- Apples: ripe\n- Pears\n  - nested\n\nAfter.")
+        #expect(copied.html.contains(
+            "<p>Before.</p><ul><li><strong>Apples:</strong> ripe</li><li>Pears"
+                + "<ul><li>nested</li></ul></li></ul><p>After.</p>"))
+    }
+
+    @Test func aNumberedListKeepsWhereItStarts() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "3. three\n4. four", selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.plain == "3. three\n4. four")
+        #expect(copied.html.contains("<ol start=\"3\"><li>three</li><li>four</li></ol>"))
+    }
+
+    @Test func inlineFormattingAndLinksComeThroughAsHTML() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "Use `run` with *care* <see [docs](https://example.com)>.",
+                            selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<code>run</code>"))
+        #expect(copied.html.contains("<em>care</em>"))
+        #expect(copied.html.contains("&lt;see <a href=\"https://example.com\">docs</a>&gt;"))
+    }
+
+    @Test func aCodeBlockCopiesAsPreformattedText() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: markdownWithCode, selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<pre><code>let total = 1\nlet other = 2</code></pre>"))
+        #expect(copied.plain.contains(Self.code))
+    }
+
+    // A heading drawn in the same text view as the paragraphs around it is still a heading.
+    @Test func aHeadingInsideASharedViewCopiesAsAHeading() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "\(Self.first)\n\n## A heading\n\n\(Self.second)\n\n\(Self.third)",
+                            selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<p>\(Self.first)</p><h2>A heading</h2><p>\(Self.second)</p>"))
+    }
+
+    @Test func aTableCopiesAsAnHTMLTable() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: Self.table, selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<table><tr><th>Field</th><th>Value</th></tr>"
+            + "<tr><td>one</td><td>two</td></tr><tr><td>three</td><td>four</td></tr></table>"))
+    }
+
+    @Test func theClipboardCarriesTextAndHTMLOnOneItem() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("transcript-copy-\(UUID())"))
+        defer { pasteboard.releaseGlobally() }
+
+        Pasteboard.copy("- one", html: "<ul><li>one</li></ul>", to: pasteboard)
+
+        #expect(pasteboard.pasteboardItems?.count == 1)
+        #expect(pasteboard.string(forType: .string) == "- one")
+        #expect(pasteboard.string(forType: .html) == "<ul><li>one</li></ul>")
+    }
+
+    // The marker is drawn beside the words, not typed in them, so words picked from one
+    // item copy, search and reply as just those words.
+    @Test func wordsFromInsideOneListItemComeWithoutTheMarker() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "- apples are ripe\n- pears", selection: selection)
+        defer { page.close() }
+
+        let view = try #require(page.views.first { $0.string.contains("ripe") })
+        let start = (view.string as NSString).range(of: "ripe").location
+        selection.begin(in: view, at: view.point(atCharacter: start))
+        selection.extend(toWindowPoint: page.windowPoint(of: view, character: start + 4))
+        let copied = try #require(selection.selectedContent)
+
+        #expect(selection.selectedText == "ripe")
+        #expect(copied.plain == "ripe")
+        #expect(!copied.html.contains("<li>"))
+    }
+
+    @Test func aSearchOrReplyFromSeveralItemsLeavesTheMarkersOut() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(markdown: "- apples\n- pears", selection: selection)
+        defer { page.close() }
+
+        selection.selectAll()
+
+        #expect(selection.selectedText == "apples\npears")
+        #expect(selection.selectedContent?.plain == "- apples\n- pears")
+    }
+
+    @Test func textAfterAnImageIsTheSameItemGoingOn() {
+        let copied = TranscriptClipboard([
+            piece("see", .listItem(depth: 0, marker: "1.")),
+            piece("for details", .listItem(depth: 0, marker: "")),
+            piece("next", .listItem(depth: 0, marker: "2.")),
+        ])
+
+        #expect(copied.plain == "1. see\n\n  for details\n2. next")
+        #expect(copied.html.contains("<ol><li>see<br><br>for details</li><li>next</li></ol>"))
+    }
+
+    @Test func aParagraphOfAnOuterItemLandsAfterItsNestedList() {
+        let copied = TranscriptClipboard([
+            piece("outer", .listItem(depth: 0, marker: "•")),
+            piece("inner", .listItem(depth: 1, marker: "•")),
+            piece("more about outer", .listItem(depth: 0, marker: "")),
+        ])
+
+        #expect(copied.plain == "- outer\n  - inner\n\n  more about outer")
+        #expect(copied.html.contains(
+            "<ul><li>outer<ul><li>inner</li></ul>more about outer</li></ul>"))
+    }
+
+    // Mail, Notes and chats read the HTML first, which would fold the spaces away.
+    @Test func textShownAsItArrivedKeepsItsSpacing() {
+        let copied = TranscriptClipboard([
+            piece("a  b\n  c <d>", .plain(monospaced: true)),
+        ])
+
+        #expect(copied.plain == "a  b\n  c <d>")
+        #expect(copied.html.contains(
+            "<p style=\"white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace\">"
+                + "a  b\n  c &lt;d&gt;</p>"))
+    }
+
+    @Test func aSelectionEdgeOnABlockBreakAddsNoEmptyParagraph() {
+        let text = NSMutableAttributedString(string: "\nsecond")
+        text.addAttribute(.transcriptBlockBreak, value: true, range: NSRange(location: 0, length: 1))
+
+        let copied = TranscriptClipboard([TranscriptClipboard.Piece(role: .block, text: text)])
+
+        #expect(copied.plain == "second")
+        #expect(copied.html == "<meta charset=\"utf-8\"><p>second</p>")
+    }
+
+    @Test func aQuoteInASentPromptCopiesAsAQuote() throws {
+        let selection = TranscriptSelection()
+        let page = try Page(selection: selection) {
+            SentPromptText(text: "Look at this:\n\n> quoted line")
+        }
+        defer { page.close() }
+
+        selection.selectAll()
+        let copied = try #require(selection.selectedContent)
+
+        #expect(copied.html.contains("<blockquote><p>quoted line</p></blockquote>"))
+    }
+
+    private func piece(_ text: String, _ role: TranscriptTextRole) -> TranscriptClipboard.Piece {
+        TranscriptClipboard.Piece(role: role, text: NSAttributedString(string: text))
+    }
+
     private func parts(of selection: TranscriptSelection) throws -> [String] {
         try #require(selection.selectedText).components(separatedBy: "\n\n")
     }
@@ -1010,6 +1215,33 @@ private extension NSTextView {
             }
         }
         return painted
+    }
+
+    // Measuring only the selected text keeps the result the same however much other
+    // text the view holds and however the machine renders the glyphs.
+    func paintedShare(in rect: NSRect) -> Double {
+        guard let rep = bitmapImageRepForCachingDisplay(in: rect) else { return 0 }
+        cacheDisplay(in: rect, to: rep)
+        var painted = 0
+        var sampled = 0
+        for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+                guard let colour = rep.colorAt(x: x, y: y) else { continue }
+                sampled += 1
+                if colour.alphaComponent > 0.05 { painted += 1 }
+            }
+        }
+        return sampled == 0 ? 0 : Double(painted) / Double(sampled)
+    }
+
+    // Inset by a point, since the glyph box can reach a little past the highlight.
+    func box(around characters: NSRange) -> NSRect {
+        guard let layoutManager, let textContainer else { return .zero }
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphs = layoutManager.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+        let box = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        let origin = textContainerOrigin
+        return box.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: 1, dy: 1)
     }
 
     func characterIndex(of substring: String) -> Int {

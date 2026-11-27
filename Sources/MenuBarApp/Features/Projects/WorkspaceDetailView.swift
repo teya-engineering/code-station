@@ -35,7 +35,11 @@ struct WorkspaceDetailView: View {
             VStack(spacing: 0) {
                 header(workspace)
                 statusStrip(workspace)
-                content(workspace)
+                RetainedPane(hidden: terminals.isMaximized(terminalScope)
+                             && store.project(workspace.leadProjectID) != nil) {
+                    content(workspace)
+                        .transition(.headerPage(reduceMotion: reduceMotion))
+                }
                 if terminals.isOpen(terminalScope), let lead = store.project(workspace.leadProjectID) {
                     TerminalDrawer(scope: terminalScope,
                                    directory: lead.path,

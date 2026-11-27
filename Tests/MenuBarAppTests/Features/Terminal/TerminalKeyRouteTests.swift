@@ -16,8 +16,20 @@ struct TerminalKeyRouteTests {
     }
 
     private func route(_ event: NSEvent, claimsKeys: Bool = true,
-                       drawerKeys: KeyCombo? = AppCommand.terminal.info.keys) -> TerminalSurface.KeyRoute {
-        TerminalSurface.route(event, claimsKeys: claimsKeys, drawerKeys: drawerKeys)
+                       drawerKeys: KeyCombo? = AppCommand.terminal.info.keys,
+                       maximizeKeys: [KeyCombo] = []) -> TerminalSurface.KeyRoute {
+        TerminalSurface.route(event, claimsKeys: claimsKeys, drawerKeys: drawerKeys,
+                              maximizeKeys: maximizeKeys)
+    }
+
+    // The maximize key is a Control key the shell would otherwise take, so the terminal
+    // hands it back, while plain Control-backtick still puts the drawer away.
+    @Test func theMaximizeKeyIsAnsweredFromInsideTheShell() throws {
+        let keys = KeyBindings().held(by: .maximizeTerminal)
+        #expect(route(press("~", [.control, .shift]), maximizeKeys: keys) == .maximize)
+        #expect(route(press("`", [.control, .shift]), maximizeKeys: keys) == .maximize)
+        #expect(route(press("`", .control), maximizeKeys: keys) == .drawer)
+        #expect(route(press("~", [.control, .shift])) == .shell)
     }
 
     @Test func controlCombinationsGoToTheShell() {

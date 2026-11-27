@@ -439,6 +439,11 @@ enum Preferences {
         set(id, "terminalBundleID", in: store)
     }
 
+    // Lines a drawer shell keeps.
+    static let terminalScrollback = Preference(
+        "terminalScrollback", fallback: TerminalScrollback.fallback,
+        range: TerminalScrollback.range)
+
     // The app the header's "Open in" button sends a session's folder to. With none
     // saved, it is Finder.
     static func openInBundleID(in store: UserDefaults = .standard) -> String? {

@@ -7,6 +7,7 @@ import SwiftUI
 // of the app.
 struct TerminalScreen: View {
     @Environment(\.textScale) private var textScale
+    @Environment(\.isEnabled) private var isEnabled
     // A dialog and a menu are drawn inside the window and answer the keyboard
     // themselves, so the shell stands back while one is up. Both are optional because a
     // shell can also be hosted by a sheet that carries no overlays of its own.
@@ -19,12 +20,17 @@ struct TerminalScreen: View {
     // What the terminal key does from inside this shell. A shell with no drawer to put
     // away, such as one in a sheet, leaves it nil and keeps the key for the shell.
     var onDrawerKey: (() -> Void)?
+    // The keys that maximize the drawer, answered from inside the shell the same way.
+    var maximizeKeys: [KeyCombo] = []
+    var onMaximizeKey: (() -> Void)?
 
     var body: some View {
         TerminalHost(surface: terminal.surface, isFocused: $isFocused, textScale: textScale,
-                     claimsKeys: dialogs?.current == nil && menus?.isOpen != true,
+                     claimsKeys: isEnabled && dialogs?.current == nil && menus?.isOpen != true,
                      drawerKeys: onDrawerKey == nil ? nil : keyBindings.keys(for: .terminal),
-                     onDrawerKey: onDrawerKey)
+                     onDrawerKey: onDrawerKey,
+                     maximizeKeys: onMaximizeKey == nil ? [] : maximizeKeys,
+                     onMaximizeKey: onMaximizeKey)
             .id(terminal.id)
             .background(Theme.background)
             .overlay {
@@ -56,11 +62,14 @@ private struct TerminalHost: NSViewRepresentable {
     let claimsKeys: Bool
     let drawerKeys: KeyCombo?
     let onDrawerKey: (() -> Void)?
+    let maximizeKeys: [KeyCombo]
+    let onMaximizeKey: (() -> Void)?
 
     func makeNSView(context: Context) -> NSView {
         surface.applyTextScale(textScale)
         surface.claimsKeys = claimsKeys
         surface.drawerKeys = drawerKeys
+        surface.maximizeKeys = maximizeKeys
         let container = NSView()
         install(in: container)
         return container
@@ -71,6 +80,8 @@ private struct TerminalHost: NSViewRepresentable {
         surface.claimsKeys = claimsKeys
         surface.drawerKeys = drawerKeys
         surface.onDrawerKey = onDrawerKey
+        surface.maximizeKeys = maximizeKeys
+        surface.onMaximizeKey = onMaximizeKey
         // Resizing the type reflows the shell, so this only runs when the size has
         // actually changed rather than on every pass through here.
         surface.applyTextScale(textScale)
@@ -101,6 +112,7 @@ private struct TerminalHost: NSViewRepresentable {
 final class TerminalSurface: SwiftTerm.TerminalView {
     var onClear: (() -> Void)?
     var onDrawerKey: (() -> Void)?
+    var onMaximizeKey: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     // Whether the shell is the one being typed into, or something the app has drawn over
     // it is. Only the view layer can tell, so it says.
@@ -109,6 +121,8 @@ final class TerminalSurface: SwiftTerm.TerminalView {
     // there is a drawer to shut. It is the way back out of a focused shell, so the shell
     // never gets it then.
     var drawerKeys: KeyCombo?
+    // The keys that maximize the drawer, kept from the shell for the same reason.
+    var maximizeKeys: [KeyCombo] = []
     // What the app wants, as opposed to what AppKit currently has. The two come apart
     // whenever the window stops being the key one.
     var wantsFocus = false
@@ -129,6 +143,16 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         guard scale != textScale else { return }
         textScale = scale
         font = NSFont.monospacedSystemFont(ofSize: Self.baseFontSize * scale, weight: .regular)
+    }
+
+    // SwiftTerm takes a scrollback size but keeps no way to read it back, so the one the
+    // app last asked for is held here.
+    private(set) var scrollbackLines = 0
+
+    func setScrollback(_ lines: Int) {
+        guard lines != scrollbackLines else { return }
+        scrollbackLines = lines
+        changeScrollback(lines)
     }
 
     override init(frame: NSRect) {
@@ -184,14 +208,17 @@ final class TerminalSurface: SwiftTerm.TerminalView {
         case app
         case clear
         case drawer
+        case maximize
     }
 
-    static func route(_ event: NSEvent, claimsKeys: Bool, drawerKeys: KeyCombo?) -> KeyRoute {
+    static func route(_ event: NSEvent, claimsKeys: Bool, drawerKeys: KeyCombo?,
+                      maximizeKeys: [KeyCombo] = []) -> KeyRoute {
         guard claimsKeys else { return .app }
-        // The drawer's own key is checked first, so it still works when it has been set
-        // to a Control key, or to the Command key the shell would otherwise clear with.
+        // The drawer's own keys are checked first, so they still work when set to a
+        // Control key, or to the Command key the shell would otherwise clear with.
         // Nothing else would be left to leave the shell with.
         if drawerKeys?.matches(event) == true { return .drawer }
+        if maximizeKeys.contains(where: { $0.matches(event) }) { return .maximize }
         let characters = event.charactersIgnoringModifiers
         if event.modifierFlags.contains(.command) {
             // Clearing the screen is the one Command key the shell answers.
@@ -214,7 +241,8 @@ final class TerminalSurface: SwiftTerm.TerminalView {
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, self.window?.firstResponder === self,
                       event.window === self.window else { return false }
-                switch Self.route(event, claimsKeys: self.claimsKeys, drawerKeys: self.drawerKeys) {
+                switch Self.route(event, claimsKeys: self.claimsKeys, drawerKeys: self.drawerKeys,
+                                  maximizeKeys: self.maximizeKeys) {
                 case .app:
                     return false
                 case .clear:
@@ -224,6 +252,9 @@ final class TerminalSurface: SwiftTerm.TerminalView {
                     // window first keeps keys working until something else claims it.
                     self.window?.makeFirstResponder(nil)
                     self.onDrawerKey?()
+                case .maximize:
+                    // The shell stays where it is and keeps the keyboard; only its room grows.
+                    self.onMaximizeKey?()
                 case .shell:
                     self.keyDown(with: event)
                 }

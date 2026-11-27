@@ -98,7 +98,7 @@ final class SessionSecondOpinion {
 
     // Everything the ask can be about, read from the session as it stands.
     static func facts(_ session: ChatSession, picked: ChatSecondOpinion.Subject?,
-                      origin: SecondOpinionOrigin, file: (root: String, path: String)?,
+                      origin: SecondOpinionOrigin,
                       screen: Screen, runner: SessionRunner, gitStats: GitStatsCache)
         -> (facts: SecondOpinionAskFacts, chatSubject: ChatSecondOpinion.Subject?) {
         let store = runner.store
@@ -146,9 +146,7 @@ final class SessionSecondOpinion {
                                  files: branchFiles, bases: branchBases)
         }
         let pickable = facts.branch?.files ?? facts.files
-        if let file {
-            facts.file = pickable.first { $0.path == file.path && ($0.root == file.root || pickable.count(where: { $0.path == file.path }) == 1) }
-        } else if let picked = screen.selectedChange {
+        if let picked = screen.selectedChange {
             facts.file = pickable.first { $0.path == picked.path && $0.root == picked.root }
         }
         facts.canReadSince = runner.reviews.latestTrees(session.id) != nil
@@ -167,7 +165,7 @@ final class SessionSecondOpinion {
     // The sentence the header's tooltip says a click will propose.
     func headerProposal(_ session: ChatSession, screen: Screen, runner: SessionRunner,
                         gitStats: GitStatsCache) -> String {
-        let built = Self.facts(session, picked: nil, origin: .header, file: nil, screen: screen,
+        let built = Self.facts(session, picked: nil, origin: .header, screen: screen,
                                runner: runner, gitStats: gitStats)
         let installed = runner.catalog.availableAgents
         var seen = Set<AgentKind>()
@@ -178,17 +176,16 @@ final class SessionSecondOpinion {
     }
 
     // Opens the ask card on whatever the session can be judged on. A plan or answer the
-    // person pointed at, or a file, comes in already picked; from the header, the pick
+    // person pointed at comes in already picked; from the header, the pick
     // follows where the work stands. Each subject is then asked where its results land.
     // False when the session has nothing to judge, and the card stays shut.
     func open(_ session: ChatSession, on picked: ChatSecondOpinion.Subject?, anchor: UUID?,
-              origin: SecondOpinionOrigin?, file: (root: String, path: String)?,
               screen: Screen, runner: SessionRunner, gitStats: GitStatsCache) -> Bool {
         // Asking again about the whole conversation starts from it, with the latest answer.
         let wholeConversation = picked?.kind == .conversation
         let picked = wholeConversation ? nil : picked
-        let origin = origin ?? (picked != nil ? .answer : .header)
-        let built = Self.facts(session, picked: picked, origin: origin, file: file, screen: screen,
+        let origin: SecondOpinionOrigin = picked != nil ? .answer : .header
+        let built = Self.facts(session, picked: picked, origin: origin, screen: screen,
                                runner: runner, gitStats: gitStats)
         guard var stop = SecondOpinionAsk.initialStop(built.facts, defaults: Preferences.secondOpinionDefaults()) else { return false }
         if wholeConversation, SecondOpinionAsk.stops(built.facts).contains(.conversation) { stop = .conversation }

@@ -150,6 +150,23 @@ final class TranscriptFind {
         requestJump()
     }
 
+    // A read-only document is fully laid out, so search the text people see, including
+    // tables and HTML prose, without counting Markdown syntax as a match.
+    func searchDocument(_ newQuery: String, messageID: UUID) {
+        isPresented = true
+        query = newQuery
+        let count = orderedViews(of: messageID).reduce(0) {
+            $0 + FileFind.search(newQuery, in: $1.string).matches.count
+        }
+        result = TranscriptFindResult(matches: (0..<min(count, FileFind.matchLimit)).map {
+            TranscriptFindMatch(messageID: messageID, occurrence: $0)
+        }, hasMore: count > FileFind.matchLimit)
+        selection = 0
+        clearCurrent()
+        redrawAll()
+        requestJump()
+    }
+
     // The conversation grows while a turn runs. The selection is kept rather than moved,
     // so a reply streaming in does not pull someone away from what they were reading.
     func refresh(in messages: [ChatMessage]) {

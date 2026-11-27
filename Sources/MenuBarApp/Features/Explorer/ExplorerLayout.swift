@@ -28,6 +28,7 @@ enum ExplorerSplitLayout {
 }
 
 struct ExplorerFileShortcuts: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     let enabled: Bool
     let onCopy: () -> Bool
     let onPaste: () -> Bool
@@ -35,7 +36,7 @@ struct ExplorerFileShortcuts: NSViewRepresentable {
     let onRename: () -> Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(enabled: enabled, onCopy: onCopy, onPaste: onPaste, onTrash: onTrash,
+        Coordinator(enabled: enabled && isEnabled, onCopy: onCopy, onPaste: onPaste, onTrash: onTrash,
                     onRename: onRename)
     }
 
@@ -48,7 +49,7 @@ struct ExplorerFileShortcuts: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.anchor = view
-        context.coordinator.enabled = enabled
+        context.coordinator.enabled = enabled && isEnabled
         context.coordinator.onCopy = onCopy
         context.coordinator.onPaste = onPaste
         context.coordinator.onTrash = onTrash

@@ -50,6 +50,8 @@ struct TranscriptBlockStyle: Codable, Hashable, Sendable {
     // the opening line of a block carries it: the newlines inside one are line breaks
     // rather than new blocks, and must not be pushed down as well.
     var spacingBefore: CGFloat
+    // Set on a heading, so a copy can still tell it from the paragraphs beside it.
+    var heading: Int? = nil
 }
 
 enum TranscriptBlockStyleAttribute: CodableAttributedStringKey {
@@ -66,6 +68,10 @@ enum TranscriptBlockBreakAttribute: CodableAttributedStringKey {
 
 extension NSAttributedString.Key {
     static let transcriptBlockBreak = NSAttributedString.Key("transcriptBlockBreak")
+    // A line's heading level and a run's Markdown emphasis, kept so a copy can write
+    // them back out as HTML.
+    static let transcriptHeading = NSAttributedString.Key("transcriptHeading")
+    static let transcriptInline = NSAttributedString.Key("transcriptInline")
 }
 
 // Every run of text in the transcript, prose and code alike, is drawn by a text view
@@ -83,6 +89,7 @@ struct SelectableText: View {
     @Environment(\.transcriptReply) private var transcriptReply
     @Environment(\.explorerRoots) private var explorerRoots
     @Environment(\.previewsLocalServers) private var previewsLocalServers
+    @Environment(\.fileReferenceAction) private var fileReferenceAction
     @Environment(\.linkHovered) private var linkHovered
     // Optional because a text view can sit in a sheet that has no menu layer of its own.
     @Environment(MenuPresenter.self) private var menus: MenuPresenter?
@@ -138,7 +145,7 @@ struct SelectableText: View {
                   alignment: .leading,
                   width: .fixed,
                   italic: false,
-                  role: .block,
+                  role: .code,
                   linksLocalServers: false)
     }
 
@@ -146,7 +153,7 @@ struct SelectableText: View {
     // travel in the string, so the size and weight here are only what a run that carries
     // none of its own falls back to.
     init(prose: AttributedString, lineSpacing: CGFloat = 0, width: TextWidth = .fills,
-         linksLocalServers: Bool = true) {
+         linksLocalServers: Bool = true, role: TranscriptTextRole = .block) {
         self.init(attributed: prose,
                   size: 13.5,
                   weight: .regular,
@@ -156,7 +163,7 @@ struct SelectableText: View {
                   alignment: .leading,
                   width: width,
                   italic: false,
-                  role: .block,
+                  role: role,
                   linksLocalServers: linksLocalServers)
     }
 
@@ -178,7 +185,7 @@ struct SelectableText: View {
                   alignment: .leading,
                   width: width,
                   italic: italic,
-                  role: .block,
+                  role: .plain(monospaced: design == .monospaced),
                   linksLocalServers: false)
     }
 
@@ -239,7 +246,7 @@ struct SelectableText: View {
     private func linkHoverChanged(_ hovered: TranscriptLink.Hovered?) {
         pendingTooltip?.cancel()
         linkHovered?(hovered?.url)
-        guard let hovered, hovered.url.isFileURL
+        guard let hovered, fileReferenceAction?.accepts(hovered.url) == true || hovered.url.isFileURL
                 || (previewsLocalServers && TranscriptLink.isLocalServer(hovered.url)) else {
             tooltipPresenter.hide(owner: tooltipOwner)
             return
@@ -257,13 +264,14 @@ struct SelectableText: View {
             try? await Task.sleep(for: TooltipPresenter.hoverDelay)
             guard !Task.isCancelled else { return }
             tooltipPresenter.show(
-                Tooltip(title: linkToolTip(for: hovered.url)) { openLink(hovered.url) },
+                Tooltip(title: linkToolTip(for: hovered.url)) { openLink(hovered.url, hovered.frame) },
                 from: hovered.frame,
                 owner: owner)
         }
     }
 
     private func linkToolTip(for url: URL) -> String {
+        if fileReferenceAction?.accepts(url) == true { return TranscriptLink.fileActionsToolTip }
         guard url.isFileURL else { return TranscriptLink.previewToolTip }
         return TranscriptLink.explorerTarget(for: url, roots: explorerRoots) == nil
             ? TranscriptLink.finderToolTip
@@ -275,10 +283,14 @@ struct SelectableText: View {
         tooltipPresenter.hide(owner: tooltipOwner)
     }
 
-    private func openLink(_ url: URL) {
+    private func openLink(_ url: URL, _ frame: CGRect?) {
         pendingTooltip?.cancel()
         tooltipPresenter.hideAll()
-        openURL(url)
+        if let fileReferenceAction, fileReferenceAction.accepts(url) {
+            fileReferenceAction.perform(url, frame)
+        } else {
+            openURL(url)
+        }
     }
 
     private var resolvedNSFont: NSFont {
@@ -306,18 +318,66 @@ struct SelectableText: View {
     }
 }
 
+// AppKit ignores selectedTextAttributes in a text view that is not first responder and
+// fills its selection with the system's grey instead. A transcript selection spans
+// many blocks and LinkTextView paints it in one colour, so while that is the case the
+// AppKit fill is dropped. A background the text itself asks for is still drawn.
+final class TranscriptLayoutManager: NSLayoutManager {
+    var dropsSelectionFill = false
+
+    override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int,
+                                          forCharacterRange charRange: NSRange, color: NSColor) {
+        guard draws(color, over: charRange) else { return }
+        super.fillBackgroundRectArray(rectArray, count: rectCount, forCharacterRange: charRange, color: color)
+    }
+
+    func draws(_ color: NSColor, over characters: NSRange) -> Bool {
+        guard dropsSelectionFill else { return true }
+        // AppKit only lays out and draws text on the main thread, but NSLayoutManager is
+        // not marked as main-actor, so the compiler cannot see that on its own.
+        nonisolated(unsafe) let textView = firstTextView
+        guard let selected = MainActor.assumeIsolated({ textView?.selectedRange() }), selected.length > 0,
+              characters.location >= selected.location,
+              NSMaxRange(characters) <= NSMaxRange(selected) else { return true }
+        return ownBackground(at: characters.location) == color
+    }
+
+    private func ownBackground(at index: Int) -> NSColor? {
+        guard let textStorage, index < textStorage.length else { return nil }
+        if let temporary = temporaryAttribute(.backgroundColor, atCharacterIndex: index,
+                                              effectiveRange: nil) as? NSColor {
+            return temporary
+        }
+        return textStorage.attribute(.backgroundColor, at: index, effectiveRange: nil) as? NSColor
+    }
+}
+
 // NSTextView keeps the pointing-hand cursor over link ranges and the I-beam elsewhere,
 // which SwiftUI's Text cannot do, since it exposes no per-run hover geometry.
 private final class LinkTextView: NSTextView {
-    var openLink: ((URL) -> Void)?
+    var openLink: ((URL, CGRect?) -> Void)?
     var linkHoverChanged: ((TranscriptLink.Hovered?) -> Void)?
     var showMenu: (([MenuEntry], CGPoint) -> Void)?
     var reply: ((String) -> Void)?
     // A copy changes nothing on screen, so this is how the click shows.
     var note: ((_ text: String, _ icon: String) -> Void)?
     // Absent for a text view outside a transcript, such as one in a file preview,
-    // which selects on its own exactly as AppKit intends.
-    var selection: TranscriptSelection?
+    // which selects on its own exactly as AppKit intends, highlight included.
+    var selection: TranscriptSelection? {
+        didSet {
+            guard (selection == nil) != (oldValue == nil) else { return }
+            (layoutManager as? TranscriptLayoutManager)?.dropsSelectionFill = selection != nil
+            if selection == nil {
+                selectedTextAttributes = nativeSelectedTextAttributes
+            } else {
+                // Selected text keeps its own colours, the same in every block, since
+                // the focused block would otherwise take the system's selected text colour.
+                nativeSelectedTextAttributes = selectedTextAttributes
+                selectedTextAttributes = [:]
+            }
+        }
+    }
+    private var nativeSelectedTextAttributes: [NSAttributedString.Key: Any] = [:]
     weak var find: TranscriptFind?
     var reflows = true
 
@@ -376,8 +436,9 @@ private final class LinkTextView: NSTextView {
         self.pressedLink = nil
         linkMouseDown = nil
         let point = convert(event.locationInWindow, from: nil)
-        guard TranscriptLink.hoveredLink(in: self, at: point)?.url == pressedLink else { return }
-        openLink?(pressedLink)
+        guard let link = TranscriptLink.hoveredLink(in: self, at: point), link.url == pressedLink else { return }
+        window?.makeFirstResponder(self)
+        openLink?(pressedLink, windowFrame(for: link.frame))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -460,9 +521,14 @@ private final class LinkTextView: NSTextView {
                 note?(isFile ? "Copied the path" : "Copied the link", "checkmark")
             })
         }
-        if let text = selectedTextForMenu {
+        let copied = selection?.selectedContent
+        if let text = copied?.text ?? ownSelectedText {
             entries.append(.item("Copy", icon: "doc.on.doc") { [note] in
-                Pasteboard.copy(text)
+                if let copied {
+                    Pasteboard.copy(copied.plain, html: copied.html)
+                } else {
+                    Pasteboard.copy(text)
+                }
                 note?("Copied", "checkmark")
             })
             if let reply {
@@ -478,8 +544,9 @@ private final class LinkTextView: NSTextView {
                                               in: content))
     }
 
-    private var selectedTextForMenu: String? {
-        if let selection { return selection.selectedText }
+    // Only used when the view is not part of a transcript selection.
+    private var ownSelectedText: String? {
+        guard selection == nil else { return nil }
         let range = selectedRange()
         guard range.length > 0, let storage = textStorage,
               NSMaxRange(range) <= storage.length else { return nil }
@@ -489,11 +556,11 @@ private final class LinkTextView: NSTextView {
     // MARK: - Selection
 
     override func copy(_ sender: Any?) {
-        guard let text = selection?.selectedText else {
+        guard let copied = selection?.selectedContent else {
             super.copy(sender)
             return
         }
-        Pasteboard.copy(text)
+        Pasteboard.copy(copied.plain, html: copied.html)
     }
 
     override func selectAll(_ sender: Any?) {
@@ -504,10 +571,8 @@ private final class LinkTextView: NSTextView {
         selection.selectAll()
     }
 
-    // The selection is painted here rather than left to AppKit, which draws a dimmed
-    // highlight in every text view that is not the first responder. Only one block of a
-    // transcript can hold that, so a selection over several would otherwise fade
-    // everywhere but the block the drag started in.
+    // Only one block of a transcript can be first responder, so the selection is painted
+    // here, in one colour for every block it reaches (see TranscriptLayoutManager).
     override func draw(_ dirtyRect: NSRect) {
         drawFindHighlights()
         drawSelectionHighlight()
@@ -642,7 +707,7 @@ private struct LinkAwareText: NSViewRepresentable {
     let selection: TranscriptSelection?
     let find: TranscriptFind?
     let messageID: UUID?
-    let openLink: (URL) -> Void
+    let openLink: (URL, CGRect?) -> Void
     let linkHoverChanged: (TranscriptLink.Hovered?) -> Void
     let showMenu: (([MenuEntry], CGPoint) -> Void)?
     let reply: ((String) -> Void)?
@@ -652,6 +717,7 @@ private struct LinkAwareText: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextView {
         let view = LinkTextView(usingTextLayoutManager: false)
+        view.textContainer?.replaceLayoutManager(TranscriptLayoutManager())
         view.isEditable = false
         view.isSelectable = true
         // Per-link hints belong to TooltipPresenter, including their Finder action.
@@ -678,10 +744,6 @@ private struct LinkAwareText: NSViewRepresentable {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
-        // The highlight is drawn by the view itself, in one colour for every block a
-        // selection reaches. AppKit would instead dim it everywhere but the block the
-        // drag started in, since only that one is the first responder.
-        view.selectedTextAttributes = [.backgroundColor: NSColor.clear]
         view.openLink = openLink
         view.linkHoverChanged = linkHoverChanged
         view.showMenu = showMenu
@@ -810,6 +872,8 @@ private struct LinkAwareText: NSViewRepresentable {
             if run[TranscriptBlockBreakAttribute.self] == true {
                 attrs[.transcriptBlockBreak] = true
             }
+            if let heading = block?.heading { attrs[.transcriptHeading] = heading }
+            if !intent.isEmpty { attrs[.transcriptInline] = intent.rawValue }
             if let link = run.link {
                 attrs[.link] = link
             } else {
@@ -840,19 +904,27 @@ private struct LinkAwareText: NSViewRepresentable {
             let alignment: TextAlignment
         }
 
-        var openLink: (URL) -> Void
+        var openLink: (URL, CGRect?) -> Void
         // What the view's storage was last built from. Nil until the first update, so a
         // freshly made view always gets its text.
         var applied: Content?
 
-        init(openLink: @escaping (URL) -> Void) {
+        init(openLink: @escaping (URL, CGRect?) -> Void) {
             self.openLink = openLink
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             let url = (link as? URL) ?? (link as? String).flatMap { URL(string: $0) }
             guard let url else { return false }
-            openLink(url)
+            var frame: CGRect?
+            if let layout = textView.layoutManager, let container = textView.textContainer,
+               let content = textView.window?.contentView {
+                let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: charIndex, length: 1), actualCharacterRange: nil)
+                let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                    .offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+                frame = FrameAnchor.fromTop(textView.convert(rect, to: content), in: content)
+            }
+            openLink(url, frame)
             return true
         }
     }

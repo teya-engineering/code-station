@@ -11,7 +11,7 @@ Each agent runs through its own long-lived protocol, not one process per prompt:
 - Claude Code uses its streaming CLI protocol.
 - Codex uses its local app server (JSON-RPC).
 - Copilot uses its headless server.
-- Kiro uses its Agent Client Protocol server (see [the Kiro ADR](0007-kiro-agent.md)).
+- Kiro uses its Agent Client Protocol server (see [the Kiro ADR](0009-kiro-agent.md)).
 
 Each session owns one process group and one conversation. The process stays open while the agent has background work, and closes once the conversation is idle with no tasks left. Ending a wait asks the agent to cancel its tasks before the process is stopped and cleaned up.
 

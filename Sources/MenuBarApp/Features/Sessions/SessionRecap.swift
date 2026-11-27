@@ -128,6 +128,7 @@ struct SessionRecapControl: View {
             badge: needsAttention,
             label: tooltip,
             openFill: Theme.brand,
+            tool: .recap,
             action: isGeneratingInitialRecap ? nil : toggle)
             // An existing recap can still be closed while its replacement is running.
             .disabled(recap == nil && !regenerating && !canRegenerate)
@@ -159,12 +160,14 @@ struct SessionRecapView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
             HStack(spacing: Space.md) {
-                Image(systemName: "sparkles")
+                // The recap shortcut's bulb and colour, so the card reads as the one that
+                // shortcut opened.
+                Image(systemName: "lightbulb")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.attentionText)
+                    .foregroundStyle(RailTool.recap.mark)
                     .frame(width: 28, height: 28)
-                    .surface(Theme.attention.opacity(0.08), cornerRadius: Radius.control,
-                             border: Theme.attention.opacity(0.38))
+                    .surface(RailTool.recap.tint.wash, cornerRadius: Radius.control,
+                             border: RailTool.recap.tint.edge)
 
                 VStack(alignment: .leading, spacing: Space.xxs) {
                     Text("SESSION RECAP")

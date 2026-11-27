@@ -42,10 +42,6 @@ struct SecondOpinionAskTests {
         fromAnswer.origin = .answer
         #expect(SecondOpinionAsk.initialStop(fromAnswer) == .answer)
 
-        var fromFile = everything
-        fromFile.origin = .file
-        #expect(SecondOpinionAsk.initialStop(fromFile) == .file)
-
         var onDesign = everything
         onDesign.showsDesign = true
         #expect(SecondOpinionAsk.initialStop(onDesign) == .design)

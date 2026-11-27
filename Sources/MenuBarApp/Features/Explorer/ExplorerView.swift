@@ -37,6 +37,7 @@ enum ExplorerCommand: Equatable {
 // nothing is written until Save. The tree itself can create, copy, paste, rename, drag to
 // move and move items to the Trash.
 struct ExplorerView: View {
+    @Environment(\.isEnabled) private var isEnabled
     let root: String
     // Taken and cleared once the file is shown, so coming back to the pane later
     // finds it where it was left rather than back on this file.
@@ -354,7 +355,7 @@ struct ExplorerView: View {
     // A file worth searching is open and nothing is in front of it. While this is false
     // both strokes are left alone, so Cmd+F still opens the sidebar's filter.
     var canFind: Bool {
-        editor.isEditable && dialogs.current == nil
+        isEnabled && editor.isEditable && dialogs.current == nil
     }
 
     private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }

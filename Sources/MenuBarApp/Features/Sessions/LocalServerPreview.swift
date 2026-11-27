@@ -494,7 +494,7 @@ struct LocalServerPreviewPage: View {
         HStack(spacing: Space.sm) {
             Image(systemName: "globe")
                 .font(Typography.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(RailTool.preview.mark)
             content()
         }
         .padding(.horizontal, Space.md)

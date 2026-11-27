@@ -1,7 +1,9 @@
 name: Release
 
-# Publishes a signed and notarized DMG whenever you push a v* tag.
-#   git tag v1.2.0 && git push origin v1.2.0
+# Builds a signed and notarized DMG for every new v* tag and attaches it to the
+# GitHub Release for that tag. The usual way in is to publish a release on
+# GitHub with a new tag, which creates the tag. Pushing a tag by itself works
+# too, and the release is then made here with generated notes.
 on:
   push:
     tags: ['v*']
@@ -10,6 +12,46 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Installed copies ask GitHub for the latest release and remember the answer
+  # for days. A published release that has no DMG yet would be remembered as a
+  # bare link, so it is marked as a pre-release, which GitHub leaves out of
+  # "latest", until the files are on it. This runs first, beside the tested
+  # job, so the gap is a few seconds.
+  hold:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 5
+    steps:
+      - name: Keep a published release out of "latest" until it has its files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::run this from a v* tag, not from a branch"
+            exit 1
+          fi
+          tag="$GITHUB_REF_NAME"
+          dmg="TeyaCodeStation-${tag#v}.dmg"
+          if ! release="$(gh release view "$tag" --json isDraft,isPrerelease,assets 2>/dev/null)"; then
+            echo "No release for $tag yet; it is made once the DMG is built"
+            exit 0
+          fi
+          if [ "$(jq -r .isDraft <<<"$release")" = true ]; then
+            echo "$tag is a draft, so nobody sees it yet"
+            exit 0
+          fi
+          has_files="$(jq --arg dmg "$dmg" '[.assets[].name] | contains([$dmg, $dmg + ".sha256"])' <<<"$release")"
+          if [ "$has_files" = true ]; then
+            echo "::error::$tag is published and already has its DMG; leaving it alone"
+            exit 1
+          fi
+          if [ "$(jq -r .isPrerelease <<<"$release")" != true ]; then
+            gh release edit "$tag" --prerelease
+            echo "Marked $tag as a pre-release until its files are attached"
+          fi
+
   # Being on main is not the same as passing on main: a merge can still break
   # the build. This waits for the Tests run from the push to main of the commit
   # being released, and stops the release unless it passed. It runs on Linux,
@@ -62,7 +104,7 @@ jobs:
     environment: release
     # Nothing here starts, and no reviewer is asked to approve the release
     # environment, until the tested job has seen Tests pass on this commit.
-    needs: tested
+    needs: [hold, tested]
     permissions:
       contents: write
       # Both for the provenance attestation: id-token to get a signing
@@ -180,7 +222,7 @@ jobs:
 
       # The gh CLI on the runner rather than a third-party action, so no code
       # from outside GitHub runs with the contents: write token.
-      - name: Publish the draft GitHub Release
+      - name: Attach the files to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -188,18 +230,27 @@ jobs:
         run: |
           tag="v$VERSION"
           dmg="build/TeyaCodeStation-$VERSION.dmg"
-          # A re-run after a failed upload finds the draft it made and replaces
-          # its files. A published release is never touched.
-          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
-            if [ "$draft" != true ]; then
-              echo "::error::$tag is already published; leaving its files alone"
-              exit 1
-            fi
+          # A version with a suffix, such as 1.2.0-beta.1, stays a pre-release.
+          # Any other is a full release once its files are on it.
+          prerelease=false
+          [[ "$VERSION" == *-* ]] && prerelease=true
+
+          if release="$(gh release view "$tag" --json databaseId,isDraft 2>/dev/null)"; then
+            # A re-run after a failed upload replaces what the last try left.
             gh release upload "$tag" "$dmg" "$dmg.sha256" --clobber
+            if [ "$(jq -r .isDraft <<<"$release")" != true ]; then
+              # Undo the hold job's pre-release mark. "legacy" lets GitHub pick
+              # the latest by date and version, so an older version released
+              # after a newer one does not take its place.
+              latest=()
+              [ "$prerelease" = false ] && latest=(-f make_latest=legacy)
+              gh api -X PATCH "repos/$GH_REPO/releases/$(jq -r .databaseId <<<"$release")" \
+                -F prerelease="$prerelease" "${latest[@]}" >/dev/null
+            fi
           else
             # --verify-tag: the tag exists by now, and gh must never create or
-            # move one. --draft: review it before making it public.
+            # move one.
             gh release create "$tag" "$dmg" "$dmg.sha256" \
-              --verify-tag --draft --generate-notes \
+              --verify-tag --generate-notes --prerelease="$prerelease" \
               --title "Teya Code Station $VERSION"
           fi

@@ -25,10 +25,10 @@ enum OldSessions {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return sessions
             .filter {
-                !isKept($0, now: now) && $0.lastActivity < cutoff
+                !isKept($0, now: now) && $0.cleanupActivity < cutoff
                     && !ProjectSnooze.isActive(snoozedUntil($0), now: now)
             }
-            .sorted { $0.lastActivity < $1.lastActivity }
+            .sorted { $0.cleanupActivity < $1.cleanupActivity }
     }
 
     static func isKept(_ session: ChatSession, now: Date = Date()) -> Bool {
@@ -58,7 +58,7 @@ enum OldSessions {
                           snoozedUntil: SnoozeDeadline = { _ in nil }) -> Date? {
         let age = Double(days) * 86_400
         let turningOld = sessions.filter { !isKept($0, now: now) }
-            .map { $0.lastActivity.addingTimeInterval(age) }
+            .map { $0.cleanupActivity.addingTimeInterval(age) }
         let waking = sessions.compactMap(snoozedUntil)
             + sessions.filter { !$0.isPinned }.compactMap(\.cleanupDeferredUntil)
         return (turningOld + waking)
@@ -146,7 +146,7 @@ struct CleanupRule: Equatable, Sendable {
     }
 
     func isOld(_ session: ChatSession, reasons: [CleanupReason], now: Date = Date()) -> Bool {
-        session.lastActivity < now.addingTimeInterval(-Double(age(matching: reasons)) * 86_400)
+        session.cleanupActivity < now.addingTimeInterval(-Double(age(matching: reasons)) * 86_400)
     }
 
     func asks(_ reason: CleanupReason) -> Bool {
@@ -385,6 +385,14 @@ enum SessionAge {
         case 1: return "yesterday"
         default: return "\(days) days ago"
         }
+    }
+
+    // "last turn 9 days ago", or "imported today" while an import has not been used yet,
+    // so the age shown is the one cleanup is counting from.
+    static func cleanupPhrase(of session: ChatSession, now: Date = Date()) -> String {
+        let since = session.cleanupActivity
+        let event = since > session.lastActivity ? "imported" : "last turn"
+        return "\(event) \(phrase(since: since, now: now))"
     }
 }
 

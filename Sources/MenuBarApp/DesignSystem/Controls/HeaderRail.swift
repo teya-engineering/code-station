@@ -52,11 +52,13 @@ struct HeaderRailMenuButton: View {
     let icon: String
     let label: String
     var hint: String? = nil
+    var tool: RailTool? = nil
 
     @Environment(\.menuIsOpen) private var menuIsOpen
 
     var body: some View {
-        HeaderRailButton(icon: icon, state: menuIsOpen ? .open : .rest, label: label, hint: hint)
+        HeaderRailButton(icon: icon, state: menuIsOpen ? .open : .rest, label: label, hint: hint,
+                         tool: tool)
     }
 }
 
@@ -76,11 +78,27 @@ struct HeaderRailButton: View {
     // The colour the glyph fills with while its panel is open, for a glyph whose filled
     // form says something of its own: a lit bulb for a recap that is out.
     var openFill: Color? = nil
+    // Which tool this is. It gives the button its colour and act while pointed at.
+    var tool: RailTool? = nil
     var action: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(RailWash.self) private var wash: RailWash?
     @State private var hovering = false
     @State private var actOuts = 0
+    @FocusState private var focused: Bool
+
+    // Pointed at, or reached with the keyboard. Focus shows the colour but plays no act.
+    private var pointed: Bool { (hovering || focused) && isEnabled }
+    // A state already has its own seat, and an open button keeps the accent.
+    private var washes: Bool { tool != nil && state == .rest }
+    private var drawsGlyph: Bool { tool?.draws(icon) == true }
+
+    private var glyphColour: Color {
+        if let tool, washes, pointed { return tool.tint.ink }
+        return state.tint
+    }
 
     var body: some View {
         Group {
@@ -91,6 +109,7 @@ struct HeaderRailButton: View {
                     action()
                 } label: { shape }
                     .buttonStyle(.plain)
+                    .focused($focused)
             } else {
                 shape
             }
@@ -99,32 +118,42 @@ struct HeaderRailButton: View {
         .onPointerHover { hovering = $0 }
         .motion(Motion.hover, value: hovering)
         .motion(Motion.hover, value: state)
-        .appTooltip(delay: .zero) { Tooltip(title: label, subtitle: hint) }
+        .appTooltip(delay: .zero, isFocused: focused) {
+            Tooltip(title: label, subtitle: hint, tint: tool?.tint.colour, glides: true)
+        }
         .accessibilityLabel(label)
     }
 
     private var shape: some View {
         ZStack {
-            if state == .open, let openFill {
-                Image(systemName: "\(icon).fill")
-                    .foregroundStyle(openFill)
-                    .transition(.opacity)
+            if let tool, drawsGlyph {
+                RailGlyph(tool: tool, colour: glyphColour,
+                          lit: state == .open ? openFill != nil : washes && pointed,
+                          playing: hovering && isEnabled)
+            } else {
+                if state == .open, let openFill {
+                    Image(systemName: "\(icon).fill")
+                        .foregroundStyle(openFill)
+                        .transition(.opacity)
+                }
+                Image(systemName: icon)
+                    .foregroundStyle(glyphColour)
+                    .actOut(icon, trigger: actOuts)
             }
-            Image(systemName: icon)
-                .foregroundStyle(state.tint)
         }
         .font(Typography.body.weight(.semibold))
-        .actOut(icon, trigger: actOuts)
         .frame(width: ControlHeight.md, height: ControlHeight.md + Space.xxs * 2)
         .background {
             // The seat stands in for the hover fill rather than sitting under it, so a
             // button already saying something does not change colour when pointed at.
+            // Inside a rail, the rail's wash stands in for the hover fill.
             if let seat = state.seat {
                 RoundedRectangle(cornerRadius: Radius.control).fill(seat)
-            } else if hovering {
+            } else if hovering && !(washes && wash != nil) {
                 RoundedRectangle(cornerRadius: Radius.control).fill(Theme.field)
             }
         }
+        .railSeat(seatID, tool: tool ?? .more, active: washes && pointed)
         .overlay(alignment: .topTrailing) {
             ZStack {
                 if badge {
@@ -141,6 +170,9 @@ struct HeaderRailButton: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: Radius.control))
     }
+
+    // Not the label: that changes with the state, and the wash has to stay put.
+    private var seatID: String { "button.\(icon)" }
 }
 
 // The track the panel toggles share. One sunken strip makes them read as a set of
@@ -185,9 +217,12 @@ struct HeaderDockSeat: View {
     // Drawn faint while there is nothing behind it yet, but still clickable. Pointing at it
     // brings it back to full strength, which says it can still be used.
     var isDimmed = false
+    // Which tool this is. It gives the seat its colour and act while pointed at.
+    var tool: RailTool? = nil
     let action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(RailWash.self) private var wash: RailWash?
     @State private var hovering = false
     @State private var caretHovering = false
     @State private var actOuts = 0
@@ -205,7 +240,7 @@ struct HeaderDockSeat: View {
             } label: { face.hoverLift(hovering) }
                 .buttonStyle(.plain)
                 .focused($focused)
-                .appTooltip(delay: .zero) { tooltip }
+                .appTooltip(delay: .zero, isFocused: focused) { tooltip }
                 .accessibilityLabel(word)
                 .accessibilityValue(isOpen ? "open" : "closed")
                 .accessibilityAddTraits(isOpen ? [.isSelected] : [])
@@ -214,6 +249,7 @@ struct HeaderDockSeat: View {
             }
         }
         .frame(height: Self.height)
+        .railSeat("seat.\(word)", tool: tool ?? .more, active: tool != nil && pointed && !isOpen)
         // The seat and the face lift on their own rather than the whole seat at once,
         // since the buttons inside carry tooltips and AppKit cannot lay those out under
         // a scale.
@@ -244,16 +280,26 @@ struct HeaderDockSeat: View {
         .motion(HeaderMotion.slide, value: showsWord)
     }
 
+    // Pointed at, or reached with the keyboard. Focus shows the colour but plays no act.
+    private var pointed: Bool { (hovering || focused) && isEnabled }
+    // Inside a rail the rail's wash stands in for the hover fill.
+    private var washed: Bool { tool != nil && wash != nil && !isOpen }
+
     private var tint: Color {
         if isOpen { return Theme.accent }
+        if let tool, pointed { return tool.tint.ink }
         return hovering ? .primary : .secondary
     }
 
     private var face: some View {
         HStack(spacing: Space.sm) {
-            Image(systemName: icon)
-                .font(Typography.body.weight(.semibold))
-                .actOut(icon, trigger: actOuts)
+            if let tool, tool.draws(icon) {
+                RailGlyph(tool: tool, colour: tint, lit: pointed && !isOpen, playing: hovering)
+            } else {
+                Image(systemName: icon)
+                    .font(Typography.body.weight(.semibold))
+                    .actOut(icon, trigger: actOuts)
+            }
             if isOpen && showsWord {
                 Text(word)
                     .font(Typography.body.weight(.semibold))
@@ -276,7 +322,7 @@ struct HeaderDockSeat: View {
 
     private var seat: some View {
         RoundedRectangle(cornerRadius: Self.radius)
-            .fill(isOpen ? Theme.card : (hovering ? Theme.field : Color.clear))
+            .fill(isOpen ? Theme.card : (hovering && !washed ? Theme.field : Color.clear))
             .overlay(RoundedRectangle(cornerRadius: Self.radius)
                 .strokeBorder(isOpen ? Theme.border : Color.clear, lineWidth: 0.5))
             .shadow(color: .black.opacity(isOpen ? 0.08 : 0), radius: 1, y: 1)
@@ -285,11 +331,11 @@ struct HeaderDockSeat: View {
     private func caret(_ options: Options) -> some View {
         Image(systemName: "chevron.down")
             .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(caretHovering ? Color.primary : Color(nsColor: .tertiaryLabelColor))
+            .foregroundStyle(caretInk)
             .frame(width: 18, height: Self.height)
             .background(UnevenRoundedRectangle(bottomTrailingRadius: Self.radius,
                                                topTrailingRadius: Self.radius)
-                .fill(caretHovering ? Theme.field : Color.clear))
+                .fill(caretFill))
             .contentShape(Rectangle())
             .padding(.leading, -4)
             .onPointerHover { caretHovering = $0 && isEnabled }
@@ -300,9 +346,24 @@ struct HeaderDockSeat: View {
             .accessibilityAddTraits(.isButton)
     }
 
+    // On a washed seat the chevron takes the tool's ink, so it still reads on a wash as
+    // dark as the terminal's.
+    private var caretInk: Color {
+        if let tool, washed, pointed {
+            return caretHovering ? tool.tint.ink : tool.tint.ink.opacity(0.62)
+        }
+        return caretHovering ? Color.primary : Color(nsColor: .tertiaryLabelColor)
+    }
+
+    private var caretFill: Color {
+        guard caretHovering else { return .clear }
+        if let tool, washed { return tool.tint.ink.opacity(0.14) }
+        return Theme.field
+    }
+
     private var tooltip: Tooltip {
         Tooltip(title: isOpen ? "Close \(word.lowercased())" : word,
-                subtitle: detail, keys: keys)
+                subtitle: detail, keys: keys, tint: tool?.tint.colour, glides: true)
     }
 }
 
@@ -323,6 +384,7 @@ struct HeaderSplitButton: View {
     @State private var hovering = false
     @State private var mainHovering = false
     @State private var moreHovering = false
+    @State private var hops = 0
 
     private static let height: CGFloat = ControlHeight.md
     private static let radius: CGFloat = Radius.control
@@ -331,10 +393,13 @@ struct HeaderSplitButton: View {
         HStack(spacing: 0) {
             Button(action: action) {
                 HStack(spacing: Space.sm) {
+                    // The app's icon already wears its colours, so it takes no tool
+                    // colour, only a hop.
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
                         .frame(width: 16, height: 16)
+                        .railHop(trigger: hops)
                     if showsWord {
                         Text(word)
                             .font(Typography.body.weight(.semibold))
@@ -382,7 +447,10 @@ struct HeaderSplitButton: View {
         .overlay(RoundedRectangle(cornerRadius: Self.radius)
             .strokeBorder(hovering ? Theme.accent.opacity(0.22) : Theme.border)
             .hoverLift(hovering))
-        .onPointerHover { hovering = $0 }
+        .onPointerHover { inside in
+            hovering = inside
+            if inside { hops += 1 }
+        }
         .motion(Motion.hover, value: hovering)
         .motion(Motion.hover, value: mainHovering)
         .motion(Motion.hover, value: moreHovering)

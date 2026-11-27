@@ -257,7 +257,8 @@ extension SessionView {
                                 askForSecondOpinion(session,
                                                     on: SessionSecondOpinion.answerSubject(message, in: session),
                                                     anchor: message.id)
-                            } : nil)
+                            } : nil,
+                            showsFileReferences: !(state.isBusy && message.id == messages.last?.id))
                     // Every message is on screen now, and a streaming turn rewrites
                     // the last one many times a second. Without this, each of those
                     // redraws every message in the transcript, parsing its markdown

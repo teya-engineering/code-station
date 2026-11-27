@@ -1,4 +1,4 @@
-# ADR 0007 - Kiro agent
+# ADR 0009 - Kiro agent
 
 ## Context
 

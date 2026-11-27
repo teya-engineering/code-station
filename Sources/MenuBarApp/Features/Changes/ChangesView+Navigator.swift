@@ -15,7 +15,7 @@ extension ChangesView {
         }
         return repositories.flatMap { repository in
             [ChangesNavigatorItem(root: repository.root, path: nil)]
-                + (navigation.collapsed.contains(repository.root) ? [] : shownChanges(repository.root).flatMap { file in
+                + (navigation.collapsed.contains(repository.root) ? [] : listedChanges(repository.root).flatMap { file in
                     [ChangesNavigatorItem(root: repository.root, path: file.id)]
                         + listedNotes(file, in: repository.root).map {
                             ChangesNavigatorItem(root: repository.root, path: file.id, note: $0.id)
@@ -134,6 +134,75 @@ extension ChangesView {
         let query = navigation.fileFilter.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return shown }
         return shown.filter { $0.path.localizedCaseInsensitiveContains(query) }
+    }
+
+    private func role(_ file: GitChange, in repositoryRoot: String) -> FileRole {
+        navigation.roles[repositoryRoot]?[file.path] ?? FileRole(path: file.path)
+    }
+
+    private func changeSections(_ repositoryRoot: String) -> [ChangeSection] {
+        let shown = shownChanges(repositoryRoot)
+
+        return FileRole.allCases.compactMap { role in
+            let files = shown.filter { self.role($0, in: repositoryRoot) == role }
+            return files.isEmpty ? nil : ChangeSection(role: role, files: files)
+        }
+    }
+
+    private func listedChanges(_ repositoryRoot: String) -> [GitChange] {
+        let sections = changeSections(repositoryRoot)
+
+        return sections.flatMap { listsRows($0, sectionCount: sections.count, in: repositoryRoot) ? $0.files : [] }
+    }
+
+    // A lone section has no header to unfold it with, so its rows always show.
+    private func listsRows(_ section: ChangeSection, sectionCount: Int, in repositoryRoot: String) -> Bool {
+        sectionCount == 1 || !isFolded(section.role, in: repositoryRoot)
+    }
+
+    private func isFolded(_ role: FileRole, in repositoryRoot: String) -> Bool {
+        isStoredFolded(role, in: repositoryRoot)
+            && navigation.filterOpenedSections[repositoryRoot]?.contains(role) != true
+    }
+
+    private func isStoredFolded(_ role: FileRole, in repositoryRoot: String) -> Bool {
+        (role == .generated) != (navigation.flippedSections[repositoryRoot]?.contains(role) == true)
+    }
+
+    // A choice the user makes, by clicking a header or picking a file, outlasts the filter.
+    private func setFolded(_ folded: Bool, _ role: FileRole, in repositoryRoot: String) {
+        navigation.filterOpenedSections[repositoryRoot]?.remove(role)
+        guard isStoredFolded(role, in: repositoryRoot) != folded else { return }
+        navigation.flippedSections[repositoryRoot, default: []].formSymmetricDifference([role])
+    }
+
+    private func openSectionsMatchingFilter() {
+        guard isFilteringFiles else {
+            navigation.filterOpenedSections = [:]
+            return
+        }
+        for repository in repositories {
+            for section in changeSections(repository.root) where isFolded(section.role, in: repository.root) {
+                navigation.filterOpenedSections[repository.root, default: []].insert(section.role)
+            }
+        }
+    }
+
+    private func roleHeader(_ section: ChangeSection, in repositoryRoot: String) -> some View {
+        DisclosureHeader(isExpanded: Binding(get: { !isFolded(section.role, in: repositoryRoot) },
+                                             set: { setFolded(!$0, section.role, in: repositoryRoot) })) {
+            HStack(spacing: Space.xs) {
+                Text(section.role.title).foregroundStyle(.secondary)
+                Text("\(section.files.count)").foregroundStyle(.tertiary)
+                    .contentTransition(.numericText())
+            }
+            .font(Typography.label)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, Space.md).padding(.top, Space.sm).padding(.bottom, Space.xxs)
+        .accessibilityAddTraits(.isHeader)
+        .modifier(ProjectRule())
+        .transition(.fadeIn)
     }
 
     private var isFilteringFiles: Bool {
@@ -349,6 +418,8 @@ extension ChangesView {
                     }.padding(Space.md)
                     .smoothlyResizes(when: mode == .history ? navigation.collapsedHistories : navigation.collapsed)
                     .smoothlyResizes(when: navigation.foldedNotes)
+                    .smoothlyResizes(when: navigation.flippedSections)
+                    .smoothlyResizes(when: navigation.filterOpenedSections)
                     .smoothlyResizes(when: navigation.hideViewed)
                 }
                 .accessibilityLabel(mode == .history ? "Workspace projects and commits"
@@ -379,11 +450,13 @@ extension ChangesView {
                     selectRepository(item.root, item.path)
                     return .handled
                 }
+                .onChange(of: navigation.fileFilter) { _, _ in openSectionsMatchingFilter() }
                 .onChange(of: navigatorCursor) { _, item in
                     if let item { proxy.scrollTo(item) }
                 }
                 .onChange(of: model.fileSelection.activeID) { _, path in
                     guard let path else { return }
+                    if let file = files.first(where: { $0.id == path }) { setFolded(false, role(file, in: root), in: root) }
                     let item = ChangesNavigatorItem(root: root, path: path)
                     navigatorCursor = item
                     proxy.scrollTo(item)
@@ -437,30 +510,40 @@ extension ChangesView {
         // Each file is a row of the lazy stack itself, not part of one block per project,
         // so only the rows on screen are built. Its comments follow as a row of their own.
         if !navigation.collapsed.contains(repository.root) {
-            ForEach(changes) { file in
-                Group {
-                    if repository.root == root {
-                        row(file)
-                    } else {
-                        otherProjectRow(file, in: repository.root)
-                    }
+            let sections = changeSections(repository.root)
+            ForEach(sections) { section in
+                if sections.count > 1 { roleHeader(section, in: repository.root) }
+                if listsRows(section, sectionCount: sections.count, in: repository.root) {
+                    sectionRows(section.files, in: repository.root)
                 }
-                .overlay {
-                    // Lit while a reference to this file in an answer is under the pointer.
-                    let cited = navigation.citeHover?.sameFile(root: repository.root, path: file.path) == true
-                    RoundedRectangle(cornerRadius: Radius.control)
-                        .fill(Theme.plan.opacity(cited ? 0.08 : 0))
-                        .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.plan.opacity(cited ? 0.45 : 0)))
-                        .motion(Motion.hover, value: cited)
-                        .allowsHitTesting(false)
-                }
-                .modifier(ProjectRule())
-                .id(ChangesNavigatorItem(root: repository.root, path: file.id))
-                .transition(.fold)
-                fileNotes(file, in: repository.root)
-                    .modifier(ProjectRule())
             }
             hiddenViewedNote(repository.root)
+        }
+    }
+
+    @ViewBuilder private func sectionRows(_ files: [GitChange], in repositoryRoot: String) -> some View {
+        ForEach(files) { file in
+            Group {
+                if repositoryRoot == root {
+                    row(file)
+                } else {
+                    otherProjectRow(file, in: repositoryRoot)
+                }
+            }
+            .overlay {
+                // Lit while a reference to this file in an answer is under the pointer.
+                let cited = navigation.citeHover?.sameFile(root: repositoryRoot, path: file.path) == true
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .fill(Theme.plan.opacity(cited ? 0.08 : 0))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.plan.opacity(cited ? 0.45 : 0)))
+                    .motion(Motion.hover, value: cited)
+                    .allowsHitTesting(false)
+            }
+            .modifier(ProjectRule())
+            .id(ChangesNavigatorItem(root: repositoryRoot, path: file.id))
+            .transition(.fold)
+            fileNotes(file, in: repositoryRoot)
+                .modifier(ProjectRule())
         }
     }
 
@@ -776,6 +859,12 @@ struct ProjectRule: ViewModifier {
             }
             .padding(.leading, Space.xxl)
     }
+}
+
+private struct ChangeSection: Identifiable {
+    let role: FileRole
+    let files: [GitChange]
+    var id: FileRole { role }
 }
 
 private struct SettledFile: Identifiable {

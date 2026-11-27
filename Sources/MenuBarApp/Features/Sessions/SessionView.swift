@@ -72,6 +72,7 @@ struct SessionView: View {
     @State var attachingProject = false
     @State var composerBarWidth: CGFloat = 340
     @State var exportingDesignMaterials = false
+    @State private var fileReferenceReturn = false
     @State var transcriptWindow = TranscriptWindow()
     @State var transcriptPinnedToBottom = true
     // Held by the pane rather than by any one message, since the whole point of it is
@@ -178,90 +179,112 @@ struct SessionView: View {
                 if store.designHasUpdated(for: session) {
                     designUpdateStrip(session)
                 }
-                if session.isTroubleshooting && tab == .conversation && !session.isActivelyDesigning {
+                if session.isTroubleshooting && tab == .conversation && !session.isActivelyDesigning
+                    && !terminals.isMaximized(terminalScope) {
                     diagnosisStrip(session)
                 }
-                // The group hands the transition to each page, so whichever one is chosen
-                // lifts in under the tab that chose it.
-                Group {
-                    switch tab {
-                    case .conversation:
-                        if session.isActivelyDesigning {
-                            DesignView(sessionID: session.id)
-                        } else {
-                            conversation(session: session, project: project)
-                        }
-                    case .design:
-                        if let design = store.designSession(for: session.id) {
-                            DesignView(sessionID: design.id) { tab = .conversation }
-                        } else if session.sourceDesignSessionID != nil {
-                            DesignReferenceView(sessionID: session.id)
-                        } else {
-                            Color.clear
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .task { openDesign(for: session) }
-                        }
-                    case .troubleshoot:
-                        TroubleshootTabView(sessionID: session.id) { tab = .conversation }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .evidence:
-                        TroubleshootEvidenceView(session: session) { messageID, toolID in
-                            showInConversation(messageID, toolID: toolID, in: session)
-                        }
-                        .environment(\.askAgent, askAgent)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .reviews:
-                        PullRequestReviewsView(sessionID: session.id, openChanges: { tab = .changes })
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .changes:
-                        VStack(spacing: 0) {
-                            WorkspaceChangesView(session: session, initialRoot: requestedChange?.root ?? projectDirectory,
-                                                 initialPath: requestedChange?.path,
-                                                 selectedRoot: Binding(get: { projectDirectory }, set: { root in
-                                                     selectWorkspaceRoot(root, in: session)
-                                                 }), navigation: changesNavigation,
-                                                 reviewSent: {
-                                                     tab = .conversation
-                                                     previews.hide()
-                                                 })
-                            if let reviewingEnding,
-                               reviewingEnding == runner.lastTurnEnding(sessionID)?.ended,
-                               !runner.state(sessionID).isBusy {
-                                TurnReviewFooter(back: returnToHandoff, viewed: changesNavigation.viewedTally) {
-                                    reviewedEnding = reviewingEnding
-                                    returnToHandoff()
-                                }
+                RetainedPane(hidden: terminals.isMaximized(terminalScope)) {
+                    // The group hands the transition to each page, so whichever one is chosen
+                    // lifts in under the tab that chose it.
+                    if tab == .conversation || fileReferenceReturn {
+                        RetainedPane(hidden: tab != .conversation) {
+                            if session.isActivelyDesigning {
+                                DesignView(sessionID: session.id)
+                            } else {
+                                conversation(session: session, project: project)
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onExitCommand {
-                            if reviewingEnding != nil { returnToHandoff() }
-                        }
-                    case .explorer:
-                        ExplorerView(root: explorerDirectory, reveal: $explorerReveal,
-                                     command: $explorerCommand,
-                                     showHidden: $explorerShowsHidden,
-                                     openFolders: $explorerOpenFolders,
-                                     refreshed: { showRailNote("Refreshed \(counted($0, "item"))", icon: "checkmark") },
-                                     repositories: workspaceRepositories(session) + (explorerDesignFilesURL.map {
-                                         [ChangesRepository(root: $0.path, name: "Design files")]
-                                     } ?? []),
-                                     designFilesRoot: explorerDesignFilesURL?.path,
-                                     collapsedProjects: $collapsedExplorerProjects,
-                                     selectRoot: { root in
-                                         explorerShowsDesignFiles = root == explorerDesignFilesURL?.path
-                                         if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
-                                     })
+                        .transition(.headerPage(reduceMotion: reduceMotion))
+                    }
+                    Group {
+                        switch tab {
+                        case .conversation:
+                            EmptyView()
+                        case .design:
+                            if let design = store.designSession(for: session.id) {
+                                DesignView(sessionID: design.id) { tab = .conversation }
+                            } else if session.sourceDesignSessionID != nil {
+                                DesignReferenceView(sessionID: session.id)
+                            } else {
+                                Color.clear
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .task { openDesign(for: session) }
+                            }
+                        case .troubleshoot:
+                            TroubleshootTabView(sessionID: session.id) { tab = .conversation }
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        case .evidence:
+                            TroubleshootEvidenceView(session: session) { messageID, toolID in
+                                showInConversation(messageID, toolID: toolID, in: session)
+                            }
+                            .environment(\.askAgent, askAgent)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        case .reviews:
+                            PullRequestReviewsView(sessionID: session.id, openChanges: { tab = .changes })
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        case .changes:
+                            VStack(spacing: 0) {
+                                WorkspaceChangesView(session: session, initialRoot: requestedChange?.root ?? projectDirectory,
+                                                     initialPath: requestedChange?.path,
+                                                     selectedRoot: Binding(get: { projectDirectory }, set: { root in
+                                                         selectWorkspaceRoot(root, in: session)
+                                                     }), navigation: changesNavigation,
+                                                     reviewSent: {
+                                                         tab = .conversation
+                                                         previews.hide()
+                                                     })
+                                if let reviewingEnding,
+                                   reviewingEnding == runner.lastTurnEnding(sessionID)?.ended,
+                                   !runner.state(sessionID).isBusy {
+                                    TurnReviewFooter(back: returnToHandoff, viewed: changesNavigation.viewedTally) {
+                                        reviewedEnding = reviewingEnding
+                                        returnToHandoff()
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .onExitCommand {
+                                if reviewingEnding != nil { returnToHandoff() }
+                            }
+                        case .explorer:
+                            VStack(spacing: 0) {
+                                if fileReferenceReturn {
+                                    HStack(spacing: Space.md) {
+                                        InlineLink(title: "Back to session", icon: "arrow.uturn.backward") {
+                                            tab = .conversation
+                                            fileReferenceReturn = false
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, Space.pane)
+                                    .headerBand(height: Theme.subHeaderHeight)
+                                }
+                                ExplorerView(root: explorerDirectory, reveal: $explorerReveal,
+                                             command: $explorerCommand,
+                                             showHidden: $explorerShowsHidden,
+                                             openFolders: $explorerOpenFolders,
+                                             refreshed: { showRailNote("Refreshed \(counted($0, "item"))", icon: "checkmark") },
+                                             repositories: workspaceRepositories(session) + (explorerDesignFilesURL.map {
+                                                 [ChangesRepository(root: $0.path, name: "Design files")]
+                                             } ?? []),
+                                             designFilesRoot: explorerDesignFilesURL?.path,
+                                             collapsedProjects: $collapsedExplorerProjects,
+                                             selectRoot: { root in
+                                                 explorerShowsDesignFiles = root == explorerDesignFilesURL?.path
+                                                 if !explorerShowsDesignFiles { selectWorkspaceRoot(root, in: session) }
+                                             })
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        }
                     }
-                }
-                .transition(.headerPage(reduceMotion: reduceMotion))
+                    .transition(.headerPage(reduceMotion: reduceMotion))
 
-                if let openRun = shortcuts.output(for: shortcutScope) {
-                    ShortcutOutputDrawer(run: openRun) {
-                        shortcuts.showOutput(nil, for: shortcutScope)
+                    if let openRun = shortcuts.output(for: shortcutScope) {
+                        ShortcutOutputDrawer(run: openRun) {
+                            shortcuts.showOutput(nil, for: shortcutScope)
+                        }
+                        .transition(.drawer(from: .bottom, reduceMotion: reduceMotion))
                     }
-                    .transition(.drawer(from: .bottom, reduceMotion: reduceMotion))
                 }
 
                 if terminals.isOpen(terminalScope) {
@@ -276,12 +299,14 @@ struct SessionView: View {
             .overlay(alignment: .topLeading) { opinionLayer(session) }
             .coordinateSpace(.named(SecondOpinionAskCard.space))
             .environment(\.secondOpinionAnchor, SecondOpinionAnchorAction { secondOpinion.anchor = $0 })
-            .environment(\.askSecondOpinionOnFile, AskSecondOpinionOnFileAction { root, path in
-                askForSecondOpinion(session, origin: .file, file: (root, path))
-            })
             .environment(\.secondOpinionLineup, SecondOpinionLineup.reviewers(
                 installed: runner.catalog.availableAgents, author: session.agent))
-            .onChange(of: tab) { secondOpinion.close() }
+            .onChange(of: tab) {
+                if tab != .explorer { fileReferenceReturn = false }
+                secondOpinion.close()
+                // Choosing a tab asks to see it, so a maximized terminal gives the room back.
+                terminals.setMaximized(false, for: terminalScope)
+            }
             // Clicks deep in the transcript that act outside the window, such as revealing
             // a file or opening a link, leave their note on the rail like the header's own.
             .environment(\.showExternalNote, railNoteAction)
@@ -561,6 +586,7 @@ struct SessionView: View {
             selectedProjectID = checkout.projectID
         }
         explorerReveal = ExplorerReveal(path: target.path, line: target.line)
+        if tab == .conversation { fileReferenceReturn = true }
         tab = .explorer
         return true
     }
@@ -675,7 +701,7 @@ struct SessionView: View {
     // find of its own or a pane with no transcript in it.
     private func canFindInChat(_ session: ChatSession) -> Bool {
         tab == .conversation && !session.isActivelyDesigning && !previews.isOpen
-            && dialogs.current == nil
+            && dialogs.current == nil && !terminals.isMaximized(terminalScope)
     }
 
     private var findMonitors: [WindowKeyMonitor] { [findMonitor, commandFindMonitor] }

@@ -44,6 +44,9 @@ struct TraceWaterfallView: View {
     @State private var copiedID = false
     @State private var hoverFraction: CGFloat?
     @State private var listWidth: CGFloat = 0
+    // Set once the waterfall is on screen. The bars grow into place the first time, and
+    // a row scrolled in later is simply there.
+    @State private var arrived = false
     @FocusState private var keyboardFocus: Bool
     @Namespace private var lensTrack
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -53,6 +56,8 @@ struct TraceWaterfallView: View {
     // Wide enough for nearly every operation once the service is named beside the bar.
     private static let labelWidth: CGFloat = 360
     private static let trailingInset: CGFloat = 16
+    // The narrowest bar that still has room to carry its own duration.
+    private static let durationRoom: CGFloat = 72
     // A trace this short is read straight off its rows.
     private static let overviewMinimum = 10
 
@@ -104,6 +109,7 @@ struct TraceWaterfallView: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.floating))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Trace \(titleText)")
+        .onAppear { arrived = true }
         // A view reused for another trace starts that trace afresh: what was folded or
         // opened in the last one means nothing in it.
         .onChange(of: trace.traceID) {
@@ -428,7 +434,10 @@ struct TraceWaterfallView: View {
     }
 
     private func rowList(_ rows: [Trace.DisplayRow]) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
+        // Each row's turn when the bars grow in. Past the first few they arrive together.
+        let order = Dictionary(rows.prefix(ChartMotion.staggerLimit).enumerated().map { ($1.id, $0) },
+                               uniquingKeysWith: { first, _ in first })
+        return LazyVStack(alignment: .leading, spacing: 0) {
             if rows.isEmpty {
                 HStack(spacing: Space.sm) {
                     Text("No spans match.")
@@ -443,7 +452,7 @@ struct TraceWaterfallView: View {
                 .padding(Space.xl)
             }
             ForEach(rows) { row in
-                rowView(row)
+                rowView(row, wait: order[row.id] ?? ChartMotion.staggerLimit)
                     .id(row.id)
                 if opened == row.id {
                     drawer(row)
@@ -553,7 +562,7 @@ struct TraceWaterfallView: View {
 
     // MARK: - Rows
 
-    private func rowView(_ row: Trace.DisplayRow) -> some View {
+    private func rowView(_ row: Trace.DisplayRow, wait: Int) -> some View {
         let isOpen = opened == row.id
         return HStack(spacing: 0) {
             label(row)
@@ -561,6 +570,11 @@ struct TraceWaterfallView: View {
             GeometryReader { proxy in
                 track(row, width: proxy.size.width)
                     .frame(maxHeight: .infinity)
+                    // The bars grow out from where each span starts, one row after
+                    // another. Only shapes are scaled here, never the row and its tooltip.
+                    .scaleEffect(x: arrived ? 1 : ChartMotion.zoomGrowth, anchor: .leading)
+                    .opacity(arrived ? 1 : 0)
+                    .motion(ChartMotion.restack(bar: wait, of: ChartMotion.staggerLimit + 1), value: arrived)
             }
             .padding(.trailing, Self.trailingInset)
         }
@@ -832,13 +846,25 @@ struct TraceWaterfallView: View {
                      tint: Color) -> some View {
         let stretches = trace.busy[span.id] ?? []
         if stretches.isEmpty {
-            RoundedRectangle(cornerRadius: 2.5)
+            RoundedRectangle(cornerRadius: Radius.tag)
                 .fill(tint)
+                .overlay { if span.isError { failureHatch } }
+                // A bar wide enough carries how long it took, where the eye already is.
+                .overlay(alignment: .trailing) {
+                    if width >= Self.durationRoom * textScale {
+                        Text(Trace.durationText(span.durationNanos))
+                            .scaledMono(Typography.Size.micro, .semibold)
+                            .foregroundStyle(Theme.onFill)
+                            .lineLimit(1)
+                            .padding(.trailing, Space.sm)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
                 .frame(width: width, height: 12)
         } else {
             let range = Double(max(to - from, 1))
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2.5).fill(tint.opacity(0.26))
+                RoundedRectangle(cornerRadius: Radius.tag).fill(tint.opacity(0.26))
                 ForEach(Array(stretches.enumerated()), id: \.offset) { _, stretch in
                     let start = max(stretch.lowerBound, from)
                     let end = min(stretch.upperBound, to)
@@ -850,9 +876,15 @@ struct TraceWaterfallView: View {
                     }
                 }
             }
+            .overlay { if span.isError { failureHatch } }
             .frame(width: width, height: 12)
-            .clipShape(RoundedRectangle(cornerRadius: 2.5))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
         }
+    }
+
+    // A failed span is hatched as well as red, so the failure does not rest on colour alone.
+    private var failureHatch: some View {
+        StripeFill(colour: Theme.onFill.opacity(0.22), period: Space.md)
     }
 
     // The service is named once, beside the bar where the work crosses into it. It sits
@@ -937,7 +969,10 @@ struct TraceWaterfallView: View {
                          icon: "plus.magnifyingglass") {
                 window = trace.zoomWindow(around: span)
             }
-            askButton(for: span, key: span.id)
+            if !span.isError || span.statusMessage == nil { askButton(for: span, key: span.id) }
+        }
+        if span.isError, let message = span.statusMessage {
+            failureLine(message, span: span)
         }
         FlowRow(spacing: Space.xxxl) {
             fact("Started", Trace.offsetText(span.startNanos - trace.startNanos))
@@ -998,6 +1033,34 @@ struct TraceWaterfallView: View {
             Spacer(minLength: 8)
             HStack(spacing: Space.md) { actions() }
         }
+    }
+
+    // What a failed span said when it failed, with the way to its logs beside it: the
+    // message is the question, and the logs are where the answer is.
+    private func failureLine(_ message: String, span: Trace.Span) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.lg) {
+            Text(message)
+                .scaledMono(Typography.Size.detail)
+                .foregroundStyle(Theme.warningText)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let askAgent {
+                if asked.contains(span.id) {
+                    Text("Asked the agent")
+                        .font(Typography.label)
+                        .foregroundStyle(Theme.warningText)
+                } else {
+                    InlineAskButton(title: "Ask for this span's logs") {
+                        askAgent(TraceFollowUp.spanLogs(span, traceID: trace.traceID))
+                        asked.insert(span.id)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.warningBackground))
     }
 
     @ViewBuilder

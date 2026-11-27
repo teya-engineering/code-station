@@ -10,6 +10,16 @@ enum Pasteboard {
         return pasteboard.setString(text, forType: .string)
     }
 
+    // Both on one item, so an app that keeps formatting takes the HTML and any other
+    // takes the text.
+    static func copy(_ text: String, html: String, to pasteboard: NSPasteboard = .general) {
+        let item = NSPasteboardItem()
+        item.setString(text, forType: .string)
+        item.setString(html, forType: .html)
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+    }
+
     static func copy(_ file: URL, to pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
         pasteboard.writeObjects([file as NSURL])

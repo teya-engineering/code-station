@@ -97,11 +97,12 @@ struct WholeChangeAskCard<Thread: View>: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: Space.lg) {
+            // The ask shortcut's colour, so the card reads as the one that shortcut opened.
             Image(systemName: "questionmark.bubble")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.plan)
+                .foregroundStyle(RailTool.ask.mark)
                 .frame(width: 32, height: 32)
-                .surface(Theme.plan.opacity(0.12), cornerRadius: Radius.card, border: Theme.plan.opacity(0.25))
+                .surface(RailTool.ask.tint.wash, cornerRadius: Radius.card, border: RailTool.ask.tint.edge)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Ask about the whole change")
@@ -235,9 +236,9 @@ struct WholeChangeAskCard<Thread: View>: View {
         VStack(spacing: Space.sm) {
             Image(systemName: "questionmark.bubble")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Theme.plan)
+                .foregroundStyle(RailTool.ask.mark)
                 .frame(width: 40, height: 40)
-                .background(RoundedRectangle(cornerRadius: Radius.floating).fill(Theme.plan.opacity(0.08)))
+                .background(RoundedRectangle(cornerRadius: Radius.floating).fill(RailTool.ask.tint.wash))
                 .padding(.bottom, Space.xs)
                 .accessibilityHidden(true)
             Text("Ask how this change fits together").font(Typography.title)

@@ -1,6 +1,10 @@
 import SwiftUI
 
-// How a bar chart over time answers a change.
+// How a chart arrives and how it answers a change.
+//
+// A line chart arrives by drawing its lines left to right. The washes fade in behind
+// them, each marked moment lands as the line passes it, and the dots at the ends pop
+// last. The eye follows the line to where the finding is.
 //
 // A zoom is a change of stretch. The time axis itself moves from the old stretch to the
 // new one, so the old bars squeeze into the place their time takes on the new axis while
@@ -21,6 +25,35 @@ enum ChartMotion {
     // Where the new bars start growing from, as a share of their height. From zero they
     // would seem to appear late; from a quarter they read as the same bars getting taller.
     static let zoomGrowth: CGFloat = 0.25
+
+    // A line drawing itself across a whole chart: the curve a line draws on, held long
+    // enough to be followed.
+    static let lineDrawDuration: TimeInterval = 1
+    static let lineDraw = Motion.drawAnimation(duration: lineDrawDuration).delay(0.1)
+    // The dot at the end of a line grows over the last of the draw, once the line has
+    // reached it.
+    static let endDotShare = 0.97
+
+    static func endDot(drawn: Double) -> Double {
+        min(max((drawn - endDotShare) / (1 - endDotShare), 0), 1)
+    }
+    // How much of the draw a marked moment takes to land once the line reaches it.
+    static let markerLanding = 0.08
+    // A headline number counting up to its value.
+    static let countDuration: TimeInterval = 0.6
+    static let count = Animation.easeOut(duration: countDuration)
+    // A sparkline under a headline number.
+    static let sparkDraw = Motion.drawAnimation(duration: 0.9).delay(0.15)
+    // The most bars that wait their turn. Past this they arrive with the last one, so a
+    // long list does not keep its end waiting.
+    static let staggerLimit = 12
+
+    // How far a mark at `share` of the way across has landed, once the line has drawn
+    // `drawn` of its length.
+    static func landed(_ share: Double, drawn: Double) -> Double {
+        guard drawn < 1 else { return 1 }
+        return min(max((drawn - share) / markerLanding, 0), 1)
+    }
 
     static let restackDuration: TimeInterval = 0.32
     // How long the last bar waits behind the first.

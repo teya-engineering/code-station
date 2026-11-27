@@ -18,8 +18,10 @@ extension AttributedString {
             if link.scheme == nil, link.host == nil {
                 let path = link.path
                 if path.hasPrefix("/") || path == "~" || path.hasPrefix("~/") {
-                    attributed[run.range].link = URL(
-                        fileURLWithPath: (path as NSString).expandingTildeInPath)
+                    var file = URLComponents(url: URL(
+                        fileURLWithPath: (path as NSString).expandingTildeInPath), resolvingAgainstBaseURL: false)
+                    file?.fragment = link.fragment
+                    attributed[run.range].link = file?.url
                 }
             }
         }
@@ -59,17 +61,19 @@ struct LinkHoverAction {
 }
 
 extension EnvironmentValues {
-    // The folders whose files a transcript link opens in the explorer. Empty wherever
-    // there is no explorer to send them to, so those links keep going to Finder.
+    // The recorded session folders that can accept a file in Explorer. Files outside
+    // them can still be read in a preview.
     @Entry var explorerRoots: [String] = []
     // Off where there is no preview, so text and its links stay as they were.
     @Entry var previewsLocalServers = false
+    @Entry var fileReferenceAction: FileReferenceAction? = nil
     // Told which link the pointer is over, and nil when it leaves, where a screen lights
     // what a link points at before it is clicked.
     @Entry var linkHovered: LinkHoverAction? = nil
 }
 
 enum TranscriptLink {
+    static let fileActionsToolTip = "File actions"
     static let finderToolTip = "Open in Finder"
     static let explorerToolTip = "Show in Explorer"
     static let previewToolTip = "Open in preview"
@@ -108,17 +112,35 @@ enum TranscriptLink {
         roots: [String],
         fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)
     ) -> ExplorerTarget? {
-        guard let file = finderTarget(for: url, fileExists: fileExists),
-              fileExists(file.path) else { return nil }
-        let root = roots
-            .filter { root in file.path.pathRelative(to: root).map { !$0.isEmpty } ?? false }
-            .max { $0.count < $1.count }
-        guard let root else { return nil }
+        guard let reference = fileReference(for: url, relativeTo: roots.first ?? "", fileExists: fileExists),
+              fileExists(reference.url.path),
+              let root = reference.explorerRoot(in: roots) else { return nil }
+        let canonicalRoot = URL(fileURLWithPath: root).resolvingSymlinksInPath().standardizedFileURL.path
+        let relative = reference.url.path.pathRelative(to: canonicalRoot) ?? ""
+        return ExplorerTarget(root: root,
+                              path: URL(fileURLWithPath: root).appendingPathComponent(relative).path,
+                              line: reference.line)
+    }
 
-        let line = file.path == url.path
-            ? nil
-            : Int(url.path.dropFirst(file.path.count + 1).prefix(while: \.isNumber))
-        return ExplorerTarget(root: root, path: file.path, line: line)
+    static func fileReference(for url: URL, relativeTo directory: String,
+                              fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> FileReference? {
+        guard url.isFileURL || (url.scheme == nil && url.host == nil && !url.path.isEmpty) else { return nil }
+        let expanded = (url.path as NSString).expandingTildeInPath
+        guard expanded.hasPrefix("/") || !directory.isEmpty else { return nil }
+        var file = expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded)
+            : URL(fileURLWithPath: directory).appendingPathComponent(expanded)
+        var line: Int?
+        if !fileExists(file.path), let suffix = file.path.range(of: #":\d+(?::\d+)?$"#,
+                                                               options: .regularExpression) {
+            line = Int(file.path[suffix.lowerBound...].dropFirst().prefix(while: \.isNumber))
+            file = URL(fileURLWithPath: String(file.path[..<suffix.lowerBound]))
+        }
+        if let fragment = url.fragment,
+           let match = fragment.range(of: #"^(?:L|line=)?[1-9]\d*(?:$|[-:]|C)"#, options: .regularExpression) {
+            line = Int(fragment[match].drop(while: { !$0.isNumber }).prefix(while: \.isNumber))
+        }
+        return FileReference(url: file.resolvingSymlinksInPath().standardizedFileURL,
+                             line: line.flatMap { $0 > 0 ? $0 : nil }, fragment: url.fragment)
     }
 
     // The hosts the sign-in callback trusts. A name such as app.localhost is left out,

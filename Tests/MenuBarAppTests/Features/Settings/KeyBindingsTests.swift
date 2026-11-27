@@ -80,6 +80,26 @@ struct KeyBindingsTests {
         #expect(KeyBindings().problem(with: KeyCombo("k"), for: .commandPalette) == nil)
     }
 
+    @Test func theMaximizeLayoutAliasIsReleasedWithItsDefaultKey() {
+        var bindings = KeyBindings()
+        let alias = KeyCombo("~", [.control, .shift])
+        #expect(bindings.held(by: .maximizeTerminal).contains(alias))
+        #expect(bindings.problem(with: alias, for: .newSession) != nil)
+
+        bindings.set(nil, for: .maximizeTerminal)
+        #expect(bindings.held(by: .maximizeTerminal).isEmpty)
+        #expect(bindings.problem(with: alias, for: .newSession) == nil)
+
+        let replacement = KeyCombo("m", [.command, .option])
+        bindings.set(replacement, for: .maximizeTerminal)
+        #expect(bindings.held(by: .maximizeTerminal) == [replacement])
+        #expect(bindings.problem(with: alias, for: .newSession) == nil)
+
+        bindings.reset(.maximizeTerminal)
+        #expect(bindings.held(by: .maximizeTerminal).contains(alias))
+        #expect(bindings.problem(with: alias, for: .newSession) != nil)
+    }
+
     // A pane key caught by a monitor is asked before the window's own keys and wins
     // there, so the window may share it, the way Back shares ⌘[ with the preview.
     @Test func aWindowKeyMayShareAPaneKeyThatIsAskedFirst() {
@@ -217,6 +237,24 @@ struct KeyBindingsTests {
             windowNumber: 0, context: nil, characters: "\u{00B4}", charactersIgnoringModifiers: "",
             isARepeat: false, keyCode: 50))
         #expect(KeyCombo(event: composed) == nil)
+    }
+
+    // Shift on top of Control still leaves a dead key typing its own mark, so the key
+    // beside the terminal key reads as backtick there, and as the tilde Shift makes on a
+    // layout where the key is not dead. The maximize key answers to both.
+    @Test func aDeadKeyWithControlAndShiftReadsAsTheMarkItTypes() throws {
+        let deadBacktick = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .shift], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "`", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: 50))
+        let usBacktick = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .shift], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "`", charactersIgnoringModifiers: "~",
+            isARepeat: false, keyCode: 50))
+        let maximize = AppCommand.maximizeTerminal.info
+        #expect(KeyCombo(event: deadBacktick) == maximize.keys)
+        #expect(KeyBindings().held(by: .maximizeTerminal).contains { $0.matches(usBacktick) })
+        #expect(AppCommand.terminal.info.keys?.matches(deadBacktick) == false)
     }
 
     @Test func labelsReadTheWayMacMenusWriteThem() {

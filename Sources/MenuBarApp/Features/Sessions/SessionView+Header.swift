@@ -224,6 +224,8 @@ extension SessionView {
                 }
             }
         }
+        // One wash for the whole rail, carried from shortcut to shortcut.
+        .railWash()
         .fixedSize(horizontal: true, vertical: false)
         .motion(Motion.reveal, value: tab)
         .overlay(alignment: .topTrailing) {
@@ -281,7 +283,8 @@ extension SessionView {
             detail: "A shell under the pane, in this session's folder",
             options: .init(label: "Other ways to open a shell") {
                 terminalOptions(isOpen: terminalOpen, directory: directory)
-            }) {
+            },
+            tool: .terminal) {
                 toggleTerminal(directory: directory)
             }
     }
@@ -296,7 +299,8 @@ extension SessionView {
                                 state: asking ? .open : .rest,
                                 badge: unread,
                                 label: asking ? "Put away the questions" : "Ask about the whole change",
-                                hint: asking ? "Esc does the same" : unread ? "An answer is waiting" : "Shift-? opens it here, over the diff") {
+                                hint: asking ? "Esc does the same" : unread ? "An answer is waiting" : "Shift-? opens it here, over the diff",
+                                tool: .ask) {
             if asking { changesNavigation.citation = nil }
             changesNavigation.setAskingWholeChange(!asking)
         }
@@ -315,11 +319,11 @@ extension SessionView {
     private var explorerActions: some View {
         HStack(spacing: Space.xxs) {
             HeaderRailButton(icon: "magnifyingglass", label: "Find files or text",
-                             hint: "Shift twice for files, Ctrl+H for text") {
+                             hint: "Shift twice for files, Ctrl+H for text", tool: .find) {
                 explorerCommand = .find(nil)
             }
             HeaderRailMenuButton(icon: "ellipsis", label: "File actions",
-                                 hint: "New, hidden files, collapse, refresh")
+                                 hint: "New, hidden files, collapse, refresh", tool: .more)
                 .appMenu { explorerMenu }
         }
     }
@@ -359,7 +363,8 @@ extension SessionView {
                               isOpen: isOpen,
                               showsWord: showsWord,
                               keys: keyBindings.keys(for: .findInConversation)?.parts ?? [],
-                              detail: "Search this conversation") {
+                              detail: "Search this conversation",
+                              tool: .find) {
             if isOpen {
                 closeFind()
             } else {
@@ -388,7 +393,8 @@ extension SessionView {
                            showsWord: showsWord,
                            detail: address.map { "The running app at \(LocalServerPreview.label(for: $0))" }
                                ?? "Open a running app by its address",
-                           isDimmed: address == nil && previews.pages.isEmpty) {
+                           isDimmed: address == nil && previews.pages.isEmpty,
+                           tool: .preview) {
                 if isOpen {
                     closePreview()
                 } else {
@@ -472,7 +478,8 @@ extension SessionView {
     private func utilitiesOverflow(session: ChatSession, project: Project) -> some View {
         HeaderRailButton(icon: "ellipsis",
                          badge: recapState.needsAttention,
-                         label: "More session actions")
+                         label: "More session actions",
+                         tool: .more)
             .appMenu(refreshOnOpen: { WorktreeOpener.refresh() }) {
                 utilityEntries(session: session, project: project)
             }
@@ -634,6 +641,7 @@ extension SessionView {
             icon: exportingDesignMaterials ? "hourglass" : "doc.zipper",
             state: exportingDesignMaterials ? .working : .rest,
             label: label,
+            tool: .export,
             action: exportingDesignMaterials
                 ? nil
                 : { exportDesignMaterials(session: session, project: project) })

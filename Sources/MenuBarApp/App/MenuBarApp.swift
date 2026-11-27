@@ -134,6 +134,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         scheduledTasks.start()
         cleanup.start()
         sunlight.start()
+        followTerminalScrollback()
+    }
+
+    // The shells live in the terminal store rather than in a view, so a tab building in
+    // the background takes a new scrollback size as soon as it is picked, not when it
+    // is next shown.
+    private func followTerminalScrollback() {
+        withObservationTracking {
+            terminals.scrollback = appSettings.terminalScrollback
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followTerminalScrollback() }
+        }
     }
 
     // Stats only listen while the person has turned them on; each hook asks first.

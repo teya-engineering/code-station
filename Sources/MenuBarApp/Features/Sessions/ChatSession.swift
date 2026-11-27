@@ -69,6 +69,9 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // Set when the person answers "ask again later" to cleanup. Until then the session is
     // kept like a pinned one, so it is neither offered nor taken.
     var cleanupDeferredUntil: Date?
+    // When the session was brought in from an agent's own history. Its conversation can
+    // be weeks old, so cleanup counts from here rather than from the last turn it holds.
+    var importedAt: Date?
     var isTroubleshooting = false
     // What the diagnosis was briefed with, kept for the strip over its conversation: the
     // site name of the deployment it looks at, and the time window in the person's words.
@@ -145,6 +148,10 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
 
     // When something last happened here, used for the sidebar's relative times.
     var lastActivity: Date { summary.lastMessageAt ?? createdAt }
+
+    // What cleanup ages a session by: the last turn, or the import when that came later.
+    // A turn taken after the import moves past it on its own.
+    var cleanupActivity: Date { max(lastActivity, importedAt ?? .distantPast) }
 
     // What the sidebar orders by: the activity time, unless the row was dragged to a new
     // place since.
@@ -251,6 +258,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
     // conversation inline, and that is what the store moves out on the first launch.
     private enum CodingKeys: String, CodingKey {
         case id, projectID, title, titleRevision, isPinned, isMarkedUnread, snooze, cleanupDeferredUntil
+        case importedAt
         case isTroubleshooting
         case troubleshootEnvironment, troubleshootTimeWindow
         case agent, mode, designPhase
@@ -284,6 +292,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         snooze = try container.decodeIfPresent(SessionSnooze.self, forKey: .snooze)
         cleanupDeferredUntil = try container.decodeIfPresent(Date.self,
                                                              forKey: .cleanupDeferredUntil)
+        importedAt = try container.decodeIfPresent(Date.self, forKey: .importedAt)
         isTroubleshooting = try container.decodeIfPresent(Bool.self, forKey: .isTroubleshooting)
             ?? false
         troubleshootEnvironment = try container.decodeIfPresent(
@@ -349,6 +358,7 @@ struct ChatSession: Identifiable, Codable, Equatable, Sendable {
         if isMarkedUnread { try container.encode(isMarkedUnread, forKey: .isMarkedUnread) }
         try container.encodeIfPresent(snooze, forKey: .snooze)
         try container.encodeIfPresent(cleanupDeferredUntil, forKey: .cleanupDeferredUntil)
+        try container.encodeIfPresent(importedAt, forKey: .importedAt)
         try container.encode(isTroubleshooting, forKey: .isTroubleshooting)
         try container.encodeIfPresent(troubleshootEnvironment, forKey: .troubleshootEnvironment)
         try container.encodeIfPresent(troubleshootTimeWindow, forKey: .troubleshootTimeWindow)

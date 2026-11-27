@@ -278,7 +278,7 @@ struct CleanupReviewView: View {
             return "No session · \(orphan.allocatedBytes.formatted(.byteCount(style: .file)))"
         }
         guard let session = item.session else { return "" }
-        return SessionAge.phrase(since: session.lastActivity)
+        return SessionAge.cleanupPhrase(of: session)
     }
 
     // The lines that are not committed, once the worktree has been read.

@@ -62,6 +62,32 @@ struct SessionFacts: Equatable {
         return pullRequestCountKnown ? "\(pullRequestCount) open" : "\(pullRequests.count) linked"
     }
 
+    func pullRequestTone(_ pullRequest: PullRequest) -> PullRequestTone {
+        PullRequestTone(pullRequestStatuses[pullRequest.url])
+    }
+
+    // The pull request the chip names: the one that most needs the person, and of two that
+    // need them as much, the one the card lists first.
+    var leadPullRequest: PullRequest? {
+        orderedPullRequests.map { ($0, pullRequestTone($0).urgency) }.min { $0.1 < $1.1 }?.0
+    }
+
+    // How many more the chip counts beside its lead. It counts what the card's heading
+    // counts, so the two never disagree: the open ones once every state is known, and
+    // every linked one until then. A merged or closed lead means none are open.
+    var pullRequestsBesideLead: Int {
+        max((pullRequestCountKnown ? pullRequestCount : pullRequests.count) - 1, 0)
+    }
+
+    // "1 changes requested, 2 in review", most pressing first, so VoiceOver hears the mix
+    // the card holds without opening it.
+    var spokenPullRequestStates: String {
+        Dictionary(grouping: pullRequests.map(pullRequestTone), by: { $0 })
+            .sorted { $0.key.urgency < $1.key.urgency }
+            .map { "\($0.value.count) \($0.key.word.lowercased())" }
+            .joined(separator: ", ")
+    }
+
     // The pull requests that may still need the person come first, right under the count
     // that counts them, and the merged and closed ones follow. Each group runs newest
     // first. One whose state is not known yet might still need them, so it waits with the
@@ -400,7 +426,7 @@ struct SessionFactsChip: View {
         if showsBranch, let branch = facts.namedBranch { parts.append("branch \(branch)") }
         parts.append("session details")
         if !facts.pullRequests.isEmpty {
-            parts.append("\(facts.pullRequestCountLabel) pull requests")
+            parts.append("pull requests: \(facts.spokenPullRequestStates)")
         }
         if let context = facts.context {
             let window = facts.agent.asksPermissions ? "context" : "window"
@@ -453,15 +479,8 @@ struct SessionFactsChip: View {
                     }
                 }
             }
-            if !facts.pullRequests.isEmpty {
-                HStack(spacing: Space.xxs) {
-                    Image(systemName: "arrow.triangle.pull")
-                    Text("\(facts.pullRequestCountKnown ? facts.pullRequestCount : facts.pullRequests.count)")
-                        .contentTransition(.numericText())
-                }
-                .font(Font.system(size: Typography.Size.micro, weight: .medium))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            if let lead = facts.leadPullRequest {
+                pullRequestLight(lead)
             }
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
@@ -476,6 +495,28 @@ struct SessionFactsChip: View {
         .background(shape.fill(isOpen ? Theme.sunken : .clear))
         .overlay(shape.strokeBorder(isOpen ? Theme.border : .clear))
         .contentShape(shape)
+    }
+
+    // The pull request that most needs the person, as one light in its colour, and how many
+    // more the card's heading counts. The pull glyph comes first, so the light is never
+    // read as the session's own. A new state arrives from a background read, which the
+    // person did not cause, so it takes its place without motion.
+    private func pullRequestLight(_ lead: PullRequest) -> some View {
+        let tone = facts.pullRequestTone(lead)
+        let more = facts.pullRequestsBesideLead
+        return HStack(spacing: Space.xs) {
+            PullRequestMark(symbol: .pull, size: Typography.Size.micro)
+                .foregroundStyle(.tertiary)
+            PullRequestLight(colour: tone.dot, isRing: tone.dotIsRing)
+            if more > 0 {
+                Text(verbatim: "+\(more)")
+                    .font(Typography.micro)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize()
+        .accessibilityHidden(true)
     }
 
     private func elapsedLabel(_ text: String) -> some View {
@@ -510,7 +551,9 @@ struct SessionFactsChip: View {
                 LeftoverHeightStack(available: bodyHeight, floor: Self.pullRequestFloor) {
                     VStack(spacing: 0) {
                         head
-                        if let changes = facts.changes { changesRow(changes) }
+                        if let changes = facts.changes {
+                            changesRow(changes).transition(.fadeIn)
+                        }
                         pullRequestsHeading
                     }
                     pullRequestList
@@ -518,10 +561,39 @@ struct SessionFactsChip: View {
                 }
             }
         }
+        .smoothlyResizes(when: arrivals)
         .frame(width: layout.width, alignment: .leading)
         .floatingCard(cornerRadius: Self.radius)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Session details")
+    }
+
+    // What the card is made of, as opposed to the readings in it. Git, GitHub and the
+    // account's limits each answer a moment after the card opens, so the card grows into
+    // what they bring rather than jumping. A meter or a cost that only moves is left out,
+    // since it has motion of its own and a running session moves it all the time.
+    private var arrivals: CardArrivals {
+        let usage = usageMonitor.flatMap { $0.supports(facts.agent) ? $0 : nil }
+        return CardArrivals(
+            model: facts.model,
+            changes: facts.changes,
+            pullRequests: facts.pullRequests.map { "\($0.url) \(facts.pullRequestTone($0).word)" },
+            hasContext: facts.context != nil,
+            hasCost: facts.cost != nil,
+            usageChecking: usage?.refreshing.contains(facts.agent) ?? false,
+            usageWindows: usage?.usage[facts.agent]?.windows.map(\.id) ?? [],
+            usageProblem: usage?.problems[facts.agent])
+    }
+
+    private struct CardArrivals: Equatable {
+        var model: String?
+        var changes: SessionFacts.Changes?
+        var pullRequests: [String]
+        var hasContext: Bool
+        var hasCost: Bool
+        var usageChecking: Bool
+        var usageWindows: [String]
+        var usageProblem: String?
     }
 
     private var previewHeading: some View {
@@ -534,6 +606,7 @@ struct SessionFactsChip: View {
                     .font(Font.system(size: Typography.Size.micro))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .contentTransition(.opacity)
             }
             Spacer(minLength: Space.xs)
             if let attachProject {
@@ -579,7 +652,9 @@ struct SessionFactsChip: View {
         HStack {
             Text("Pull requests").fontWeight(.semibold)
             Spacer()
-            Text(facts.pullRequestCountLabel).foregroundStyle(.secondary)
+            Text(facts.pullRequestCountLabel)
+                .foregroundStyle(.secondary)
+                .contentTransition(reduceMotion ? .opacity : .numericText())
         }
         .font(Typography.caption)
         .padding(.horizontal, Space.lg)
@@ -596,6 +671,7 @@ struct SessionFactsChip: View {
                 .padding(.top, Space.md + Space.xxs)
                 .padding(.bottom, Space.md + Space.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.fadeIn)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.xxs) {
@@ -605,6 +681,7 @@ struct SessionFactsChip: View {
                 .padding(.bottom, Space.sm)
             }
             .scrollIndicators(.visible)
+            .transition(.fadeIn)
         }
     }
 
@@ -615,7 +692,7 @@ struct SessionFactsChip: View {
             if let usageMonitor, usageMonitor.supports(facts.agent) {
                 usageRow(usageMonitor)
             }
-            if let context = facts.context { contextRow(context) }
+            if let context = facts.context { contextRow(context).transition(.fadeIn) }
             if let usageMonitor, usageMonitor.supports(facts.agent) {
                 Text("\(facts.agent.title) account usage")
                     .font(Font.system(size: Typography.Size.micro))
@@ -624,14 +701,15 @@ struct SessionFactsChip: View {
                     .padding(.horizontal, Space.lg)
                 if !usageMonitor.refreshing.contains(facts.agent),
                    usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
-                    usageNote(usageMonitor)
+                    usageNote(usageMonitor).transition(.fadeIn)
                 }
                 ForEach(usageMonitor.usage[facts.agent]?.windows ?? []) { window in
                     usageWindowRow(window, checking: usageMonitor.refreshing.contains(facts.agent))
+                        .transition(.fadeIn)
                 }
             }
-            if let cost = facts.cost { costRow(Money.short(cost)) }
-            if let credits = facts.credits { costRow(Money.credits(credits), verb: "used") }
+            if let cost = facts.cost { costRow(Money.short(cost)).transition(.fadeIn) }
+            if let credits = facts.credits { costRow(Money.credits(credits), verb: "used").transition(.fadeIn) }
         }
         .background(Theme.sunken)
     }
@@ -754,13 +832,17 @@ struct SessionFactsChip: View {
             CardLink(action: acting(openChanges)) { _ in
                 HStack(spacing: Space.sm) {
                     if changes.files == 0 && changes.added == 0 && changes.removed == 0 {
-                        Text("No changes").font(Typography.detail)
+                        Text("No changes").font(Typography.detail).transition(.fadeIn)
                     } else if changes.files > 0 {
                         Text(counted(changes.files, "changed file"))
                             .font(Typography.detail.weight(.medium))
+                            .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(changes.files)))
+                            .transition(.fadeIn)
                     }
                     if changes.added != 0 || changes.removed != 0 {
                         DiffPair(added: changes.added, removed: changes.removed, size: Typography.Size.caption)
+                            .contentTransition(reduceMotion ? .opacity : .numericText())
+                            .transition(.fadeIn)
                     }
                 }
                 .lineLimit(1)
@@ -771,30 +853,37 @@ struct SessionFactsChip: View {
     }
 
     // Pull requests are stacked one to a row and share the label, which is what keeps a
-    // list of them reading as one fact about the session.
+    // list of them reading as one fact about the session. The mark and the badge take the
+    // state's colour, and the badge spells the state out.
     private func pullRequestRow(_ pullRequest: PullRequest) -> some View {
-        let status = facts.pullRequestStatuses[pullRequest.url]
+        let tone = facts.pullRequestTone(pullRequest)
+        let repository = pullRequest.repository ?? "Repository unavailable"
         return CardLink(action: acting {
             guard let url = URL(string: pullRequest.url) else { return }
             NSWorkspace.shared.open(url)
             showNote("Opened \(pullRequest.repository.map { "\($0) " } ?? "")#\(pullRequest.number) in the browser")
         }) { _ in
             HStack(spacing: Space.sm) {
-                Image(systemName: "arrow.triangle.pull").foregroundStyle(Theme.accent)
-                Text(pullRequest.repository ?? "Repository unavailable")
+                PullRequestMark(symbol: tone.symbol, size: Typography.Size.detail)
+                    .foregroundStyle(tone.ink)
+                Text(repository)
                     .font(Typography.detail)
                     .lineLimit(1)
-                Spacer(minLength: 4)
+                Spacer(minLength: Space.xs)
                 Text(verbatim: "#\(pullRequest.number)").font(Typography.data)
-                Text(status?.readinessLabel ?? "Linked")
+                Text(tone.word)
                     .font(Font.system(size: Typography.Size.micro, weight: .medium))
+                    .foregroundStyle(tone.ink)
+                    .contentTransition(.opacity)
                     .padding(.horizontal, Space.xs)
                     .padding(.vertical, Space.xxs)
-                    .background(RoundedRectangle(cornerRadius: Radius.tag).fill(Theme.field))
+                    .background(RoundedRectangle(cornerRadius: Radius.tag).fill(tone.wash))
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
+        .transition(.fadeIn)
+        .accessibilityLabel("\(repository) pull request \(pullRequest.number), \(tone.word.lowercased()). Opens in the browser.")
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.xs)
     }

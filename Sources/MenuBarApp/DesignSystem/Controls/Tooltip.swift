@@ -38,6 +38,12 @@ struct Tooltip {
     var action: (() -> Void)?
     var persistsOnHover = false
     var hanging: Hanging?
+    // The colour of the thing the hint is about, as a square dot before the title: a
+    // rail shortcut's tool colour follows it into its hint.
+    var tint: Color?
+    // Slides from one source to the next rather than fading out and in again, for a row
+    // of sources read one after another, such as the shortcuts on the header rail.
+    var glides = false
 
     var acceptsHover: Bool { action != nil || persistsOnHover }
 
@@ -71,6 +77,8 @@ final class TooltipPresenter {
 
     private(set) var current: Tooltip?
     private(set) var anchor: CGRect = .zero
+    // Where the hint before this one was, so a gliding hint can set off from there.
+    private(set) var previousAnchor: CGRect = .zero
     // Changes on every hint so the host can drop the size it measured for the last one.
     private(set) var generation = 0
 
@@ -106,6 +114,7 @@ final class TooltipPresenter {
         pendingHide?.cancel()
         self.owner = owner
         current = tooltip
+        previousAnchor = anchor
         anchor = rect
         generation += 1
         watchForDismissal()
@@ -116,6 +125,17 @@ final class TooltipPresenter {
     // did not check would clear the hint that has just arrived.
     func hide(owner: UUID, immediately: Bool = false) {
         guard self.owner == owner else { return }
+        // A gliding hint waits a moment for the pointer to land on the next source, so
+        // it can slide there instead of going out and coming back.
+        if !immediately, current?.glides == true {
+            pendingHide?.cancel()
+            pendingHide = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Motion.railHandoff))
+                guard !Task.isCancelled else { return }
+                self?.hideAll()
+            }
+            return
+        }
         guard !immediately, current?.acceptsHover == true else {
             hideAll()
             return
@@ -290,6 +310,7 @@ private struct AppTooltip: ViewModifier {
 
 struct TooltipHost: View {
     @Environment(TooltipPresenter.self) private var presenter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // Wide enough for a path or a full session title on two lines, narrow enough that
     // it still reads as a hint rather than a panel.
@@ -301,8 +322,20 @@ struct TooltipHost: View {
     // The hint that has been placed and faded in. It fades only once it has been
     // measured and moved to its spot, so it never slides there from a corner.
     @State private var revealed = -1
+    // The card that was last revealed: whether it glides, and its size. A gliding card
+    // that replaces it is held where it was until it has been measured.
+    @State private var shownGlides = false
+    @State private var shownSize: CGSize = .zero
 
     private var size: CGSize { measurement.size }
+
+    // The hint on screen glides and so does the one replacing it, so the card stays up
+    // and slides to the new source instead of fading out and in. Until the new card has
+    // been measured it waits where the last one was; revealing it moves it.
+    private var glidingIn: Bool {
+        !reduceMotion && shownGlides && presenter.current?.glides == true
+            && revealed == presenter.generation - 1
+    }
 
     var body: some View {
         ZStack {
@@ -314,9 +347,15 @@ struct TooltipHost: View {
             } else if let tooltip = presenter.current {
                 GeometryReader { geometry in
                     card(tooltip)
-                        .measuredOverlay(generation: presenter.generation, into: $measurement)
-                        .opacity(revealed == presenter.generation ? 1 : 0)
-                        .offset(x: x(in: geometry.size), y: y(in: geometry.size))
+                        .measuredOverlay(generation: presenter.generation, into: $measurement,
+                                         hidesUntilMeasured: !glidingIn)
+                        .opacity(revealed == presenter.generation || glidingIn ? 1 : 0)
+                        .offset(x: glidingIn
+                                    ? x(in: geometry.size, size: shownSize, anchor: presenter.previousAnchor)
+                                    : x(in: geometry.size, size: size, anchor: presenter.anchor),
+                                y: glidingIn
+                                    ? y(in: geometry.size, size: shownSize, anchor: presenter.previousAnchor)
+                                    : y(in: geometry.size, size: size, anchor: presenter.anchor))
                         .onHover { inside in
                             if inside {
                                 presenter.keepInteractiveTooltipVisible()
@@ -330,10 +369,18 @@ struct TooltipHost: View {
                 .transition(.asymmetric(insertion: .identity, removal: .opacity.animation(Motion.leave)))
             }
         }
-        // A plain fade, which is what Reduce Motion falls back to anyway.
+        .onChange(of: presenter.current == nil) { _, gone in
+            if gone { shownGlides = false }
+        }
         .onChange(of: measurement.generation) { _, measured in
             guard measured == presenter.generation else { return }
-            withAnimation(Motion.reveal) { revealed = measured }
+            // Sliding from the last source to this one, as the rail's wash does under it.
+            // Otherwise a plain fade, which is what Reduce Motion falls back to anyway.
+            withAnimation(glidingIn ? Motion.control : Motion.reveal) {
+                revealed = measured
+                shownSize = measurement.size
+                shownGlides = presenter.current?.glides == true
+            }
         }
         // A hint on its way out takes no clicks, so an interactive one cannot act twice.
         .allowsHitTesting(presenter.current != nil)
@@ -356,20 +403,32 @@ struct TooltipHost: View {
         }
     }
 
+    @ViewBuilder private func tintDot(_ tooltip: Tooltip) -> some View {
+        if let tint = tooltip.tint {
+            ProjectDot(tint: Theme.ProjectTint(colour: tint, ink: tint), size: 7)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
+                .accessibilityHidden(true)
+        }
+    }
+
     private func plainCard(_ tooltip: Tooltip) -> some View {
-        Text(tooltip.title)
-            .font(Typography.detail)
-            .fixedSize(horizontal: !tooltip.wraps, vertical: true)
-            .frame(maxWidth: tooltip.wraps ? Self.width : nil, alignment: .leading)
-            .padding(.horizontal, Space.md)
-            .padding(.vertical, Space.xs)
-            .floatingCard(cornerRadius: Radius.control)
+        HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+            tintDot(tooltip)
+            Text(tooltip.title)
+                .font(Typography.detail)
+                .fixedSize(horizontal: !tooltip.wraps, vertical: true)
+        }
+        .frame(maxWidth: tooltip.wraps ? Self.width : nil, alignment: .leading)
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.xs)
+        .floatingCard(cornerRadius: Radius.control)
     }
 
     private func detailedCard(_ tooltip: Tooltip) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: Space.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+                    tintDot(tooltip)
                     Text(tooltip.title)
                         .font(.serif(14, .semibold))
                         .lineLimit(3)
@@ -433,16 +492,16 @@ struct TooltipHost: View {
     // Beside the row rather than under it: the sidebar is a column of rows, and a hint
     // that hangs below covers the next one along. It only falls back to the left when
     // there is no room on the right.
-    private func x(in bounds: CGSize) -> CGFloat {
-        let right = presenter.anchor.maxX + Self.gap
+    private func x(in bounds: CGSize, size: CGSize, anchor: CGRect) -> CGFloat {
+        let right = anchor.maxX + Self.gap
         let placed = right + size.width > bounds.width - Self.margin
-            ? presenter.anchor.minX - Self.gap - size.width
+            ? anchor.minX - Self.gap - size.width
             : right
         return max(Self.margin, min(placed, bounds.width - size.width - Self.margin))
     }
 
-    private func y(in bounds: CGSize) -> CGFloat {
-        max(Self.margin, min(presenter.anchor.minY, bounds.height - size.height - Self.margin))
+    private func y(in bounds: CGSize, size: CGSize, anchor: CGRect) -> CGFloat {
+        max(Self.margin, min(anchor.minY, bounds.height - size.height - Self.margin))
     }
 }
 

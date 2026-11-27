@@ -49,15 +49,18 @@ All colours come from `Theme` (`Theme.swift`). Each one works in light and dark 
 | `onFill` | Words and marks on any filled control or filled dot. |
 | `attention`, `attentionText`, `secret` | Stopped and waiting for a look. |
 | `warningText` on `warningBackground` | Something went wrong. |
-| `addition`, `deletion` | Lines added and removed. `deletion` is also the colour of a delete action. Each has an `...NSColor` twin for AppKit text, and a line's band is the same colour, faint. |
+| `addition`, `deletion` | Lines added and removed. `deletion` is also the colour of a delete action. Each has an `...NSColor` twin for AppKit text, and a line's band is the same colour, faint. `deletionText` is the red read as words on a red wash. |
+| `merged`, `mergedText` | A merged pull request, in GitHub's merge purple. Nothing else wears it. A pull request's states take their colours from `PullRequestTone`, which the session chip and its card both read: amber in review, green approved, red changes requested or closed, grey draft. Each state's badge sits on its own wash: `inReviewWash`, `approvedWash`, `changesRequestedWash`, `mergedWash`, `closedWash`. |
 | `additionEmphasis`, `deletionEmphasis` | The words that changed within an added or removed line: the same colour as the line's band, a step stronger. Each has an `...NSColor` twin. |
 | `plan` | Read only. Nothing will be changed. |
 | `brand`, `listen...` | The app itself. Lime on screen means the microphone is open. |
 | `showcase`, `snooze...` | A Design session going all out, and a snoozed item. |
 | `projectTint(for:)` | A project's own colour. The same one wherever the project shows up. |
-| `chartSeries` | Chart lines, in a fixed order. |
+| `agentClaudeCode`, `agentCodex`, `agentCopilot`, `agentKiro` | An agent's own colour, as the tile behind its symbol wherever it speaks (`ReviewAvatar`, `LineupTiles`). The rest of a lineup sits on the second opinion's plum. On the header rail the lineup stays grey until pointed at. |
+| `RailTint` | Which tool this is, while it is pointed at. Each header rail shortcut has one, set by its `RailTool`, and it shows only under the pointer or keyboard focus, as a wash behind the seat, the glyph's ink and a square dot in the tooltip. The colour follows the tool into the panel it opens: the glyph at the head of that panel takes `RailTool.mark`. An open seat keeps the accent, since green means chosen. |
+| `chartSeries` | Chart lines, in a fixed order. A series is never red: on a chart, `deletion` means a reading past its limit or a failed span. |
 
-Where a colour has a `...Text` twin, use the twin for words and the plain one for dots and fills. The twins are tuned to be readable, and `WarningContrastTests` checks them.
+Where a colour has a `...Text` twin, use the twin for words and the plain one for dots and fills. The twins are tuned to be readable, and `WarningContrastTests` checks them. For a badge, lay the plain colour faintly behind its twin with `Theme.wash(_:light:dark:)`, which takes a separate strength for each appearance.
 
 ### Type
 
@@ -66,6 +69,7 @@ Roles come from `Typography` (`Tokens.swift`). A role fixes the size and the fac
 | Role | Looks like | Use |
 | --- | --- | --- |
 | `display` | Serif 22 | The name of a whole screen. |
+| `Size.figure` | Serif 34 | The one number a stat tile is there to show. Set with `.scaledSerif`. |
 | `title` | Serif 17 | The name of a pane, sheet, card or empty state. |
 | `body` | 13 | Text that is read: a sentence, a row's name, a field's value. |
 | `detail` | 12 | The sentence under a name. |
@@ -141,9 +145,17 @@ How tall a button, a field or a dropdown stands comes from `ControlHeight` (`Tok
 
 Controls that share a row share a step. Pass the step to `ActionButton(height:)` and `GlyphButton(side:)`, and give a hand-drawn control the same step with `.frame(height:)`.
 
+`FileReferenceMetrics` supplies the compact file menu, reader, outline and reading widths. `FileReferenceSubject` keeps a filename and optional path readable with middle truncation, while `FileReferenceMark` is the plain document mark used in menus and flights. `DocumentLoading` shows a reading skeleton with a `LoopSpinner` while a file arrives. A `.fileSubject(path)` menu entry gives file actions their 256-point menu and 32-point rows; `MenuItem.help` carries a disabled action's tooltip and accessible reason.
+
+`DispatchMetrics` supplies the sizes of the Dispatch sheet: the request list, the address card, a parameter row and its columns, and the response header.
+
 `SkillsMetrics` sets the width of each agent's column in the skills list.
 
 `SettingsRuleMetrics` aligns the age and auto-delete columns in a settings card. Below its stacking width, put the description above both controls and repeat their labels.
+
+### Chart sizes
+
+A chart in a reply is drawn by hand, so its sizes come from `ChartMetrics` (`Tokens.swift`): the height of the first lane and of the lanes under it, the rail above the plot where moments are named, the flags in it, the axes, the line and dot sizes, the bar and stat tile sizes, and the log rhythm strip. Take a size from there before writing a number in a chart view.
 
 ### Scroll cap
 
@@ -186,7 +198,9 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 | `Motion.flightAcross`, `Motion.flightDown` | A small mark carried across the window. Across eases out and down eases in, which bends the path into a curve. Going home uses `Motion.flightHomeDuration`, which is shorter. |
 | `Motion.stagger` | The step between rows that arrive together, such as the files of a folder opening. Add it as a delay per row, and stop counting after a few rows so a long list does not keep the last one waiting. |
 | `Motion.ring` | A ring spreading out from a mark that has just landed. |
-| `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
+| `Motion.wash`, `Motion.washDuration`, `Motion.drawCurve` | A wash fading off words just put into a field, or off a reading that has just changed. `wash` is the SwiftUI curve. `drawCurve` is `Motion.draw`'s curve for Core Animation. |
+| `Motion.rail...`, `Motion.flood` | The header rail's signatures: each shortcut's act and loop lengths, the hand-off between seats, and the wash flooding in from where the pointer came. |
+| `Motion.popCurve`, `Motion.controlCurve` | `Motion.pop` and `Motion.control` for Core Animation. |
 | `Motion.brandOrbitDuration`, `Motion.brandGleamDuration`, `Motion.wordmarkPeriod` | The brand's finite dot orbit, one entry gleam and repeating hover colour flow. Core Animation plays them without a frame clock. `BrandLayerView` cancels playback when the window loses focus or becomes hidden; another pointer entry is needed to start again. Exit returns to rest on `Motion.leaveDuration`. |
 
 - Animate with `.motion(_:value:)`, so it turns off under Reduce Motion. Every transition takes `reduceMotion` and falls back to a plain fade.
@@ -196,7 +210,10 @@ Timings come from `Motion` (`Motion/Motion.swift`). Never write your own duratio
 - A mark carried from one place to another, such as a tile dropped into a group, is a `FlightView` drawn in an overlay above both places (`Motion/Flight.swift`). The flying view must be plain SwiftUI, since it is scaled on the way. Where it lands, `.landingRings(_:colour:cornerRadius:)` sends out two rings in its colour. Under Reduce Motion neither is drawn: the flight lands at once.
 - Words put into a text field by a pick, such as a slash command chosen from the menu, are marked where they land with `TextWash.play(over:in:colour:)` (`Motion/TextWash.swift`): a short wash of the colour that fades on `Motion.washDuration`. Core Animation plays it, so the text is not drawn again, and an edit clears it. Leave it out under Reduce Motion.
 - A bar chart over time answers a change with `ChartMotion` (`Motion/ChartMotion.swift`). A change of stretch is a zoom: the time axis moves from the old stretch to the new one with `ChartMotion.zoom`, the old bars squeeze into their place on the new axis as they fade (`zoomLeave`), and the new bars grow up from `zoomGrowth` of their height (`zoomArrive`). Place bars with `ChartMotion.place(_:in:width:)` so both sets share one axis. A change of what the bars measure, or of whose share they show, is a re-stack: the bars keep their places and each takes its new height on `ChartMotion.restack(bar:of:)`, left to right. Home's glance plays `RibbonEntrance` first, when Home opens on a full day. Under Reduce Motion there is no entrance, no zoom and no re-stack.
+- A line chart arrives by drawing itself: the lines draw left to right on `ChartMotion.lineDraw`, the washes fade in behind them, each marked moment lands as the line passes it (`ChartMotion.landed`), and the end dots grow last (`ChartMotion.endDot`). A change of view moves the time axis and every scale together on `ChartMotion.zoom`. Bars, log volume bars and trace spans grow from `zoomGrowth` of their size on `ChartMotion.restack`, and stop taking turns after `staggerLimit`. A headline number counts up on `ChartMotion.count`. A chart that streamed into a reply plays none of this. Under Reduce Motion nothing draws, zooms, grows or counts.
 - A loop that runs while something works is played by `LayerLoop`, not by a SwiftUI clock.
+- Something on its way along a line, such as a request sent and not yet answered, is a `CometLine` (`Motion/CometLine.swift`): a streak that runs the length of the line it is given. Under Reduce Motion the line is lit and holds still. `CometPath` runs the same streak along a bent path over a dotted ghost of it, for something that will be a line once it arrives, such as a chart still being written. Under Reduce Motion only the ghost is drawn.
+- A header rail shortcut gives its seat a `tool:` (`Motion/RailSignature.swift`). Its glyph is drawn as layers by `RailGlyph` and plays a short act while pointed at, never at rest. One wash per rail (`.railWash()` on the row, `.railSeat` on each seat) floods in from where the pointer came, slides from seat to seat and leaves on `Motion.leave`. The seat's hint slides with it: a `Tooltip` with `glides: true` waits `Motion.railHandoff` for the next source and moves there on `Motion.control` instead of fading out and in. Keyboard focus shows the colour without the act. Under Reduce Motion the colour and wash stay as a plain fade, with no act, slide or flood.
 - Motion confirms what the person did and never makes them wait. The brand wordmark's colour flow is decorative and runs only while hovered; other motion answers an action or shows work in progress.
 
 The full motion rules are in `CLAUDE.md`.
@@ -245,6 +262,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A button with words | `ActionButton`. The tone says how much it matters: `.green` or `.dark` for the main action, `.outlined` beside it, `.danger` to delete. One main action per screen or card. |
 | A button that is only an icon | `GlyphButton`, with an `.appTooltip` that names it. Use `circular: true` for an opaque round button that overlaps a surface's edge. |
 | A small link in a line of text or a header | `InlineLink`, `GlyphLink` |
+| A small accent action under a result, such as a follow-up for the agent | `InlineAskButton`. It ends in an arrow when the click sends something on; pass `arrow: false` for one that opens a fold in place. |
 | Copy to the clipboard | `CopyButton` |
 | Add a new item to a list | `NewItemButton` |
 
@@ -263,7 +281,9 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Tick off a changed file as read | `ViewedToggle` (`Controls/ViewedToggle.swift`): an outlined pill with a `CheckboxMark` and "Viewed". `ControlHeight.md` in a pane's header, `.sm` in a card's own header. Pass `edited: true` for a file changed since it was ticked, which gives the pill an amber edge. Kept apart from a row's commit checkbox so the two never read as one. |
 | A number in a range | `AppSlider` |
 | Text | `.appTextField()`, `AppTextEditor` |
-| A count of days | `DayField`. Use `validatesEntry: true` to keep invalid text visible with a correction; Return or leaving the field saves a valid whole number, and Escape restores the saved value. |
+| One line of text the machine reads, with some words tinted | `TintedLineField` (`Controls/TintedLineField.swift`): pass a `Mark` for each stretch to tint, such as the `{{property}}` and `:name` parts of an address, and `lit:` for one to light up for a moment. The tint is painted over the text and is never part of the value. Return submits and Tab moves on. |
+| A whole number, typed or stepped | `NumberField` (`Controls/NumberField.swift`): a range, a step for the arrows, and the unit beside it. Widths come from `NumberFieldMetrics`. A number typed past either end lands on that end. Use `validatesEntry: true` to keep invalid text visible with a correction instead; Return or leaving the field saves a valid whole number, and Escape restores the saved value. Always use this mode when applying an intermediate value could discard data, such as terminal scrollback. |
+| A count of days | `DayField`, a `NumberField` in days. |
 | A file or folder | `FilePicker` |
 | A label over a field | `LabeledField` |
 | A key beside its value | `LabeledRow` |
@@ -286,8 +306,9 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | A group of settings | `ChoiceBlock` holding a `SettingsCard`, with `SettingsRowDivider` between rows |
 | A row that opens and closes | `DisclosureHeader` |
 | Tabs in a header | `HeaderTabDeck`, `HeaderTabToggle` |
-| Buttons in a header | `HeaderRailButton`, `HeaderRailMenuButton`, `HeaderSplitButton` |
-| The bottom of a sheet | `SheetFooter` |
+| Buttons in a header | `HeaderRailButton`, `HeaderRailMenuButton`, `HeaderDockSeat`, `HeaderSplitButton`. Give each shortcut its `tool:` so it takes its colour and act. |
+| The bottom of a sheet | `SheetFooter`. A reader with its close action in the header sets `showsDismiss` to false. |
+| Give a page's room to another pane without losing drafts or scroll position | `RetainedPane(hidden:)` keeps the page mounted at its last visible size, clips it out of the layout and disables its controls while hidden. |
 
 **Showing data**
 
@@ -305,6 +326,9 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | How far through a short list the person is | `ProgressRing` (`Layout/ProgressRing.swift`): a 14-point ring beside a count such as "3 of 7 viewed". The arc draws round with `Motion.draw`. The words carry the count, so the ring stays out of the accessibility tree. |
 | A few readings on one slim line, each with a closer look | A row of cells, each a dot, a name, the reading and a `ChangeFigure`. Resting on a cell opens a `ReadingPeek` (`Layout/StatParts.swift`) above it, as the content of a hanging `Tooltip` with `side: .above`: the name, the reading, how it moved in words ("18% less than yesterday"), and a `Sparkline` that draws itself out from the left. The figures roll with `.numericText` when the reading moves. |
 | A run of readings, as a line | `Sparkline`. Pass a long run through `Sparkline.thinned` first, so it keeps its shape at a small size. |
+| Evidence in a reply: a chart, a headline number or bars | `TranscriptChartView` (`Features/Sessions`), from a `TranscriptChartSpec`. A line or area chart gives each unit its own lane on one time axis, names its series in a readout strip that also shows the reading under the pointer, and names moments in a rail of flags above the plot. Do not add a floating readout or a second axis. Colours for a mark's tone come from `TranscriptChartSpec.Tone` (`ink`, `wash`, `mark`). |
+| A chart block that is not ready | `ChartArrivingCard` while it is being written, `ChartMissingCard` when it could not be read or came back empty. Each offers the ask that gets the chart. |
+| How busy a log was, above its lines | `LogRhythmStrip` with a `LogRhythm`: stacked bars by level. Pointing at a bar lights its lines and the other way round. Only for a whole query result, never for lines someone picked. |
 | A small fact in a grid of them | `StatFact`: label, reading, and an optional line saying what it means; pass `icon:` to lead with an `IconBadge` |
 | One thing's share of a whole, beside others | `ShareBarRow`, one per thing, sharing one `scale`. The bar draws out with `Motion.draw` when the row arrives. |
 | A count by weekday and hour | `HeatGrid`: hovering a cell says what it holds on the line under the grid, with a less-to-more key beside it |
@@ -318,6 +342,7 @@ Use these before drawing anything by hand. All paths are under `Sources/MenuBarA
 | Run effort and permissions | `EffortMeter`, `EffortPill`, `ShieldPill` and `TrustTone` in `Controls/RunSettingsPills.swift`. Pass `form: true` to the pills for a full-width, 36-point form control; their default stays compact for composer bars. |
 | A project's mark | `ProjectDot`, `ProjectTileView` |
 | Something running | `RunningDot` |
+| A pull request and its state | `PullRequestMark` (`Layout/PullRequestMarks.swift`): GitHub's pull, draft, merged and closed marks, in the state's ink. `PullRequestLight` is the state as one dot, the size of a session's light, and an empty ring while the state is not known. Take the colours and the mark from `PullRequestTone`. |
 | A keyboard key | `Keycap` |
 | A key the person may have changed | `KeyCombo.label`, `.compactLabel` or `.parts`, read from `keyBindings` |
 | JSON | `RawJSONView` |

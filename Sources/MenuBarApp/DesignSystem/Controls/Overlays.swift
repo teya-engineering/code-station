@@ -33,15 +33,14 @@ private struct AppOverlays: ViewModifier {
         content
             .disabled(holdsFocus)
             .accessibilityHidden(holdsFocus)
-            .overlay { TooltipHost() }
-            // Over the hints, so what is being dragged is never hidden behind one.
             .overlay { CarryHost() }
             .overlay { DialogHost() }
-            // Last, so a menu opened from inside a dialog is not drawn behind it. It
-            // draws nothing at all while closed, so nothing else moves under it.
+            // A menu opened from a dialog must stay above the dialog's card.
             .overlayPreferenceValue(MenuControlAnchorKey.self) { anchors in
                 ContextMenuHost(controlAnchor: anchors[menus.generation])
             }
+            // Dialog controls and disabled menu actions need their hints above the surface.
+            .overlay { TooltipHost() }
             .environment(dialogs)
             .environment(menus)
             .environment(tooltips)
@@ -128,14 +127,17 @@ extension View {
     // has landed, which avoids a frame in the wrong corner. Read on the measured view's
     // own chain: siblings in a stack carry the key's default value, and a read above
     // them would take a default over the measurement.
+    // `hidesUntilMeasured` off is for an overlay already on screen that only moves, where
+    // hiding it for that frame would make it blink.
     func measuredOverlay(generation: Int,
-                         into measurement: Binding<OverlayMeasurement>) -> some View {
+                         into measurement: Binding<OverlayMeasurement>,
+                         hidesUntilMeasured: Bool = true) -> some View {
         background(GeometryReader { proxy in
             Color.clear.preference(
                 key: OverlaySizeKey.self,
                 value: OverlayMeasurement(generation: generation, size: proxy.size))
         })
         .onPreferenceChange(OverlaySizeKey.self) { measurement.wrappedValue = $0 }
-        .opacity(measurement.wrappedValue.generation == generation ? 1 : 0)
+        .opacity(!hidesUntilMeasured || measurement.wrappedValue.generation == generation ? 1 : 0)
     }
 }

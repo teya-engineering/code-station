@@ -189,4 +189,42 @@ struct TranscriptEvidenceBlocksTests {
         #expect(segments.first(where: \.isLogs) != nil)
         #expect(segments.contains { $0.isCode && !$0.isDrawn })
     }
+
+    private func line(_ id: Int, at seconds: Double, _ level: String?) -> GrafanaToolResult.LogEntry {
+        .init(id: id, rawTimestamp: "", date: Date(timeIntervalSince1970: seconds), line: "l", labels: [:],
+              fields: [:], metadata: [:], level: level, message: "l")
+    }
+
+    // The strip above a query's log lines: how many landed in each stretch, by level.
+    @Test func logLinesAreCountedIntoBarsByLevel() throws {
+        let entries = [line(0, at: 1000, "info"), line(1, at: 1002, "ERROR"), line(2, at: 1003, "warn"),
+                       line(3, at: 1004, "error"), line(4, at: 1290, nil)]
+        let rhythm = try #require(LogRhythm(entries))
+
+        // Five minutes of lines fit in bars of five seconds, starting on a whole step.
+        #expect(rhythm.step == 5)
+        #expect(rhythm.start == 1000)
+        #expect(rhythm.buckets.count == 59)
+        #expect(rhythm.buckets[0] == .init(errors: 2, warnings: 1, others: 1))
+        #expect(rhythm.buckets[58] == .init(errors: 0, warnings: 0, others: 1))
+        #expect(rhythm.peak == 4)
+        #expect(rhythm.bucket(of: Date(timeIntervalSince1970: 1004)) == 0)
+        #expect(rhythm.bucket(of: Date(timeIntervalSince1970: 999)) == nil)
+        #expect(rhythm.bucket(of: nil) == nil)
+        #expect(rhythm.stepText == "5 seconds")
+        #expect(rhythm.summary(0) == "2 errors, 1 warning, 1 other")
+    }
+
+    // A handful of lines, or lines that all landed at once, have no rhythm to show.
+    @Test func tooFewLinesDrawNoStrip() {
+        #expect(LogRhythm([line(0, at: 1, nil), line(1, at: 9, nil)]) == nil)
+        #expect(LogRhythm((0..<8).map { line($0, at: 100, "error") }) == nil)
+    }
+
+    // Lines the agent picked say nothing about how busy the log was, so only a whole
+    // query result gets the strip.
+    @Test func pickedLinesAreNotCountedAsVolume() throws {
+        let spec = try TranscriptLogsSpec.parse(#"{"lines":[{"level":"error","message":"deadlock detected"}]}"#).get()
+        #expect(GrafanaResultView.Source(logs: spec).isPicked)
+    }
 }
