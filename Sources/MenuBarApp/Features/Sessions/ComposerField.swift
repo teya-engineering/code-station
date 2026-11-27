@@ -36,6 +36,8 @@ struct ComposerField<TrailingAccessory: View>: View {
     // box takes no files, so a drag over it does nothing.
     var onDropFiles: (([URL]) -> Void)? = nil
     var onFileDragTargeted: ((Bool) -> Void)? = nil
+    // Images and files pasted into the box. Nil when the box takes no attachments.
+    var onPasteAttachments: (([Attachment]) -> Void)? = nil
     // While the app is listening the words are the microphone's, so the box takes no
     // typing and wears the listening colour.
     var listening = false
@@ -65,6 +67,7 @@ struct ComposerField<TrailingAccessory: View>: View {
          onCommandKey: ((CommandKey) -> Bool)? = nil,
          onDropFiles: (([URL]) -> Void)? = nil,
          onFileDragTargeted: ((Bool) -> Void)? = nil,
+         onPasteAttachments: (([Attachment]) -> Void)? = nil,
          minimumLines: Int = 1,
          listening: Bool = false,
          marks: ComposerMarks = ComposerMarks(),
@@ -87,6 +90,7 @@ struct ComposerField<TrailingAccessory: View>: View {
         self.onCommandKey = onCommandKey
         self.onDropFiles = onDropFiles
         self.onFileDragTargeted = onFileDragTargeted
+        self.onPasteAttachments = onPasteAttachments
         self.trailingAccessory = trailingAccessory()
         self.minimumLines = minimumLines
         self.listening = listening
@@ -115,6 +119,7 @@ struct ComposerField<TrailingAccessory: View>: View {
                  onCommandKey: onCommandKey,
                  onDropFiles: onDropFiles,
                  onFileDragTargeted: onFileDragTargeted,
+                 onPasteAttachments: onPasteAttachments,
                  readOnly: listening,
                  marks: marks,
                  onMarkClick: onMarkClick,
@@ -182,6 +187,7 @@ struct TextArea: NSViewRepresentable {
     let onCommandKey: ((CommandKey) -> Bool)?
     var onDropFiles: (([URL]) -> Void)? = nil
     var onFileDragTargeted: ((Bool) -> Void)? = nil
+    var onPasteAttachments: (([Attachment]) -> Void)? = nil
     var readOnly = false
     var marks = ComposerMarks()
     var onMarkClick: ((Int, CGRect) -> Void)? = nil
@@ -558,6 +564,7 @@ struct TextArea: NSViewRepresentable {
 
         // A click on a dotted word asks about it rather than placing the caret.
         override func mouseDown(with event: NSEvent) {
+            reclaimFocusFlag()
             let point = convert(event.locationInWindow, from: nil)
             let index = characterIndexForInsertion(at: point)
             if event.clickCount == 1, let handler = coordinator?.parent.onMarkClick,
@@ -663,8 +670,22 @@ struct TextArea: NSViewRepresentable {
             super.concludeDragOperation(sender)
         }
 
+        // Tests swap in a private pasteboard, so they never touch the person's clipboard.
+        var pasteboard = NSPasteboard.general
+
+        // The composer's key monitor takes command-V first while its focus flag is on.
+        // A paste that gets here came from the Edit menu, or arrived while the flag was
+        // off with the cursor still in the box, so attachments are taken here too.
         override func paste(_ sender: Any?) {
-            guard coordinator?.handleOversizedPaste(from: .general) != true else { return }
+            if let attach = coordinator?.parent.onPasteAttachments {
+                let found = Attachments.fromClipboard(pasteboard)
+                if !found.isEmpty {
+                    reclaimFocusFlag()
+                    attach(found)
+                    return
+                }
+            }
+            guard coordinator?.handleOversizedPaste(from: pasteboard) != true else { return }
             super.paste(sender)
         }
 
@@ -679,6 +700,20 @@ struct TextArea: NSViewRepresentable {
             let took = super.becomeFirstResponder()
             if took { coordinator?.focusChanged(true, in: self) }
             return took
+        }
+
+        // The view can turn the focus flag off without taking the cursor away, since
+        // clearing focus would leave the window with no first responder. A click (see
+        // mouseDown) or a key in the box then turns the flag back on. Otherwise everything
+        // that waits for it, such as pasting an image, stays off while the person types here.
+        override func keyDown(with event: NSEvent) {
+            reclaimFocusFlag()
+            super.keyDown(with: event)
+        }
+
+        private func reclaimFocusFlag() {
+            guard window?.firstResponder === self, coordinator?.parent.isFocused == false else { return }
+            coordinator?.focusChanged(true, in: self)
         }
 
         override func resignFirstResponder() -> Bool {

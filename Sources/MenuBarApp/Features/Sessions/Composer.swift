@@ -146,6 +146,7 @@ struct Composer<Above: View, Accessory: View>: View {
                               onCaretChange: { caret = $0 },
                               onSuggestionKey: onSuggestionKey,
                               onCommandKey: commandKey,
+                              onPasteAttachments: blocked ? nil : { attach($0) },
                               minimumLines: minimumLines,
                               listening: listening,
                               marks: dictationMarks,
