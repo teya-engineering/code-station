@@ -34,6 +34,7 @@ struct SecondOpinionAskCard: View {
     // The coordinate space the session draws the card in.
     nonisolated static let space = "secondOpinionAsk"
     static let width = ReviewMetrics.askWidth
+    private static let trayID = "tune-tray"
     static let previewTurns = 5
 
     let facts: SecondOpinionAskFacts
@@ -140,13 +141,24 @@ struct SecondOpinionAskCard: View {
             }
             .padding(.horizontal, Space.pane)
             .headerBand()
-            MenuContentScrollView(maxHeight: max(0, maxHeight - Theme.headerHeight - footerHeight)) {
-                VStack(alignment: .leading, spacing: Space.xl) {
-                    form
-                    if tuning { tray.transition(reduceMotion ? .opacity : .fold) }
-                    receipt
+            // The tray opens under the receipt, next to the Tune button in the footer, so
+            // the rows above stay where they were. On a short screen it would open out of
+            // sight, so the card scrolls down to it.
+            ScrollViewReader { scroller in
+                MenuContentScrollView(maxHeight: max(0, maxHeight - Theme.headerHeight - footerHeight)) {
+                    VStack(alignment: .leading, spacing: Space.xl) {
+                        form
+                        receipt
+                        if tuning { tray.id(Self.trayID).transition(reduceMotion ? .opacity : .fold) }
+                    }
+                    .padding(Space.pane)
                 }
-                .padding(Space.pane)
+                .onChange(of: tuning) { _, open in
+                    guard open else { return }
+                    withAnimation(reduceMotion ? nil : Motion.reveal) {
+                        scroller.scrollTo(Self.trayID, anchor: .bottom)
+                    }
+                }
             }
             footer.padding(.horizontal, Space.pane).padding(.vertical, Space.lg)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
@@ -184,7 +196,16 @@ struct SecondOpinionAskCard: View {
     // MARK: Form
 
     private var form: some View {
+        // The subject sits last, right above the preview it changes.
         VStack(alignment: .leading, spacing: Space.lg) {
+            FormRow {
+                rowLabel("Reviewer")
+                seats
+            }
+            FormRow {
+                rowLabel("Look for")
+                lookFor
+            }
             FormRow {
                 rowLabel("Review")
                 subjectChoices
@@ -195,14 +216,6 @@ struct SecondOpinionAskCard: View {
                     comparison
                 }
                 .transition(reduceMotion ? .opacity : .fadeIn)
-            }
-            FormRow {
-                rowLabel("Reviewer")
-                seats
-            }
-            FormRow {
-                rowLabel("Look for")
-                lookFor
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
