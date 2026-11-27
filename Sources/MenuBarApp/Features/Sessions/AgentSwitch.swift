@@ -350,7 +350,8 @@ enum AgentSwitch {
     // MARK: - Checking the next CLI
 
     // The number in what "<cli> --version" prints. Each CLI words it differently:
-    // "2.1.220 (Claude Code)", "codex-cli 0.52.0", "GitHub Copilot CLI 1.0.83.".
+    // "2.1.220 (Claude Code)", "codex-cli 0.52.0", "GitHub Copilot CLI 1.0.83.",
+    // "kiro-cli 3.5.0".
     static func versionNumber(from output: String, agent: AgentKind) -> String? {
         guard let line = output.split(whereSeparator: \.isNewline).first else { return nil }
         let words = line.split(separator: " ")

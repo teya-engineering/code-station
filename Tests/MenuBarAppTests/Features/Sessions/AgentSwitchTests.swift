@@ -33,6 +33,25 @@ struct AgentSwitchTests {
         #expect(AgentAccess.copilot(.fullAccess).nearest(on: .claudeCode) == .claudeCode(.auto))
     }
 
+    @Test func kiroTakesClaudesModesExceptRiskyOnly() {
+        #expect(AgentAccess.claudeCode(.auto).nearest(on: .kiro) == .kiro(.acceptEdits))
+        #expect(AgentAccess.claudeCode(.manual).nearest(on: .kiro) == .kiro(.manual))
+        #expect(AgentAccess.claudeCode(.plan).nearest(on: .kiro) == .kiro(.plan))
+        #expect(AgentAccess.kiro(.manual).nearest(on: .claudeCode) == .claudeCode(.manual))
+        #expect(AgentAccess.kiro(.acceptEdits).nearest(on: .codex) == .codex(.workspaceWrite))
+        #expect(AgentAccess.kiro(.acceptEdits).nearest(on: .copilot) == .copilot(.workspace))
+        #expect(AgentAccess.codex(.fullAccess).nearest(on: .kiro) == .kiro(.acceptEdits))
+        #expect(AgentAccess.copilot(.fullAccess).nearest(on: .kiro) == .kiro(.acceptEdits))
+        #expect(!AgentAccess.choices(for: .kiro).contains(.kiro(.auto)))
+    }
+
+    @Test func aKiroSessionHoldingRiskyOnlyRunsAsAllowEdits() {
+        let current = AgentAccess.current(for: .kiro, settings: SessionSettings(permissionMode: .auto),
+                                          defaults: SessionSettings())
+
+        #expect(current == .kiro(.acceptEdits))
+    }
+
     @Test func accessIsWrittenToTheFieldItsAgentReads() {
         var settings = SessionSettings(permissionMode: .manual)
         AgentAccess.codex(.approveForMe).apply(to: &settings)
@@ -137,6 +156,7 @@ struct AgentSwitchTests {
         #expect(AgentSwitch.versionNumber(from: "codex-cli 0.141.2", agent: .codex) == "0.141.2")
         #expect(AgentSwitch.versionNumber(from: "GitHub Copilot CLI 1.0.83.\nRun copilot update",
                                           agent: .copilot) == "1.0.83")
+        #expect(AgentSwitch.versionNumber(from: "kiro-cli 3.5.0", agent: .kiro) == "3.5.0")
     }
 
     // MARK: - The session

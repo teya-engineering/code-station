@@ -133,7 +133,7 @@ struct SessionRunSettingsControls: View {
             let returning = used.contains(other)
             entries.append(.item(
                 other.title, icon: other.symbol, iconTint: other.tint,
-                badge: returning ? "BACK" : nil, badgeTint: other.tint,
+                badge: returning ? "BACK" : other.isBeta ? "BETA" : nil, badgeTint: other.tint,
                 subtitle: installed ? AgentSwitch.blurb(for: other, returning: returning)
                                     : "Not installed. \(other.installHint)",
                 monospacedSubtitle: !installed,
