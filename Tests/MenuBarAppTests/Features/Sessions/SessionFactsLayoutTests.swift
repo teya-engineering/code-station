@@ -31,7 +31,14 @@ struct SessionFactsLayoutTests {
             pullRequestStatuses: [
                 first.url: .init(state: .open, title: "Refine header", headBranch: "topic"),
                 second.url: .init(state: .open, title: "Defaults", headBranch: "topic", isDraft: true)
-            ], model: "Sonnet", cost: 1.24, context: 0.38)
+            ], model: "Sonnet", cost: 1.24, context: 0.38,
+            projects: [
+                .init(id: UUID(), name: "code-station", kind: .lead, branch: "code-station/f35da721",
+                      changes: .init(files: 8, added: 124, removed: 36)),
+                .init(id: UUID(), name: "payments-gateway-acceptance-tests-and-contract-fixtures",
+                      kind: .worktree, branch: "code-station/f35da721-with-a-long-branch-name-to-truncate",
+                      changes: .init(files: 0, added: 0, removed: 0))
+            ], workspace: "code-station + payments-gateway")
         let (window, host) = show(facts: facts, sessionID: sessionID, chip: chip, monitor: monitor,
                                   reduceMotion: reduceMotion)
         defer { window.close() }
@@ -135,8 +142,9 @@ struct SessionFactsLayoutTests {
                     Text("Session header").font(.system(size: 18, weight: .semibold))
                     Spacer()
                     SessionFactsChip(facts: facts, state: .init(tone: .running, since: .now, ticks: true),
-                                     sessionID: sessionID, repositoryCount: 3,
-                                     openChanges: {}, contextActions: { [] }, usageTooltip: { Tooltip(title: "Context") })
+                                     sessionID: sessionID,
+                                     openChanges: {}, contextActions: { [] }, usageTooltip: { Tooltip(title: "Context") },
+                                     attachProject: {})
                         .background(FrameAnchorView(anchor: chip))
                 }
                 .padding(20)

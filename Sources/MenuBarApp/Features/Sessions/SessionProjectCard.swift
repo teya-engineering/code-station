@@ -18,6 +18,10 @@ struct SessionProjectCard: View {
     let retryFetch: () -> Void
     let stopFetch: () -> Void
     var detach: (() -> Void)? = nil
+    // Off where the project is already named beside the card, so it is not said twice.
+    var showsName = true
+    // What the card is still waiting to hear about this project, while it waits.
+    var waiting: String? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -29,31 +33,33 @@ struct SessionProjectCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: Space.lg) {
-                HStack(spacing: Space.md) {
-                    ProjectDot(tint: Theme.projectTint(for: project.name), size: 10)
-                    Text(project.name)
-                        .font(Typography.title)
-                        .lineLimit(1)
-                    if let lead {
-                        if lead {
-                            MonoChip(text: "Lead project", size: Typography.Size.micro, tint: Theme.accent)
-                        } else {
-                            Text("Attached").font(Typography.detail).foregroundStyle(.secondary)
+                if showsName {
+                    HStack(spacing: Space.md) {
+                        ProjectDot(tint: Theme.projectTint(for: project.name), size: 10)
+                        Text(project.name)
+                            .font(Typography.title)
+                            .lineLimit(1)
+                        if let lead {
+                            if lead {
+                                MonoChip(text: "Lead project", size: Typography.Size.micro, tint: Theme.accent)
+                            } else {
+                                Text("Attached").font(Typography.detail).foregroundStyle(.secondary)
+                            }
                         }
-                    }
-                    Spacer()
-                    if let detach {
-                        Button(action: detach) {
-                            Image(systemName: "xmark")
-                                .font(Typography.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 28, height: 28)
-                                .contentShape(Rectangle())
+                        Spacer()
+                        if let detach {
+                            Button(action: detach) {
+                                Image(systemName: "xmark")
+                                    .font(Typography.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 28, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .hoverLift(amount: Motion.smallLift)
+                            .accessibilityLabel("Detach \(project.name) from this session")
+                            .appTooltip("Detach from this session")
                         }
-                        .buttonStyle(.plain)
-                        .hoverLift(amount: Motion.smallLift)
-                        .accessibilityLabel("Detach \(project.name) from this session")
-                        .appTooltip("Detach from this session")
                     }
                 }
                 CheckoutModePicker(usesWorktree: usesWorktree,
@@ -63,10 +69,27 @@ struct SessionProjectCard: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("Checkout mode for \(project.name)")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Space.xl)
             if reachedOrigin, let report {
                 ReachedOriginRow(report: report)
                     .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
+            }
+            if let waiting {
+                VStack(spacing: 0) {
+                    Rectangle().fill(Theme.hairline).frame(height: 1)
+                    HStack(spacing: Space.md) {
+                        LoopSpinner()
+                        Text(waiting)
+                            .font(Typography.detail)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Space.xl)
+                    .padding(.vertical, Space.lg)
+                }
+                .accessibilityElement(children: .combine)
+                .transition(reduceMotion ? .opacity : .asymmetric(insertion: .fadeIn, removal: .fold))
             }
             if let report, showsNotice {
                 VStack(spacing: 0) {
@@ -82,6 +105,7 @@ struct SessionProjectCard: View {
         }
         .smoothlyResizes(when: showsNotice)
         .smoothlyResizes(when: reachedOrigin)
+        .smoothlyResizes(when: waiting)
         .background(Theme.card)
         .overlay(alignment: .leading) {
             if lead == true { Rectangle().fill(Theme.accent).frame(width: 3) }

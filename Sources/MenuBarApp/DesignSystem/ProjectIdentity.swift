@@ -84,3 +84,38 @@ struct ProjectTileBack: View {
         .frame(width: side, height: side)
     }
 }
+
+// The projects of one session or workspace as a short row of tiles, each tucked under
+// the one before, lead first. It says how many there are and whose they are in the room
+// of two letters. A tile that joins lands with `Motion.pop`, and `landing` sends rings
+// out from the newest one. Past `limit` the rest are left to the count beside it.
+struct ProjectLineup: View {
+    let names: [String]
+    var side: CGFloat = 14
+    // The surface the row sits on, drawn round each tile so the overlap reads as a gap.
+    var surface: Color = Theme.card
+    var limit = 4
+    var landing: Int? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let shown = Array(names.prefix(limit))
+        HStack(spacing: -side * 0.3) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { index, name in
+                let tint = Theme.projectTint(for: name)
+                ProjectTileView(name: name, tint: tint, side: side)
+                    .background(RoundedRectangle(cornerRadius: side * 0.27).fill(surface))
+                    .padding(1)
+                    .background(RoundedRectangle(cornerRadius: side * 0.27 + 1).fill(surface))
+                    .landingRings(index == shown.count - 1 ? landing : nil, colour: tint.colour,
+                                  cornerRadius: side * 0.27, reach: 2)
+                    .zIndex(Double(index))
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+            }
+        }
+        .motion(Motion.pop, value: shown)
+        .fixedSize()
+        .accessibilityHidden(true)
+    }
+}

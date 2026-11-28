@@ -307,6 +307,51 @@ struct SessionFactsTests {
                              showsCost: true).changes == nil)
     }
 
+    // Each project answers for its own tree: which checkout it is, the branch that
+    // checkout is on, and what it has changed.
+    @Test func readsEachProjectFromItsOwnCheckout() {
+        let leadID = UUID(), secondID = UUID(), folderID = UUID()
+        let lead = SessionFacts.Checkout(
+            SessionProject(projectID: leadID, worktreePath: "/tmp/lead", worktreeBranch: "made/at-creation"),
+            project: Project(id: leadID, name: "code-station", path: "/tmp/code-station"), isLead: true,
+            snapshot: nil)
+        #expect(lead.kind == .lead)
+        #expect(lead.name == "code-station")
+        // A worktree knows its branch before git has answered, and nothing about its changes.
+        #expect(lead.branch == "made/at-creation")
+        #expect(lead.changes == nil)
+
+        let second = SessionFacts.Checkout(
+            SessionProject(projectID: secondID, worktreePath: "/tmp/second", worktreeBranch: "made/at-creation"),
+            project: Project(id: secondID, name: "engineering", path: "/tmp/engineering"), isLead: false,
+            snapshot: snapshot(branch: "topic", files: [(3, 1), (4, 0)]))
+        #expect(second.kind == .worktree)
+        #expect(second.branch == "topic")
+        #expect(second.changes == .init(files: 2, added: 7, removed: 1))
+
+        let folder = SessionFacts.Checkout(
+            SessionProject(projectID: folderID), project: nil, isLead: false,
+            snapshot: snapshot(branch: ""))
+        #expect(folder.kind == .folder)
+        #expect(folder.name == "Unknown project")
+        #expect(folder.branch == nil)
+        // A clean tree is a known answer, which is not the same as no answer yet.
+        #expect(folder.changes == .init(files: 0, added: 0, removed: 0))
+        #expect([lead, second, folder].map(\.kind.word) == ["LEAD", "WORKTREE", "FOLDER"])
+    }
+
+    @Test func countsTheProjectsOnTheChipOnlyFromTwo() {
+        let state = SessionStateReading(tone: .idle, isNew: true)
+        let one = SessionFacts.Checkout(id: UUID(), name: "code-station", kind: .lead, branch: "main")
+        let two = SessionFacts.Checkout(id: UUID(), name: "engineering", kind: .worktree, branch: "main")
+        #expect(SessionFactsChip.accessibilityLabel(
+            state: state, facts: SessionFacts(branch: "main", projects: [one]), showsBranch: true)
+                == "New session, branch main, session details")
+        #expect(SessionFactsChip.accessibilityLabel(
+            state: state, facts: SessionFacts(branch: "main", projects: [one, two]), showsBranch: true)
+                == "New session, branch main, 2 projects, session details")
+    }
+
     @Test func distinguishesNewSessionsFromFinishedAndRunningOnes() {
         #expect(SessionStateReading(tone: .idle, isNew: true).spokenWord == "New session")
         #expect(SessionStateReading(tone: .running, isNew: true).spokenWord == "Running")

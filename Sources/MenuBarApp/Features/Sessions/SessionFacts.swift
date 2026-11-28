@@ -18,6 +18,45 @@ struct SessionFacts: Equatable {
     var credits: Double?
     var context: Double?
     var agent: AgentKind = .claudeCode
+    // Every checkout the session works in, lead first.
+    var projects: [Checkout] = []
+    // The workspace the session lives in, when it lives in one.
+    var workspace: String?
+
+    // One project as the session has it open: which checkout it is, the branch that
+    // checkout is on and what it has changed. A session with two repositories has two
+    // trees, so each one answers for itself.
+    struct Checkout: Equatable, Identifiable {
+        enum Kind: Equatable {
+            case lead
+            case worktree
+            case folder
+
+            var word: String {
+                switch self {
+                case .lead: "LEAD"
+                case .worktree: "WORKTREE"
+                case .folder: "FOLDER"
+                }
+            }
+        }
+
+        var id: UUID
+        var name: String
+        var kind: Kind
+        var branch: String?
+        // A plain folder has no branch to wait for, so its row says so instead.
+        var isRepository = true
+        // Nil until git has answered for this tree.
+        var changes: Changes?
+    }
+
+    // A project that has just been attached, for the chip to show landing. The count
+    // tells one attach from the next.
+    struct Arrival: Equatable {
+        var projectID: UUID
+        var count: Int
+    }
 
     // What the working tree has done. The file count is missing until git has answered
     // for the tree, so it is the one part of this that can be zero and still mean
@@ -213,7 +252,8 @@ extension SessionFacts {
     // branch from creation, so the branch can draw on the first frame instead of waiting
     // for git and shifting the chip.
     init(session: ChatSession, snapshots: [GitSnapshot?], reviews: [PullRequestReviewStore.Loaded],
-         modelTitle: (String) -> String, showsCost: Bool) {
+         modelTitle: (String) -> String, showsCost: Bool,
+         projects: [Checkout] = [], workspace: String? = nil) {
         let answered = snapshots.compactMap { $0 }
         let hasSnapshots = !snapshots.isEmpty && answered.count == snapshots.count
         self.init(
@@ -230,7 +270,29 @@ extension SessionFacts {
             cost: showsCost && session.agent != .kiro ? session.usage?.costUSD : nil,
             credits: showsCost && session.agent == .kiro ? session.usage?.credits : nil,
             context: session.usage?.contextFraction(for: session.agent),
-            agent: session.agent)
+            agent: session.agent,
+            projects: projects,
+            workspace: workspace)
+    }
+}
+
+extension SessionFacts.Checkout {
+    // Read from the checkout and from what git last said about its folder. A worktree
+    // knows its branch from creation, so that stands in until git answers. The first
+    // checkout leads whatever it is checked out as, since that is the one the agent
+    // runs in.
+    init(_ checkout: SessionProject, project: Project?, isLead: Bool, snapshot: GitSnapshot?) {
+        let branch = snapshot.map(\.branch) ?? checkout.worktreeBranch
+        self.init(
+            id: checkout.projectID,
+            name: project?.name ?? "Unknown project",
+            kind: isLead ? .lead : checkout.worktreePath == nil ? .folder : .worktree,
+            branch: branch.flatMap { $0.isEmpty ? nil : $0 },
+            isRepository: checkout.worktreePath != nil || snapshot != nil
+                || project?.isGitRepository != false,
+            changes: snapshot.map {
+                .init(files: $0.files.count, added: $0.totalAdded, removed: $0.totalRemoved)
+            })
     }
 }
 
@@ -265,7 +327,6 @@ struct SessionFactsChip: View {
     let facts: SessionFacts
     let state: SessionStateReading
     let sessionID: UUID
-    let repositoryCount: Int
     // How wide the branch is allowed to grow before it truncates. A narrow pane hands it
     // less, and a name too long for either cuts from the tail: the end of a branch name
     // is the part that repeats across a project.
@@ -276,6 +337,8 @@ struct SessionFactsChip: View {
     let usageTooltip: () -> Tooltip
     var attachProject: (() -> Void)? = nil
     var attachDisabled = false
+    // Set when a project has just been attached: the card opens on its new row.
+    var arrival: SessionFacts.Arrival? = nil
     // The PR row opens the browser, which leaves nothing in the window to show the click
     // worked, so the header shows a note instead.
     var showNote: (String) -> Void = { _ in }
@@ -301,7 +364,6 @@ struct SessionFactsChip: View {
     @Environment(MenuPresenter.self) private var menus
     @FocusedValue(\.sessionFactsPreview) private var focusedPreview
     @FocusState private var chipFocused: Bool
-    @FocusState private var attachFocused: Bool
     @State private var focusDismissed = false
     @State private var layout = SessionFactsLayout()
     @State private var cardAnchor = FrameAnchor()
@@ -316,9 +378,9 @@ struct SessionFactsChip: View {
     // The pill is a plain button, which rarely holds the keyboard, so Escape is heard
     // across the window for as long as the card is open.
     @State private var escape = WindowKeyMonitor([], "\u{1b}")
-    @State private var copies = 0
-    @State private var showsCopied = false
-    @State private var copiedReset: Task<Void, Never>?
+    // The project whose row is washed while the card it arrived into stays open.
+    @State private var arrived: UUID?
+    @State private var landings = 0
     // How much of the window a compact or a clear just gave back, said beside the meter
     // for a moment so the drop reads as the action working rather than as a glitch.
     @State private var freed: Int?
@@ -378,7 +440,14 @@ struct SessionFactsChip: View {
                     freed = nil
                 }
             }
+            .onChange(of: arrival) { _, arrival in
+                guard let arrival else { return }
+                arrived = arrival.projectID
+                landings += 1
+                pinned = true
+            }
             .onChange(of: isOpen) { _, open in
+                if !open { arrived = nil }
                 if open {
                     escape.start {
                         if menus.isOpen { return false }
@@ -393,7 +462,6 @@ struct SessionFactsChip: View {
             .onChange(of: sessionID) { _, _ in closeCard() }
             .onDisappear {
                 closing?.cancel()
-                copiedReset?.cancel()
                 freedReset?.cancel()
                 escape.stop()
             }
@@ -423,6 +491,7 @@ struct SessionFactsChip: View {
         var parts = [state.shortElapsed.map { "\(state.spokenWord) for \($0)" }
                          ?? state.spokenWord]
         if showsBranch, let branch = facts.namedBranch { parts.append("branch \(branch)") }
+        if facts.projects.count > 1 { parts.append("\(facts.projects.count) projects") }
         parts.append("session details")
         if !facts.pullRequests.isEmpty {
             parts.append("pull requests: \(facts.spokenPullRequestStates)")
@@ -480,6 +549,14 @@ struct SessionFactsChip: View {
             }
             if let lead = facts.leadPullRequest {
                 pullRequestLight(lead)
+            }
+            // One project is already named by the title beside the chip, so the lineup
+            // only appears once there is a second to tell apart.
+            if facts.projects.count > 1 {
+                ProjectLineup(names: facts.projects.map(\.name),
+                              surface: isOpen ? Theme.sunken : Theme.card,
+                              landing: landings > 0 ? landings : nil)
+                    .transition(.fadeIn)
             }
             Image(systemName: "chevron.down")
                 .font(.system(size: 7, weight: .semibold))
@@ -542,7 +619,6 @@ struct SessionFactsChip: View {
 
     private var card: some View {
         VStack(spacing: 0) {
-            previewHeading.frame(height: Theme.headerHeight)
             // The pull requests scroll inside their own section, so the rest of the card
             // stays put however many there are. The body keeps a scroll of its own only
             // for a window too short to hold even that.
@@ -550,8 +626,8 @@ struct SessionFactsChip: View {
                 LeftoverHeightStack(available: bodyHeight, floor: Self.pullRequestFloor) {
                     VStack(spacing: 0) {
                         head
-                        if let changes = facts.changes {
-                            changesRow(changes).transition(.fadeIn)
+                        if !facts.projects.isEmpty || attachProject != nil {
+                            projectsSection
                         }
                         pullRequestsHeading
                     }
@@ -576,6 +652,8 @@ struct SessionFactsChip: View {
         return CardArrivals(
             model: facts.model,
             changes: facts.changes,
+            projects: facts.projects,
+            attachHeld: attachDisabled,
             pullRequests: facts.pullRequests.map { "\($0.url) \(facts.pullRequestTone($0).word)" },
             hasContext: facts.context != nil,
             hasCost: facts.cost != nil,
@@ -587,6 +665,8 @@ struct SessionFactsChip: View {
     private struct CardArrivals: Equatable {
         var model: String?
         var changes: SessionFacts.Changes?
+        var projects: [SessionFacts.Checkout]
+        var attachHeld: Bool
         var pullRequests: [String]
         var hasContext: Bool
         var hasCost: Bool
@@ -595,66 +675,39 @@ struct SessionFactsChip: View {
         var usageProblem: String?
     }
 
-    private var previewHeading: some View {
-        HStack(spacing: Space.md) {
-            VStack(alignment: .leading, spacing: Space.xs) {
-                Text("Session details").font(Typography.body.weight(.semibold))
-                Text([facts.model.map { "\(facts.agent.title) / \($0)" } ?? facts.agent.title,
-                      repositoryCount > 0 ? counted(repositoryCount, "repository", plural: "repositories") : nil]
-                    .compactMap { $0 }.joined(separator: " · "))
-                    .font(Font.system(size: Typography.Size.micro))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .contentTransition(.opacity)
-            }
-            Spacer(minLength: Space.xs)
-            if let attachProject {
-                ActionButton(title: "Attach project", tone: .outlined, height: ControlHeight.md,
-                             icon: "plus.rectangle.on.folder") {
-                    closeCard()
-                    chipFocused = true
-                    attachProject()
-                }
-                .disabled(attachDisabled)
-                .focused($attachFocused)
-                .focusEffectDisabled()
-                .overlay(FocusRingStroke(focused: attachFocused, cornerRadius: ControlHeight.md * 0.25 + 2))
-                .accessibilityLabel("Attach a project to this session")
-            }
-        }
-        .padding(Space.lg)
-    }
-
     private var bodyHeight: CGFloat {
-        max(0, layout.height - Theme.headerHeight - Self.cardGap)
+        max(0, layout.height - Self.cardGap)
     }
 
     // The heading stays over the list while a long one scrolls under it, so the count
-    // is still in view when the rows it counts are not.
+    // is still in view when the rows it counts are not. With none to list it is the
+    // whole section, on one line.
     private var pullRequestsHeading: some View {
-        HStack {
+        HStack(spacing: Space.sm) {
             Text("Pull requests").fontWeight(.semibold)
+            if !facts.pullRequests.isEmpty {
+                CountBadge(count: facts.pullRequests.count)
+            }
             Spacer()
-            Text(facts.pullRequestCountLabel)
-                .foregroundStyle(.secondary)
-                .contentTransition(reduceMotion ? .opacity : .numericText())
+            if facts.pullRequests.isEmpty {
+                Text("None yet").foregroundStyle(.tertiary)
+            } else {
+                Text(facts.pullRequestCountLabel)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(reduceMotion ? .opacity : .numericText())
+            }
         }
         .font(Typography.caption)
         .padding(.horizontal, Space.lg)
         .padding(.top, Space.md)
+        .padding(.bottom, facts.pullRequests.isEmpty ? Space.md : 0)
         .overlay(alignment: .top) { rule }
     }
 
     @ViewBuilder private var pullRequestList: some View {
         if facts.pullRequests.isEmpty {
-            Text("No pull requests yet")
-                .font(Typography.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, Space.lg)
-                .padding(.top, Space.md + Space.xxs)
-                .padding(.bottom, Space.md + Space.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(.fadeIn)
+            // Holds the list's place, so the layout still shares the room three ways.
+            Color.clear.frame(height: 0)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.xxs) {
@@ -677,11 +730,6 @@ struct SessionFactsChip: View {
             }
             if let context = facts.context { contextRow(context).transition(.fadeIn) }
             if let usageMonitor, usageMonitor.supports(facts.agent) {
-                Text("\(facts.agent.title) account usage")
-                    .font(Font.system(size: Typography.Size.micro))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Space.lg)
                 if !usageMonitor.refreshing.contains(facts.agent),
                    usageMonitor.problems[facts.agent] != nil || usageMonitor.usage[facts.agent] == nil {
                     usageNote(usageMonitor).transition(.fadeIn)
@@ -697,9 +745,9 @@ struct SessionFactsChip: View {
         .background(Theme.sunken)
     }
 
-    // The card's head answers both halves of the pill at a size that can be read: the
-    // state with its precise time and the clock time it began, then the name the pill
-    // truncated, with the one action that takes it out of the app beside it.
+    // The card's head says what the pill's first line says at a size that can be read:
+    // the state with its precise time and the clock time it began, then what the
+    // session runs on. The branch the pill names is on its project's row below.
     private var head: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.sm) {
@@ -726,39 +774,20 @@ struct SessionFactsChip: View {
                         .lineLimit(1)
                 }
             }
-            if let branch = facts.namedBranch {
-                HStack(spacing: Space.sm) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(Typography.micro)
-                        .foregroundStyle(.tertiary)
-                    Text(branch)
-                        .font(Typography.code.weight(.semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .background { if !reduceMotion { BrandSweep(trigger: copies) } }
-                    Spacer(minLength: 6)
-                    CopyButton(size: Typography.Size.micro, onCopy: branchCopied) { branch }
-                        .appTooltip("Copy the branch name.")
-                        .overlay { if !reduceMotion { CopyBurst(trigger: copies) } }
-                        .overlay(alignment: .trailing) {
-                            if showsCopied {
-                                Text("Copied")
-                                    .font(Typography.micro)
-                                    .foregroundStyle(Theme.dotOnText)
-                                    .padding(.horizontal, Space.sm)
-                                    .padding(.vertical, Space.xxs)
-                                    .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.card))
-                                    .overlay(RoundedRectangle(cornerRadius: Radius.inset).strokeBorder(Theme.border))
-                                    .fixedSize()
-                                    .offset(x: -24)
-                                    .allowsHitTesting(false)
-                                    .accessibilityHidden(true)
-                                    .transition(.opacity.combined(with: .offset(x: 6)))
-                            }
-                        }
-                        .motion(Motion.reveal, value: showsCopied)
+            HStack(spacing: Space.sm) {
+                ReviewAvatar(agent: facts.agent, size: Typography.Size.title)
+                Text(facts.agent.title)
+                    .font(Typography.detail.weight(.semibold))
+                if let model = facts.model {
+                    Text("/").font(Typography.detail).foregroundStyle(.tertiary)
+                    Text(model)
+                        .font(Typography.detail)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.opacity)
                 }
             }
+            .lineLimit(1)
+            .accessibilityElement(children: .combine)
         }
         .padding(.horizontal, Space.lg)
         .padding(.top, Space.md)
@@ -766,18 +795,6 @@ struct SessionFactsChip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.sunken)
         .overlay(alignment: .bottom) { rule }
-    }
-
-    private func branchCopied() {
-        copies += 1
-        showsCopied = true
-        AccessibilityNotification.Announcement("Copied").post()
-        copiedReset?.cancel()
-        copiedReset = Task {
-            try? await Task.sleep(for: .milliseconds(1_500))
-            guard !Task.isCancelled else { return }
-            showsCopied = false
-        }
     }
 
     private func preciseElapsed(_ text: String) -> some View {
@@ -810,29 +827,50 @@ struct SessionFactsChip: View {
         .frame(height: 34)
     }
 
-    private func changesRow(_ changes: SessionFacts.Changes) -> some View {
-        row("Changes") {
-            CardLink(action: acting(openChanges)) { _ in
-                HStack(spacing: Space.sm) {
-                    if changes.files == 0 && changes.added == 0 && changes.removed == 0 {
-                        Text("No changes").font(Typography.detail).transition(.fadeIn)
-                    } else if changes.files > 0 {
-                        Text(counted(changes.files, "changed file"))
-                            .font(Typography.detail.weight(.medium))
-                            .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(changes.files)))
-                            .transition(.fadeIn)
-                    }
-                    if changes.added != 0 || changes.removed != 0 {
-                        DiffPair(added: changes.added, removed: changes.removed, size: Typography.Size.caption)
-                            .contentTransition(reduceMotion ? .opacity : .numericText())
-                            .transition(.fadeIn)
-                    }
+    // MARK: - Projects
+
+    // One row for each project the session has open, lead first, and the slot that adds
+    // another as the last row, so the way to grow the list sits where the list ends.
+    private var projectsSection: some View {
+        VStack(spacing: Space.xxs) {
+            HStack(spacing: Space.sm) {
+                Text("Projects").fontWeight(.semibold)
+                CountBadge(count: facts.projects.count)
+                    .motion(Motion.pop, value: facts.projects.count)
+                Spacer(minLength: Space.md)
+                if let workspace = facts.workspace {
+                    Text(workspace)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .contentTransition(.opacity)
                 }
-                .lineLimit(1)
             }
-            .disabled(changes.files == 0 && changes.added == 0 && changes.removed == 0)
-            .appTooltip("Opens Changes.")
+            .font(Typography.caption)
+            .padding(.horizontal, Space.xs)
+            .padding(.bottom, Space.xs)
+            ForEach(Array(facts.projects.enumerated()), id: \.element.id) { index, project in
+                SessionProjectRow(project: project,
+                                  // One tree is the whole session, so the transcript's
+                                  // running total can stand in until git answers.
+                                  changes: project.changes ?? (facts.projects.count == 1 ? facts.changes : nil),
+                                  washed: arrived == project.id,
+                                  openChanges: acting(openChanges))
+                    .arrivesInTurn(index)
+                    .transition(.fadeIn)
+            }
+            if let attachProject {
+                AttachProjectSlot(held: attachDisabled) {
+                    closeCard()
+                    chipFocused = true
+                    attachProject()
+                }
+                .arrivesInTurn(facts.projects.count)
+            }
         }
+        .padding(.horizontal, Space.md)
+        .padding(.top, Space.md)
+        .padding(.bottom, Space.md)
     }
 
     // Pull requests are stacked one to a row and share the label, which is what keeps a
@@ -895,7 +933,9 @@ struct SessionFactsChip: View {
         let status = Self.usageStatus(checkedAt: monitor.usage[agent]?.checkedAt,
                                       checking: checking, hasProblem: problem != nil)
         return HStack(spacing: Space.lg) {
-            label("Usage")
+            Text("\(agent.title) usage")
+                .font(Typography.caption.weight(.semibold))
+                .lineLimit(1)
             Spacer(minLength: 0)
             Text(status)
                 .font(Typography.data)
@@ -1187,6 +1227,214 @@ private struct HeldPullRequestRows<Row: View>: View {
 
     var body: some View {
         ForEach(facts.pullRequests(holding: held), id: \.url, content: row)
+    }
+}
+
+// MARK: - The card's projects
+
+// One project the session has open: its tile and name, which checkout it is, the branch
+// that checkout is on with a way to copy it, and what it has changed as the way into
+// Changes. The name and branch give way to a long value, so the changes keep their
+// place at the trailing edge whatever the row is called.
+private struct SessionProjectRow: View {
+    let project: SessionFacts.Checkout
+    let changes: SessionFacts.Changes?
+    // The project has just been attached, so the row is marked as it arrives.
+    let washed: Bool
+    let openChanges: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var copyFocused: Bool
+    @State private var hovering = false
+    @State private var copies = 0
+    @State private var showsCopied = false
+    @State private var copiedReset: Task<Void, Never>?
+    @State private var landed = false
+
+    private var tint: Theme.ProjectTint { Theme.projectTint(for: project.name) }
+
+    private var hasChanges: Bool {
+        guard let changes else { return false }
+        return changes.files > 0 || changes.added != 0 || changes.removed != 0
+    }
+
+    var body: some View {
+        HStack(spacing: Space.md) {
+            ProjectTileView(name: project.name, tint: tint, side: ControlHeight.md)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
+                    Text(project.name)
+                        .font(Typography.body.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    MonoChip(text: project.kind.word, size: Typography.Size.micro,
+                             tint: project.kind == .lead ? Theme.accent : nil)
+                        .fixedSize()
+                }
+                branchLine
+            }
+            .layoutPriority(1)
+            Spacer(minLength: Space.md)
+            changesReading
+                .fixedSize()
+                .layoutPriority(2)
+        }
+        .padding(.horizontal, Space.xs)
+        .padding(.vertical, Space.sm)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(hovering ? Theme.sunken : .clear))
+        .washes(on: landed, colour: tint.colour, strength: 0.22, cornerRadius: Radius.control, outset: 0)
+        .contentShape(Rectangle())
+        .onPointerHover { hovering = $0 }
+        .motion(Motion.hover, value: hovering)
+        .onAppear { if washed { landed = true } }
+        .onDisappear { copiedReset?.cancel() }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(project.name), \(project.kind.word.lowercased())")
+    }
+
+    @ViewBuilder private var branchLine: some View {
+        if let branch = project.branch {
+            HStack(spacing: Space.xs) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(Typography.micro)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+                Text(branch)
+                    .font(Typography.data)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .background { if !reduceMotion { BrandSweep(trigger: copies) } }
+                    .accessibilityLabel("Branch \(branch)")
+                CopyButton(size: Typography.Size.micro, onCopy: copied) { branch }
+                    .focused($copyFocused)
+                    .appTooltip("Copy the branch name.")
+                    .accessibilityLabel("Copy the branch name of \(project.name)")
+                    .overlay { if !reduceMotion { CopyBurst(trigger: copies) } }
+                    .overlay(alignment: .leading) {
+                        if showsCopied {
+                            Text("Copied")
+                                .font(Typography.micro)
+                                .foregroundStyle(Theme.dotOnText)
+                                .padding(.horizontal, Space.sm)
+                                .padding(.vertical, Space.xxs)
+                                .background(RoundedRectangle(cornerRadius: Radius.inset).fill(Theme.card))
+                                .overlay(RoundedRectangle(cornerRadius: Radius.inset).strokeBorder(Theme.border))
+                                .fixedSize()
+                                .alignmentGuide(.leading) { _ in -Space.xl }
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                                .transition(.opacity.combined(with: .offset(x: -Space.sm)))
+                        }
+                    }
+                    // Out of the way until the row is pointed at or reached by Tab.
+                    .opacity(hovering || copyFocused || showsCopied ? 1 : 0)
+                    .motion(Motion.reveal, value: showsCopied)
+            }
+        } else if !project.isRepository {
+            Text("not a Git repository")
+                .font(Typography.data)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder private var changesReading: some View {
+        if let changes, hasChanges {
+            CardLink(action: openChanges) { _ in
+                HStack(spacing: Space.sm) {
+                    if changes.files > 0 {
+                        Text(counted(changes.files, "file"))
+                            .font(Typography.detail.weight(.medium))
+                            .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(changes.files)))
+                    }
+                    if changes.added != 0 || changes.removed != 0 {
+                        DiffPair(added: changes.added, removed: changes.removed, size: Typography.Size.caption)
+                            .contentTransition(reduceMotion ? .opacity : .numericText())
+                    }
+                }
+                .lineLimit(1)
+            }
+            .appTooltip("Opens Changes.")
+            .accessibilityLabel("\(counted(changes.files, "changed file")) in \(project.name), "
+                                + "\(changes.added) added, \(changes.removed) removed. Opens Changes.")
+            .transition(.fadeIn)
+        } else if changes != nil {
+            Text("No changes")
+                .font(Typography.detail)
+                .foregroundStyle(.tertiary)
+                .padding(.trailing, Space.xs)
+                .transition(.fadeIn)
+        }
+    }
+
+    private func copied() {
+        copies += 1
+        showsCopied = true
+        AccessibilityNotification.Announcement("Copied").post()
+        copiedReset?.cancel()
+        copiedReset = Task {
+            try? await Task.sleep(for: .milliseconds(1_500))
+            guard !Task.isCancelled else { return }
+            showsCopied = false
+        }
+    }
+}
+
+// The last row of the projects: an empty slot that opens the sheet to fill it. While a
+// turn runs it cannot be used, and it says so in its own words rather than only going
+// grey, with the full reason on hover.
+private struct AttachProjectSlot: View {
+    let held: Bool
+    let action: () -> Void
+
+    static let heldReason = "Wait for this turn to finish, then attach a project."
+
+    @FocusState private var focused: Bool
+    @State private var hovering = false
+
+    private var lit: Bool { hovering && !held }
+
+    var body: some View {
+        Button {
+            if !held { action() }
+        } label: {
+            HStack(spacing: Space.md) {
+                Image(systemName: "plus")
+                    .font(Typography.label)
+                    .foregroundStyle(lit ? Theme.onFill : Theme.accent)
+                    .frame(width: ControlHeight.md, height: ControlHeight.md)
+                    .background(RoundedRectangle(cornerRadius: Radius.control)
+                        .fill(lit ? Theme.accentFill : Theme.accent.opacity(0.07)))
+                Text("Attach project")
+                    .font(Typography.label)
+                    .foregroundStyle(Theme.accent)
+                Spacer(minLength: Space.md)
+                Text(held ? "Held while the agent is running" : "Give this session another repository")
+                    .font(Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+            }
+            .padding(.horizontal, Space.xs)
+            .padding(.vertical, Space.sm)
+            .padding(.trailing, Space.xs)
+            .dashedSlot(lit ? Theme.accent : Color.primary.opacity(0.22), filled: lit)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
+            .opacity(held ? 0.5 : 1)
+        }
+        .buttonStyle(PressDip(scale: held ? 1 : 0.99))
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(FocusRingStroke(focused: focused, cornerRadius: Radius.control))
+        .onPointerHover { hovering = $0 }
+        .motion(Motion.hover, value: lit)
+        .motion(Motion.control, value: held)
+        .appTooltip(held ? Self.heldReason : nil)
+        .accessibilityLabel("Attach a project to this session")
+        .accessibilityHint(held ? Self.heldReason : "")
+        .padding(.top, Space.xs)
     }
 }
 

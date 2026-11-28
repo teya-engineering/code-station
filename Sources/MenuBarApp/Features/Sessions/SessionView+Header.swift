@@ -116,7 +116,13 @@ extension SessionView {
             session: session, snapshots: treeSnapshots(session),
             reviews: pullRequestReviews.loaded[session.id] ?? [],
             modelTitle: { runner.catalog.modelTitle($0) },
-            showsCost: appSettings.showsCost(for: session.agent))
+            showsCost: appSettings.showsCost(for: session.agent),
+            projects: store.checkoutProjects(for: session).enumerated().map { index, checkout in
+                SessionFacts.Checkout(checkout, project: store.project(checkout.projectID),
+                                      isLead: index == 0,
+                                      snapshot: store.root(of: checkout).flatMap { gitStats.snapshot(at: $0) })
+            },
+            workspace: session.workspaceID.flatMap { store.workspace($0)?.name })
         let tone = SessionTone(sessionID, store: store, runner: runner)
         // The deck stands for both of a session's conversations, so a Design turn is what
         // it counts while Design is the side running.
@@ -134,7 +140,6 @@ extension SessionView {
                 state: sessionState(tone: tone, conversation: live,
                                     isTroubleshooting: session.isTroubleshooting),
                 sessionID: session.id,
-                repositoryCount: store.workingDirectories(for: session).count,
                 maxWidth: fit == .whole ? Self.branchRoom : Self.foldedBranchRoom,
                 showsBranch: tab != .changes,
                 openChanges: openChanges,
@@ -148,6 +153,7 @@ extension SessionView {
                     || store.project(session.projectID)?.kind == .project
                     ? { attachingProject = true } : nil,
                 attachDisabled: runner.state(sessionID).isBusy || runner.isBeingRemoved(sessionID),
+                arrival: attachArrival,
                 showNote: { showRailNote($0) })
         }
         .fixedSize(horizontal: false, vertical: true)

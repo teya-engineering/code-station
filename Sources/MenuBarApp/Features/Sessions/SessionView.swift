@@ -70,6 +70,10 @@ struct SessionView: View {
     @State private var explorerShowsDesignFiles = false
     @State var shortcutEditor: ShortcutEditorRequest?
     @State var attachingProject = false
+    // The project the sheet just attached, held until the sheet has gone so the card
+    // opens on it in a clear window.
+    @State var attachedProjectID: UUID?
+    @State var attachArrival: SessionFacts.Arrival?
     @State var composerBarWidth: CGFloat = 340
     @State var exportingDesignMaterials = false
     @State private var fileReferenceReturn = false
@@ -324,11 +328,16 @@ struct SessionView: View {
                 }
                 .appOverlays()
             }
-            .sheet(isPresented: $attachingProject) {
-                AttachProjectSheet(sessionID: sessionID) { newWorkspace in
-                    if let newWorkspace {
-                        showRailNote("Moved into the \(newWorkspace) workspace", icon: "checkmark")
-                    }
+            .sheet(isPresented: $attachingProject, onDismiss: {
+                guard let attached = attachedProjectID else { return }
+                attachedProjectID = nil
+                attachArrival = .init(projectID: attached, count: (attachArrival?.count ?? 0) + 1)
+            }) {
+                AttachProjectSheet(sessionID: sessionID) { project, newWorkspace in
+                    showRailNote(newWorkspace.map {
+                        "\(project.name) attached. This session is now in \($0)."
+                    } ?? "\(project.name) attached.", icon: "checkmark")
+                    attachedProjectID = project.id
                     guard let current = store.session(sessionID) else { return }
                     let roots = store.workingDirectories(for: current)
                     if let added = roots.last { collapsedExplorerProjects.insert(added) }
