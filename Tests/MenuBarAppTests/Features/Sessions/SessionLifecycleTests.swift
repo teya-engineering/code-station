@@ -248,7 +248,7 @@ struct SessionLifecycleTests {
 
         let updated = try await SessionLifecycle.attachProject(
             third, to: session, useWorktree: true, base: nil, carryChanges: true,
-            store: store, composer: composer, worktrees: worktrees).get()
+            newWorkspaceRemovalDays: nil, store: store, composer: composer, worktrees: worktrees).get()
 
         #expect(updated.sessionProjects?.last == SessionProject(
             projectID: third.id, worktreePath: planned.path, worktreeBranch: "feature/login"))
@@ -271,7 +271,7 @@ struct SessionLifecycleTests {
 
         let updated = try await SessionLifecycle.attachProject(
             other, to: session, useWorktree: false, base: nil, carryChanges: false,
-            store: store, composer: composer).get()
+            newWorkspaceRemovalDays: nil, store: store, composer: composer).get()
 
         let updatedDesign = try #require(store.session(design.id))
         #expect(updatedDesign.workspaceID == updated.workspaceID)
@@ -312,7 +312,7 @@ struct SessionLifecycleTests {
 
         let result = await SessionLifecycle.attachProject(
             third, to: session, useWorktree: true, base: nil, carryChanges: false,
-            store: store, worktrees: worktrees)
+            newWorkspaceRemovalDays: nil, store: store, worktrees: worktrees)
 
         guard case .failure = result else {
             Issue.record("Expected saving the attach to fail")
@@ -346,7 +346,7 @@ struct SessionLifecycleTests {
 
         let result = await SessionLifecycle.attachProject(
             other, to: session, useWorktree: true, base: nil, carryChanges: false,
-            store: store, worktrees: worktrees)
+            newWorkspaceRemovalDays: nil, store: store, worktrees: worktrees)
 
         guard case .failure(let failure) = result else {
             Issue.record("Expected saving the attach to fail")

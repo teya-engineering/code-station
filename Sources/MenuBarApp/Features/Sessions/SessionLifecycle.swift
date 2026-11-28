@@ -209,6 +209,7 @@ enum SessionLifecycle {
 
     static func attachProject(_ project: Project, to session: ChatSession,
                               useWorktree: Bool, base: String?, carryChanges: Bool,
+                              newWorkspaceRemovalDays: Int?,
                               store: ProjectStore,
                               composer: SessionComposerStore? = nil,
                               worktrees: WorktreeOperations = .live) async
@@ -250,7 +251,8 @@ enum SessionLifecycle {
             }
         }
 
-        switch store.attachProject(checkout, toSession: session.id) {
+        switch store.attachProject(checkout, toSession: session.id,
+                                   newWorkspaceRemovalDays: newWorkspaceRemovalDays) {
         case .success(let updated):
             let path = checkout.worktreePath ?? project.path
             let note = (["I attached \(project.name) to this session at \(path). Before editing "

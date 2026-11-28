@@ -368,9 +368,30 @@ struct TranscriptStoreTests {
         let extra = SessionProject(projectID: web.id, worktreePath: "/work/web", worktreeBranch: nil)
 
         #expect(throws: PersistenceFailure.self) {
-            try store.attachProject(extra, toSession: workspaceSession.id).get()
+            try store.attachProject(extra, toSession: workspaceSession.id,
+                                    newWorkspaceRemovalDays: nil).get()
         }
         #expect(store.session(workspaceSession.id)?.sessionProjects == checkouts)
+    }
+
+    // The removal days are for a workspace the attach makes. One the session is already
+    // in keeps its own rule.
+    @Test func attachingIntoAWorkspaceLeavesItsRemovalRuleAlone() throws {
+        let api = try project()
+        let web = try project()
+        let extra = try project()
+        let workspace = try #require(store.addWorkspace(name: "Checkout",
+                                                        projectIDs: [api.id, web.id],
+                                                        leadProjectID: api.id))
+        let checkouts = [SessionProject(projectID: api.id, worktreePath: nil, worktreeBranch: nil),
+                         SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil)]
+        let session = try #require(store.newSession(in: workspace.id, projects: checkouts))
+
+        _ = try store.attachProject(SessionProject(projectID: extra.id, worktreePath: nil,
+                                                   worktreeBranch: nil),
+                                    toSession: session.id, newWorkspaceRemovalDays: 3).get()
+
+        #expect(store.workspace(workspace.id)?.removeWhenEmptyAfterDays == nil)
     }
 
     @Test func attachingToASingleProjectSessionMovesItIntoAWorkspaceOfBoth() throws {
@@ -380,10 +401,12 @@ struct TranscriptStoreTests {
                                       worktreeBranch: "code-station/1")
         let extra = SessionProject(projectID: web.id, worktreePath: nil, worktreeBranch: nil)
 
-        let updated = try store.attachProject(extra, toSession: single.id).get()
+        let updated = try store.attachProject(extra, toSession: single.id,
+                                              newWorkspaceRemovalDays: 3).get()
 
         let workspace = try #require(updated.workspaceID.flatMap(store.workspace))
         #expect(workspace.name == "\(api.name) + \(web.name)")
+        #expect(workspace.removeWhenEmptyAfterDays == 3)
         #expect(workspace.projectIDs == [api.id, web.id])
         #expect(workspace.leadProjectID == api.id)
         #expect(workspace.worktreeProjectIDs == [api.id])

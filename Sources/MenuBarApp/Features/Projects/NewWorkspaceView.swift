@@ -90,7 +90,9 @@ struct NewWorkspaceView: View {
             // list as it was does not start an animation.
             .motion(Motion.reveal, value: filteredProjects.map(\.id))
 
-            RemoveWhenEmptyBand(isOn: $removesWhenEmpty,
+            RemoveWhenEmptyBand(title: "Remove it when it sits empty",
+                                offNote: "Off: the workspace stays until you delete it. Turn on for a short job.",
+                                isOn: $removesWhenEmpty,
                                 days: Binding(get: { removalDays ?? settings.oldSessionDays },
                                               set: { removalDays = $0 }),
                                 oldSessionDays: settings.oldSessionDays)
@@ -397,107 +399,5 @@ private struct ProjectTally: View {
         .background(Theme.workspaceTint.fill, in: Capsule())
         .fixedSize()
         .accessibilityHidden(true)
-    }
-}
-
-// The one setting about a workspace's life. Off, it reads as a quiet note that the
-// workspace stays; on, it opens a sentence that says when it goes.
-private struct RemoveWhenEmptyBand: View {
-    @Binding var isOn: Bool
-    @Binding var days: Int
-    let oldSessionDays: Int
-
-    @State private var detailHeight: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Toggle(isOn: Binding(get: { isOn }, set: { on in
-                if reduceMotion { isOn = on } else { withAnimation(Motion.reveal) { isOn = on } }
-            })) {
-                HStack(spacing: Space.lg) {
-                    Image(systemName: "hourglass")
-                        .font(Typography.body.weight(.semibold))
-                        .foregroundStyle(isOn ? Theme.workspaceTint.ink : Color.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(isOn ? Theme.workspaceTint.fill : Theme.field,
-                                    in: RoundedRectangle(cornerRadius: Radius.control))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Remove it when it sits empty")
-                            .font(Typography.body.weight(.semibold))
-                        Text(isOn
-                             ? "On: it goes once it has had no session for a while. Its projects stay."
-                             : "Off: the workspace stays until you delete it. Turn on for a short job.")
-                            .font(Typography.detail)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .contentTransition(.opacity)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-            .toggleStyle(.appSwitch)
-
-            // Always laid out and measured, so the band grows by the sentence's real
-            // height and the sheet's window glides with it rather than jumping.
-            detail
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailHeight = $0 }
-                .opacity(isOn ? 1 : 0)
-                .offset(y: isOn || reduceMotion ? 0 : -3)
-                .modifier(AnimatedHeight(height: isOn ? detailHeight : 0, alignment: .top))
-                .clipped()
-                .allowsHitTesting(isOn)
-                .accessibilityHidden(!isOn)
-        }
-        .padding(.horizontal, Space.pane)
-        .padding(.vertical, Space.lg)
-        .background(Theme.statusBand)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
-    }
-
-    private var detail: some View {
-        HStack(spacing: Space.md) {
-            Text("Remove after")
-            DayField(days: $days, accessibilityLabel: "Days the workspace may sit empty")
-            Text("with no session in it.")
-            if days == oldSessionDays {
-                Text("Same as old sessions")
-                    .font(Typography.caption.weight(.semibold))
-                    .foregroundStyle(Theme.workspaceTint.ink)
-                    .padding(.horizontal, Space.sm)
-                    .padding(.vertical, Space.xxs)
-                    .background(Theme.workspaceTint.fill, in: Capsule())
-                    .transition(.fadeIn)
-            }
-            Spacer(minLength: 0)
-        }
-        .font(Typography.body)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, Space.lg)
-        .padding(.vertical, Space.md)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Theme.border, lineWidth: 1))
-        .motion(Motion.control, value: days == oldSessionDays)
-        .padding(.leading, 40)
-        .padding(.top, Space.md)
-    }
-}
-
-// The sheet's window takes the size of its content but jumps straight to a new size, even
-// inside an animation. Being animatable makes SwiftUI lay the list out again at every step
-// of the curve, so the window is handed each height in turn and glides to the new one.
-nonisolated private struct AnimatedHeight: ViewModifier, Animatable {
-    var height: CGFloat
-    var alignment: Alignment = .center
-
-    var animatableData: CGFloat {
-        get { height }
-        set { height = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        content.frame(height: height, alignment: alignment)
     }
 }

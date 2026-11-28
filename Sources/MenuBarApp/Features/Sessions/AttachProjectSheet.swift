@@ -11,6 +11,7 @@ struct AttachProjectSheet: View {
     @Environment(DialogPresenter.self) private var dialogs
     @Environment(ProjectStore.self) private var store
     @Environment(SessionRunner.self) private var runner
+    @Environment(AppSettings.self) private var settings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let longestWait: Duration = .seconds(12)
@@ -34,6 +35,12 @@ struct AttachProjectSheet: View {
     @State private var retries = FreshnessRetries()
     @State private var working: String?
     @State private var canFork = false
+    // On by default for the workspace the attach makes, since nobody set out to make it.
+    // Kept across picks, so choosing another project does not undo the choice.
+    @State private var removesWhenEmpty = true
+    // Nil until the stepper is touched, so the count follows the old session setting.
+    @State private var removalDays: Int?
+    @State private var keptForGood = false
 
     @State private var query = ""
     // The row Return will pick, moved by the arrow keys and by the pointer.
@@ -78,6 +85,8 @@ struct AttachProjectSheet: View {
             }
             .scrollCap(ScrollCap.tall)
 
+            workspaceLife
+
             SheetFooter(primary: SheetAction(title: working == nil ? "Attach" : "Attaching",
                                              enabled: canAttach, shortcut: .defaultAction, hint: "⏎",
                                              blockedReason: blockedReason,
@@ -120,6 +129,10 @@ struct AttachProjectSheet: View {
         .onChange(of: blockedReason) { _, reason in
             AccessibilityNotification.Announcement(reason ?? note).post()
         }
+        // The rule is spoken as it changes, so it is heard before Attach is pressed.
+        .onChange(of: removesWhenEmpty) { _, _ in
+            AccessibilityNotification.Announcement(note).post()
+        }
         .task { await readBranches() }
         .task(id: projectID) { await check() }
         .task(id: projectID) {
@@ -147,9 +160,13 @@ struct AttachProjectSheet: View {
             StatusValue(text: workspaceReading, tint: .primary, truncation: .middle)
                 .contentTransition(.opacity)
                 .washes(on: workspaceReading)
+            if let removalReading {
+                RemovalChip(days: removalReading).transition(.opacity)
+            }
             Spacer(minLength: 0)
         }
         .motion(Motion.control, value: projectCount)
+        .motion(Motion.control, value: removalReading == nil)
         .accessibilityElement(children: .combine)
         .statusBand(padding: Space.pane)
     }
@@ -158,6 +175,13 @@ struct AttachProjectSheet: View {
 
     private var projectCount: Int {
         (session.map { store.checkoutProjects(for: $0).count } ?? 0) + (seated == nil ? 0 : 1)
+    }
+
+    // The days the workspace may sit empty, for the workspace the session is in or the
+    // one the attach will make.
+    private var removalReading: Int? {
+        if let workspace { return workspace.removeWhenEmptyAfterDays }
+        return showsRemovalChoice ? newWorkspaceRemovalDays : nil
     }
 
     private var workspaceReading: String {
@@ -498,6 +522,39 @@ struct AttachProjectSheet: View {
         }
     }
 
+    // MARK: - Workspace life
+
+    // The workspace the attach makes is a by-product, so it removes itself unless told
+    // not to. A workspace the session is already in keeps its own rule, which is only
+    // reported here.
+    private var workspaceLife: some View {
+        VStack(spacing: 0) {
+            if showsRemovalChoice {
+                RemoveWhenEmptyBand(title: "Remove the new workspace when it sits empty",
+                                    offNote: "Off: the workspace stays until you delete it.",
+                                    isOn: $removesWhenEmpty,
+                                    days: Binding(get: { chosenRemovalDays }, set: { removalDays = $0 }),
+                                    oldSessionDays: settings.oldSessionDays)
+                    .transition(cardTransition)
+            } else if let workspace, let days = workspace.removeWhenEmptyAfterDays {
+                WorkspaceRemovalNotice(name: workspace.name, days: days) {
+                    store.keepForGood(workspace: workspace.id)
+                    keptForGood = true
+                }
+                .transition(cardTransition)
+            }
+        }
+        .motion(Motion.reveal, value: showsRemovalChoice)
+        .motion(Motion.reveal, value: workspace?.removeWhenEmptyAfterDays)
+    }
+
+    // Shown once the picked tile has landed, since that is when the new workspace is named.
+    private var showsRemovalChoice: Bool { landed && newWorkspaceName != nil }
+
+    private var chosenRemovalDays: Int { removalDays ?? settings.oldSessionDays }
+
+    private var newWorkspaceRemovalDays: Int? { removesWhenEmpty ? chosenRemovalDays : nil }
+
     // MARK: - Footer
 
     // How far the attach has got, drawn along the top of the footer. It stops short of
@@ -611,15 +668,30 @@ struct AttachProjectSheet: View {
     private var isFetching: Bool { project != nil && activeFetches > 0 && !gaveUpWaiting }
 
     private var note: String {
-        guard project != nil else { return "Choose a project to attach." }
-
-        let updates = updatesCheckout || fastForwardsDefaultBranch
-        if useWorktree {
-            return updates ? "Will update the project folder. 1 worktree will be created."
-                : "1 worktree will be created."
+        guard project != nil else {
+            return (["Choose a project to attach."] + [keptNote].compactMap { $0 }).joined(separator: " ")
         }
 
-        return updates ? "Will update the project folder." : "The project folder is used as it is."
+        let updates = updatesCheckout || fastForwardsDefaultBranch
+        let checkout = if useWorktree {
+            updates ? "Will update the project folder. 1 worktree will be created."
+                : "1 worktree will be created."
+        } else {
+            updates ? "Will update the project folder." : "The project folder is used as it is."
+        }
+
+        return ([checkout] + [removalNote ?? keptNote].compactMap { $0 }).joined(separator: " ")
+    }
+
+    private var removalNote: String? {
+        guard showsRemovalChoice else { return nil }
+        return newWorkspaceRemovalDays.map { "The workspace goes after \(counted($0, "day")) empty." }
+            ?? "The workspace stays."
+    }
+
+    private var keptNote: String? {
+        guard keptForGood, let workspace else { return nil }
+        return "\(workspace.name) is now kept for good."
     }
 
     private var canAttach: Bool { project != nil && waitingOn == nil }
@@ -707,6 +779,7 @@ struct AttachProjectSheet: View {
             project, to: session, useWorktree: useWorktree,
             base: useWorktree && startPoint == .remote ? freshness?.remoteRef : nil,
             carryChanges: useWorktree && carryChanges && freshness?.dirty == true,
+            newWorkspaceRemovalDays: newWorkspaceRemovalDays,
             store: store, composer: runner.composer)
         working = nil
         switch result {
@@ -726,6 +799,29 @@ struct AttachProjectSheet: View {
 final class TileFrames {
     var tiles: [UUID: CGRect] = [:]
     var seat: CGRect?
+}
+
+// The reading's mark for a workspace that removes itself: an hourglass and its days.
+private struct RemovalChip: View {
+    let days: Int
+
+    var body: some View {
+        HStack(spacing: Space.xxs) {
+            Image(systemName: "hourglass")
+                .font(Typography.micro)
+            Text("\(days)d")
+                .contentTransition(.numericText(value: Double(days)))
+        }
+        .font(Typography.data.weight(.semibold))
+        .foregroundStyle(Theme.workspaceTint.ink)
+        .padding(.horizontal, Space.sm)
+        .padding(.vertical, Space.xxs)
+        .background(Theme.workspaceTint.fill, in: Capsule())
+        .fixedSize()
+        .motion(Motion.control, value: days)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("removes itself after \(counted(days, "day")) empty")
+    }
 }
 
 // The line between two seats of the lineup.

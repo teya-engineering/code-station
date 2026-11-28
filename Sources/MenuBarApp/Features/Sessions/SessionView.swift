@@ -334,8 +334,12 @@ struct SessionView: View {
                 attachArrival = .init(projectID: attached, count: (attachArrival?.count ?? 0) + 1)
             }) {
                 AttachProjectSheet(sessionID: sessionID) { project, newWorkspace in
-                    showRailNote(newWorkspace.map {
-                        "\(project.name) attached. This session is now in \($0)."
+                    let days = store.session(sessionID)?.workspaceID
+                        .flatMap { store.workspace($0)?.removeWhenEmptyAfterDays }
+                    showRailNote(newWorkspace.map { name in
+                        "\(project.name) attached. This session is now in \(name), which "
+                            + (days.map { "removes itself \(counted($0, "day")) after its last session." }
+                                ?? "stays until you delete it.")
                     } ?? "\(project.name) attached.", icon: "checkmark")
                     attachedProjectID = project.id
                     guard let current = store.session(sessionID) else { return }

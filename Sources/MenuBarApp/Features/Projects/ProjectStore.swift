@@ -1079,7 +1079,10 @@ final class ProjectStore {
         }
     }
 
-    func attachProject(_ checkout: SessionProject, toSession sessionID: UUID)
+    // A session that has no workspace yet moves into a new one, which removes itself
+    // after the given days empty, or stays for good when there are none.
+    func attachProject(_ checkout: SessionProject, toSession sessionID: UUID,
+                       newWorkspaceRemovalDays: Int?)
         -> Result<ChatSession, PersistenceFailure> {
         let refused = PersistenceFailure(message: "The project could not be attached to this session.")
         guard let i = index(sessionID), let attached = project(checkout.projectID) else {
@@ -1100,7 +1103,7 @@ final class ProjectStore {
                   let workspace = insertWorkspace(
                       name: ProjectWorkspace.name(joining: lead.name, attached.name),
                       projectIDs: [lead.id, attached.id], leadProjectID: lead.id,
-                      removeWhenEmptyAfterDays: nil, now: Date()) else {
+                      removeWhenEmptyAfterDays: newWorkspaceRemovalDays, now: Date()) else {
                 return .failure(refused)
             }
             if let w = workspaces.firstIndex(where: { $0.id == workspace.id }) {

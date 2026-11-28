@@ -29,6 +29,7 @@ struct AttachProjectSheetTests {
             AttachProjectSheet(sessionID: session.id) { project, _ in attached.append(project.name) }
                 .environment(store)
                 .environment(SessionRunner(store: store, preferences: scratch.preferences.store, paths: [:]))
+                .environment(AppSettings(preferences: scratch.preferences.store))
                 .environment(\._accessibilityReduceMotion, reduceMotion)
                 .appOverlays())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
@@ -58,6 +59,53 @@ struct AttachProjectSheetTests {
         #expect(store.checkoutProjects(for: try #require(store.session(session.id))).count == 1)
     }
 
+    // The workspace an attach makes is a by-product, so by default it removes itself
+    // after as many days as an old session.
+    @Test func theNewWorkspaceRemovesItselfByDefault() async throws {
+        let (store, scratch) = TestStore.make()
+        let lead = try TestStore.project(in: store, named: "lead")
+        let other = try TestStore.project(in: store, named: "other")
+        let session = store.newSession(in: lead.id)
+        let settings = AppSettings(preferences: scratch.preferences.store)
+        settings.oldSessionDays = 4
+        var attached: [String?] = []
+        let host = NSHostingController(rootView:
+            AttachProjectSheet(sessionID: session.id) { _, workspace in attached.append(workspace) }
+                .environment(store)
+                .environment(SessionRunner(store: store, preferences: scratch.preferences.store, paths: [:]))
+                .environment(settings)
+                .environment(\._accessibilityReduceMotion, true)
+                .appOverlays())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentViewController = host
+        defer { window.contentViewController = nil }
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        window.layoutIfNeeded()
+
+        #expect(await waitUntil { window.firstResponder is NSTextView })
+        let editor = try #require(window.firstResponder as? NSTextView)
+        editor.insertText(other.name, replacementRange: NSRange(location: NSNotFound, length: 0))
+        await settle(host.view)
+        editor.insertNewline(nil)
+        await settle(host.view, rounds: 40)
+        try snapshot(host.view, named: "attach-new-workspace-removal")
+
+        let returnKey = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        _ = window.performKeyEquivalent(with: returnKey)
+        #expect(await waitUntil { !attached.isEmpty })
+
+        let workspace = try #require(store.session(session.id)?.workspaceID.flatMap(store.workspace))
+        #expect(attached == [workspace.name])
+        #expect(workspace.removeWhenEmptyAfterDays == 4)
+    }
+
     @Test func aSearchWithNoMatchSaysSo() async throws {
         let (store, scratch) = TestStore.make()
         let lead = try TestStore.project(in: store, named: "lead")
@@ -67,6 +115,7 @@ struct AttachProjectSheetTests {
             AttachProjectSheet(sessionID: session.id) { _, _ in }
                 .environment(store)
                 .environment(SessionRunner(store: store, preferences: scratch.preferences.store, paths: [:]))
+                .environment(AppSettings(preferences: scratch.preferences.store))
                 .appOverlays())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
                               styleMask: [.titled], backing: .buffered, defer: false)
